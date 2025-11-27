@@ -570,6 +570,13 @@ public byte[] GenerateMultiPageReport(List<ReportSection> sections)
 - **[Digital Signatures](digital-signatures-pdf-csharp.md)** — Sign documents
 - **[IronPDF Guide](ironpdf/)** — Full library documentation
 
+### ❓ Related FAQs
+- **[Blazor PDF Generation](FAQ/blazor-pdf-generation-csharp.md)** — Complete Blazor FAQ
+- **[Razor to PDF (Blazor Server)](FAQ/razor-to-pdf-blazor-server.md)** — Blazor Server specific
+- **[.NET 10 Blazor](FAQ/dotnet-10-blazor.md)** — Latest Blazor features
+- **[XAML to PDF (MAUI)](FAQ/xaml-to-pdf-maui-csharp.md)** — MAUI PDF generation
+- **[PDF Viewer for MAUI](FAQ/pdf-viewer-maui-csharp.md)** — View PDFs in MAUI
+
 ---
 
-*Part of the [Awesome .NET PDF Libraries 2025](README.md) collection — 73 C#/.NET PDF libraries compared.*
+*Part of the [Awesome .NET PDF Libraries 2025](README.md) collection — 73 C#/.NET PDF libraries compared with 167 FAQ articles.*

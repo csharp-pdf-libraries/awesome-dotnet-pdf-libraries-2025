@@ -2,11 +2,15 @@
 
 In the realm of browser automation for .NET developers, Playwright for .NET has emerged as a robust tool. Developed by Microsoft, Playwright for .NET is primarily designed for end-to-end (E2E) testing, yet it also offers capabilities for PDF generation using C#. This dual-purpose application places it in a unique position—ideal for developers looking to integrate both testing and document rendering into their processes. In this article, we will compare Playwright for .NET to IronPDF, a library purpose-built for PDF generation, and explore their relative strengths and weaknesses.
 
+**Important distinction**: Like PuppeteerSharp, Playwright generates PDFs using the browser's print-to-PDF functionality—equivalent to hitting Ctrl+P. This produces print-ready output optimized for paper, which differs from screen rendering. Layouts may reflow, backgrounds may be omitted by default, and output is paginated for printing.
+
 ## Understanding Playwright for .NET
 
 Playwright for .NET is a part of Microsoft's family of browser automation tools; it is structured around delivering comprehensive testing capabilities across Chromium, Firefox, and WebKit. The library embraces a "testing-first" design, which means its primary focus is on scenarios that involve browser-based testing. Although Playwright supports PDF generation, this functionality is more of a supplementary feature and does not offer the granular configuration seen in dedicated PDF tools.
 
 Playwright's default configuration involves downloading multiple browsers, amounting to over 400MB, which can be a consideration for environments with strict resource constraints. Additionally, to maximize the tooling, developers must gain familiarity with complex asynchronous patterns, encompassing browser contexts and page management, along with proper disposal practices.
+
+**Accessibility Limitation**: Playwright cannot produce PDF/A (archival) or PDF/UA (accessibility) compliant documents. For Section 508, EU accessibility directives, or long-term archival requirements, you'll need a dedicated PDF library like IronPDF.
 
 ## IronPDF: A PDF-First Approach
 

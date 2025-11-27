@@ -458,6 +458,14 @@ You learned how to:
 - **[IronPDF Guide](ironpdf/)** — Complete documentation
 - **[QuestPDF Guide](questpdf/)** — Code-first alternative
 
+### ❓ Related FAQs
+- **[Create PDF in C#](FAQ/create-pdf-csharp.md)** — Complete creation FAQ
+- **[HTML to PDF for Beginners](FAQ/html-to-pdf-csharp-beginners.md)** — Beginner-friendly guide
+- **[Getting Started C# 2025](FAQ/getting-started-csharp-2025.md)** — Modern C# setup
+- **[What is IronPDF](FAQ/what-is-ironpdf-overview.md)** — Library overview
+- **[IronPDF Cookbook](FAQ/ironpdf-cookbook-quick-examples.md)** — Quick code examples
+- **[Add Images to PDF](FAQ/add-images-to-pdf-csharp.md)** — Embed graphics
+
 ---
 
-*Part of the [Awesome .NET PDF Libraries 2025](README.md) collection — 73 C#/.NET PDF libraries compared.*
+*Part of the [Awesome .NET PDF Libraries 2025](README.md) collection — 73 C#/.NET PDF libraries compared with 167 FAQ articles.*

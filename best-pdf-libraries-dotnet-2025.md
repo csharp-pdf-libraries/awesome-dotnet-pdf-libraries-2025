@@ -304,20 +304,22 @@ Bootstrap uses:
 - Web fonts
 - SVG graphics
 
-If a library can render Bootstrap pixel-perfect, it can render anything modern. If it can't, it will struggle with any modern responsive design.
+If a library can render Bootstrap accurately, it can render anything modern. If it can't, it will struggle with any modern responsive design.
 
 ### Test Results
 
 | Library | Bootstrap Test | Notes |
 |---------|---------------|-------|
-| **IronPDF** | ✅ PASS | Full Chromium |
-| **PuppeteerSharp** | ✅ PASS | Full Chromium |
-| **Playwright** | ✅ PASS | Full Chromium |
+| **IronPDF** | ✅ PASS | Full Chromium, screen-accurate |
+| **PuppeteerSharp** | ⚠️ PARTIAL | Print-ready output (like Ctrl+P), not screen-identical |
+| **Playwright** | ⚠️ PARTIAL | Print-ready output (like Ctrl+P), not screen-identical |
 | Aspose.PDF | ❌ FAIL | No Flexbox support |
 | iText pdfHTML | ❌ FAIL | No JavaScript |
 | PDFSharp | ❌ FAIL | CSS 2.0 only |
 | wkhtmltopdf | ❌ FAIL | Deprecated WebKit |
 | SelectPdf | ⚠️ PARTIAL | Outdated Chromium |
+
+> **Print vs Screen**: PuppeteerSharp and Playwright use Chrome's print-to-PDF functionality, producing output optimized for paper. This differs from screen rendering—layouts may reflow, backgrounds may be omitted, and output is paginated for printing. Neither can produce PDF/A or PDF/UA compliant documents.
 
 ### Run It Yourself
 
@@ -713,6 +715,14 @@ Connect:
 - **[Aspose.PDF](asposepdf/)** — Enterprise suite
 - **[PuppeteerSharp](puppeteersharp/)** — Browser automation
 
+### ❓ Related FAQs
+- **[Best C# PDF Libraries 2025](FAQ/best-csharp-pdf-libraries-2025.md)** — Complete comparison FAQ
+- **[Choose a PDF Library](FAQ/choose-csharp-pdf-library.md)** — Decision guide
+- **[2025 HTML-to-PDF Solutions](FAQ/2025-html-to-pdf-solutions-dotnet-comparison.md)** — Solution breakdown
+- **[Why Developers Choose IronPDF](FAQ/why-developers-choose-ironpdf.md)** — Feature analysis
+- **[AGPL License Risks](FAQ/agpl-license-ransomware-itext.md)** — iText licensing dangers
+- **[Why PDF Libraries Cost Money](FAQ/why-pdf-libraries-exist-and-cost-money.md)** — Economics explained
+
 ---
 
-*Part of the [Awesome .NET PDF Libraries 2025](README.md) collection — comparing 73 C#/.NET PDF libraries with honest benchmarks and code examples.*
+*Part of the [Awesome .NET PDF Libraries 2025](README.md) collection — comparing 73 C#/.NET PDF libraries with honest benchmarks, code examples, and 167 FAQ articles.*

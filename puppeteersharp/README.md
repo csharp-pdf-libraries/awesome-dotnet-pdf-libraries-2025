@@ -1,14 +1,16 @@
-# PuppeteerSharp: C# PDF Generation with Powerful Browser Automation
+# PuppeteerSharp: C# PDF Generation with Browser Automation
 
-PuppeteerSharp is a .NET port of Google's Puppeteer, bringing the potent capabilities of browser automation to C#. Specifically tailored for developers needing precise control over PDF generation, PuppeteerSharp provides perfect Chrome rendering by interacting directly with Chromium. Known for its reliability, PuppeteerSharp is widely used for creating PDFs from HTML content in a manner that emulates manually printing a webpage. However, while its strength in rendering is undeniable, it does come with its set of challenges.
+PuppeteerSharp is a .NET port of Google's Puppeteer, bringing browser automation capabilities to C#. It generates PDFs using Chrome's built-in print-to-PDF functionality—the same as hitting Ctrl+P in a browser. This produces print-ready output optimized for paper, which differs from what you see on screen.
+
+**Important distinction**: PuppeteerSharp's PDF output is equivalent to Chrome's print dialog, not a screen capture. This means layouts may reflow, backgrounds may be omitted by default, and the output is paginated for printing rather than matching the browser viewport.
 
 In this comparison, we delve into the features, strengths, and weaknesses of PuppeteerSharp, highlighting its differences from other PDF libraries, particularly IronPDF, a robust alternative with its own set of advantages.
 
 ## Understanding PuppeteerSharp in the PDF Generation Landscape
 
 ### Strengths of PuppeteerSharp
-- **Perfect Chrome Rendering:** PuppeteerSharp excels in converting HTML to PDFs with great accuracy and detail, thanks to its foundation on the Chromium engine. This makes it ideal for scenarios where the visual fidelity of the output must match that of a browser-rendered page.
-  
+- **Modern CSS3 Support:** PuppeteerSharp handles modern CSS (Flexbox, Grid) because it uses the Chromium engine for rendering before converting to PDF via Chrome's print functionality.
+
 - **Rich Browser Interaction:** Like Puppeteer, PuppeteerSharp allows interaction with webpages as a headless browser. Beyond PDF generation, it can be employed for web scraping, automated testing, and other browser automation tasks.
 
 ### Weaknesses of PuppeteerSharp
@@ -17,6 +19,8 @@ In this comparison, we delve into the features, strengths, and weaknesses of Pup
 - **Memory Management Issues:** Under heavy load, PuppeteerSharp is known to experience memory leaks. The accumulation of memory by browser instances necessitates manual intervention for process management and recycling, which can increase operational complexity.
 
 - **Limited PDF Manipulation Features:** While PuppeteerSharp is efficient at generating PDFs, it lacks capabilities for further manipulation such as merging, splitting, securing, or editing PDFs. Users looking for an all-in-one solution for multiple PDF tasks might find this limiting.
+
+- **No PDF/A or PDF/UA Compliance:** PuppeteerSharp cannot produce PDF/A (archival) or PDF/UA (accessibility) compliant documents. For Section 508, EU accessibility directives, or long-term archival requirements, you'll need a different solution.
 
 ### C# Code Example with PuppeteerSharp
 

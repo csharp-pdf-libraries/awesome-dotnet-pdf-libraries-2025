@@ -466,6 +466,12 @@ Digital signatures in C# PDFs require a library with proper cryptographic suppor
 - **[IronPDF Guide](ironpdf/)** — Full signing documentation
 - **[iText Guide](itext-itextsharp/)** — Advanced signature options
 
+### ❓ Related FAQs
+- **[Digitally Sign PDF](FAQ/digitally-sign-pdf-csharp.md)** — Complete signing FAQ
+- **[Put Signature on PDF](FAQ/put-signature-pdf-csharp.md)** — Add signature images
+- **[PDF Security & Signatures](FAQ/pdf-security-digital-signatures-csharp.md)** — Security best practices
+- **[PDF Permissions & Passwords](FAQ/pdf-permissions-passwords-csharp.md)** — Encryption options
+
 ---
 
-*Part of the [Awesome .NET PDF Libraries 2025](README.md) collection — 73 C#/.NET PDF libraries compared.*
+*Part of the [Awesome .NET PDF Libraries 2025](README.md) collection — 73 C#/.NET PDF libraries compared with 167 FAQ articles.*

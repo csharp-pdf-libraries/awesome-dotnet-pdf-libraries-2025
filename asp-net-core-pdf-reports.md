@@ -734,6 +734,15 @@ IronPDF handles all of this with a simple API that integrates naturally with ASP
 - **[Razor to PDF Tutorial](https://ironpdf.com/how-to/razor-to-pdf/)** — Complete Razor integration
 - **[Code Examples](https://ironpdf.com/examples/)** — 100+ working samples
 
+### ❓ Related FAQs
+- **[CSHTML to PDF (ASP.NET Core MVC)](FAQ/cshtml-to-pdf-aspnet-core-mvc.md)** — Server-side Razor rendering
+- **[Razor View to PDF](FAQ/razor-view-to-pdf-csharp.md)** — MVC view conversion
+- **[MVC View to PDF](FAQ/mvc-view-to-pdf-csharp.md)** — Controller integration
+- **[Generate PDF Reports](FAQ/generate-pdf-reports-csharp.md)** — Report generation patterns
+- **[Async PDF Generation](FAQ/async-pdf-generation-csharp.md)** — Non-blocking operations
+- **[PDF Headers & Footers](FAQ/pdf-headers-footers-csharp.md)** — Page headers and footers
+- **[IronPDF Azure Deployment](FAQ/ironpdf-azure-deployment-csharp.md)** — Cloud deployment guide
+
 ---
 
-*Part of the [Awesome .NET PDF Libraries 2025](README.md) collection — 73 C#/.NET PDF libraries compared.*
+*Part of the [Awesome .NET PDF Libraries 2025](README.md) collection — 73 C#/.NET PDF libraries compared with 167 FAQ articles.*

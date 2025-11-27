@@ -1183,6 +1183,16 @@ Connect with Jacob:
 - **[Playwright](playwright/)** — Multi-browser testing framework
 - **[wkhtmltopdf Migration](migrating-from-wkhtmltopdf.md)** — Escape the deprecated library
 
+### ❓ Related FAQs
+- **[Convert HTML to PDF](FAQ/convert-html-to-pdf-csharp.md)** — Complete FAQ with troubleshooting
+- **[Advanced HTML to PDF](FAQ/advanced-html-to-pdf-csharp.md)** — Page breaks, batch processing
+- **[URL to PDF](FAQ/url-to-pdf-csharp.md)** — Capture live web pages
+- **[Base URL Resolution](FAQ/base-url-html-to-pdf-csharp.md)** — Fix missing images/CSS
+- **[Pixel-Perfect Rendering](FAQ/pixel-perfect-html-to-pdf-csharp.md)** — Screen-accurate output
+- **[Web Fonts & Icons](FAQ/web-fonts-icons-pdf-csharp.md)** — FontAwesome, Google Fonts
+- **[WaitFor & JavaScript](FAQ/waitfor-pdf-rendering-csharp.md)** — Handle dynamic content
+- **[Responsive CSS](FAQ/html-to-pdf-responsive-css-csharp.md)** — Media queries in PDF
+
 ---
 
-*Part of the [Awesome .NET PDF Libraries 2025](README.md) collection — the most comprehensive comparison of 73 C#/.NET PDF libraries.*
+*Part of the [Awesome .NET PDF Libraries 2025](README.md) collection — the most comprehensive comparison of 73 C#/.NET PDF libraries with 167 FAQ articles.*

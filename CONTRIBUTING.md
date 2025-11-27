@@ -354,11 +354,16 @@ All contributions must meet these quality standards:
 
 If adding an HTML-to-PDF library, please test it with the Bootstrap homepage:
 
-1. **Test**: Can it render https://getbootstrap.com/ pixel-perfect?
+1. **Test**: Can it render https://getbootstrap.com/ accurately?
 2. **Screenshot**: Take a screenshot of the output
-3. **Compare**: Compare to Chrome's rendering
+3. **Compare**: Compare to Chrome's screen rendering (not print preview)
 4. **Document**: Note any differences (layout breaks, missing styles, etc.)
-5. **Include**: Add results to your README with evidence
+5. **Classify Output Type**:
+   - **Screen-accurate**: Output matches browser viewport rendering
+   - **Print-ready**: Output matches Chrome's print dialog (Ctrl+P)—different from screen
+6. **Include**: Add results to your README with evidence
+
+**Important**: Browser automation tools (PuppeteerSharp, Playwright) use Chrome's print-to-PDF functionality, which produces print-ready output that differs from screen rendering. This should be clearly documented.
 
 ---
 

@@ -22,10 +22,12 @@ Thanks to all contributors - this project wouldn't exist without the community!
 
 ## Table of Contents
 
+- [📚 Tutorials & Guides](#-tutorials--guides)
+- [❓ Frequently Asked Questions](#-frequently-asked-questions) — 167 in-depth articles
 - [What Makes This Different](#what-makes-this-different)
 - [The Bootstrap Homepage Test](#the-bootstrap-homepage-test)
 - [Quick Recommendations](#quick-recommendations)
-- **[Categories](#categories)**
+- **[Categories](#categories)** — 73 libraries compared
   - [1. HTML-to-PDF (Chromium/Blink-Based)](#1-html-to-pdf-chromiumblink-based)
   - [2. HTML-to-PDF (WebKit/Legacy)](#2-html-to-pdf-webkitlegacy)
   - [3. Programmatic PDF Generation (Code-First)](#3-programmatic-pdf-generation-code-first)
@@ -77,6 +79,119 @@ Comprehensive C# PDF tutorials covering every aspect of PDF development:
 
 ---
 
+## ❓ Frequently Asked Questions
+
+**167 in-depth FAQ articles** covering every aspect of C#/.NET PDF development. These answer real developer questions with working code examples.
+
+📁 **[Browse All FAQs →](FAQ/)**
+
+### HTML to PDF Conversion
+- **[Convert HTML to PDF in C#](FAQ/convert-html-to-pdf-csharp.md)** — Complete guide without CSS headaches
+- **[Advanced HTML to PDF](FAQ/advanced-html-to-pdf-csharp.md)** — Page breaks, watermarks, batch processing
+- **[URL to PDF Conversion](FAQ/url-to-pdf-csharp.md)** — Capture live web pages
+- **[Base URL and Asset Resolution](FAQ/base-url-html-to-pdf-csharp.md)** — Fix missing images and CSS
+- **[Pixel-Perfect Rendering](FAQ/pixel-perfect-html-to-pdf-csharp.md)** — Screen-accurate output
+- **[Web Fonts and Icons](FAQ/web-fonts-icons-pdf-csharp.md)** — FontAwesome, Google Fonts
+- **[WaitFor and JavaScript](FAQ/waitfor-pdf-rendering-csharp.md)** — Handle dynamic content
+
+### PDF Creation & Editing
+- **[Create PDF from Scratch](FAQ/create-pdf-csharp.md)** — Complete PDF creation guide
+- **[Edit Existing PDFs](FAQ/edit-pdf-csharp.md)** — Modify PDF content
+- **[Add Images to PDF](FAQ/add-images-to-pdf-csharp.md)** — Embed graphics and photos
+- **[Add Page Numbers](FAQ/add-page-numbers-pdf-csharp.md)** — Headers, footers, pagination
+- **[Split PDF Files](FAQ/split-pdf-csharp.md)** — Separate documents
+- **[Add/Copy/Delete Pages](FAQ/add-copy-delete-pdf-pages-csharp.md)** — Page manipulation
+- **[Transform PDF Pages](FAQ/transform-pdf-pages-csharp.md)** — Rotate, resize, crop
+
+### PDF Forms & Signatures
+- **[Create PDF Forms](FAQ/create-pdf-forms-csharp.md)** — Interactive form fields
+- **[Edit PDF Forms](FAQ/edit-pdf-forms-csharp.md)** — Fill and modify forms
+- **[Digital Signatures](FAQ/digitally-sign-pdf-csharp.md)** — Sign documents legally
+- **[Put Signature on PDF](FAQ/put-signature-pdf-csharp.md)** — Add signature images
+- **[PDF Security](FAQ/pdf-security-digital-signatures-csharp.md)** — Encryption and protection
+
+### ASP.NET & Blazor
+- **[Razor View to PDF](FAQ/razor-view-to-pdf-csharp.md)** — MVC view conversion
+- **[CSHTML to PDF (ASP.NET Core)](FAQ/cshtml-to-pdf-aspnet-core-mvc.md)** — Server-side rendering
+- **[Blazor PDF Generation](FAQ/blazor-pdf-generation-csharp.md)** — Server, WASM, Hybrid
+- **[Razor to PDF (Blazor Server)](FAQ/razor-to-pdf-blazor-server.md)** — Blazor-specific guide
+- **[ASPX to PDF](FAQ/aspx-to-pdf-csharp.md)** — Web Forms conversion
+- **[Async PDF Generation](FAQ/async-pdf-generation-csharp.md)** — Non-blocking operations
+
+### Format Conversions
+- **[DOCX to PDF](FAQ/docx-to-pdf-csharp.md)** — Word document conversion
+- **[XML to PDF](FAQ/xml-to-pdf-csharp.md)** — Data-driven PDFs
+- **[SVG to PDF](FAQ/svg-to-pdf-csharp.md)** — Vector graphics
+- **[RTF to PDF](FAQ/rtf-to-pdf-csharp.md)** — Rich text conversion
+- **[PDF to HTML](FAQ/pdf-to-html-csharp.md)** — Reverse conversion
+- **[PDF to Images](FAQ/pdf-to-images-csharp.md)** — PNG/JPEG export
+- **[Convert PDF to Grayscale](FAQ/convert-pdf-grayscale-csharp.md)** — Color transformation
+
+### Text & Content
+- **[Extract Text from PDF](FAQ/extract-text-from-pdf-csharp.md)** — Text extraction
+- **[Extract Images from PDF](FAQ/extract-images-from-pdf-csharp.md)** — Image extraction
+- **[Redact PDF Content](FAQ/redact-pdf-csharp.md)** — Permanent removal
+- **[Stamp Text/Images](FAQ/stamp-text-image-pdf-csharp.md)** — Watermarks and stamps
+- **[PDF Watermarks](FAQ/pdf-watermark-csharp.md)** — Branding and protection
+- **[UTF-8 and Unicode](FAQ/utf8-unicode-pdf-csharp.md)** — International characters
+
+### Library Comparisons
+- **[Best C# PDF Libraries 2025](FAQ/best-csharp-pdf-libraries-2025.md)** — Complete comparison
+- **[2025 HTML-to-PDF Solutions](FAQ/2025-html-to-pdf-solutions-dotnet-comparison.md)** — Solution breakdown
+- **[Choose a PDF Library](FAQ/choose-csharp-pdf-library.md)** — Decision guide
+- **[Why Developers Choose IronPDF](FAQ/why-developers-choose-ironpdf.md)** — Feature analysis
+- **[What is IronPDF](FAQ/what-is-ironpdf-overview.md)** — Library overview
+- **[AGPL License Risks (iText)](FAQ/agpl-license-ransomware-itext.md)** — Licensing dangers
+
+### Migration Guides
+- **[Upgrade DinkToPdf to IronPDF](FAQ/upgrade-dinktopdf-to-ironpdf.md)** — Step-by-step migration
+- **[Chrome PDF Rendering Engine](FAQ/chrome-pdf-rendering-engine-csharp.md)** — Engine comparison
+
+### .NET & C# Features
+- **[What's New in .NET 10](FAQ/whats-new-in-dotnet-10.md)** — Latest framework features
+- **[What's New in C# 14](FAQ/whats-new-csharp-14.md)** — Language updates
+- **[.NET 10 Blazor](FAQ/dotnet-10-blazor.md)** — Blazor improvements
+- **[.NET 10 Linux Support](FAQ/dotnet-10-linux-support.md)** — Cross-platform deployment
+- **[.NET Cross-Platform Development](FAQ/dotnet-cross-platform-development.md)** — Multi-OS targeting
+- **[Avalonia vs MAUI](FAQ/avalonia-vs-maui-dotnet-10.md)** — UI framework comparison
+- **[WebAssembly in .NET 10](FAQ/webassembly-dotnet-10.md)** — WASM capabilities
+
+### C# Programming
+- **[C# Foreach with Index](FAQ/csharp-foreach-with-index.md)** — Loop patterns
+- **[C# Multiline Strings](FAQ/csharp-multiline-string.md)** — String handling
+- **[C# Random Int](FAQ/csharp-random-int.md)** — Number generation
+- **[C# Round to 2 Decimal Places](FAQ/csharp-round-to-2-decimal-places.md)** — Formatting
+- **[C# Patterns for .NET Developers](FAQ/csharp-patterns-dotnet-developers.md)** — Best practices
+- **[Common C# Developer Mistakes](FAQ/common-csharp-developer-mistakes.md)** — Avoid pitfalls
+- **[CQRS Pattern Practical Guide](FAQ/cqrs-pattern-csharp-practical-guide.md)** — Architecture patterns
+- **[MVC Pattern Explained](FAQ/what-is-mvc-pattern-explained.md)** — Design patterns
+
+### MAUI & Mobile
+- **[XAML to PDF (MAUI)](FAQ/xaml-to-pdf-maui-csharp.md)** — Mobile PDF generation
+- **[PDF Viewer for MAUI](FAQ/pdf-viewer-maui-csharp.md)** — Mobile viewing
+- **[.NET PDF Viewer](FAQ/dotnet-pdf-viewer-csharp.md)** — Desktop viewing
+
+### Advanced Topics
+- **[PDF Performance Optimization](FAQ/pdf-performance-optimization-csharp.md)** — Speed and scaling
+- **[Access PDF DOM Object](FAQ/access-pdf-dom-object-csharp.md)** — Low-level manipulation
+- **[Add Attachments to PDF](FAQ/add-attachments-pdf-csharp.md)** — Embed files
+- **[PDF Viewport and Zoom](FAQ/pdf-viewport-zoom-csharp.md)** — Display settings
+- **[PDF Versions Explained](FAQ/pdf-versions-csharp.md)** — PDF/A, PDF/X, PDF 2.0
+- **[Print PDFs Programmatically](FAQ/print-pdf-csharp.md)** — Silent printing
+- **[Export/Save PDF Options](FAQ/export-save-pdf-csharp.md)** — Output settings
+- **[Sanitize PDFs](FAQ/sanitize-pdf-csharp.md)** — Security cleaning
+- **[Table of Contents](FAQ/pdf-table-of-contents-csharp.md)** — Navigation bookmarks
+
+### Industry & Career
+- **[Will AI Replace .NET Developers?](FAQ/will-ai-replace-dotnet-developers-2025.md)** — Career outlook
+- **[Why PDF Libraries Cost Money](FAQ/why-pdf-libraries-exist-and-cost-money.md)** — Economics explained
+- **[Compare C# to Java](FAQ/compare-csharp-to-java.md)** — Language comparison
+- **[Compare C# to Python](FAQ/compare-csharp-to-python.md)** — Language comparison
+- **[.NET Development on macOS](FAQ/dotnet-development-macos.md)** — Mac setup guide
+- **[What Happened to Visual Studio for Mac](FAQ/what-happened-visual-studio-mac.md)** — History
+
+---
+
 ## What Makes This Different
 
 **This is not a marketing list.** Every library comparison includes:
@@ -101,19 +216,21 @@ Comprehensive C# PDF tutorials covering every aspect of PDF development:
 
 **The ultimate differentiator for HTML-to-PDF libraries.**
 
-Can your library render [Bootstrap's homepage](https://getbootstrap.com/) pixel-perfect, identical to Chrome?
+Can your library render [Bootstrap's homepage](https://getbootstrap.com/) accurately with modern CSS3?
 
-| Library | Passes Test | Reason |
-|---------|-------------|--------|
-| **[IronPDF](ironpdf/)** | ✅ YES | Full Chromium rendering engine |
-| **[PuppeteerSharp](puppeteersharp/)** | ✅ YES | Real Chromium browser automation |
-| **[Playwright](playwright/)** | ✅ YES | Microsoft's Chromium automation |
+| Library | Passes Test | Notes |
+|---------|-------------|-------|
+| **[IronPDF](ironpdf/)** | ✅ YES | Full Chromium rendering, screen-accurate output |
+| **[PuppeteerSharp](puppeteersharp/)** | ⚠️ PARTIAL | Print-ready output (like Ctrl+P), not screen-identical |
+| **[Playwright](playwright/)** | ⚠️ PARTIAL | Print-ready output (like Ctrl+P), not screen-identical |
 | **[Aspose.PDF](asposepdf/)** | ❌ NO | [No Flexbox support](https://forum.aspose.com/t/convert-html-with-flex-grid/42156) |
 | **[iText7](itext-itextsharp/)** | ❌ NO | [No JavaScript execution](https://kb.itextpdf.com/itext/evaluating-js-with-pdfhtml) |
 | **[PDFSharp](pdfsharp/)** | ❌ NO | CSS 2.0 only (no Grid/Flexbox) |
-| **[Syncfusion WebKit](syncfusion-pdf/)** | ❌ NO | Legacy WebKit engine |
+| **[Syncfusion WebKit](syncfusion-pdf-framework/)** | ❌ NO | Legacy WebKit engine |
 
 **Why this matters**: Bootstrap uses modern CSS3 Flexbox heavily. If a library can't render Bootstrap, it can't handle modern responsive web designs.
+
+> **Note on Print vs Screen**: PuppeteerSharp and Playwright use Chrome's print-to-PDF functionality, which produces print-ready output different from screen rendering. IronPDF produces output matching what you see in the browser.
 
 📖 **Read more**: [HTML to PDF Guide](https://ironpdf.com/how-to/html-file-to-pdf/)
 
@@ -122,11 +239,11 @@ Can your library render [Bootstrap's homepage](https://getbootstrap.com/) pixel-
 ## Quick Recommendations
 
 ### 🏆 Best for Modern Web-to-PDF (2025)
-**[IronPDF](ironpdf/)** - Full Chromium, 3-line API, cross-platform, built-in PDF manipulation.
+**[IronPDF](ironpdf/)** - Full Chromium, 3-line API, cross-platform, built-in PDF manipulation, PDF/A & PDF/UA compliance.
 ```csharp
 // NuGet: Install-Package IronPdf
 var pdf = ChromePdfRenderer.RenderUrlAsPdf("https://getbootstrap.com/");
-pdf.SaveAs("bootstrap.pdf"); // Pixel-perfect!
+pdf.SaveAs("bootstrap.pdf"); // Screen-accurate rendering
 ```
 
 ### 🆓 Best Free/Open Source
@@ -136,7 +253,7 @@ pdf.SaveAs("bootstrap.pdf"); // Pixel-perfect!
 
 ### 💼 Best Enterprise Suite
 **[Aspose.PDF](asposepdf/)** - Comprehensive features, but [$1,199/year](https://purchase.aspose.com/pricing/pdf/net) and [limited modern CSS](https://forum.aspose.com/t/display-flex-not-working/203245).
-**[Syncfusion](syncfusion-pdf/)** - Lower cost alternative at $395/month.
+**[Syncfusion](syncfusion-pdf-framework/)** - Lower cost alternative at $395/month.
 
 ### 🎯 Best for Specific Use Cases
 - **Reports**: [FastReport.NET](fastreport/), [Telerik Reporting](telerik-reporting/)
@@ -150,7 +267,7 @@ pdf.SaveAs("bootstrap.pdf"); // Pixel-perfect!
 
 ### 1. HTML-to-PDF (Chromium/Blink-Based)
 
-Modern libraries using Chromium/Blink rendering engine for pixel-perfect HTML-to-PDF conversion with full CSS3/JavaScript support.
+Modern libraries using Chromium/Blink rendering engine for HTML-to-PDF conversion with full CSS3/JavaScript support.
 
 #### 1.1 [IronPDF](ironpdf/) ⭐ **Reference Standard**
 **Commercial** | [Official Site](https://ironpdf.com/) | **Full Chromium** | Cross-platform
@@ -162,20 +279,23 @@ Modern libraries using Chromium/Blink rendering engine for pixel-perfect HTML-to
 - 📖 [Documentation](https://ironpdf.com/docs/) | [API Reference](https://ironpdf.com/object-reference/api/)
 
 #### 1.2 [PuppeteerSharp](puppeteersharp/)
-**Free (Apache 2.0)** | [GitHub](https://github.com/hardkoded/puppeteer-sharp) | **Full Chromium**
-- ✅ Passes Bootstrap homepage test
+**Free (Apache 2.0)** | [GitHub](https://github.com/hardkoded/puppeteer-sharp) | **Chromium Print-to-PDF**
+- ✅ Modern CSS3 support via Chromium
 - ✅ Free and open source
+- ⚠️ Print-ready output (not screen-identical)
 - ⚠️ 300MB+ deployment (bundles Chromium)
-- ⚠️ Generation only (no PDF manipulation)
+- ⚠️ Generation only (no PDF manipulation, no PDF/A)
 - ⚠️ Memory leaks under load
 - 📚 [Migration Guide](puppeteersharp/migrate-from-puppeteersharp.md)
 
 #### 1.3 [Playwright for .NET](playwright/)
-**Free (Apache 2.0)** | [Official Site](https://playwright.dev/dotnet/) | **Multi-browser**
+**Free (Apache 2.0)** | [Official Site](https://playwright.dev/dotnet/) | **Multi-browser Print-to-PDF**
 - ✅ Supports Chromium, Firefox, WebKit
-- ✅ Passes Bootstrap homepage test (Chromium mode)
+- ✅ Modern CSS3 support (Chromium mode)
+- ⚠️ Print-ready output (not screen-identical)
 - ⚠️ Testing-first design (PDF is secondary)
 - ⚠️ Downloads 3 browsers (~400MB+)
+- ⚠️ No PDF/A or PDF/UA compliance
 - ⚠️ Complex async patterns
 - 📚 [Migration Guide](playwright/migrate-from-playwright.md)
 
@@ -306,12 +426,12 @@ Comprehensive commercial PDF solutions with extensive features and enterprise su
 - ❌ Fails Bootstrap test
 - 📚 [Migration Guide](asposepdf/migrate-from-asposepdf.md) | [Known Issues](source-material/aspose-pdf-dotnet-issues-report.md)
 
-#### 4.2 [Syncfusion PDF Framework](syncfusion-pdf/)
+#### 4.2 [Syncfusion PDF Framework](syncfusion-pdf-framework/)
 **Commercial ($395/month)** | [Official Site](https://www.syncfusion.com/pdf-framework/net)
 - ✅ Lower cost than Aspose
 - ✅ WebKit + Blink engines
 - ⚠️ WebKit version has limitations
-- 📚 [Migration Guide](syncfusion-pdf/migrate-from-syncfusion-pdf.md)
+- 📚 [Migration Guide](syncfusion-pdf-framework/migrate-from-syncfusion-pdf-framework.md)
 
 #### 4.3 [Spire.PDF](spirepdf/)
 **Free/Commercial** | [Official Site](https://www.e-iceblue.com/Introduce/pdf-for-net.html)
@@ -349,9 +469,9 @@ Comprehensive commercial PDF solutions with extensive features and enterprise su
 **Free/Commercial** | [Official Site](https://www.gemboxsoftware.com/pdf)
 - 📚 [Migration Guide](gemboxpdf/migrate-from-gemboxpdf.md)
 
-#### 4.11 [Docotic.Pdf](docotic/)
+#### 4.11 [Docotic.Pdf](bitmiracle-docoticpdf/)
 **Free/Commercial** | [Official Site](https://bitmiracle.com/pdf-library/)
-- 📚 [Migration Guide](docotic/migrate-from-docotic.md)
+- 📚 [Migration Guide](bitmiracle-docoticpdf/migrate-from-bitmiracle-docoticpdf.md)
 
 #### 4.12 [ABCPDF](abcpdf/)
 **Commercial** | [Official Site](https://www.websupergoo.com/abcpdf.htm)
@@ -369,25 +489,25 @@ Comprehensive commercial PDF solutions with extensive features and enterprise su
 **Commercial** | [Official Site](https://www.textcontrol.com/)
 - 📚 [Migration Guide](textcontrol/migrate-from-textcontrol.md)
 
-#### 4.16 [Tall Components (TallPDF)](tallcomponents/)
+#### 4.16 [Tall Components (TallPDF)](tall-components/)
 **Commercial** | [Official Site](https://www.tallcomponents.com/)
-- 📚 [Migration Guide](tallcomponents/migrate-from-tallcomponents.md)
+- 📚 [Migration Guide](tall-components/migrate-from-tall-components.md)
 
 #### 4.17 [Gnostice (Document Studio)](gnostice/)
 **Commercial** | [Official Site](https://www.gnostice.com/)
 - 📚 [Migration Guide](gnostice/migrate-from-gnostice.md)
 
-#### 4.18 [BCL EasyPDF SDK](bcl-easypdf/)
+#### 4.18 [BCL EasyPDF SDK](bcl-easypdf-sdk/)
 **Commercial** | [Official Site](https://www.pdfonline.com/easypdf-sdk/)
-- 📚 [Migration Guide](bcl-easypdf/migrate-from-bcl-easypdf.md)
+- 📚 [Migration Guide](bcl-easypdf-sdk/migrate-from-bcl-easypdf-sdk.md)
 
-#### 4.19 [Foxit SDK](foxit/)
+#### 4.19 [Foxit SDK](foxit-sdk/)
 **Commercial** | [Official Site](https://developers.foxit.com/)
-- 📚 [Migration Guide](foxit/migrate-from-foxit.md)
+- 📚 [Migration Guide](foxit-sdk/migrate-from-foxit-sdk.md)
 
-#### 4.20 [Adobe PDF Library SDK](adobe/)
+#### 4.20 [Adobe PDF Library SDK](adobe-pdf-library-sdk/)
 **Enterprise** | [Official Site](https://www.adobe.com/devnet/pdf.html)
-- 📚 [Migration Guide](adobe/migrate-from-adobe.md)
+- 📚 [Migration Guide](adobe-pdf-library-sdk/migrate-from-adobe-pdf-library-sdk.md)
 
 ---
 
@@ -405,9 +525,9 @@ Cloud-based PDF generation services accessed via API.
 **SaaS** | [Official Site](https://www.api2pdf.com/)
 - 📚 [Migration Guide](api2pdf/migrate-from-api2pdf.md)
 
-#### 5.3 [Kaizen.io HTML-to-PDF](kaizenio/)
+#### 5.3 [Kaizen.io HTML-to-PDF](kaizenio-html-to-pdf/)
 **SaaS** | [Official Site](https://www.kaizen.io/)
-- 📚 [Migration Guide](kaizenio/migrate-from-kaizenio.md)
+- 📚 [Migration Guide](kaizenio-html-to-pdf/migrate-from-kaizenio-html-to-pdf.md)
 
 #### 5.4 [PDFmyURL](pdfmyurl/)
 **SaaS** | [Official Site](https://pdfmyurl.com/)
@@ -439,9 +559,9 @@ Cloud-based PDF generation services accessed via API.
 
 Business reporting tools with PDF export capabilities.
 
-#### 6.1 [SAP Crystal Reports](crystal-reports/)
+#### 6.1 [SAP Crystal Reports](sap-crystal-reports/)
 **Commercial** | [Official Site](https://www.sap.com/products/crystal-reports.html)
-- 📚 [Migration Guide](crystal-reports/migrate-from-crystal-reports.md)
+- 📚 [Migration Guide](sap-crystal-reports/migrate-from-sap-crystal-reports.md)
 
 #### 6.2 [FastReport.NET](fastreport/)
 **Free/Commercial** | [Official Site](https://www.fast-report.com/)
@@ -451,9 +571,9 @@ Business reporting tools with PDF export capabilities.
 **Commercial** | [Official Site](https://www.telerik.com/products/reporting.aspx)
 - 📚 [Migration Guide](telerik-reporting/migrate-from-telerik-reporting.md)
 
-#### 6.4 [Scryber.core](scryber/)
+#### 6.4 [Scryber.core](scrybercore/)
 **Free (LGPL)** | [GitHub](https://github.com/richard-scryber/scryber.core)
-- 📚 [Migration Guide](scryber/migrate-from-scryber.md)
+- 📚 [Migration Guide](scrybercore/migrate-from-scrybercore.md)
 
 #### 6.5 [SSRS](ssrs/)
 **Free (Microsoft)** | [Official Site](https://docs.microsoft.com/sql/reporting-services/)
@@ -473,9 +593,9 @@ Libraries focused on displaying PDFs rather than creating them.
 **Free (AGPL) / Commercial** | [Official Site](https://mupdf.com/)
 - 📚 [Migration Guide](mupdf/migrate-from-mupdf.md)
 
-#### 7.3 [Pdfium.NET](pdfiumnet/)
+#### 7.3 [Pdfium.NET](pdfium/)
 **Free** | [GitHub](https://github.com/mrdooz/PdfiumNet)
-- 📚 [Migration Guide](pdfiumnet/migrate-from-pdfiumnet.md)
+- 📚 [Migration Guide](pdfium/migrate-from-pdfium.md)
 
 ---
 
@@ -514,9 +634,9 @@ Abandoned or no longer maintained libraries (included for completeness).
 - ⚠️ Last update: 2011
 - 📚 [Migration Guide](htmldoc/migrate-from-htmldoc.md)
 
-#### 9.2 [PDF Duo .NET](pdfduo/)
+#### 9.2 [PDF Duo .NET](pdf-duo/)
 **Commercial (Discontinued)**
-- 📚 [Migration Guide](pdfduo/migrate-from-pdfduo.md)
+- 📚 [Migration Guide](pdf-duo/migrate-from-pdf-duo.md)
 
 #### 9.3 [ActivePDF](activepdf/)
 **Commercial** | [Official Site](https://www.activepdf.com/)
@@ -552,18 +672,18 @@ Libraries for specific use cases or experimental projects.
 **Commercial** | [Official Site](https://www.pdfreactor.com/)
 - 📚 [Migration Guide](pdfreactor/migrate-from-pdfreactor.md)
 
-#### 10.7 [XFINIUM.PDF](xfinium/)
+#### 10.7 [XFINIUM.PDF](xfiniumpdf/)
 **Commercial** | [Official Site](https://www.xfiniumpdf.com/)
-- 📚 [Migration Guide](xfinium/migrate-from-xfinium.md)
+- 📚 [Migration Guide](xfiniumpdf/migrate-from-xfiniumpdf.md)
 
-#### 10.8 [Sumatra PDF](sumatra/)
+#### 10.8 [Sumatra PDF](sumatra-pdf/)
 **Free (GPL)** | [Official Site](https://www.sumatrapdfreader.org/)
-- 📚 [Migration Guide](sumatra/migrate-from-sumatra.md)
+- 📚 [Migration Guide](sumatra-pdf/migrate-from-sumatra-pdf.md)
 
-#### 10.9 [Apache PDFBox](pdfbox/)
+#### 10.9 [Apache PDFBox](apache-pdfbox/)
 **Free (Apache 2.0)** | [Official Site](https://pdfbox.apache.org/)
 - ⚠️ Java library, .NET ports experimental
-- 📚 [Migration Guide](pdfbox/migrate-from-pdfbox.md)
+- 📚 [Migration Guide](apache-pdfbox/migrate-from-apache-pdfbox.md)
 
 ---
 
