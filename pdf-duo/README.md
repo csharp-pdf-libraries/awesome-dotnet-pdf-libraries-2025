@@ -22,6 +22,163 @@ IronPDF, in stark contrast, stands as a well-documented and actively maintained 
 
 Resourceful documentation and a professional support network make IronPDF a preferable choice, especially when compared against the uncertainties of PDF Duo .NET.
 
+---
+
+## How Do I Convert HTML to PDF in C# with PDF Duo .NET?
+
+Here's how **PDF Duo .NET** handles this:
+
+```csharp
+// NuGet: Install-Package PDFDuo.NET
+using PDFDuo;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        var htmlContent = "<h1>Hello World</h1><p>This is a PDF document.</p>";
+        converter.ConvertHtmlString(htmlContent, "output.pdf");
+        Console.WriteLine("PDF created successfully!");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var htmlContent = "<h1>Hello World</h1><p>This is a PDF document.</p>";
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("output.pdf");
+        Console.WriteLine("PDF created successfully!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **PDF Duo .NET** handles this:
+
+```csharp
+// NuGet: Install-Package PDFDuo.NET
+using PDFDuo;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        converter.ConvertUrl("https://www.example.com", "webpage.pdf");
+        Console.WriteLine("Webpage converted to PDF!");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        pdf.SaveAs("webpage.pdf");
+        Console.WriteLine("Webpage converted to PDF!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I PDF Merging?
+
+Here's how **PDF Duo .NET** handles this:
+
+```csharp
+// NuGet: Install-Package PDFDuo.NET
+using PDFDuo;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var merger = new PdfMerger();
+        merger.AddFile("document1.pdf");
+        merger.AddFile("document2.pdf");
+        merger.Merge("merged.pdf");
+        Console.WriteLine("PDFs merged successfully!");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf1 = PdfDocument.FromFile("document1.pdf");
+        var pdf2 = PdfDocument.FromFile("document2.pdf");
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged.pdf");
+        Console.WriteLine("PDFs merged successfully!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from PDF Duo .NET to IronPDF?
+
+IronPDF is a well-established, actively maintained PDF library with comprehensive documentation and enterprise-grade support. Unlike PDF Duo .NET, which has unclear provenance and limited resources, IronPDF offers regular updates, extensive tutorials, and a proven track record in production environments.
+
+**Migrating from PDF Duo .NET to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `PDFDuo.NET`, add `IronPdf`
+2. **Namespace Update**: Replace `PDFDuo` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: PDF Duo .NET → IronPDF](migrate-from-pdf-duo.md)**
+
+
 ## Comparison Table
 
 Here's a more structured comparison between PDF Duo .NET and IronPDF:

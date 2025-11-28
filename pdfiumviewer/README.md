@@ -68,6 +68,210 @@ namespace PdfViewerExample
 ```
 This example sets up a basic Windows Forms application using PDFiumViewer to load and display a PDF document. While setting up the viewer is simple and effective for displaying PDFs, it highlights the limitation of PDFiumViewer in extending beyond viewing capabilities.
 
+---
+
+## How Do I Extract Text From PDF?
+
+Here's how **PDFiumViewer C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package PdfiumViewer
+using PdfiumViewer;
+using System;
+using System.Text;
+
+string pdfPath = "document.pdf";
+
+// PDFiumViewer has limited text extraction capabilities
+// It's primarily designed for rendering, not text extraction
+using (var document = PdfDocument.Load(pdfPath))
+{
+    int pageCount = document.PageCount;
+    Console.WriteLine($"Total pages: {pageCount}");
+    
+    // PDFiumViewer does not have built-in text extraction
+    // You would need to use OCR or another library
+    // It can only render pages as images
+    for (int i = 0; i < pageCount; i++)
+    {
+        var pageImage = document.Render(i, 96, 96, false);
+        Console.WriteLine($"Rendered page {i + 1}");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+string pdfPath = "document.pdf";
+
+// Open and extract text from PDF
+PdfDocument pdf = PdfDocument.FromFile(pdfPath);
+
+// Extract text from all pages
+string allText = pdf.ExtractAllText();
+Console.WriteLine("Extracted Text:");
+Console.WriteLine(allText);
+
+// Extract text from specific page
+string pageText = pdf.ExtractTextFromPage(0);
+Console.WriteLine($"\nFirst page text: {pageText}");
+
+Console.WriteLine($"\nTotal pages: {pdf.PageCount}");
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with PDFiumViewer C# PDF?
+
+Here's how **PDFiumViewer C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package PdfiumViewer
+using PdfiumViewer;
+using System.IO;
+using System.Drawing.Printing;
+
+// PDFiumViewer is primarily a PDF viewer/renderer, not a generator
+// It cannot directly convert HTML to PDF
+// You would need to use another library to first create the PDF
+// Then use PDFiumViewer to display it:
+
+string htmlContent = "<h1>Hello World</h1><p>This is a test document.</p>";
+
+// This functionality is NOT available in PDFiumViewer
+// You would need a different library like wkhtmltopdf or similar
+// PDFiumViewer can only open and display existing PDFs:
+
+string existingPdfPath = "output.pdf";
+using (var document = PdfDocument.Load(existingPdfPath))
+{
+    // Can only render/display existing PDF
+    var image = document.Render(0, 300, 300, true);
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+string htmlContent = "<h1>Hello World</h1><p>This is a test document.</p>";
+
+// Create a PDF from HTML string
+var renderer = new ChromePdfRenderer();
+PdfDocument pdf = renderer.RenderHtmlAsPdf(htmlContent);
+
+// Save the PDF
+pdf.SaveAs("output.pdf");
+
+Console.WriteLine("PDF created successfully!");
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I PDF To Image?
+
+Here's how **PDFiumViewer C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package PdfiumViewer
+using PdfiumViewer;
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+
+string pdfPath = "document.pdf";
+string outputImage = "page1.png";
+
+// PDFiumViewer excels at rendering PDFs to images
+using (var document = PdfDocument.Load(pdfPath))
+{
+    // Render first page at 300 DPI
+    int dpi = 300;
+    using (var image = document.Render(0, dpi, dpi, true))
+    {
+        // Save as PNG
+        image.Save(outputImage, ImageFormat.Png);
+        Console.WriteLine($"Page rendered to {outputImage}");
+    }
+    
+    // Render all pages
+    for (int i = 0; i < document.PageCount; i++)
+    {
+        using (var pageImage = document.Render(i, 150, 150, true))
+        {
+            pageImage.Save($"page_{i + 1}.png", ImageFormat.Png);
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.Linq;
+
+string pdfPath = "document.pdf";
+string outputImage = "page1.png";
+
+// Open PDF and convert to images
+PdfDocument pdf = PdfDocument.FromFile(pdfPath);
+
+// Convert first page to image
+var firstPageImage = pdf.ToBitmap(0);
+firstPageImage[0].Save(outputImage);
+Console.WriteLine($"Page rendered to {outputImage}");
+
+// Convert all pages to images
+var allPageImages = pdf.ToBitmap();
+for (int i = 0; i < allPageImages.Length; i++)
+{
+    allPageImages[i].Save($"page_{i + 1}.png");
+    Console.WriteLine($"Saved page {i + 1}");
+}
+
+Console.WriteLine($"Total pages converted: {pdf.PageCount}");
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from PDFiumViewer C# PDF to IronPDF?
+
+IronPDF provides comprehensive PDF functionality beyond viewing, including PDF creation, editing, and manipulation. Unlike PDFiumViewer's Windows Forms limitation, IronPDF works across multiple platforms (.NET Framework, .NET Core, .NET 5+) and application types (Console, Web, Desktop).
+
+**Migrating from PDFiumViewer C# PDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `PdfiumViewer`, add `IronPdf`
+2. **Namespace Update**: Replace `PdfiumViewer` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: PDFiumViewer C# PDF → IronPDF](migrate-from-pdfiumviewer.md)**
+
+
 ## Comparison Table between PDFiumViewer and IronPDF
 
 | Feature                   | PDFiumViewer          | IronPDF                       |

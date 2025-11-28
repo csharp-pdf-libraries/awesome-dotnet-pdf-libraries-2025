@@ -105,6 +105,196 @@ The table below provides a direct comparison of PDFreactor and IronPDF, examinin
 | Licensing Model              | Commercial                                       | Commercial                                            |
 | Primary Use Case             | High fidelity, complex documents                 | Broad use, ease-of-use in .NET apps                   |
 
+---
+
+## How Do I Convert HTML to PDF in C# with PDFreactor?
+
+Here's how **PDFreactor** handles this:
+
+```csharp
+// NuGet: Install-Package PDFreactor.Native.Windows.x64
+using RealObjects.PDFreactor;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        PDFreactor pdfReactor = new PDFreactor();
+        
+        string html = "<html><body><h1>Hello World</h1></body></html>";
+        
+        Configuration config = new Configuration();
+        config.Document = html;
+        
+        Result result = pdfReactor.Convert(config);
+        
+        File.WriteAllBytes("output.pdf", result.Document);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        string html = "<html><body><h1>Hello World</h1></body></html>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I HTML To PDF Headers Footers?
+
+Here's how **PDFreactor** handles this:
+
+```csharp
+// NuGet: Install-Package PDFreactor.Native.Windows.x64
+using RealObjects.PDFreactor;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        PDFreactor pdfReactor = new PDFreactor();
+        
+        string html = "<html><body><h1>Document with Headers</h1><p>Content here</p></body></html>";
+        
+        Configuration config = new Configuration();
+        config.Document = html;
+        config.AddUserStyleSheet("@page { @top-center { content: 'Header Text'; } @bottom-center { content: 'Page ' counter(page); } }");
+        
+        Result result = pdfReactor.Convert(config);
+        
+        File.WriteAllBytes("document.pdf", result.Document);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        renderer.RenderingOptions.TextHeader = new TextHeaderFooter()
+        {
+            CenterText = "Header Text"
+        };
+        
+        renderer.RenderingOptions.TextFooter = new TextHeaderFooter()
+        {
+            CenterText = "Page {page}"
+        };
+        
+        string html = "<html><body><h1>Document with Headers</h1><p>Content here</p></body></html>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        
+        pdf.SaveAs("document.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **PDFreactor** handles this:
+
+```csharp
+// NuGet: Install-Package PDFreactor.Native.Windows.x64
+using RealObjects.PDFreactor;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        PDFreactor pdfReactor = new PDFreactor();
+        
+        Configuration config = new Configuration();
+        config.Document = "https://www.example.com";
+        
+        Result result = pdfReactor.Convert(config);
+        
+        File.WriteAllBytes("webpage.pdf", result.Document);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from PDFreactor to IronPDF?
+
+IronPDF is a native .NET library that eliminates the complexity of Java integration and separate service architecture required by PDFreactor. It offers seamless deployment within .NET applications without external dependencies, reducing infrastructure overhead and simplifying maintenance.
+
+**Migrating from PDFreactor to IronPDF involves:**
+
+1. **NuGet Package Change**: Install `IronPdf` package
+2. **Namespace Update**: Replace `com.realobjects.pdfreactor` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: PDFreactor → IronPDF](migrate-from-pdfreactor.md)**
+
+
 ## Conclusion
 
 Selecting the right tool between PDFreactor and IronPDF largely depends on specific project requirements and existing infrastructure. If your project demands high-fidelity rendering with extensive CSS support and can handle Java dependencies, PDFreactor is a strong candidate. Conversely, if you're developing within a .NET environment and desire seamless integration and extensive PDF functionalities, IronPDF is a more appropriate choice.

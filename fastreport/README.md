@@ -94,3 +94,226 @@ Both tools, being commercial solutions, assure strong support and regular update
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a globally distributed engineering team of 50+ engineers building developer tools that have been downloaded over 41 million times on NuGet. With four decades of coding experience, Jacob focuses obsessively on developer experience and API design, ensuring Iron Software's products feel intuitive and powerful. Based in Chiang Mai, Thailand, he continues to push the boundaries of what's possible in .NET development—connect with him on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/) or [GitHub](https://github.com/jacob-mellor).
+---
+
+## How Do I Convert HTML to PDF in C# with FastReport.NET?
+
+Here's how **FastReport.NET** handles this:
+
+```csharp
+// NuGet: Install-Package FastReport.OpenSource
+using FastReport;
+using FastReport.Export.PdfSimple;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        using (Report report = new Report())
+        {
+            // Create HTML object
+            FastReport.HTMLObject htmlObject = new FastReport.HTMLObject();
+            htmlObject.Width = 500;
+            htmlObject.Height = 300;
+            htmlObject.Text = "<html><body><h1>Hello World</h1><p>This is a test PDF</p></body></html>";
+            
+            // Prepare report
+            report.Prepare();
+            
+            // Export to PDF
+            PDFSimpleExport pdfExport = new PDFSimpleExport();
+            using (FileStream fs = new FileStream("output.pdf", FileMode.Create))
+            {
+                report.Export(pdfExport, fs);
+            }
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<html><body><h1>Hello World</h1><p>This is a test PDF</p></body></html>");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Add Headers and Footers to PDFs?
+
+Here's how **FastReport.NET** handles this:
+
+```csharp
+// NuGet: Install-Package FastReport.OpenSource
+using FastReport;
+using FastReport.Export.PdfSimple;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        using (Report report = new Report())
+        {
+            report.Load("template.frx");
+            
+            // Set report page properties
+            FastReport.ReportPage page = report.Pages[0] as FastReport.ReportPage;
+            
+            // Add page header
+            FastReport.PageHeaderBand header = new FastReport.PageHeaderBand();
+            header.Height = 50;
+            FastReport.TextObject headerText = new FastReport.TextObject();
+            headerText.Text = "Document Header";
+            header.Objects.Add(headerText);
+            page.Bands.Add(header);
+            
+            // Add page footer
+            FastReport.PageFooterBand footer = new FastReport.PageFooterBand();
+            footer.Height = 50;
+            FastReport.TextObject footerText = new FastReport.TextObject();
+            footerText.Text = "Page [Page]";
+            footer.Objects.Add(footerText);
+            page.Bands.Add(footer);
+            
+            report.Prepare();
+            
+            PDFSimpleExport pdfExport = new PDFSimpleExport();
+            using (FileStream fs = new FileStream("report.pdf", FileMode.Create))
+            {
+                report.Export(pdfExport, fs);
+            }
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        // Configure header and footer
+        renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter()
+        {
+            HtmlFragment = "<div style='text-align:center'>Document Header</div>"
+        };
+        
+        renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter()
+        {
+            HtmlFragment = "<div style='text-align:center'>Page {page} of {total-pages}</div>"
+        };
+        
+        var pdf = renderer.RenderHtmlAsPdf("<html><body><h1>Report Content</h1><p>This is the main content.</p></body></html>");
+        pdf.SaveAs("report.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **FastReport.NET** handles this:
+
+```csharp
+// NuGet: Install-Package FastReport.OpenSource
+using FastReport;
+using FastReport.Export.PdfSimple;
+using System.IO;
+using System.Net;
+
+class Program
+{
+    static void Main()
+    {
+        // Download HTML content from URL
+        string htmlContent;
+        using (WebClient client = new WebClient())
+        {
+            htmlContent = client.DownloadString("https://example.com");
+        }
+        
+        using (Report report = new Report())
+        {
+            FastReport.HTMLObject htmlObject = new FastReport.HTMLObject();
+            htmlObject.Width = 800;
+            htmlObject.Height = 600;
+            htmlObject.Text = htmlContent;
+            
+            report.Prepare();
+            
+            PDFSimpleExport pdfExport = new PDFSimpleExport();
+            using (FileStream fs = new FileStream("webpage.pdf", FileMode.Create))
+            {
+                report.Export(pdfExport, fs);
+            }
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://example.com");
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from FastReport.NET to IronPDF?
+
+IronPDF provides a simpler, more intuitive approach to PDF generation focused on HTML-to-PDF conversion, eliminating the need for visual designers and complex reporting templates. It's ideal for developers who want to generate PDFs programmatically using familiar web technologies (HTML/CSS) rather than learning report-specific design tools.
+
+**Migrating from FastReport.NET to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `FastReport.OpenSource`, add `IronPdf`
+2. **Namespace Update**: Replace `FastReport` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: FastReport.NET → IronPDF](migrate-from-fastreport.md)**
+

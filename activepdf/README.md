@@ -31,6 +31,190 @@ IronPDF offers clear advantages, primarily through its active development, ensur
 2. **Ease of Integration**: IronPDF’s seamless integration into .NET projects simplifies the development process, with minimal setup involved.
 3. **Comprehensive Tutorials and Resources**: Developers benefit from an extensive range of examples and documentation, ensuring efficient learning and implementation.
 
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **ActivePDF** handles this:
+
+```csharp
+// NuGet: Install-Package APToolkitNET
+using ActivePDF.Toolkit;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        Toolkit toolkit = new Toolkit();
+        
+        string url = "https://www.example.com";
+        
+        if (toolkit.OpenOutputFile("webpage.pdf") == 0)
+        {
+            toolkit.AddURL(url);
+            toolkit.CloseOutputFile();
+            Console.WriteLine("PDF from URL created successfully");
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        string url = "https://www.example.com";
+        
+        var pdf = renderer.RenderUrlAsPdf(url);
+        pdf.SaveAs("webpage.pdf");
+        
+        Console.WriteLine("PDF from URL created successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with ActivePDF?
+
+Here's how **ActivePDF** handles this:
+
+```csharp
+// NuGet: Install-Package APToolkitNET
+using ActivePDF.Toolkit;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        Toolkit toolkit = new Toolkit();
+        
+        string htmlContent = "<html><body><h1>Hello World</h1></body></html>";
+        
+        if (toolkit.OpenOutputFile("output.pdf") == 0)
+        {
+            toolkit.AddHTML(htmlContent);
+            toolkit.CloseOutputFile();
+            Console.WriteLine("PDF created successfully");
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        string htmlContent = "<html><body><h1>Hello World</h1></body></html>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("output.pdf");
+        
+        Console.WriteLine("PDF created successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **ActivePDF** handles this:
+
+```csharp
+// NuGet: Install-Package APToolkitNET
+using ActivePDF.Toolkit;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        Toolkit toolkit = new Toolkit();
+        
+        if (toolkit.OpenOutputFile("merged.pdf") == 0)
+        {
+            toolkit.AddPDF("document1.pdf");
+            toolkit.AddPDF("document2.pdf");
+            toolkit.CloseOutputFile();
+            Console.WriteLine("PDFs merged successfully");
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf1 = PdfDocument.FromFile("document1.pdf");
+        var pdf2 = PdfDocument.FromFile("document2.pdf");
+        
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged.pdf");
+        
+        Console.WriteLine("PDFs merged successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from ActivePDF to IronPDF?
+
+ActivePDF's acquisition by Foxit has created uncertainty around the product's future development and support. IronPDF offers a modern, actively maintained alternative with comprehensive documentation, regular updates, and a straightforward licensing model.
+
+**Migrating from ActivePDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `APToolkitNET`, add `IronPdf`
+2. **Namespace Update**: Replace `APToolkitNET` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: ActivePDF → IronPDF](migrate-from-activepdf.md)**
+
+
 ## C# Code Example with IronPDF
 
 Here's how simple it is to convert an HTML string to a PDF file using IronPDF:

@@ -90,6 +90,186 @@ class Program
 
 In this example, GemBox.Pdf enables a straightforward reading and writing operation, yet for more complex implementations, users might find themselves constrained by the library's limitations.
 
+---
+
+## How Do I Merge PDF Files?
+
+Here's how **GemBox.Pdf C# PDF: An In-Depth Comparison with IronPDF** handles this:
+
+```csharp
+// NuGet: Install-Package GemBox.Pdf
+using GemBox.Pdf;
+using System.Linq;
+
+class Program
+{
+    static void Main()
+    {
+        ComponentInfo.SetLicense("FREE-LIMITED-KEY");
+        
+        using (var document = new PdfDocument())
+        {
+            var source1 = PdfDocument.Load("document1.pdf");
+            var source2 = PdfDocument.Load("document2.pdf");
+            
+            document.Pages.AddClone(source1.Pages);
+            document.Pages.AddClone(source2.Pages);
+            
+            document.Save("merged.pdf");
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf1 = PdfDocument.FromFile("document1.pdf");
+        var pdf2 = PdfDocument.FromFile("document2.pdf");
+        
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Add Text to an Existing PDF?
+
+Here's how **GemBox.Pdf C# PDF: An In-Depth Comparison with IronPDF** handles this:
+
+```csharp
+// NuGet: Install-Package GemBox.Pdf
+using GemBox.Pdf;
+using GemBox.Pdf.Content;
+
+class Program
+{
+    static void Main()
+    {
+        ComponentInfo.SetLicense("FREE-LIMITED-KEY");
+        
+        using (var document = new PdfDocument())
+        {
+            var page = document.Pages.Add();
+            var formattedText = new PdfFormattedText()
+            {
+                Text = "Hello World",
+                FontSize = 24
+            };
+            
+            page.Content.DrawText(formattedText, new PdfPoint(100, 700));
+            document.Save("output.pdf");
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Editing;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<p>Original Content</p>");
+        
+        var stamper = new TextStamper()
+        {
+            Text = "Hello World",
+            FontSize = 24,
+            HorizontalOffset = 100,
+            VerticalOffset = 700
+        };
+        
+        pdf.ApplyStamp(stamper);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with GemBox.Pdf C# PDF: An In-Depth Comparison with IronPDF?
+
+Here's how **GemBox.Pdf C# PDF: An In-Depth Comparison with IronPDF** handles this:
+
+```csharp
+// NuGet: Install-Package GemBox.Pdf
+using GemBox.Pdf;
+using GemBox.Pdf.Content;
+
+class Program
+{
+    static void Main()
+    {
+        ComponentInfo.SetLicense("FREE-LIMITED-KEY");
+        
+        var document = PdfDocument.Load("input.html");
+        document.Save("output.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1>");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from GemBox.Pdf C# PDF: An In-Depth Comparison with IronPDF to IronPDF?
+
+IronPDF eliminates the restrictive 20-paragraph limit that makes GemBox.Pdf's free version unusable for real-world applications, especially when working with tables where each cell counts toward this limit. With native HTML-to-PDF rendering using Chrome engine, IronPDF allows you to create complex PDFs from HTML/CSS rather than constructing documents programmatically.
+
+**Migrating from GemBox.Pdf C# PDF: An In-Depth Comparison with IronPDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `GemBox.Pdf`, add `IronPdf`
+2. **Namespace Update**: Replace `GemBox.Pdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: GemBox.Pdf C# PDF: An In-Depth Comparison with IronPDF → IronPDF](migrate-from-gemboxpdf.md)**
+
+
 ## Conclusion
 
 GemBox.Pdf is a competent choice for basic PDF operations within .NET environments, primarily due to its focus on ease of deployment and essential functionalities. However, for developers seeking advanced features or who need to process substantial amounts of data without arbitrary limits, IronPDF stands out with its extensive offering and support for HTML-to-PDF conversions.

@@ -87,6 +87,211 @@ Consider these benefits of IronPDF, which stand in contrast to some limitations 
 | **Cost**                | Free                               | Requires purchase                   |
 | **Community Support**   | Strong (Open Source)               | Available (Commercial)              |
 
+---
+
+## How Do I Add Headers and Footers to PDFs?
+
+Here's how **MigraDoc** handles this:
+
+```csharp
+// NuGet: Install-Package PdfSharp-MigraDoc-GDI
+using MigraDoc.DocumentObjectModel;
+using MigraDoc.Rendering;
+
+class Program
+{
+    static void Main()
+    {
+        Document document = new Document();
+        Section section = document.AddSection();
+        
+        // Add header
+        Paragraph headerPara = section.Headers.Primary.AddParagraph();
+        headerPara.AddText("Document Header");
+        headerPara.Format.Font.Size = 12;
+        headerPara.Format.Alignment = ParagraphAlignment.Center;
+        
+        // Add footer
+        Paragraph footerPara = section.Footers.Primary.AddParagraph();
+        footerPara.AddText("Page ");
+        footerPara.AddPageField();
+        footerPara.Format.Alignment = ParagraphAlignment.Center;
+        
+        // Add content
+        section.AddParagraph("Main content of the document");
+        
+        PdfDocumentRenderer pdfRenderer = new PdfDocumentRenderer();
+        pdfRenderer.Document = document;
+        pdfRenderer.RenderDocument();
+        pdfRenderer.PdfDocument.Save("header-footer.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Main content of the document</h1>");
+        
+        pdf.AddTextHeader("Document Header");
+        pdf.AddTextFooter("Page {page}");
+        
+        pdf.SaveAs("header-footer.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with MigraDoc?
+
+Here's how **MigraDoc** handles this:
+
+```csharp
+// NuGet: Install-Package PdfSharp-MigraDoc-GDI
+using MigraDoc.DocumentObjectModel;
+using MigraDoc.Rendering;
+using System.Diagnostics;
+
+class Program
+{
+    static void Main()
+    {
+        // MigraDoc doesn't support HTML directly
+        // Must manually create document structure
+        Document document = new Document();
+        Section section = document.AddSection();
+        
+        Paragraph paragraph = section.AddParagraph();
+        paragraph.AddFormattedText("Hello World", TextFormat.Bold);
+        paragraph.Format.Font.Size = 16;
+        
+        PdfDocumentRenderer pdfRenderer = new PdfDocumentRenderer();
+        pdfRenderer.Document = document;
+        pdfRenderer.RenderDocument();
+        pdfRenderer.PdfDocument.Save("output.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1>");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Create a PDF with Tables?
+
+Here's how **MigraDoc** handles this:
+
+```csharp
+// NuGet: Install-Package PdfSharp-MigraDoc-GDI
+using MigraDoc.DocumentObjectModel;
+using MigraDoc.DocumentObjectModel.Tables;
+using MigraDoc.Rendering;
+
+class Program
+{
+    static void Main()
+    {
+        Document document = new Document();
+        Section section = document.AddSection();
+        
+        Table table = section.AddTable();
+        table.Borders.Width = 0.75;
+        
+        Column column1 = table.AddColumn("3cm");
+        Column column2 = table.AddColumn("3cm");
+        
+        Row row1 = table.AddRow();
+        row1.Cells[0].AddParagraph("Name");
+        row1.Cells[1].AddParagraph("Age");
+        
+        Row row2 = table.AddRow();
+        row2.Cells[0].AddParagraph("John");
+        row2.Cells[1].AddParagraph("30");
+        
+        PdfDocumentRenderer pdfRenderer = new PdfDocumentRenderer();
+        pdfRenderer.Document = document;
+        pdfRenderer.RenderDocument();
+        pdfRenderer.PdfDocument.Save("table.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        string htmlTable = @"
+            <table border='1'>
+                <tr><th>Name</th><th>Age</th></tr>
+                <tr><td>John</td><td>30</td></tr>
+            </table>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(htmlTable);
+        pdf.SaveAs("table.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from MigraDoc to IronPDF?
+
+IronPDF eliminates MigraDoc's complexity by allowing you to generate PDFs directly from HTML, CSS, and JavaScript—no need to learn a proprietary document model. This approach provides unlimited styling flexibility, matches modern web designs perfectly, and leverages your existing web development skills.
+
+**Migrating from MigraDoc to IronPDF involves:**
+
+1. **NuGet Package Change**: Install `IronPdf` package
+2. **Namespace Update**: Replace `MigraDoc.DocumentObjectModel` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: MigraDoc → IronPDF](migrate-from-migradoc.md)**
+
+
 ## Conclusion
 
 Both MigraDoc and IronPDF have carved niches within the C# ecosystem to help developers meet their document generation needs, albeit through different approaches. For those who favor an open-source model and need to create well-structured PDFs using a programmatic approach, MigraDoc presents an excellent choice. Conversely, IronPDF appeals to developers who wish to leverage their HTML and CSS skills to translate modern web designs directly into PDF format.

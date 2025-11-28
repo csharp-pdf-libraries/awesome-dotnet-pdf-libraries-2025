@@ -46,6 +46,29 @@ IronPDF offers a versatile platform that scales easily from simple to complex re
 
 Unlike Apryse, IronPDF does not provide dedicated viewer controls for embedding within applications. Rather, it focuses on generating PDFs that can be rendered in standard PDF viewers.
 
+---
+
+## How Can I Migrate from Apryse (formerly PDFTron) and C# PDF Solutions to IronPDF?
+
+Apryse targets enterprise customers with premium pricing that can be prohibitive for small to medium-sized projects. IronPDF offers a more straightforward, cost-effective solution with simpler integration and minimal configuration overhead.
+
+**Migrating from Apryse (formerly PDFTron) and C# PDF Solutions to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `PDFTron.NET.x64`, add `IronPdf`
+2. **Namespace Update**: Replace `pdftron` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Apryse (formerly PDFTron) and C# PDF Solutions → IronPDF](migrate-from-apryse.md)**
+
+
 ## Comparing Apryse and IronPDF
 
 | Feature                                   | Apryse (PDFTron)                          | IronPDF                                |

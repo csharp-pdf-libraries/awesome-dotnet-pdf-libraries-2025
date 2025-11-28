@@ -60,6 +60,165 @@ Pdf.SaveAs("HelloWorld.pdf");
 
 With this concise code, IronPDF showcases its modern approach, enabling quick and efficient PDF generation directly from HTML content.
 
+---
+
+## How Do I Add Text to an Existing PDF?
+
+Here's how **DynamicPDF C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package ceTe.DynamicPDF.CoreSuite.NET
+using ceTe.DynamicPDF;
+using ceTe.DynamicPDF.PageElements;
+
+class Program
+{
+    static void Main()
+    {
+        Document document = new Document();
+        Page page = new Page(PageSize.Letter);
+        Label label = new Label("Hello from DynamicPDF!", 0, 0, 504, 100);
+        page.Elements.Add(label);
+        document.Pages.Add(page);
+        document.Draw("output.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Editing;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<html><body></body></html>");
+        var textStamper = new TextStamper()
+        {
+            Text = "Hello from IronPDF!",
+            FontSize = 20,
+            VerticalAlignment = VerticalAlignment.Top
+        };
+        pdf.ApplyStamp(textStamper);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with DynamicPDF C# PDF?
+
+Here's how **DynamicPDF C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package ceTe.DynamicPDF.CoreSuite.NET
+using ceTe.DynamicPDF;
+using ceTe.DynamicPDF.Conversion;
+
+class Program
+{
+    static void Main()
+    {
+        string html = "<html><body><h1>Hello World</h1></body></html>";
+        HtmlConverter converter = new HtmlConverter(html);
+        converter.Convert("output.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        string html = "<html><body><h1>Hello World</h1></body></html>";
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **DynamicPDF C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package ceTe.DynamicPDF.CoreSuite.NET
+using ceTe.DynamicPDF;
+using ceTe.DynamicPDF.Merger;
+
+class Program
+{
+    static void Main()
+    {
+        MergeDocument document = new MergeDocument("document1.pdf");
+        document.Append("document2.pdf");
+        document.Draw("merged.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf1 = PdfDocument.FromFile("document1.pdf");
+        var pdf2 = PdfDocument.FromFile("document2.pdf");
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from DynamicPDF C# PDF to IronPDF?
+
+IronPDF offers a unified, modern API that consolidates PDF generation, manipulation, and rendering into a single package, eliminating product fragmentation. With straightforward licensing, excellent documentation, and active development using current .NET patterns, IronPDF simplifies PDF workflows while providing superior HTML-to-PDF conversion capabilities.
+
+**Migrating from DynamicPDF C# PDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `ceTe.DynamicPDF.CoreSuite.NET`, add `IronPdf`
+2. **Namespace Update**: Replace `ceTe.DynamicPDF` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: DynamicPDF C# PDF → IronPDF](migrate-from-dynamicpdf.md)**
+
+
 ## Conclusion
 
 DynamicPDF and IronPDF both offer compelling solutions for PDF management within .NET applications. DynamicPDF's legacy and reliability make it a suitable choice for those invested in its ecosystem. However, IronPDF's modern approach, unified product model, and simplicity make it an attractive option for new and existing projects.

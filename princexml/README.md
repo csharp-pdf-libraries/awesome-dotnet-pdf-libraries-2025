@@ -61,6 +61,171 @@ PDF.SaveAs("output.pdf");
 
 This example highlights the succinctness and ease of using IronPDF, emphasizing its design for simplicity without the need for manual instance or process management.
 
+---
+
+## How Do I Convert HTML to PDF in C# with PrinceXML?
+
+Here's how **PrinceXML** handles this:
+
+```csharp
+// NuGet: Install-Package PrinceXMLWrapper
+using PrinceXMLWrapper;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        Prince prince = new Prince("C:\\Program Files\\Prince\\engine\\bin\\prince.exe");
+        prince.Convert("input.html", "output.pdf");
+        Console.WriteLine("PDF created successfully");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlFileAsPdf("input.html");
+        pdf.SaveAs("output.pdf");
+        Console.WriteLine("PDF created successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **PrinceXML** handles this:
+
+```csharp
+// NuGet: Install-Package PrinceXMLWrapper
+using PrinceXMLWrapper;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        Prince prince = new Prince("C:\\Program Files\\Prince\\engine\\bin\\prince.exe");
+        prince.SetJavaScript(true);
+        prince.SetEncrypt(true);
+        prince.SetPDFTitle("Website Export");
+        prince.Convert("https://example.com", "webpage.pdf");
+        Console.WriteLine("URL converted to PDF");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.EnableJavaScript = true;
+        renderer.RenderingOptions.PdfTitle = "Website Export";
+        
+        var pdf = renderer.RenderUrlAsPdf("https://example.com");
+        pdf.Encrypt("password");
+        pdf.SaveAs("webpage.pdf");
+        Console.WriteLine("URL converted to PDF");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert an HTML String to PDF?
+
+Here's how **PrinceXML** handles this:
+
+```csharp
+// NuGet: Install-Package PrinceXMLWrapper
+using PrinceXMLWrapper;
+using System;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        string html = "<html><head><style>body { font-family: Arial; color: blue; }</style></head><body><h1>Hello World</h1></body></html>";
+        File.WriteAllText("temp.html", html);
+        
+        Prince prince = new Prince("C:\\Program Files\\Prince\\engine\\bin\\prince.exe");
+        prince.Convert("temp.html", "styled-output.pdf");
+        Console.WriteLine("Styled PDF created");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        string html = "<html><head><style>body { font-family: Arial; color: blue; }</style></head><body><h1>Hello World</h1></body></html>";
+        
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("styled-output.pdf");
+        Console.WriteLine("Styled PDF created");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from PrinceXML to IronPDF?
+
+IronPDF is a native .NET library that eliminates the need for separate server processes and complex command-line integrations. Unlike PrinceXML's CSS Paged Media approach, IronPDF uses modern Chromium rendering for consistent HTML-to-PDF conversion directly within your .NET application.
+
+**Migrating from PrinceXML to IronPDF involves:**
+
+1. **NuGet Package Change**: Install `IronPdf` package
+2. **Namespace Update**: Use `IronPdf` namespace
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: PrinceXML → IronPDF](migrate-from-princexml.md)**
+
+
 ## Comparison Table
 
 Below is a comparison table distilling the key differences between PrinceXML and IronPDF:

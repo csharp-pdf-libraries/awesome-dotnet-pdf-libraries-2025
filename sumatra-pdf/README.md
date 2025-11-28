@@ -29,6 +29,216 @@ IronPDF is a powerful library designed for developers who need to integrate comp
 - **Library not Application**: Designed for integration into applications, not as a standalone tool.
 - **Commercial License**: Offers flexibility for use in commercial and enterprise-grade software.
 
+---
+
+## How Do I Convert HTML to PDF in C# with Sumatra PDF (integration)?
+
+Here's how **Sumatra PDF (integration)** handles this:
+
+```csharp
+// NuGet: Install-Package SumatraPDF (Note: Sumatra is primarily a viewer, not a generator)
+// Sumatra PDF doesn't have direct C# integration for HTML to PDF conversion
+// You would need to use external tools or libraries and then open with Sumatra
+using System.Diagnostics;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        // Sumatra PDF cannot directly convert HTML to PDF
+        // You'd need to use wkhtmltopdf or similar, then view in Sumatra
+        string htmlFile = "input.html";
+        string pdfFile = "output.pdf";
+        
+        // Using wkhtmltopdf as intermediary
+        ProcessStartInfo psi = new ProcessStartInfo
+        {
+            FileName = "wkhtmltopdf.exe",
+            Arguments = $"{htmlFile} {pdfFile}",
+            UseShellExecute = false
+        };
+        Process.Start(psi)?.WaitForExit();
+        
+        // Then open with Sumatra
+        Process.Start("SumatraPDF.exe", pdfFile);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        string htmlContent = "<h1>Hello World</h1><p>This is HTML to PDF conversion.</p>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("output.pdf");
+        
+        Console.WriteLine("PDF created successfully!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Open Display PDF?
+
+Here's how **Sumatra PDF (integration)** handles this:
+
+```csharp
+// NuGet: Install-Package SumatraPDF.CommandLine (or direct executable)
+using System.Diagnostics;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        string pdfPath = "document.pdf";
+        
+        // Sumatra PDF excels at viewing PDFs
+        ProcessStartInfo startInfo = new ProcessStartInfo
+        {
+            FileName = "SumatraPDF.exe",
+            Arguments = $"\"{pdfPath}\"",
+            UseShellExecute = true
+        };
+        
+        Process.Start(startInfo);
+        
+        // Optional: Open specific page
+        // Arguments = $"-page 5 \"{pdfPath}\""
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.Diagnostics;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf = PdfDocument.FromFile("document.pdf");
+        
+        // Extract information
+        Console.WriteLine($"Page Count: {pdf.PageCount}");
+        
+        // IronPDF can manipulate and save, then open with default viewer
+        pdf.SaveAs("modified.pdf");
+        
+        // Open with default PDF viewer
+        Process.Start(new ProcessStartInfo("modified.pdf") { UseShellExecute = true });
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Extract Text PDF?
+
+Here's how **Sumatra PDF (integration)** handles this:
+
+```csharp
+// Sumatra PDF doesn't provide C# API for text extraction
+// You would need to use command-line tools or other libraries
+using System.Diagnostics;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        // Sumatra PDF is a viewer, not a text extraction library
+        // You'd need to use PDFBox, iTextSharp, or similar for extraction
+        
+        string pdfFile = "document.pdf";
+        
+        // This would require external tools like pdftotext
+        ProcessStartInfo psi = new ProcessStartInfo
+        {
+            FileName = "pdftotext.exe",
+            Arguments = $"{pdfFile} output.txt",
+            UseShellExecute = false
+        };
+        
+        Process.Start(psi)?.WaitForExit();
+        
+        string extractedText = File.ReadAllText("output.txt");
+        Console.WriteLine(extractedText);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf = PdfDocument.FromFile("document.pdf");
+        
+        // Extract text from all pages
+        string allText = pdf.ExtractAllText();
+        Console.WriteLine("Extracted Text:");
+        Console.WriteLine(allText);
+        
+        // Extract text from specific page
+        string pageText = pdf.ExtractTextFromPage(0);
+        Console.WriteLine($"\nFirst Page Text:\n{pageText}");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Sumatra PDF (integration) to IronPDF?
+
+Sumatra PDF is a lightweight PDF reader designed as a standalone application, not a library for integration into .NET applications. IronPDF is a comprehensive .NET library specifically built for developers to create, read, and manipulate PDFs programmatically within commercial applications.
+
+**Migrating from Sumatra PDF (integration) to IronPDF involves:**
+
+1. **NuGet Package Change**: Install `IronPdf` package
+2. **Namespace Update**: Use `IronPdf` namespace
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Sumatra PDF (integration) → IronPDF](migrate-from-sumatra-pdf.md)**
+
+
 ## Comparison Table
 
 Here's a comparative analysis of Sumatra PDF (integration) and IronPDF:

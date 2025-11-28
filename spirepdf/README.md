@@ -24,6 +24,195 @@ Despite its strengths, Spire.PDF is not without its downsides, and several of th
 
 Spire.PDF is known to have a large deployment footprint, adding to its operational costs both in terms of system memory usage and associated expenses. This concern particularly affects large-scale or resource-constrained environments.
 
+---
+
+## How Do I Add Text to an Existing PDF?
+
+Here's how **Spire.PDF C# PDF: A Comparative Analysis with IronPDF** handles this:
+
+```csharp
+// NuGet: Install-Package Spire.PDF
+using Spire.Pdf;
+using Spire.Pdf.Graphics;
+using System.Drawing;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        PdfDocument pdf = new PdfDocument();
+        PdfPageBase page = pdf.Pages.Add();
+        
+        PdfFont font = new PdfFont(PdfFontFamily.Helvetica, 20);
+        PdfBrush brush = new PdfSolidBrush(Color.Black);
+        
+        page.Canvas.DrawString("Hello from Spire.PDF!", font, brush, new PointF(50, 50));
+        
+        pdf.SaveToFile("output.pdf");
+        pdf.Close();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Editing;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<html><body></body></html>");
+        
+        var textStamper = new TextStamper()
+        {
+            Text = "Hello from IronPDF!",
+            FontSize = 20,
+            VerticalOffset = 50,
+            HorizontalOffset = 50
+        };
+        
+        pdf.ApplyStamp(textStamper);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with Spire.PDF C# PDF: A Comparative Analysis with IronPDF?
+
+Here's how **Spire.PDF C# PDF: A Comparative Analysis with IronPDF** handles this:
+
+```csharp
+// NuGet: Install-Package Spire.PDF
+using Spire.Pdf;
+using Spire.Pdf.Graphics;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        PdfDocument pdf = new PdfDocument();
+        PdfHtmlLayoutFormat htmlLayoutFormat = new PdfHtmlLayoutFormat();
+        
+        string htmlString = "<html><body><h1>Hello World</h1><p>This is a PDF from HTML.</p></body></html>";
+        
+        pdf.LoadFromHTML(htmlString, false, true, true);
+        pdf.SaveToFile("output.pdf");
+        pdf.Close();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        string htmlString = "<html><body><h1>Hello World</h1><p>This is a PDF from HTML.</p></body></html>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(htmlString);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **Spire.PDF C# PDF: A Comparative Analysis with IronPDF** handles this:
+
+```csharp
+// NuGet: Install-Package Spire.PDF
+using Spire.Pdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        PdfDocument pdf1 = new PdfDocument();
+        pdf1.LoadFromFile("document1.pdf");
+        
+        PdfDocument pdf2 = new PdfDocument();
+        pdf2.LoadFromFile("document2.pdf");
+        
+        pdf1.InsertPageRange(pdf2, 0, pdf2.Pages.Count - 1);
+        
+        pdf1.SaveToFile("merged.pdf");
+        pdf1.Close();
+        pdf2.Close();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf1 = PdfDocument.FromFile("document1.pdf");
+        var pdf2 = PdfDocument.FromFile("document2.pdf");
+        
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        
+        merged.SaveAs("merged.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Spire.PDF C# PDF: A Comparative Analysis with IronPDF to IronPDF?
+
+IronPDF resolves critical issues with Spire.PDF's HTML-to-PDF conversion by rendering text as actual selectable text rather than images, ensuring PDFs are searchable and accessible. Unlike Spire.PDF's reliance on Internet Explorer's rendering engine, IronPDF uses a modern Chromium-based engine that accurately renders contemporary HTML5, CSS3, and JavaScript.
+
+**Migrating from Spire.PDF C# PDF: A Comparative Analysis with IronPDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `Spire.PDF`, add `IronPdf`
+2. **Namespace Update**: Replace `Spire.Pdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Spire.PDF C# PDF: A Comparative Analysis with IronPDF → IronPDF](migrate-from-spirepdf.md)**
+
+
 ## Comparing Spire.PDF and IronPDF
 
 | Feature                          | Spire.PDF                                   | IronPDF                                              |

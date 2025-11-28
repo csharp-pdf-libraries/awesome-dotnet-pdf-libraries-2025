@@ -49,6 +49,218 @@ Here is a comparison of some of the essential features between Gnostice (Documen
 
 Overall, while Gnostice provides basic document manipulation functionality, its extensive limitations and stability issues may impede its value for larger projects requiring consistent performance and full feature support.
 
+---
+
+## How Do I Merge PDF Files?
+
+Here's how **Gnostice (Document Studio .NET, PDFOne) C# PDF Library** handles this:
+
+```csharp
+// NuGet: Install-Package Gnostice.PDFOne.DLL
+using Gnostice.PDFOne;
+using Gnostice.PDFOne.Document;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        PDFDocument doc1 = new PDFDocument();
+        doc1.Load("document1.pdf");
+        
+        PDFDocument doc2 = new PDFDocument();
+        doc2.Load("document2.pdf");
+        
+        PDFDocument mergedDoc = new PDFDocument();
+        mergedDoc.Open();
+        
+        mergedDoc.Append(doc1);
+        mergedDoc.Append(doc2);
+        
+        mergedDoc.Save("merged.pdf");
+        
+        doc1.Close();
+        doc2.Close();
+        mergedDoc.Close();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf1 = PdfDocument.FromFile("document1.pdf");
+        var pdf2 = PdfDocument.FromFile("document2.pdf");
+        
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with Gnostice (Document Studio .NET, PDFOne) C# PDF Library?
+
+Here's how **Gnostice (Document Studio .NET, PDFOne) C# PDF Library** handles this:
+
+```csharp
+// NuGet: Install-Package Gnostice.PDFOne.DLL
+using Gnostice.PDFOne;
+using Gnostice.PDFOne.Graphics;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        PDFDocument doc = new PDFDocument();
+        doc.Open();
+        
+        PDFPage page = doc.Pages.Add();
+        
+        // PDFOne doesn't have direct HTML to PDF conversion
+        // You need to use Document Studio for HTML conversion
+        // Or manually parse and render HTML elements
+        
+        PDFTextElement textElement = new PDFTextElement();
+        textElement.Text = "Simple text conversion instead of HTML";
+        textElement.Draw(page, 10, 10);
+        
+        doc.Save("output.pdf");
+        doc.Close();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        string html = "<h1>Hello World</h1><p>This is HTML content.</p>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Add Watermark To PDF?
+
+Here's how **Gnostice (Document Studio .NET, PDFOne) C# PDF Library** handles this:
+
+```csharp
+// NuGet: Install-Package Gnostice.PDFOne.DLL
+using Gnostice.PDFOne;
+using Gnostice.PDFOne.Graphics;
+using System;
+using System.Drawing;
+
+class Program
+{
+    static void Main()
+    {
+        PDFDocument doc = new PDFDocument();
+        doc.Load("input.pdf");
+        
+        PDFFont font = new PDFFont(PDFStandardFont.Helvetica, 48);
+        
+        foreach (PDFPage page in doc.Pages)
+        {
+            PDFTextElement watermark = new PDFTextElement();
+            watermark.Text = "CONFIDENTIAL";
+            watermark.Font = font;
+            watermark.Color = Color.FromArgb(128, 255, 0, 0);
+            watermark.RotationAngle = 45;
+            
+            watermark.Draw(page, 200, 400);
+        }
+        
+        doc.Save("watermarked.pdf");
+        doc.Close();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Editing;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf = PdfDocument.FromFile("input.pdf");
+        
+        var watermark = new TextStamper()
+        {
+            Text = "CONFIDENTIAL",
+            FontSize = 48,
+            Opacity = 50,
+            Rotation = 45,
+            VerticalAlignment = VerticalAlignment.Middle,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        
+        pdf.ApplyStamp(watermark);
+        pdf.SaveAs("watermarked.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Gnostice (Document Studio .NET, PDFOne) C# PDF Library to IronPDF?
+
+Gnostice Document Studio and PDFOne suffer from extensive documented limitations including no external CSS, JavaScript, digital signatures, or right-to-left Unicode support, along with persistent memory leaks and stability issues reported across Stack Overflow and user forums. The platform is fragmented across separate products for different frameworks (.NET, Java, VCL) with inconsistent feature sets between WinForms, WPF, ASP.NET, and Xamarin implementations.
+
+**Migrating from Gnostice (Document Studio .NET, PDFOne) C# PDF Library to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `Gnostice.DocumentStudio.NET`, add `IronPdf`
+2. **Namespace Update**: Replace `Gnostice.Documents` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Gnostice (Document Studio .NET, PDFOne) C# PDF Library → IronPDF](migrate-from-gnostice.md)**
+
+
 ## Conclusion
 
 Through its consistency and comprehensive support for modern web standards, IronPDF proves to be a superior choice for .NET developers looking for a reliable PDF solution. The extensive functionalities available in IronPDF, combined with the ease of a single unified product for .NET, make it an effective tool for businesses needing robust document management solutions. For more on using IronPDF and integrating it within your project, see their detailed how-to [guide](https://ironpdf.com/how-to/html-file-to-pdf/).

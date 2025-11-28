@@ -42,6 +42,210 @@ The following are the noticeable weaknesses of wkhtmltopdf:
 - **Outdated Technology**: Reliance on WebKit from 2015 limits its compatibility with modern web technologies, hindering developers aiming for feature-rich PDF documents.
 - **Dependent Ecosystem**: Many associated libraries, though once popular, are now similarly outdated and abandoned, such as DinkToPdf and Rotativa, adding to the technical debt for projects that rely on them.
 
+---
+
+## How Do I Convert HTML Files to PDF with Custom Settings?
+
+Here's how **wkhtmltopdf** handles this:
+
+```csharp
+// NuGet: Install-Package WkHtmlToPdf-DotNet
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new SynchronizedConverter(new PdfTools());
+        var doc = new HtmlToPdfDocument()
+        {
+            GlobalSettings = {
+                ColorMode = ColorMode.Color,
+                Orientation = Orientation.Landscape,
+                PaperSize = PaperKind.A4,
+                Margins = new MarginSettings() { Top = 10, Bottom = 10, Left = 10, Right = 10 }
+            },
+            Objects = {
+                new ObjectSettings()
+                {
+                    Page = "input.html",
+                    WebSettings = { DefaultEncoding = "utf-8" }
+                }
+            }
+        };
+        byte[] pdf = converter.Convert(doc);
+        File.WriteAllBytes("custom-output.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape;
+        renderer.RenderingOptions.MarginTop = 10;
+        renderer.RenderingOptions.MarginBottom = 10;
+        renderer.RenderingOptions.MarginLeft = 10;
+        renderer.RenderingOptions.MarginRight = 10;
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        
+        var pdf = renderer.RenderHtmlFileAsPdf("input.html");
+        pdf.SaveAs("custom-output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with wkhtmltopdf?
+
+Here's how **wkhtmltopdf** handles this:
+
+```csharp
+// NuGet: Install-Package WkHtmlToPdf-DotNet
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new SynchronizedConverter(new PdfTools());
+        var doc = new HtmlToPdfDocument()
+        {
+            GlobalSettings = {
+                ColorMode = ColorMode.Color,
+                Orientation = Orientation.Portrait,
+                PaperSize = PaperKind.A4
+            },
+            Objects = {
+                new ObjectSettings()
+                {
+                    HtmlContent = "<h1>Hello World</h1><p>This is a PDF from HTML.</p>"
+                }
+            }
+        };
+        byte[] pdf = converter.Convert(doc);
+        File.WriteAllBytes("output.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1><p>This is a PDF from HTML.</p>");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **wkhtmltopdf** handles this:
+
+```csharp
+// NuGet: Install-Package WkHtmlToPdf-DotNet
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new SynchronizedConverter(new PdfTools());
+        var doc = new HtmlToPdfDocument()
+        {
+            GlobalSettings = {
+                ColorMode = ColorMode.Color,
+                Orientation = Orientation.Portrait,
+                PaperSize = PaperKind.A4
+            },
+            Objects = {
+                new ObjectSettings()
+                {
+                    Page = "https://www.example.com"
+                }
+            }
+        };
+        byte[] pdf = converter.Convert(doc);
+        File.WriteAllBytes("webpage.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from wkhtmltopdf to IronPDF?
+
+wkhtmltopdf suffers from a critical SSRF vulnerability (CVE-2022-35583, severity 9.8) that remains unpatched due to project abandonment. The project has received no meaningful updates since 2016-2017, relies on Qt WebKit from 2015, and lacks modern web standards support (CSS Grid, flexbox, ES6+).
+
+**Migrating from wkhtmltopdf to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `WkHtmlToPdf-DotNet`, add `IronPdf`
+2. **Namespace Update**: Replace `WkHtmlToPdfDotNet` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: wkhtmltopdf → IronPDF](migrate-from-wkhtmltopdf.md)**
+
+
 ## C# Code Example with IronPDF
 
 To highlight the capabilities of IronPDF, consider the following example for converting an HTML page to a PDF document using C#:

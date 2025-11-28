@@ -141,6 +141,371 @@ To encapsulate the essential differences and roles of RawPrint and IronPDF, the 
 | **Flexibility**                      | Limited due to raw byte handling                 | Extensive with multiple functionalities          |                               
 | **License**                          | Varies                                           | Commercial                                       |
 
+---
+
+## How Do I Print Document Formatting?
+
+Here's how **RawPrint** handles this:
+
+```csharp
+// NuGet: Install-Package System.Drawing.Common
+using System;
+using System.Drawing.Printing;
+using System.Runtime.InteropServices;
+using System.Text;
+
+class RawPrinterHelper
+{
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public class DOCINFOA
+    {
+        [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
+        [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
+        [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
+    }
+
+    [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool OpenPrinter([MarshalAs(UnmanagedType.LPStr)] string szPrinter, out IntPtr hPrinter, IntPtr pd);
+
+    [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool ClosePrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di);
+
+    [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool EndDocPrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool StartPagePrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool EndPagePrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
+
+    public static bool SendBytesToPrinter(string szPrinterName, byte[] pBytes)
+    {
+        IntPtr pUnmanagedBytes = Marshal.AllocCoTaskMem(pBytes.Length);
+        Marshal.Copy(pBytes, 0, pUnmanagedBytes, pBytes.Length);
+        IntPtr hPrinter;
+        if (OpenPrinter(szPrinterName, out hPrinter, IntPtr.Zero))
+        {
+            DOCINFOA di = new DOCINFOA();
+            di.pDocName = "Raw Document";
+            di.pDataType = "RAW";
+            if (StartDocPrinter(hPrinter, 1, di))
+            {
+                if (StartPagePrinter(hPrinter))
+                {
+                    Int32 dwWritten;
+                    WritePrinter(hPrinter, pUnmanagedBytes, pBytes.Length, out dwWritten);
+                    EndPagePrinter(hPrinter);
+                }
+                EndDocPrinter(hPrinter);
+            }
+            ClosePrinter(hPrinter);
+            Marshal.FreeCoTaskMem(pUnmanagedBytes);
+            return true;
+        }
+        return false;
+    }
+}
+
+class Program
+{
+    static void Main()
+    {
+        // RawPrint requires manual PCL/PostScript commands for formatting
+        string pclCommands = "\x1B&l0O\x1B(s0p16.66h8.5v0s0b3T";
+        string text = "Plain text document - limited formatting";
+        byte[] data = Encoding.ASCII.GetBytes(pclCommands + text);
+        RawPrinterHelper.SendBytesToPrinter("HP LaserJet", data);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        string html = @"
+            <html>
+            <head>
+                <style>
+                    body { font-family: Arial; margin: 40px; }
+                    h1 { color: #2c3e50; font-size: 24px; }
+                    p { line-height: 1.6; color: #34495e; }
+                    .highlight { background-color: yellow; font-weight: bold; }
+                </style>
+            </head>
+            <body>
+                <h1>Formatted Document</h1>
+                <p>This is a <span class='highlight'>beautifully formatted</span> document with CSS styling.</p>
+                <p>Complex layouts, fonts, colors, and images are fully supported.</p>
+            </body>
+            </html>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("formatted.pdf");
+        Console.WriteLine("Formatted PDF created successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with RawPrint?
+
+Here's how **RawPrint** handles this:
+
+```csharp
+// NuGet: Install-Package System.Drawing.Common
+using System;
+using System.Drawing;
+using System.Drawing.Printing;
+using System.Runtime.InteropServices;
+using System.Text;
+
+class RawPrinterHelper
+{
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public class DOCINFOA
+    {
+        [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
+        [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
+        [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
+    }
+
+    [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool OpenPrinter([MarshalAs(UnmanagedType.LPStr)] string szPrinter, out IntPtr hPrinter, IntPtr pd);
+
+    [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool ClosePrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di);
+
+    [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool EndDocPrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool StartPagePrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool EndPagePrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
+
+    public static bool SendStringToPrinter(string szPrinterName, string szString)
+    {
+        IntPtr pBytes;
+        Int32 dwCount;
+        dwCount = szString.Length;
+        pBytes = Marshal.StringToCoTaskMemAnsi(szString);
+        IntPtr hPrinter;
+        if (OpenPrinter(szPrinterName, out hPrinter, IntPtr.Zero))
+        {
+            DOCINFOA di = new DOCINFOA();
+            di.pDocName = "HTML Document";
+            di.pDataType = "RAW";
+            if (StartDocPrinter(hPrinter, 1, di))
+            {
+                if (StartPagePrinter(hPrinter))
+                {
+                    Int32 dwWritten;
+                    WritePrinter(hPrinter, pBytes, dwCount, out dwWritten);
+                    EndPagePrinter(hPrinter);
+                }
+                EndDocPrinter(hPrinter);
+            }
+            ClosePrinter(hPrinter);
+            Marshal.FreeCoTaskMem(pBytes);
+            return true;
+        }
+        return false;
+    }
+}
+
+class Program
+{
+    static void Main()
+    {
+        string html = "<html><body><h1>Hello World</h1></body></html>";
+        // RawPrint cannot directly convert HTML to PDF
+        // It sends raw data to printer, no PDF generation capability
+        RawPrinterHelper.SendStringToPrinter("Microsoft Print to PDF", html);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        string html = "<html><body><h1>Hello World</h1></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+        Console.WriteLine("PDF created successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **RawPrint** handles this:
+
+```csharp
+// NuGet: Install-Package System.Drawing.Common
+using System;
+using System.Net;
+using System.Runtime.InteropServices;
+using System.Text;
+
+class RawPrinterHelper
+{
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public class DOCINFOA
+    {
+        [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
+        [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
+        [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
+    }
+
+    [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool OpenPrinter([MarshalAs(UnmanagedType.LPStr)] string szPrinter, out IntPtr hPrinter, IntPtr pd);
+
+    [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool ClosePrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di);
+
+    [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool EndDocPrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool StartPagePrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool EndPagePrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
+
+    public static bool SendStringToPrinter(string szPrinterName, string szString)
+    {
+        IntPtr pBytes = Marshal.StringToCoTaskMemAnsi(szString);
+        IntPtr hPrinter;
+        if (OpenPrinter(szPrinterName, out hPrinter, IntPtr.Zero))
+        {
+            DOCINFOA di = new DOCINFOA();
+            di.pDocName = "Web Page";
+            di.pDataType = "RAW";
+            if (StartDocPrinter(hPrinter, 1, di))
+            {
+                if (StartPagePrinter(hPrinter))
+                {
+                    Int32 dwWritten;
+                    WritePrinter(hPrinter, pBytes, szString.Length, out dwWritten);
+                    EndPagePrinter(hPrinter);
+                }
+                EndDocPrinter(hPrinter);
+            }
+            ClosePrinter(hPrinter);
+            Marshal.FreeCoTaskMem(pBytes);
+            return true;
+        }
+        return false;
+    }
+}
+
+class Program
+{
+    static void Main()
+    {
+        // RawPrint cannot render web pages - only sends raw text/data
+        // This would just print HTML source code, not rendered content
+        using (WebClient client = new WebClient())
+        {
+            string htmlSource = client.DownloadString("https://example.com");
+            // This prints raw HTML, not a rendered PDF
+            RawPrinterHelper.SendStringToPrinter("Microsoft Print to PDF", htmlSource);
+            Console.WriteLine("Raw HTML sent to printer (not rendered)");
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        // Render a live website directly to PDF with full CSS, JavaScript, and images
+        var pdf = renderer.RenderUrlAsPdf("https://example.com");
+        pdf.SaveAs("webpage.pdf");
+        Console.WriteLine("Website rendered to PDF successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from RawPrint to IronPDF?
+
+RawPrint is a low-level printing utility that sends raw bytes directly to printer spoolers, requiring manual PDF generation and platform-specific implementations. IronPDF provides a comprehensive, cross-platform solution for creating, manipulating, and printing PDFs with high-level APIs that handle rendering, formatting, and printer communication automatically.
+
+**Migrating from RawPrint to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `RawPrint`, add `IronPdf`
+2. **Namespace Update**: Replace `RawPrint` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: RawPrint → IronPDF](migrate-from-rawprint.md)**
+
+
 ## Conclusion
 
 Choosing between RawPrint and IronPDF depends heavily on the specific tasks and goals a developer aims to achieve. While RawPrint offers low-level, specialized advantages necessary for direct printer communication, IronPDF provides a versatile high-level solution suited for general PDF handling and document creation tasks. With the abundance of tools available in the .NET ecosystem, including PDFSharp, iTextSharp, and Aspose.Pdf, developers have ample choice to tailor solutions to meet their unique project requirements.

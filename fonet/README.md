@@ -76,3 +76,210 @@ In conclusion, the choice between FoNet (FO.NET) and IronPDF hinges on the speci
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have racked up over 41 million NuGet downloads. With four decades of coding under his belt, he's seen just about every tech trend come and go. When he's not architecting software solutions, you can find him working remotely from Chiang Mai, Thailand—connect with him on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **FoNet (FO.NET) C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package Fonet
+using Fonet;
+using System.IO;
+using System.Net;
+
+class Program
+{
+    static void Main()
+    {
+        // FoNet does not support URL rendering directly
+        // Must manually download, convert HTML to XSL-FO, then render
+        string url = "https://example.com";
+        string html = new WebClient().DownloadString(url);
+        
+        // Manual conversion from HTML to XSL-FO required (complex)
+        string xslFo = ConvertHtmlToXslFo(html); // Not built-in
+        
+        FonetDriver driver = FonetDriver.Make();
+        driver.Render(new StringReader(xslFo), 
+            new FileStream("webpage.pdf", FileMode.Create));
+    }
+    
+    static string ConvertHtmlToXslFo(string html)
+    {
+        // Custom implementation required
+        throw new System.NotImplementedException();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://example.com");
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I PDF With Settings?
+
+Here's how **FoNet (FO.NET) C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package Fonet
+using Fonet;
+using Fonet.Render.Pdf;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        // FoNet settings are configured in XSL-FO markup
+        string xslFo = @"<?xml version='1.0' encoding='utf-8'?>
+            <fo:root xmlns:fo='http://www.w3.org/1999/XSL/Format'>
+                <fo:layout-master-set>
+                    <fo:simple-page-master master-name='A4' 
+                        page-height='297mm' page-width='210mm'
+                        margin-top='20mm' margin-bottom='20mm'
+                        margin-left='25mm' margin-right='25mm'>
+                        <fo:region-body/>
+                    </fo:simple-page-master>
+                </fo:layout-master-set>
+                <fo:page-sequence master-reference='A4'>
+                    <fo:flow flow-name='xsl-region-body'>
+                        <fo:block font-size='14pt'>Custom PDF</fo:block>
+                    </fo:flow>
+                </fo:page-sequence>
+            </fo:root>";
+        
+        FonetDriver driver = FonetDriver.Make();
+        driver.Render(new StringReader(xslFo), 
+            new FileStream("custom.pdf", FileMode.Create));
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Engines.Chrome;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        renderer.RenderingOptions.MarginTop = 20;
+        renderer.RenderingOptions.MarginBottom = 20;
+        renderer.RenderingOptions.MarginLeft = 25;
+        renderer.RenderingOptions.MarginRight = 25;
+        
+        string html = "<h1 style='font-size:14pt'>Custom PDF</h1>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("custom.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with FoNet (FO.NET) C# PDF?
+
+Here's how **FoNet (FO.NET) C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package Fonet
+using Fonet;
+using Fonet.Render.Pdf;
+using System.IO;
+using System.Xml;
+
+class Program
+{
+    static void Main()
+    {
+        // FoNet requires XSL-FO format, not HTML
+        // First convert HTML to XSL-FO (manual process)
+        string xslFo = @"<?xml version='1.0' encoding='utf-8'?>
+            <fo:root xmlns:fo='http://www.w3.org/1999/XSL/Format'>
+                <fo:layout-master-set>
+                    <fo:simple-page-master master-name='page'>
+                        <fo:region-body/>
+                    </fo:simple-page-master>
+                </fo:layout-master-set>
+                <fo:page-sequence master-reference='page'>
+                    <fo:flow flow-name='xsl-region-body'>
+                        <fo:block>Hello World</fo:block>
+                    </fo:flow>
+                </fo:page-sequence>
+            </fo:root>";
+        
+        FonetDriver driver = FonetDriver.Make();
+        driver.Render(new StringReader(xslFo), 
+            new FileStream("output.pdf", FileMode.Create));
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        string html = "<h1>Hello World</h1><p>This is HTML content.</p>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from FoNet (FO.NET) C# PDF to IronPDF?
+
+FoNet requires learning XSL-FO, an obsolete XML-based formatting language that lacks modern adoption and has a steep learning curve. IronPDF allows you to generate PDFs directly from HTML and CSS, technologies familiar to most developers, eliminating the need for XSL-FO expertise.
+
+**Migrating from FoNet (FO.NET) C# PDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Install `IronPdf` package
+2. **Namespace Update**: Replace `Fonet` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: FoNet (FO.NET) C# PDF → IronPDF](migrate-from-fonet.md)**
+

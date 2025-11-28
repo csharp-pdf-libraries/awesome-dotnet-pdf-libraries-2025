@@ -38,6 +38,204 @@ PdfGenerator.GeneratePdfFromHtml("sample.html", "output.pdf");
 ```
 For more tutorials on how to utilize IronPDF, visit [IronPDF Tutorials](https://ironpdf.com/tutorials/).
 
+---
+
+## How Do I Convert HTML to PDF in C# with CraftMyPDF?
+
+Here's how **CraftMyPDF** handles this:
+
+```csharp
+// NuGet: Install-Package RestSharp
+using System;
+using RestSharp;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var client = new RestClient("https://api.craftmypdf.com/v1/create");
+        var request = new RestRequest(Method.POST);
+        request.AddHeader("X-API-KEY", "your-api-key");
+        request.AddJsonBody(new
+        {
+            template_id = "your-template-id",
+            data = new
+            {
+                html = "<h1>Hello World</h1><p>This is a PDF from HTML</p>"
+            }
+        });
+        
+        var response = client.Execute(request);
+        File.WriteAllBytes("output.pdf", response.RawBytes);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using System;
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1><p>This is a PDF from HTML</p>");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Add Headers and Footers to PDFs?
+
+Here's how **CraftMyPDF** handles this:
+
+```csharp
+// NuGet: Install-Package RestSharp
+using System;
+using RestSharp;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var client = new RestClient("https://api.craftmypdf.com/v1/create");
+        var request = new RestRequest(Method.POST);
+        request.AddHeader("X-API-KEY", "your-api-key");
+        request.AddJsonBody(new
+        {
+            template_id = "your-template-id",
+            data = new
+            {
+                html = "<h1>Document Content</h1>",
+                header = "<div>Page Header</div>",
+                footer = "<div>Page {page} of {total_pages}</div>"
+            }
+        });
+        
+        var response = client.Execute(request);
+        File.WriteAllBytes("document.pdf", response.RawBytes);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using System;
+using IronPdf;
+using IronPdf.Rendering;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.TextHeader = new TextHeaderFooter()
+        {
+            CenterText = "Page Header"
+        };
+        renderer.RenderingOptions.TextFooter = new TextHeaderFooter()
+        {
+            CenterText = "Page {page} of {total-pages}"
+        };
+        
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Document Content</h1>");
+        pdf.SaveAs("document.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **CraftMyPDF** handles this:
+
+```csharp
+// NuGet: Install-Package RestSharp
+using System;
+using RestSharp;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var client = new RestClient("https://api.craftmypdf.com/v1/create");
+        var request = new RestRequest(Method.POST);
+        request.AddHeader("X-API-KEY", "your-api-key");
+        request.AddJsonBody(new
+        {
+            template_id = "your-template-id",
+            data = new
+            {
+                url = "https://example.com"
+            },
+            export_type = "pdf"
+        });
+        
+        var response = client.Execute(request);
+        File.WriteAllBytes("webpage.pdf", response.RawBytes);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using System;
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://example.com");
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from CraftMyPDF to IronPDF?
+
+IronPDF eliminates vendor lock-in by allowing you to generate PDFs directly from HTML, CSS, and JavaScript without template restrictions. Unlike CraftMyPDF's cloud-only architecture, IronPDF runs entirely on-premise, giving you complete control over your data and eliminating recurring API costs.
+
+**Migrating from CraftMyPDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `CraftMyPDF`, add `IronPdf`
+2. **Namespace Update**: Replace `CraftMyPdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: CraftMyPDF → IronPDF](migrate-from-craftmypdf.md)**
+
+
 ## Comparison Table
 
 Here's a quick comparison of CraftMyPDF and IronPDF:

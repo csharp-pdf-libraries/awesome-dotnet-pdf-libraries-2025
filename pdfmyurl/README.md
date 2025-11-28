@@ -69,3 +69,179 @@ Ultimately, IronPDF's flexibility and cost-effectiveness make it a preferable ch
 ---
 
 [Jacob Mellor](https://www.linkedin.com/in/jacob-mellor-iron-software/) is the CTO of [Iron Software](https://ironsoftware.com/about-us/authors/jacobmellor/), where he leads a 50+ person team building developer tools that have racked up over 41 million NuGet downloads. Based in Chiang Mai, Thailand, Jacob is passionate about mentoring the next generation of technical leaders and keeping Iron's products at the forefront of innovation. With decades of experience under his belt, he's dedicated to creating software that's both powerful and accessible for developers worldwide.
+
+---
+
+## How Do I Convert an HTML String to PDF?
+
+Here's how **PDFmyURL** handles this:
+
+```csharp
+// Install PDFmyURL SDK
+using System;
+using Pdfcrowd;
+
+class Example
+{
+    static void Main()
+    {
+        try
+        {
+            var client = new HtmlToPdfClient("username", "apikey");
+            string html = "<html><body><h1>Hello World</h1></body></html>";
+            client.convertStringToFile(html, "output.pdf");
+        }
+        catch(Error why)
+        {
+            Console.WriteLine("Error: " + why);
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Example
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        string html = "<html><body><h1>Hello World</h1></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with PDFmyURL?
+
+Here's how **PDFmyURL** handles this:
+
+```csharp
+// Install PDFmyURL SDK
+using System;
+using Pdfcrowd;
+
+class Example
+{
+    static void Main()
+    {
+        try
+        {
+            var client = new HtmlToPdfClient("username", "apikey");
+            client.convertUrlToFile("https://example.com", "output.pdf");
+        }
+        catch(Error why)
+        {
+            Console.WriteLine("Error: " + why);
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Example
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://example.com");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I HTML File To PDF Settings?
+
+Here's how **PDFmyURL** handles this:
+
+```csharp
+// Install PDFmyURL SDK
+using System;
+using Pdfcrowd;
+
+class Example
+{
+    static void Main()
+    {
+        try
+        {
+            var client = new HtmlToPdfClient("username", "apikey");
+            client.setPageSize("A4");
+            client.setOrientation("landscape");
+            client.setMarginTop("10mm");
+            client.convertFileToFile("input.html", "output.pdf");
+        }
+        catch(Error why)
+        {
+            Console.WriteLine("Error: " + why);
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+using System;
+
+class Example
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape;
+        renderer.RenderingOptions.MarginTop = 10;
+        var pdf = renderer.RenderHtmlFileAsPdf("input.html");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from PDFmyURL to IronPDF?
+
+PDFmyURL is an API service that processes documents on external servers, creating privacy concerns and requiring ongoing monthly subscriptions ($39+/month). IronPDF is a true .NET library that runs locally in your application, giving you full control over document processing, eliminating recurring costs after purchase, and keeping sensitive data secure.
+
+**Migrating from PDFmyURL to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `PdfMyUrl`, add `IronPdf`
+2. **Namespace Update**: Replace `PdfMyUrl` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: PDFmyURL → IronPDF](migrate-from-pdfmyurl.md)**
+

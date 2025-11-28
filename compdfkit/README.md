@@ -94,3 +94,195 @@ Ultimately, each library's fit depends on the balance between cost, licensing fl
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a globally distributed engineering team of 50+ engineers building developer tools that have achieved over 41 million NuGet downloads. With 41 years of coding experience, Jacob brings deep technical expertise to creating intuitive APIs that developers love. Based in Chiang Mai, Thailand, he maintains an active presence on [GitHub](https://github.com/jacob-mellor) and [Medium](https://medium.com/@jacob.mellor), sharing insights on software architecture and development best practices.
+
+---
+
+## How Do I Convert HTML to PDF in C# with ComPDFKit?
+
+Here's how **ComPDFKit** handles this:
+
+```csharp
+// NuGet: Install-Package ComPDFKit.NetCore
+using ComPDFKit.PDFDocument;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var document = CPDFDocument.CreateDocument();
+        var page = document.InsertPage(0, 595, 842, "");
+        
+        // ComPDFKit requires manual HTML rendering
+        // Native HTML to PDF not directly supported
+        var editor = page.GetEditor();
+        editor.BeginEdit(CPDFEditType.EditText);
+        editor.CreateTextWidget(new System.Drawing.RectangleF(50, 50, 500, 700), "HTML content here");
+        editor.EndEdit();
+        
+        document.WriteToFilePath("output.pdf");
+        document.Release();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1><p>This is HTML content.</p>");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Add Watermark?
+
+Here's how **ComPDFKit** handles this:
+
+```csharp
+// NuGet: Install-Package ComPDFKit.NetCore
+using ComPDFKit.PDFDocument;
+using ComPDFKit.PDFPage;
+using System;
+using System.Drawing;
+
+class Program
+{
+    static void Main()
+    {
+        var document = CPDFDocument.InitWithFilePath("input.pdf");
+        
+        for (int i = 0; i < document.PageCount; i++)
+        {
+            var page = document.PageAtIndex(i);
+            var editor = page.GetEditor();
+            editor.BeginEdit(CPDFEditType.EditText);
+            
+            var textArea = editor.CreateTextArea();
+            textArea.SetText("CONFIDENTIAL");
+            textArea.SetFontSize(48);
+            textArea.SetTransparency(128);
+            
+            editor.EndEdit();
+            page.Release();
+        }
+        
+        document.WriteToFilePath("watermarked.pdf");
+        document.Release();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Editing;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf = PdfDocument.FromFile("input.pdf");
+        
+        pdf.ApplyWatermark("<h1 style='color:rgba(255,0,0,0.3);'>CONFIDENTIAL</h1>",
+            rotation: 45,
+            verticalAlignment: VerticalAlignment.Middle,
+            horizontalAlignment: HorizontalAlignment.Center);
+        
+        pdf.SaveAs("watermarked.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **ComPDFKit** handles this:
+
+```csharp
+// NuGet: Install-Package ComPDFKit.NetCore
+using ComPDFKit.PDFDocument;
+using ComPDFKit.Import;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var document1 = CPDFDocument.InitWithFilePath("file1.pdf");
+        var document2 = CPDFDocument.InitWithFilePath("file2.pdf");
+        
+        // Import pages from document2 into document1
+        document1.ImportPagesAtIndex(document2, "0-" + (document2.PageCount - 1), document1.PageCount);
+        
+        document1.WriteToFilePath("merged.pdf");
+        document1.Release();
+        document2.Release();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf1 = PdfDocument.FromFile("file1.pdf");
+        var pdf2 = PdfDocument.FromFile("file2.pdf");
+        
+        var merged = PdfDocument.Merge(new List<PdfDocument> { pdf1, pdf2 });
+        merged.SaveAs("merged.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from ComPDFKit to IronPDF?
+
+IronPDF offers a more mature and battle-tested solution with extensive documentation, a large active community, and comprehensive Stack Overflow support. With over a decade in the market, IronPDF provides enterprise-grade stability and a proven track record across thousands of production environments.
+
+**Migrating from ComPDFKit to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `ComPDFKit.NetCore`, add `IronPdf`
+2. **Namespace Update**: Replace `ComPDFKit.PDFDocument` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: ComPDFKit → IronPDF](migrate-from-compdfkit.md)**
+

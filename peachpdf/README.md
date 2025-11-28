@@ -41,6 +41,163 @@ By contrast, IronPDF provides a comprehensive set of features and benefits that 
 
 IronPDF stands out with broader functionality, supporting not just HTML-to-PDF conversions but also OCR, watermarking, and other advanced features. Its professional support structure is a definite advantage, offering quick resolutions to issues faced by developers.
 
+---
+
+## How Do I Convert HTML to PDF in C# with PeachPDF?
+
+Here's how **PeachPDF** handles this:
+
+```csharp
+using PeachPDF;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        var html = "<html><body><h1>Hello World</h1></body></html>";
+        var pdf = converter.Convert(html);
+        File.WriteAllBytes("output.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var html = "<html><body><h1>Hello World</h1></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **PeachPDF** handles this:
+
+```csharp
+using PeachPDF;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        var url = "https://www.example.com";
+        var pdf = converter.ConvertUrl(url);
+        File.WriteAllBytes("webpage.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var url = "https://www.example.com";
+        var pdf = renderer.RenderUrlAsPdf(url);
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Add Headers and Footers to PDFs?
+
+Here's how **PeachPDF** handles this:
+
+```csharp
+using PeachPDF;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        converter.Header = "<div style='text-align:center'>My Header</div>";
+        converter.Footer = "<div style='text-align:center'>Page {page}</div>";
+        var html = "<html><body><h1>Document Content</h1></body></html>";
+        var pdf = converter.Convert(html);
+        File.WriteAllBytes("document.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter() { HtmlFragment = "<div style='text-align:center'>My Header</div>" };
+        renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter() { HtmlFragment = "<div style='text-align:center'>Page {page}</div>" };
+        var html = "<html><body><h1>Document Content</h1></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("document.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from PeachPDF to IronPDF?
+
+IronPDF offers enterprise-grade PDF generation with comprehensive features, active development, and professional support that PeachPDF cannot provide. With a large user base and extensive documentation, IronPDF ensures long-term stability and compatibility with modern .NET frameworks.
+
+**Migrating from PeachPDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `PeachPDF`, add `IronPdf`
+2. **Namespace Update**: Replace `PeachPDF` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: PeachPDF → IronPDF](migrate-from-peachpdf.md)**
+
+
 ## Comparison Table
 
 Below is a comparison table highlighting the primary aspects of PeachPDF and IronPDF:

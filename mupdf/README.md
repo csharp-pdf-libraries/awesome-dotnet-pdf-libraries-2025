@@ -93,3 +93,189 @@ In summary, choosing between MuPDF (.NET bindings) and IronPDF largely depends o
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have achieved over 41 million NuGet downloads. With an impressive 41 years of coding experience, Jacob brings deep technical expertise to creating robust .NET libraries like IronPDF's MuPDF bindings. Based in Chiang Mai, Thailand, he's passionate about empowering developers with reliable, easy-to-use solutions. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
+
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **MuPDF (.NET bindings)** handles this:
+
+```csharp
+// NuGet: Install-Package MuPDF.NET
+using MuPDFCore;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        using (MuPDFDocument doc1 = new MuPDFDocument("file1.pdf"))
+        using (MuPDFDocument doc2 = new MuPDFDocument("file2.pdf"))
+        {
+            // Create a new document
+            using (MuPDFDocument mergedDoc = MuPDFDocument.Create())
+            {
+                // Copy pages from first document
+                for (int i = 0; i < doc1.Pages.Count; i++)
+                {
+                    mergedDoc.CopyPage(doc1, i);
+                }
+                
+                // Copy pages from second document
+                for (int i = 0; i < doc2.Pages.Count; i++)
+                {
+                    mergedDoc.CopyPage(doc2, i);
+                }
+                
+                mergedDoc.Save("merged.pdf");
+            }
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf1 = PdfDocument.FromFile("file1.pdf");
+        var pdf2 = PdfDocument.FromFile("file2.pdf");
+        
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with MuPDF (.NET bindings)?
+
+Here's how **MuPDF (.NET bindings)** handles this:
+
+```csharp
+// NuGet: Install-Package MuPDF.NET
+using MuPDFCore;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        // MuPDF doesn't support HTML to PDF conversion directly
+        // You would need to use another library to convert HTML to a supported format first
+        // This is a limitation - MuPDF is primarily a PDF renderer/viewer
+        
+        // Alternative: Use a browser engine or intermediate conversion
+        string html = "<html><body><h1>Hello World</h1></body></html>";
+        
+        // Not natively supported in MuPDF
+        throw new NotSupportedException("MuPDF does not support direct HTML to PDF conversion");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        string html = "<html><body><h1>Hello World</h1></body></html>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Extract Text?
+
+Here's how **MuPDF (.NET bindings)** handles this:
+
+```csharp
+// NuGet: Install-Package MuPDF.NET
+using MuPDFCore;
+using System;
+using System.Text;
+
+class Program
+{
+    static void Main()
+    {
+        using (MuPDFDocument document = new MuPDFDocument("input.pdf"))
+        {
+            StringBuilder allText = new StringBuilder();
+            
+            for (int i = 0; i < document.Pages.Count; i++)
+            {
+                string pageText = document.Pages[i].GetText();
+                allText.AppendLine(pageText);
+            }
+            
+            Console.WriteLine(allText.ToString());
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf = PdfDocument.FromFile("input.pdf");
+        string text = pdf.ExtractAllText();
+        
+        Console.WriteLine(text);
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from MuPDF (.NET bindings) to IronPDF?
+
+MuPDF's AGPL license poses viral licensing concerns for commercial applications, requiring costly commercial licenses for proprietary software. While MuPDF excels at rendering PDFs, it's not designed for PDF creation or manipulation workflows common in .NET applications.
+
+**Migrating from MuPDF (.NET bindings) to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `MuPDF.NET`, add `IronPdf`
+2. **Namespace Update**: Replace `MuPDF.NET` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: MuPDF (.NET bindings) → IronPDF](migrate-from-mupdf.md)**
+

@@ -64,6 +64,177 @@ public class PDFGenerator
 
 In this example, we initialize a simple HTML document, and using Scryber.core's `Document` object, we parse the HTML content and save the output as a PDF file. This ease of use and reliance on familiar HTML/CSS makes Scryber.core an attractive library for developers working on applications that require dynamic, templated PDF generation.
 
+---
+
+## How Do I Convert HTML to PDF in C# with Scryber.core: A Comprehensive Look at C# PDF Generation?
+
+Here's how **Scryber.core: A Comprehensive Look at C# PDF Generation** handles this:
+
+```csharp
+// NuGet: Install-Package Scryber.Core
+using Scryber.Core;
+using Scryber.Core.Html;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        string html = "<html><body><h1>Hello World</h1><p>This is a PDF document.</p></body></html>";
+        
+        using (var doc = Document.ParseDocument(html, ParseSourceType.DynamicContent))
+        {
+            doc.SaveAsPDF("output.pdf");
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        string html = "<html><body><h1>Hello World</h1><p>This is a PDF document.</p></body></html>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Use Custom Rendering Settings?
+
+Here's how **Scryber.core: A Comprehensive Look at C# PDF Generation** handles this:
+
+```csharp
+// NuGet: Install-Package Scryber.Core
+using Scryber.Core;
+using Scryber.Core.Html;
+using Scryber.Drawing;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        string html = "<html><body><h1>Custom PDF</h1><p>With custom margins and settings.</p></body></html>";
+        
+        using (var doc = Document.ParseDocument(html, ParseSourceType.DynamicContent))
+        {
+            doc.RenderOptions.Compression = OutputCompressionType.FlateDecode;
+            doc.RenderOptions.PaperSize = PaperSize.A4;
+            doc.SaveAsPDF("custom.pdf");
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        renderer.RenderingOptions.MarginTop = 40;
+        renderer.RenderingOptions.MarginBottom = 40;
+        
+        string html = "<html><body><h1>Custom PDF</h1><p>With custom margins and settings.</p></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("custom.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **Scryber.core: A Comprehensive Look at C# PDF Generation** handles this:
+
+```csharp
+// NuGet: Install-Package Scryber.Core
+using Scryber.Core;
+using Scryber.Core.Html;
+using System.Net.Http;
+using System.Threading.Tasks;
+
+class Program
+{
+    static async Task Main()
+    {
+        using var client = new HttpClient();
+        string html = await client.GetStringAsync("https://www.example.com");
+        
+        using (var doc = Document.ParseDocument(html, ParseSourceType.DynamicContent))
+        {
+            doc.SaveAsPDF("webpage.pdf");
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Scryber.core: A Comprehensive Look at C# PDF Generation to IronPDF?
+
+IronPDF offers enterprise-grade commercial support, extensive documentation, and a larger community compared to Scryber.Core. The library provides more flexible licensing options without LGPL restrictions, making it ideal for commercial applications.
+
+**Migrating from Scryber.core: A Comprehensive Look at C# PDF Generation to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `Scryber.Core`, add `IronPdf`
+2. **Namespace Update**: Replace `Scryber.Components` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Scryber.core: A Comprehensive Look at C# PDF Generation → IronPDF](migrate-from-scrybercore.md)**
+
+
 ## Conclusion
 
 In summary, Scryber.core and IronPDF serve different niches within the spectrum of PDF generation libraries. Scryber.core, with its open-source LGPL licensing and HTML template capabilities, aligns with developers who seek flexibility and cost efficiency. On the other hand, IronPDF offers a more robust commercial licensing model, with the advantage of extensive documentation, a larger user base, and professional support.

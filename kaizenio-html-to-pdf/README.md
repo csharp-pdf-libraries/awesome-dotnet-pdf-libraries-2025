@@ -106,3 +106,174 @@ Choosing between Kaizen.io HTML-to-PDF and IronPDF ultimately depends on your sp
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have racked up over 41 million NuGet downloads. With four decades of coding under his belt, he's seen it all—from punch cards to cloud native (okay, maybe not punch cards, but close). When he's not shipping software, you can find him based in Chiang Mai, Thailand, probably debugging something over a really good cup of coffee. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
+
+---
+
+## How Do I Url To PDF Headers Footers?
+
+Here's how **Kaizen.io HTML-to-PDF** handles this:
+
+```csharp
+using Kaizen.IO;
+using System;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        var options = new ConversionOptions
+        {
+            Header = new HeaderOptions { HtmlContent = "<div style='text-align:center'>Company Header</div>" },
+            Footer = new FooterOptions { HtmlContent = "<div style='text-align:center'>Page {page} of {total}</div>" },
+            MarginTop = 20,
+            MarginBottom = 20
+        };
+        var pdfBytes = converter.ConvertUrl("https://example.com", options);
+        File.WriteAllBytes("webpage.pdf", pdfBytes);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.TextHeader.CenterText = "Company Header";
+        renderer.RenderingOptions.TextFooter.CenterText = "Page {page} of {total-pages}";
+        renderer.RenderingOptions.MarginTop = 20;
+        renderer.RenderingOptions.MarginBottom = 20;
+        var pdf = renderer.RenderUrlAsPdf("https://example.com");
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert an HTML File to PDF?
+
+Here's how **Kaizen.io HTML-to-PDF** handles this:
+
+```csharp
+using Kaizen.IO;
+using System;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        var htmlContent = File.ReadAllText("input.html");
+        var options = new ConversionOptions
+        {
+            PageSize = PageSize.A4,
+            Orientation = Orientation.Portrait
+        };
+        var pdfBytes = converter.Convert(htmlContent, options);
+        File.WriteAllBytes("document.pdf", pdfBytes);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Portrait;
+        var pdf = renderer.RenderHtmlFileAsPdf("input.html");
+        pdf.SaveAs("document.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Basic HTML To PDF?
+
+Here's how **Kaizen.io HTML-to-PDF** handles this:
+
+```csharp
+using Kaizen.IO;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        var html = "<html><body><h1>Hello World</h1></body></html>";
+        var pdfBytes = converter.Convert(html);
+        File.WriteAllBytes("output.pdf", pdfBytes);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var html = "<html><body><h1>Hello World</h1></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Kaizen.io HTML-to-PDF to IronPDF?
+
+IronPDF eliminates cloud dependencies by processing PDF generation entirely on your local infrastructure, ensuring your sensitive data never leaves your network. You'll experience significantly faster performance without network latency while maintaining complete control over your rendering environment.
+
+**Migrating from Kaizen.io HTML-to-PDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `Kaizen.HtmlToPdf`, add `IronPdf`
+2. **Namespace Update**: Replace `Kaizen.HtmlToPdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Kaizen.io HTML-to-PDF → IronPDF](migrate-from-kaizenio-html-to-pdf.md)**
+

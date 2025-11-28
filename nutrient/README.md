@@ -61,6 +61,182 @@ Its enterprise pricing model and the platform-like structure are designed to acc
 
 For developers who prioritize simplicity in implementation coupled with potent PDF processing capabilities, IronPDF [proves to be a suitable choice](https://ironpdf.com/how-to/html-file-to-pdf/). As a versatile library exclusively concentrating on PDF tasks, it avoids the additional feature bloat that comes with a comprehensive platform like Nutrient. IronPDF's focus is an advantage here; it allows for swift integration, making it a practical solution for a variety of projects, from small startups to mature enterprises.
 
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **Nutrient (formerly PSPDFKit) and C# PDF Processing** handles this:
+
+```csharp
+// NuGet: Install-Package PSPDFKit.Dotnet
+using PSPDFKit.Pdf;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+
+class Program
+{
+    static async Task Main()
+    {
+        using var processor = await PdfProcessor.CreateAsync();
+        
+        var document1 = await processor.OpenAsync("document1.pdf");
+        var document2 = await processor.OpenAsync("document2.pdf");
+        
+        var mergedDocument = await processor.MergeAsync(new List<PdfDocument> { document1, document2 });
+        await mergedDocument.SaveAsync("merged.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf1 = PdfDocument.FromFile("document1.pdf");
+        var pdf2 = PdfDocument.FromFile("document2.pdf");
+        
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with Nutrient (formerly PSPDFKit) and C# PDF Processing?
+
+Here's how **Nutrient (formerly PSPDFKit) and C# PDF Processing** handles this:
+
+```csharp
+// NuGet: Install-Package PSPDFKit.Dotnet
+using PSPDFKit.Pdf;
+using System.Threading.Tasks;
+
+class Program
+{
+    static async Task Main()
+    {
+        var htmlContent = "<html><body><h1>Hello World</h1></body></html>";
+        
+        using var processor = await PdfProcessor.CreateAsync();
+        var document = await processor.GeneratePdfFromHtmlStringAsync(htmlContent);
+        await document.SaveAsync("output.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var htmlContent = "<html><body><h1>Hello World</h1></body></html>";
+        
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Add Watermark?
+
+Here's how **Nutrient (formerly PSPDFKit) and C# PDF Processing** handles this:
+
+```csharp
+// NuGet: Install-Package PSPDFKit.Dotnet
+using PSPDFKit.Pdf;
+using PSPDFKit.Pdf.Annotation;
+using System.Threading.Tasks;
+
+class Program
+{
+    static async Task Main()
+    {
+        using var processor = await PdfProcessor.CreateAsync();
+        var document = await processor.OpenAsync("document.pdf");
+        
+        for (int i = 0; i < document.PageCount; i++)
+        {
+            var watermark = new TextAnnotation("CONFIDENTIAL")
+            {
+                Opacity = 0.5,
+                FontSize = 48
+            };
+            await document.AddAnnotationAsync(i, watermark);
+        }
+        
+        await document.SaveAsync("watermarked.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Editing;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf = PdfDocument.FromFile("document.pdf");
+        
+        pdf.ApplyWatermark("<h1 style='color:gray;opacity:0.5;'>CONFIDENTIAL</h1>",
+            50,
+            VerticalAlignment.Middle,
+            HorizontalAlignment.Center);
+        
+        pdf.SaveAs("watermarked.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Nutrient (formerly PSPDFKit) and C# PDF Processing to IronPDF?
+
+Nutrient is a comprehensive platform with AI features and enterprise-level complexity that many projects don't require. IronPDF provides a focused, straightforward library specifically for PDF generation and manipulation without platform overhead.
+
+**Migrating from Nutrient (formerly PSPDFKit) and C# PDF Processing to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `PSPDFKit`, add `IronPdf`
+2. **Namespace Update**: Replace `PSPDFKit.Pdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Nutrient (formerly PSPDFKit) and C# PDF Processing → IronPDF](migrate-from-nutrient.md)**
+
+
 ## Conclusion
 
 In the ever-evolving landscape of document processing, choices like Nutrient (formerly PSPDFKit) and IronPDF offer distinct paths for C# developers. Nutrient represents a broader, AI-driven platform ideal for large-scale enterprise applications. On the other hand, IronPDF delivers a targeted, efficient approach to handling PDF operations, suitable for a wide range of projects.

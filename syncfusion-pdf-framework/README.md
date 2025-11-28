@@ -48,6 +48,213 @@ public class PdfCreator
 
 This snippet demonstrates the basics of creating a PDF in C# using the Syncfusion PDF Framework, showing how to set up a document, add a page, and draw text on it. Despite the easy-to-use API, the requirement to buy the entire Syncfusion suite could overshadow the initial appeal for small-scale developers or those with simpler needs.
 
+---
+
+## How Do I Convert HTML to PDF in C# with Syncfusion PDF Framework?
+
+Here's how **Syncfusion PDF Framework** handles this:
+
+```csharp
+// NuGet: Install-Package Syncfusion.Pdf.Net.Core
+using Syncfusion.HtmlConverter;
+using Syncfusion.Pdf;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        // Initialize HTML to PDF converter
+        HtmlToPdfConverter htmlConverter = new HtmlToPdfConverter();
+        
+        // Convert URL to PDF
+        PdfDocument document = htmlConverter.Convert("https://www.example.com");
+        
+        // Save the document
+        FileStream fileStream = new FileStream("Output.pdf", FileMode.Create);
+        document.Save(fileStream);
+        document.Close(true);
+        fileStream.Close();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        // Create a PDF from a URL
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        
+        // Save the PDF
+        pdf.SaveAs("Output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Create PDF From Text?
+
+Here's how **Syncfusion PDF Framework** handles this:
+
+```csharp
+// NuGet: Install-Package Syncfusion.Pdf.Net.Core
+using Syncfusion.Pdf;
+using Syncfusion.Pdf.Graphics;
+using Syncfusion.Drawing;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        // Create a new PDF document
+        PdfDocument document = new PdfDocument();
+        
+        // Add a page
+        PdfPage page = document.Pages.Add();
+        
+        // Create a font
+        PdfFont font = new PdfStandardFont(PdfFontFamily.Helvetica, 12);
+        
+        // Draw text
+        page.Graphics.DrawString("Hello, World!", font, PdfBrushes.Black, new PointF(10, 10));
+        
+        // Save the document
+        FileStream fileStream = new FileStream("Output.pdf", FileMode.Create);
+        document.Save(fileStream);
+        document.Close(true);
+        fileStream.Close();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+
+class Program
+{
+    static void Main()
+    {
+        // Create a PDF from HTML string
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello, World!</h1>");
+        
+        // Save the document
+        pdf.SaveAs("Output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Merge PDF Documents?
+
+Here's how **Syncfusion PDF Framework** handles this:
+
+```csharp
+// NuGet: Install-Package Syncfusion.Pdf.Net.Core
+using Syncfusion.Pdf;
+using Syncfusion.Pdf.Parsing;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        // Load the first PDF document
+        FileStream stream1 = new FileStream("Document1.pdf", FileMode.Open, FileAccess.Read);
+        PdfLoadedDocument loadedDocument1 = new PdfLoadedDocument(stream1);
+        
+        // Load the second PDF document
+        FileStream stream2 = new FileStream("Document2.pdf", FileMode.Open, FileAccess.Read);
+        PdfLoadedDocument loadedDocument2 = new PdfLoadedDocument(stream2);
+        
+        // Merge the documents
+        PdfDocument finalDocument = new PdfDocument();
+        finalDocument.ImportPageRange(loadedDocument1, 0, loadedDocument1.Pages.Count - 1);
+        finalDocument.ImportPageRange(loadedDocument2, 0, loadedDocument2.Pages.Count - 1);
+        
+        // Save the merged document
+        FileStream outputStream = new FileStream("Merged.pdf", FileMode.Create);
+        finalDocument.Save(outputStream);
+        
+        // Close all documents
+        finalDocument.Close(true);
+        loadedDocument1.Close(true);
+        loadedDocument2.Close(true);
+        stream1.Close();
+        stream2.Close();
+        outputStream.Close();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main()
+    {
+        // Load PDF documents
+        var pdf1 = PdfDocument.FromFile("Document1.pdf");
+        var pdf2 = PdfDocument.FromFile("Document2.pdf");
+        
+        // Merge PDFs
+        var merged = PdfDocument.Merge(new List<PdfDocument> { pdf1, pdf2 });
+        
+        // Save the merged document
+        merged.SaveAs("Merged.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Syncfusion PDF Framework to IronPDF?
+
+IronPDF offers straightforward, standalone licensing without forcing you to purchase an entire suite of components. Unlike Syncfusion's restrictive community license (requiring both <$1M revenue AND <5 developers), IronPDF provides flexible licensing options suitable for teams of any size.
+
+**Migrating from Syncfusion PDF Framework to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `Syncfusion.Pdf.Net.Core`, add `IronPdf`
+2. **Namespace Update**: Replace `Syncfusion.Pdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Syncfusion PDF Framework → IronPDF](migrate-from-syncfusion-pdf-framework.md)**
+
+
 ## Comparing Syncfusion PDF Framework to IronPDF
 
 While Syncfusion's PDF Framework offers an all-encompassing suite as part of Essential Studio, IronPDF provides a more focused approach by offering its PDF capabilities as a standalone product. This difference significantly impacts both cost considerations and ease of integration.

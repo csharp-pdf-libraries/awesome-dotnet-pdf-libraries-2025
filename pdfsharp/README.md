@@ -75,6 +75,228 @@ Visit [IronPDF Tutorials](https://ironpdf.com/tutorials/) for more examples and 
    
 2. **Heavier Footprint**: The library's inclusion of comprehensive features might increase the size of the application.
 
+---
+
+## How Do I Convert HTML to PDF in C# with PDFSharp?
+
+Here's how **PDFSharp** handles this:
+
+```csharp
+// NuGet: Install-Package PdfSharp
+using PdfSharp.Pdf;
+using PdfSharp.Drawing;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // PDFSharp does not have built-in HTML to PDF conversion
+        // You need to manually parse HTML and render content
+        PdfDocument document = new PdfDocument();
+        PdfPage page = document.AddPage();
+        XGraphics gfx = XGraphics.FromPdfPage(page);
+        XFont font = new XFont("Arial", 12);
+        
+        // Manual text rendering (no HTML support)
+        gfx.DrawString("Hello from PDFSharp", font, XBrushes.Black,
+            new XRect(0, 0, page.Width, page.Height),
+            XStringFormats.TopLeft);
+        
+        document.Save("output.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // IronPDF has native HTML to PDF rendering
+        var renderer = new ChromePdfRenderer();
+        
+        string html = "<h1>Hello from IronPDF</h1><p>Easy HTML to PDF conversion</p>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Add Text to an Existing PDF?
+
+Here's how **PDFSharp** handles this:
+
+```csharp
+// NuGet: Install-Package PdfSharp
+using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
+using PdfSharp.Drawing;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Open existing PDF
+        PdfDocument document = PdfReader.Open("existing.pdf", PdfDocumentOpenMode.Modify);
+        PdfPage page = document.Pages[0];
+        
+        // Get graphics object
+        XGraphics gfx = XGraphics.FromPdfPage(page);
+        XFont font = new XFont("Arial", 20, XFontStyle.Bold);
+        
+        // Draw text at specific position
+        gfx.DrawString("Watermark Text", font, XBrushes.Red,
+            new XPoint(200, 400));
+        
+        document.Save("modified.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Editing;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Open existing PDF
+        var pdf = PdfDocument.FromFile("existing.pdf");
+        
+        // Add text stamp/watermark
+        var textStamper = new TextStamper()
+        {
+            Text = "Watermark Text",
+            FontSize = 20,
+            Color = IronSoftware.Drawing.Color.Red,
+            VerticalAlignment = VerticalAlignment.Middle,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        
+        pdf.ApplyStamp(textStamper);
+        pdf.SaveAs("modified.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Create a PDF with Images?
+
+Here's how **PDFSharp** handles this:
+
+```csharp
+// NuGet: Install-Package PdfSharp
+using PdfSharp.Pdf;
+using PdfSharp.Drawing;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Create new PDF document
+        PdfDocument document = new PdfDocument();
+        PdfPage page = document.AddPage();
+        XGraphics gfx = XGraphics.FromPdfPage(page);
+        
+        // Load and draw image
+        XImage image = XImage.FromFile("image.jpg");
+        
+        // Calculate size to fit page
+        double width = 200;
+        double height = 200;
+        
+        gfx.DrawImage(image, 50, 50, width, height);
+        
+        // Add text
+        XFont font = new XFont("Arial", 16);
+        gfx.DrawString("Image in PDF", font, XBrushes.Black,
+            new XPoint(50, 270));
+        
+        document.Save("output.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Create PDF from HTML with image
+        var renderer = new ChromePdfRenderer();
+        
+        string html = @"
+            <h1>Image in PDF</h1>
+            <img src='image.jpg' style='width:200px; height:200px;' />
+            <p>Easy image embedding with HTML</p>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+        
+        // Alternative: Add image to existing PDF
+        var existingPdf = new ChromePdfRenderer().RenderHtmlAsPdf("<h1>Document</h1>");
+        var imageStamper = new IronPdf.Editing.ImageStamper(new Uri("image.jpg"))
+        {
+            VerticalAlignment = IronPdf.Editing.VerticalAlignment.Top
+        };
+        existingPdf.ApplyStamp(imageStamper);
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from PDFSharp to IronPDF?
+
+PDFSharp requires manual positioning of every element using GDI+ style coordinates, making document generation tedious and error-prone. IronPDF supports native HTML-to-PDF conversion with modern CSS3 (including flexbox and grid), allowing you to leverage web technologies instead of calculating X,Y positions.
+
+**Migrating from PDFSharp to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `PdfSharp`, add `IronPdf`
+2. **Namespace Update**: Replace `PdfSharp.Pdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: PDFSharp → IronPDF](migrate-from-pdfsharp.md)**
+
+
 ## Comparison Table
 
 | Feature                 | PDFSharp                   | IronPDF                                     |

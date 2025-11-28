@@ -60,6 +60,175 @@ class Program
 }
 ```
 
+---
+
+## How Do I Convert HTML to PDF in C# with PDFPrinting.NET?
+
+Here's how **PDFPrinting.NET** handles this:
+
+```csharp
+// NuGet: Install-Package PDFPrinting.NET
+using PDFPrinting.NET;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        string html = "<html><body><h1>Hello World</h1></body></html>";
+        converter.ConvertHtmlToPdf(html, "output.pdf");
+        Console.WriteLine("PDF created successfully");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        string html = "<html><body><h1>Hello World</h1></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+        Console.WriteLine("PDF created successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Headers Footers?
+
+Here's how **PDFPrinting.NET** handles this:
+
+```csharp
+// NuGet: Install-Package PDFPrinting.NET
+using PDFPrinting.NET;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        converter.HeaderText = "Company Report";
+        converter.FooterText = "Page {page} of {total}";
+        string html = "<html><body><h1>Document Content</h1></body></html>";
+        converter.ConvertHtmlToPdf(html, "report.pdf");
+        Console.WriteLine("PDF with headers/footers created");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter()
+        {
+            HtmlFragment = "<div style='text-align:center'>Company Report</div>"
+        };
+        renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter()
+        {
+            HtmlFragment = "<div style='text-align:center'>Page {page} of {total-pages}</div>"
+        };
+        string html = "<html><body><h1>Document Content</h1></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("report.pdf");
+        Console.WriteLine("PDF with headers/footers created");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **PDFPrinting.NET** handles this:
+
+```csharp
+// NuGet: Install-Package PDFPrinting.NET
+using PDFPrinting.NET;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new WebPageToPdfConverter();
+        string url = "https://www.example.com";
+        converter.Convert(url, "webpage.pdf");
+        Console.WriteLine("PDF from URL created successfully");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        string url = "https://www.example.com";
+        var pdf = renderer.RenderUrlAsPdf(url);
+        pdf.SaveAs("webpage.pdf");
+        Console.WriteLine("PDF from URL created successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from PDFPrinting.NET to IronPDF?
+
+IronPDF is a comprehensive PDF library that not only prints PDFs but also creates, edits, and manipulates them programmatically. Unlike PDFPrinting.NET's Windows-only printing capabilities, IronPDF works cross-platform (Windows, Linux, macOS) and provides enterprise-grade features including HTML-to-PDF conversion, digital signatures, form filling, and advanced rendering options.
+
+**Migrating from PDFPrinting.NET to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `PDFPrinting.NET`, add `IronPdf`
+2. **Namespace Update**: Replace `PDFPrinting` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: PDFPrinting.NET → IronPDF](migrate-from-pdfprinting.md)**
+
+
 ## Comparison Table of PDFPrinting.NET vs. IronPDF
 
 | Feature                                  | PDFPrinting.NET                 | IronPDF                                    |

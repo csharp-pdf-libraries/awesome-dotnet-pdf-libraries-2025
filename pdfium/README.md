@@ -83,6 +83,207 @@ class Program
 
 This code highlights how IronPDF not only simplifies the process of converting and creating PDFs but also offers a glimpse into its ease-of-use, minimizing native dependency concerns pervasive in Pdfium.NET.
 
+---
+
+## How Do I Extract Text From PDF?
+
+Here's how **Pdfium.NET** handles this:
+
+```csharp
+// NuGet: Install-Package PdfiumViewer
+using PdfiumViewer;
+using System;
+using System.IO;
+using System.Text;
+
+class Program
+{
+    static void Main()
+    {
+        string pdfPath = "document.pdf";
+        
+        using (var document = PdfDocument.Load(pdfPath))
+        {
+            StringBuilder text = new StringBuilder();
+            
+            for (int i = 0; i < document.PageCount; i++)
+            {
+                // Note: PdfiumViewer has limited text extraction capabilities
+                // Text extraction requires additional work with Pdfium.NET
+                string pageText = document.GetPdfText(i);
+                text.AppendLine(pageText);
+            }
+            
+            Console.WriteLine(text.ToString());
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        string pdfPath = "document.pdf";
+        
+        var pdf = PdfDocument.FromFile(pdfPath);
+        string text = pdf.ExtractAllText();
+        
+        Console.WriteLine(text);
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **Pdfium.NET** handles this:
+
+```csharp
+// NuGet: Install-Package PdfiumViewer
+using PdfiumViewer;
+using System;
+using System.IO;
+using System.Collections.Generic;
+
+// Note: PdfiumViewer does not have native PDF merging functionality
+// You would need to use additional libraries or implement custom logic
+class Program
+{
+    static void Main()
+    {
+        List<string> pdfFiles = new List<string> 
+        { 
+            "document1.pdf", 
+            "document2.pdf", 
+            "document3.pdf" 
+        };
+        
+        // PdfiumViewer is primarily for rendering/viewing
+        // PDF merging is not natively supported
+        // You would need to use another library like iTextSharp or PdfSharp
+        
+        Console.WriteLine("PDF merging not natively supported in PdfiumViewer");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main()
+    {
+        List<string> pdfFiles = new List<string> 
+        { 
+            "document1.pdf", 
+            "document2.pdf", 
+            "document3.pdf" 
+        };
+        
+        var pdf = PdfDocument.Merge(pdfFiles);
+        pdf.SaveAs("merged.pdf");
+        
+        Console.WriteLine("PDFs merged successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with Pdfium.NET?
+
+Here's how **Pdfium.NET** handles this:
+
+```csharp
+// NuGet: Install-Package PdfiumViewer
+using PdfiumViewer;
+using System.IO;
+using System.Drawing.Printing;
+
+// Note: PdfiumViewer is primarily for viewing/rendering PDFs, not creating them from HTML
+// For HTML to PDF with Pdfium.NET, you would need additional libraries
+// This example shows a limitation of Pdfium.NET
+class Program
+{
+    static void Main()
+    {
+        // Pdfium.NET does not have native HTML to PDF conversion
+        // You would need to use a separate library to convert HTML to PDF
+        // then use Pdfium for manipulation
+        string htmlContent = "<h1>Hello World</h1>";
+        
+        // This functionality is not directly available in Pdfium.NET
+        Console.WriteLine("HTML to PDF conversion not natively supported in Pdfium.NET");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        string htmlContent = "<h1>Hello World</h1>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("output.pdf");
+        
+        Console.WriteLine("PDF created successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Pdfium.NET to IronPDF?
+
+IronPDF offers comprehensive PDF creation, editing, and rendering capabilities beyond Pdfium.NET's viewing-focused functionality. It eliminates native dependency management by providing a fully managed .NET library with cross-platform support.
+
+**Migrating from Pdfium.NET to IronPDF involves:**
+
+1. **NuGet Package Change**: Install `IronPdf` package
+2. **Namespace Update**: Replace `Pdfium` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Pdfium.NET → IronPDF](migrate-from-pdfium.md)**
+
+
 ## Conclusion
 
 In conclusion, both Pdfium.NET and IronPDF offer unique strengths that cater to different aspects of PDF handling within C# applications. Pdfium.NET is preferred for its high-fidelity rendering and viewing capabilities, suitable for desktop applications focused on PDF display. However, for scenarios requiring creation, conversion, and manipulation, IronPDF provides a more comprehensive package that includes ease of use and reduced dependency management. Both libraries are commercially licensed, which should factor into considerations based on project budget and licensing constraints.

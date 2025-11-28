@@ -78,3 +78,295 @@ Conversely, IronPDF stands out with its ease of use and flexibility, fitting pro
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building .NET components that have racked up over 41 million NuGet downloads. With four decades of coding under his belt, he's all about combining solid engineering fundamentals with cutting-edge software development. Based in Chiang Mai, Thailand, you can find him on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/) and [GitHub](https://github.com/jacob-mellor).
+
+---
+
+## How Do I Database Report To PDF?
+
+Here's how **SSRS (SQL Server Reporting Services)** handles this:
+
+```csharp
+// SSRS - SQL Server Reporting Services
+using System;
+using System.Data;
+using System.Data.SqlClient;
+using Microsoft.Reporting.WebForms;
+using System.IO;
+
+class SSRSDatabaseReport
+{
+    static void Main()
+    {
+        // Create a ReportViewer instance
+        var reportViewer = new ReportViewer();
+        reportViewer.ProcessingMode = ProcessingMode.Local;
+        reportViewer.LocalReport.ReportPath = "SalesReport.rdlc";
+        
+        // Create database connection and fetch data
+        string connString = "Server=localhost;Database=SalesDB;Integrated Security=true;";
+        using (var connection = new SqlConnection(connString))
+        {
+            var adapter = new SqlDataAdapter("SELECT * FROM Sales", connection);
+            var dataSet = new DataSet();
+            adapter.Fill(dataSet, "Sales");
+            
+            // Bind data to report
+            var dataSource = new ReportDataSource("SalesDataSet", dataSet.Tables[0]);
+            reportViewer.LocalReport.DataSources.Clear();
+            reportViewer.LocalReport.DataSources.Add(dataSource);
+        }
+        
+        // Render to PDF
+        string mimeType, encoding, fileNameExtension;
+        string[] streams;
+        Warning[] warnings;
+        
+        byte[] bytes = reportViewer.LocalReport.Render(
+            "PDF", null, out mimeType, out encoding,
+            out fileNameExtension, out streams, out warnings);
+        
+        File.WriteAllBytes("sales-report.pdf", bytes);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.Text;
+
+class IronPdfDatabaseReport
+{
+    static void Main()
+    {
+        // Create database connection and fetch data
+        string connString = "Server=localhost;Database=SalesDB;Integrated Security=true;";
+        var dataTable = new DataTable();
+        
+        using (var connection = new SqlConnection(connString))
+        {
+            var adapter = new SqlDataAdapter("SELECT * FROM Sales", connection);
+            adapter.Fill(dataTable);
+        }
+        
+        // Build HTML table from data
+        var htmlBuilder = new StringBuilder();
+        htmlBuilder.Append("<h1>Sales Report</h1><table border='1'><tr>");
+        
+        foreach (DataColumn column in dataTable.Columns)
+            htmlBuilder.Append($"<th>{column.ColumnName}</th>");
+        htmlBuilder.Append("</tr>");
+        
+        foreach (DataRow row in dataTable.Rows)
+        {
+            htmlBuilder.Append("<tr>");
+            foreach (var item in row.ItemArray)
+                htmlBuilder.Append($"<td>{item}</td>");
+            htmlBuilder.Append("</tr>");
+        }
+        htmlBuilder.Append("</table>");
+        
+        // Convert to PDF
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(htmlBuilder.ToString());
+        pdf.SaveAs("sales-report.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Url To PDF Headers Footers?
+
+Here's how **SSRS (SQL Server Reporting Services)** handles this:
+
+```csharp
+// SSRS - SQL Server Reporting Services
+using System;
+using System.IO;
+using System.Net;
+using Microsoft.Reporting.WebForms;
+
+class SSRSUrlToPdf
+{
+    static void Main()
+    {
+        // Download HTML content from URL
+        string url = "https://example.com";
+        string htmlContent;
+        
+        using (var client = new WebClient())
+        {
+            htmlContent = client.DownloadString(url);
+        }
+        
+        // Create RDLC report with header/footer configuration
+        var reportViewer = new ReportViewer();
+        reportViewer.ProcessingMode = ProcessingMode.Local;
+        reportViewer.LocalReport.ReportPath = "WebReport.rdlc";
+        
+        // Set parameters for header and footer
+        var parameters = new ReportParameter[]
+        {
+            new ReportParameter("HeaderText", "Company Report"),
+            new ReportParameter("FooterText", "Page " + DateTime.Now.ToString()),
+            new ReportParameter("HtmlContent", htmlContent)
+        };
+        reportViewer.LocalReport.SetParameters(parameters);
+        
+        // Render to PDF
+        string mimeType, encoding, fileNameExtension;
+        string[] streams;
+        Warning[] warnings;
+        
+        byte[] bytes = reportViewer.LocalReport.Render(
+            "PDF", null, out mimeType, out encoding,
+            out fileNameExtension, out streams, out warnings);
+        
+        File.WriteAllBytes("webpage.pdf", bytes);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+using System;
+
+class IronPdfUrlToPdf
+{
+    static void Main()
+    {
+        // Create a ChromePdfRenderer instance
+        var renderer = new ChromePdfRenderer();
+        
+        // Configure rendering options with header and footer
+        renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter()
+        {
+            HtmlFragment = "<div style='text-align:center'>Company Report</div>"
+        };
+        
+        renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter()
+        {
+            HtmlFragment = "<div style='text-align:center'>Page {page} of {total-pages} - " + DateTime.Now.ToString("MM/dd/yyyy") + "</div>"
+        };
+        
+        // Convert URL to PDF
+        string url = "https://example.com";
+        var pdf = renderer.RenderUrlAsPdf(url);
+        
+        // Save the PDF file
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with SSRS (SQL Server Reporting Services)?
+
+Here's how **SSRS (SQL Server Reporting Services)** handles this:
+
+```csharp
+// SSRS - SQL Server Reporting Services
+using System;
+using System.Data;
+using System.Data.SqlClient;
+using Microsoft.Reporting.WebForms;
+using System.IO;
+
+class SSRSHtmlToPdf
+{
+    static void Main()
+    {
+        // Create a ReportViewer instance
+        var reportViewer = new ReportViewer();
+        reportViewer.ProcessingMode = ProcessingMode.Local;
+        
+        // Load RDLC report definition
+        reportViewer.LocalReport.ReportPath = "Report.rdlc";
+        
+        // Add HTML content as a parameter or dataset
+        var htmlContent = "<h1>Hello World</h1><p>This is HTML content.</p>";
+        var param = new ReportParameter("HtmlContent", htmlContent);
+        reportViewer.LocalReport.SetParameters(param);
+        
+        // Render the report to PDF
+        string mimeType, encoding, fileNameExtension;
+        string[] streams;
+        Warning[] warnings;
+        
+        byte[] bytes = reportViewer.LocalReport.Render(
+            "PDF",
+            null,
+            out mimeType,
+            out encoding,
+            out fileNameExtension,
+            out streams,
+            out warnings);
+        
+        File.WriteAllBytes("output.pdf", bytes);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class IronPdfHtmlToPdf
+{
+    static void Main()
+    {
+        // Create a ChromePdfRenderer instance
+        var renderer = new ChromePdfRenderer();
+        
+        // Convert HTML string to PDF
+        var htmlContent = "<h1>Hello World</h1><p>This is HTML content.</p>";
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        
+        // Save the PDF file
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from SSRS (SQL Server Reporting Services) to IronPDF?
+
+SSRS requires a full SQL Server infrastructure and dedicated report server, making it heavyweight and costly for many applications. IronPDF is a lightweight .NET library that can be embedded directly into your application, eliminating server dependencies and Microsoft ecosystem lock-in.
+
+**Migrating from SSRS (SQL Server Reporting Services) to IronPDF involves:**
+
+1. **NuGet Package Change**: Install `IronPdf` package
+2. **Namespace Update**: Replace `Microsoft.Reporting.WebForms` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: SSRS (SQL Server Reporting Services) → IronPDF](migrate-from-ssrs.md)**
+

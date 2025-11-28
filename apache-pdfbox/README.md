@@ -67,6 +67,176 @@ IronPDF positions itself as a robust alternative with several distinct advantage
 - [Convert HTML to PDF with IronPDF](https://ironpdf.com/how-to/html-file-to-pdf/)
 - [IronPDF Tutorials](https://ironpdf.com/tutorials/)
 
+---
+
+## How Do I Extract Text From PDF?
+
+Here's how **Apache PDFBox (.NET Port Attempts)** handles this:
+
+```csharp
+// Apache PDFBox .NET ports are experimental and incomplete
+using PdfBoxDotNet.Pdmodel;
+using PdfBoxDotNet.Text;
+using System;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        // Note: PDFBox-dotnet has limited functionality
+        using (var document = PDDocument.Load("document.pdf"))
+        {
+            var stripper = new PDFTextStripper();
+            string text = stripper.GetText(document);
+            Console.WriteLine(text);
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf = PdfDocument.FromFile("document.pdf");
+        string text = pdf.ExtractAllText();
+        Console.WriteLine(text);
+        
+        // Or extract text from specific pages
+        string pageText = pdf.ExtractTextFromPage(0);
+        Console.WriteLine(pageText);
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with Apache PDFBox (.NET Port Attempts)?
+
+Here's how **Apache PDFBox (.NET Port Attempts)** handles this:
+
+```csharp
+// Apache PDFBox does not have official .NET port
+// Community ports like PDFBox-dotnet are incomplete
+// and do not support HTML to PDF conversion natively.
+// You would need to use additional libraries like
+// iText or combine with HTML renderers separately.
+
+using PdfBoxDotNet.Pdmodel;
+using System.IO;
+
+// Note: This is NOT supported in PDFBox
+// PDFBox is primarily for PDF manipulation, not HTML rendering
+// You would need external HTML rendering engine
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1><p>This is HTML to PDF</p>");
+        pdf.SaveAs("output.pdf");
+        Console.WriteLine("PDF created successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **Apache PDFBox (.NET Port Attempts)** handles this:
+
+```csharp
+// Apache PDFBox .NET port attempt (incomplete support)
+using PdfBoxDotNet.Pdmodel;
+using PdfBoxDotNet.Multipdf;
+using System;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        // PDFBox-dotnet ports have incomplete API coverage
+        var merger = new PDFMergerUtility();
+        merger.AddSource("document1.pdf");
+        merger.AddSource("document2.pdf");
+        merger.SetDestinationFileName("merged.pdf");
+        merger.MergeDocuments();
+        Console.WriteLine("PDFs merged");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf1 = PdfDocument.FromFile("document1.pdf");
+        var pdf2 = PdfDocument.FromFile("document2.pdf");
+        var pdf3 = PdfDocument.FromFile("document3.pdf");
+        
+        var merged = PdfDocument.Merge(pdf1, pdf2, pdf3);
+        merged.SaveAs("merged.pdf");
+        Console.WriteLine("PDFs merged successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Apache PDFBox (.NET Port Attempts) to IronPDF?
+
+Apache PDFBox is a Java library with unofficial .NET ports that often lag behind, suffer from inconsistent quality, and lack native .NET design patterns. These ports have limited community support in the .NET ecosystem and may introduce compatibility issues.
+
+**Migrating from Apache PDFBox (.NET Port Attempts) to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `PdfBox`, add `IronPdf`
+2. **Namespace Update**: Replace `org.apache.pdfbox.pdmodel` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Apache PDFBox (.NET Port Attempts) → IronPDF](migrate-from-apache-pdfbox.md)**
+
+
 ## Comparing Apache PDFBox (.NET Port Attempts) and IronPDF
 
 Below is a comparison table summarizing key differences:

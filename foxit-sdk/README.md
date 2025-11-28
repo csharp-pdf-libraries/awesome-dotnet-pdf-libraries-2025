@@ -77,3 +77,206 @@ For more dynamic needs or for projects where rapid development and easy deployme
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a team of 50+ developers creating tools trusted by millions worldwide. With an impressive 41 years of coding experience under his belt, Jacob brings deep technical expertise and a passion for building software that makes developers' lives easier. Based in Chiang Mai, Thailand, he continues to drive innovation in the .NET ecosystem. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
+
+---
+
+## How Do I Convert HTML to PDF in C# with Foxit SDK?
+
+Here's how **Foxit SDK** handles this:
+
+```csharp
+// NuGet: Install-Package Foxit.SDK
+using Foxit.SDK;
+using Foxit.SDK.Common;
+using Foxit.SDK.PDFConversion;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        Library.Initialize("sn", "key");
+        
+        HTML2PDFSettingData settingData = new HTML2PDFSettingData();
+        settingData.page_width = 612.0f;
+        settingData.page_height = 792.0f;
+        settingData.page_mode = HTML2PDFPageMode.e_HTML2PDFPageModeSinglePage;
+        
+        using (HTML2PDF html2pdf = new HTML2PDF(settingData))
+        {
+            html2pdf.Convert("<html><body><h1>Hello World</h1></body></html>", "output.pdf");
+        }
+        
+        Library.Release();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<html><body><h1>Hello World</h1></body></html>");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Add Watermark?
+
+Here's how **Foxit SDK** handles this:
+
+```csharp
+// NuGet: Install-Package Foxit.SDK
+using Foxit.SDK;
+using Foxit.SDK.Common;
+using Foxit.SDK.PDFDoc;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        Library.Initialize("sn", "key");
+        
+        using (PDFDoc doc = new PDFDoc("input.pdf"))
+        {
+            doc.Load("");
+            
+            Watermark watermark = new Watermark(doc, "Confidential", 
+                new Font(Font.StandardID.e_StdIDHelvetica), 48.0f, 0xFF0000FF);
+            
+            WatermarkSettings settings = new WatermarkSettings();
+            settings.flags = Watermark.e_WatermarkFlagASPageContents;
+            settings.position = Watermark.Position.e_PosCenter;
+            settings.rotation = -45.0f;
+            settings.opacity = 0.5f;
+            
+            watermark.SetSettings(settings);
+            watermark.InsertToAllPages();
+            
+            doc.SaveAs("output.pdf", PDFDoc.SaveFlags.e_SaveFlagNoOriginal);
+        }
+        
+        Library.Release();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Editing;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf = PdfDocument.FromFile("input.pdf");
+        pdf.ApplyWatermark(new TextStamper()
+        {
+            Text = "Confidential",
+            FontSize = 48,
+            Opacity = 50,
+            Rotation = -45,
+            VerticalAlignment = VerticalAlignment.Middle,
+            HorizontalAlignment = HorizontalAlignment.Center
+        });
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **Foxit SDK** handles this:
+
+```csharp
+// NuGet: Install-Package Foxit.SDK
+using Foxit.SDK;
+using Foxit.SDK.Common;
+using Foxit.SDK.PDFConversion;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        Library.Initialize("sn", "key");
+        
+        HTML2PDFSettingData settingData = new HTML2PDFSettingData();
+        settingData.page_width = 612.0f;
+        settingData.page_height = 792.0f;
+        settingData.page_mode = HTML2PDFPageMode.e_HTML2PDFPageModeSinglePage;
+        
+        using (HTML2PDF html2pdf = new HTML2PDF(settingData))
+        {
+            html2pdf.ConvertFromURL("https://www.example.com", "output.pdf");
+        }
+        
+        Library.Release();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Foxit SDK to IronPDF?
+
+IronPDF offers a streamlined alternative to Foxit SDK with straightforward licensing, simple integration requiring minimal setup, and pricing suitable for projects of all sizes. The library provides intuitive APIs for PDF generation and manipulation without the complexity of enterprise-focused configuration.
+
+**Migrating from Foxit SDK to IronPDF involves:**
+
+1. **NuGet Package Change**: Install `IronPdf` package
+2. **Namespace Update**: Replace `foxit` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Foxit SDK → IronPDF](migrate-from-foxit-sdk.md)**
+

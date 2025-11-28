@@ -80,3 +80,245 @@ Ultimately, both libraries offer the capability to produce high-quality PDFs, bu
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have earned over 41 million NuGet downloads. With an impressive 41 years of coding under his belt, he's seen the software industry evolve from its earliest days to the cutting-edge tech of today. When he's not architecting solutions for developers worldwide, you can find him working remotely from Chiang Mai, Thailand—check out his [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/) to connect.
+
+---
+
+## How Do I Convert HTML to PDF in C# with jsreport?
+
+Here's how **jsreport** handles this:
+
+```csharp
+// NuGet: Install-Package jsreport.Binary
+// NuGet: Install-Package jsreport.Local
+// NuGet: Install-Package jsreport.Types
+using jsreport.Binary;
+using jsreport.Local;
+using jsreport.Types;
+using System;
+using System.IO;
+using System.Threading.Tasks;
+
+class Program
+{
+    static async Task Main(string[] args)
+    {
+        var rs = new LocalReporting()
+            .UseBinary(JsReportBinary.GetBinary())
+            .AsUtility()
+            .Create();
+
+        var report = await rs.RenderAsync(new RenderRequest()
+        {
+            Template = new Template()
+            {
+                Recipe = Recipe.ChromePdf,
+                Engine = Engine.None,
+                Content = "<h1>Hello from jsreport</h1><p>This is a PDF document.</p>"
+            }
+        });
+
+        using (var fileStream = File.Create("output.pdf"))
+        {
+            report.Content.CopyTo(fileStream);
+        }
+
+        Console.WriteLine("PDF created successfully!");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello from IronPDF</h1><p>This is a PDF document.</p>");
+        pdf.SaveAs("output.pdf");
+        Console.WriteLine("PDF created successfully!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **jsreport** handles this:
+
+```csharp
+// NuGet: Install-Package jsreport.Binary
+// NuGet: Install-Package jsreport.Local
+// NuGet: Install-Package jsreport.Types
+using jsreport.Binary;
+using jsreport.Local;
+using jsreport.Types;
+using System;
+using System.IO;
+using System.Threading.Tasks;
+
+class Program
+{
+    static async Task Main(string[] args)
+    {
+        var rs = new LocalReporting()
+            .UseBinary(JsReportBinary.GetBinary())
+            .AsUtility()
+            .Create();
+
+        var report = await rs.RenderAsync(new RenderRequest()
+        {
+            Template = new Template()
+            {
+                Recipe = Recipe.ChromePdf,
+                Engine = Engine.None,
+                Content = "<html><body><script>window.location='https://example.com';</script></body></html>"
+            }
+        });
+
+        using (var fileStream = File.Create("webpage.pdf"))
+        {
+            report.Content.CopyTo(fileStream);
+        }
+
+        Console.WriteLine("Webpage PDF created successfully!");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://example.com");
+        pdf.SaveAs("webpage.pdf");
+        Console.WriteLine("Webpage PDF created successfully!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I HTML To PDF Headers Footers?
+
+Here's how **jsreport** handles this:
+
+```csharp
+// NuGet: Install-Package jsreport.Binary
+// NuGet: Install-Package jsreport.Local
+// NuGet: Install-Package jsreport.Types
+using jsreport.Binary;
+using jsreport.Local;
+using jsreport.Types;
+using System;
+using System.IO;
+using System.Threading.Tasks;
+
+class Program
+{
+    static async Task Main(string[] args)
+    {
+        var rs = new LocalReporting()
+            .UseBinary(JsReportBinary.GetBinary())
+            .AsUtility()
+            .Create();
+
+        var report = await rs.RenderAsync(new RenderRequest()
+        {
+            Template = new Template()
+            {
+                Recipe = Recipe.ChromePdf,
+                Engine = Engine.None,
+                Content = "<h1>Document with Header and Footer</h1><p>Main content goes here.</p>",
+                Chrome = new Chrome()
+                {
+                    DisplayHeaderFooter = true,
+                    HeaderTemplate = "<div style='font-size:10px; text-align:center; width:100%;'>Custom Header</div>",
+                    FooterTemplate = "<div style='font-size:10px; text-align:center; width:100%;'>Page <span class='pageNumber'></span> of <span class='totalPages'></span></div>"
+                }
+            }
+        });
+
+        using (var fileStream = File.Create("document_with_headers.pdf"))
+        {
+            report.Content.CopyTo(fileStream);
+        }
+
+        Console.WriteLine("PDF with headers and footers created successfully!");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+using System;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.TextHeader = new TextHeaderFooter()
+        {
+            CenterText = "Custom Header",
+            FontSize = 10
+        };
+        renderer.RenderingOptions.TextFooter = new TextHeaderFooter()
+        {
+            CenterText = "Page {page} of {total-pages}",
+            FontSize = 10
+        };
+        
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Document with Header and Footer</h1><p>Main content goes here.</p>");
+        pdf.SaveAs("document_with_headers.pdf");
+        Console.WriteLine("PDF with headers and footers created successfully!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from jsreport to IronPDF?
+
+IronPDF eliminates the complexity of running a separate Node.js server and learning JavaScript templating systems by providing a pure C# solution for PDF generation. With IronPDF, you can work directly with HTML strings, Razor views, or URLs without leaving the .NET ecosystem.
+
+**Migrating from jsreport to IronPDF involves:**
+
+1. **NuGet Package Change**: Install `IronPdf` package
+2. **Namespace Update**: Replace `jsreport.Local` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: jsreport → IronPDF](migrate-from-jsreport.md)**
+

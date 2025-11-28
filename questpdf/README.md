@@ -65,6 +65,221 @@ public class DocumentExample
 
 In this example, a single-page A4 document is created with a header, footer, and body content. The API's fluent nature allows for clear and manageable document structure generation, even when dealing with complex layouts.
 
+---
+
+## How Do I Add Headers and Footers to PDFs?
+
+Here's how **QuestPDF** handles this:
+
+```csharp
+// NuGet: Install-Package QuestPDF
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
+
+class Program
+{
+    static void Main()
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+        
+        Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(2, Unit.Centimetre);
+                
+                page.Header().Text("Document Header").FontSize(14).Bold();
+                
+                page.Content().Text("Main content of the document.");
+                
+                page.Footer().AlignCenter().Text(text =>
+                {
+                    text.Span("Page ");
+                    text.CurrentPageNumber();
+                });
+            });
+        }).GeneratePdf("document.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var htmlContent = "<p>Main content of the document.</p>";
+        
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        
+        pdf.Header = new TextHeaderFooter()
+        {
+            CenterText = "Document Header",
+            FontSize = 14
+        };
+        
+        pdf.Footer = new TextHeaderFooter()
+        {
+            CenterText = "Page {page}"
+        };
+        
+        pdf.SaveAs("document.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Generate Invoice PDFs in C#?
+
+Here's how **QuestPDF** handles this:
+
+```csharp
+// NuGet: Install-Package QuestPDF
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
+
+class Program
+{
+    static void Main()
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+        
+        Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(2, Unit.Centimetre);
+                page.Content().Column(column =>
+                {
+                    column.Item().Text("INVOICE").FontSize(24).Bold();
+                    column.Item().Text("Invoice #: 12345").FontSize(12);
+                    column.Item().PaddingTop(20);
+                    column.Item().Text("Customer: John Doe");
+                    column.Item().Text("Total: $100.00").Bold();
+                });
+            });
+        }).GeneratePdf("invoice.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var htmlContent = @"
+            <h1>INVOICE</h1>
+            <p>Invoice #: 12345</p>
+            <br/>
+            <p>Customer: John Doe</p>
+            <p><strong>Total: $100.00</strong></p>
+        ";
+        
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("invoice.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with QuestPDF?
+
+Here's how **QuestPDF** handles this:
+
+```csharp
+// NuGet: Install-Package QuestPDF
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
+
+class Program
+{
+    static void Main()
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+        
+        Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(2, Unit.Centimetre);
+                page.Content().Column(column =>
+                {
+                    column.Item().Text("Hello World").FontSize(20).Bold();
+                    column.Item().Text("This is a paragraph of text.");
+                });
+            });
+        }).GeneratePdf("output.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1><p>This is a paragraph of text.</p>");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from QuestPDF to IronPDF?
+
+IronPDF provides native HTML-to-PDF rendering that QuestPDF completely lacks, eliminating the need to manually reconstruct documents in C# code. It includes comprehensive PDF manipulation features (merge, split, edit, secure) that QuestPDF cannot perform.
+
+**Migrating from QuestPDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `QuestPDF`, add `IronPdf`
+2. **Namespace Update**: Replace `QuestPDF.Fluent` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: QuestPDF → IronPDF](migrate-from-questpdf.md)**
+
+
 ## Comparing QuestPDF and IronPDF
 
 When deciding between QuestPDF and IronPDF, developers should consider their specific needs and constraints. The following table highlights the main differences between the two libraries:

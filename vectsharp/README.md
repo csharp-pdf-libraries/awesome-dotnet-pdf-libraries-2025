@@ -60,6 +60,215 @@ To explore more about IronPDF, you can visit their [HTML to PDF tutorial](https:
 1. **Commercial Licensing**: While feature-rich, the library requires a commercial license, which may be a consideration for budget-constrained projects.
 2. **Possible Overhead**: The extensive feature set of IronPDF could introduce some overhead for projects needing only simple PDF functionalities.
 
+---
+
+## How Do I Shapes And Text?
+
+Here's how **VectSharp C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package VectSharp.PDF
+using VectSharp;
+using VectSharp.PDF;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        Document doc = new Document();
+        Page page = new Page(595, 842);
+        Graphics graphics = page.Graphics;
+        
+        // Draw rectangle
+        graphics.FillRectangle(50, 50, 200, 100, Colour.FromRgb(0, 0, 255));
+        
+        // Draw circle
+        GraphicsPath circle = new GraphicsPath();
+        circle.Arc(400, 100, 50, 0, 2 * Math.PI);
+        graphics.FillPath(circle, Colour.FromRgb(255, 0, 0));
+        
+        // Add text
+        graphics.FillText(50, 200, "VectSharp Graphics", 
+            new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 20));
+        
+        doc.Pages.Add(page);
+        doc.SaveAsPDF("shapes.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        string html = @"
+            <div style='width: 200px; height: 100px; background-color: blue; margin: 50px;'></div>
+            <div style='width: 100px; height: 100px; background-color: red; 
+                        border-radius: 50%; margin-left: 350px; margin-top: -50px;'></div>
+            <h2 style='margin-left: 50px;'>IronPDF Graphics</h2>
+        ";
+        
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("shapes.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with VectSharp C# PDF?
+
+Here's how **VectSharp C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package VectSharp.PDF
+using VectSharp;
+using VectSharp.PDF;
+using VectSharp.SVG;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        // VectSharp doesn't directly support HTML to PDF
+        // It requires manual creation of graphics objects
+        Document doc = new Document();
+        Page page = new Page(595, 842); // A4 size
+        Graphics graphics = page.Graphics;
+        
+        graphics.FillText(100, 100, "Hello from VectSharp", 
+            new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 24));
+        
+        doc.Pages.Add(page);
+        doc.SaveAsPDF("output.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello from IronPDF</h1><p>This is HTML content.</p>");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Multi Page PDF?
+
+Here's how **VectSharp C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package VectSharp.PDF
+using VectSharp;
+using VectSharp.PDF;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        Document doc = new Document();
+        
+        // Page 1
+        Page page1 = new Page(595, 842);
+        Graphics g1 = page1.Graphics;
+        g1.FillText(50, 50, "Page 1", 
+            new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 24));
+        g1.FillText(50, 100, "First page content", 
+            new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 14));
+        doc.Pages.Add(page1);
+        
+        // Page 2
+        Page page2 = new Page(595, 842);
+        Graphics g2 = page2.Graphics;
+        g2.FillText(50, 50, "Page 2", 
+            new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 24));
+        g2.FillText(50, 100, "Second page content", 
+            new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 14));
+        doc.Pages.Add(page2);
+        
+        doc.SaveAsPDF("multipage.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        string html = @"
+            <h1>Page 1</h1>
+            <p>First page content</p>
+            <div style='page-break-after: always;'></div>
+            <h1>Page 2</h1>
+            <p>Second page content</p>
+        ";
+        
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("multipage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from VectSharp C# PDF to IronPDF?
+
+VectSharp is designed for vector graphics and scientific visualizations, making it unsuitable for document generation and HTML-based PDF workflows. IronPDF excels at creating PDFs from HTML, URLs, and documents with full support for modern web standards, CSS, and JavaScript.
+
+**Migrating from VectSharp C# PDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `VectSharp`, add `IronPdf`
+2. **Namespace Update**: Replace `VectSharp` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: VectSharp C# PDF → IronPDF](migrate-from-vectsharp.md)**
+
+
 ## Comparison Table
 
 Here's a side-by-side comparison of VectSharp and IronPDF to help clarify their differences:

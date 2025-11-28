@@ -40,6 +40,172 @@ PDF.SaveAs("hello_world.pdf");
 
 This code leverages IronPDF to convert a simple HTML string into a PDF file, showcasing the ease of embedding PDF generation within a C# application without relying on a cloud service.
 
+---
+
+## How Do I Convert HTML to PDF in C# with Api2pdf?
+
+Here's how **Api2pdf** handles this:
+
+```csharp
+// NuGet: Install-Package Api2Pdf.DotNet
+using System;
+using System.Threading.Tasks;
+using Api2Pdf.DotNet;
+
+class Program
+{
+    static async Task Main(string[] args)
+    {
+        var a2pClient = new Api2PdfClient("your-api-key");
+        var apiResponse = await a2pClient.HeadlessChrome.FromHtmlAsync("<h1>Hello World</h1>");
+        Console.WriteLine(apiResponse.Pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using System;
+using IronPdf;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1>");
+        pdf.SaveAs("output.pdf");
+        Console.WriteLine("PDF created successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I HTML File To PDF Options?
+
+Here's how **Api2pdf** handles this:
+
+```csharp
+// NuGet: Install-Package Api2Pdf.DotNet
+using System;
+using System.IO;
+using System.Threading.Tasks;
+using Api2Pdf.DotNet;
+
+class Program
+{
+    static async Task Main(string[] args)
+    {
+        var a2pClient = new Api2PdfClient("your-api-key");
+        string html = File.ReadAllText("input.html");
+        var options = new HeadlessChromeOptions
+        {
+            Landscape = true,
+            PrintBackground = true
+        };
+        var apiResponse = await a2pClient.HeadlessChrome.FromHtmlAsync(html, options);
+        Console.WriteLine(apiResponse.Pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using System;
+using System.IO;
+using IronPdf;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperOrientation = IronPdf.Rendering.PdfPaperOrientation.Landscape;
+        renderer.RenderingOptions.CssMediaType = IronPdf.Rendering.PdfCssMediaType.Print;
+        string html = File.ReadAllText("input.html");
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+        Console.WriteLine("PDF created with options successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **Api2pdf** handles this:
+
+```csharp
+// NuGet: Install-Package Api2Pdf.DotNet
+using System;
+using System.Threading.Tasks;
+using Api2Pdf.DotNet;
+
+class Program
+{
+    static async Task Main(string[] args)
+    {
+        var a2pClient = new Api2PdfClient("your-api-key");
+        var apiResponse = await a2pClient.HeadlessChrome.FromUrlAsync("https://www.example.com");
+        Console.WriteLine(apiResponse.Pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using System;
+using IronPdf;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        pdf.SaveAs("webpage.pdf");
+        Console.WriteLine("PDF created from URL successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Api2pdf to IronPDF?
+
+Api2pdf sends your sensitive HTML and documents to third-party servers, creating security and compliance risks. You pay per conversion indefinitely, with costs accumulating over time and creating vendor lock-in.
+
+**Migrating from Api2pdf to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `Api2Pdf`, add `IronPdf`
+2. **Namespace Update**: Replace `Api2Pdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Api2pdf → IronPDF](migrate-from-api2pdf.md)**
+
+
 ## Comparing Api2pdf and IronPDF
 
 Both Api2pdf and IronPDF cater to differing requirements and preferences. Here's a quick comparison to help decide which might suit your needs better:

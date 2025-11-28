@@ -78,6 +78,169 @@ As we compare ZetPDF to IronPDF, the latter emerges as a powerful alternative, l
 - **Enhanced Rendering**: By using Chromium, IronPDF provides superior rendering of web content in PDFs, directly affecting the quality of the final output.
 - **Advanced Features**: IronPDF offers unique capabilities such as PDF forms management, OCR functionalities, and dynamic watermarking, extending beyond standard PDF manipulations.
 
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **ZetPDF C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package ZetPDF
+using ZetPDF;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        var url = "https://www.example.com";
+        converter.ConvertUrlToPdf(url, "webpage.pdf");
+        Console.WriteLine("PDF from URL created successfully");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var url = "https://www.example.com";
+        var pdf = renderer.RenderUrlAsPdf(url);
+        pdf.SaveAs("webpage.pdf");
+        Console.WriteLine("PDF from URL created successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **ZetPDF C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package ZetPDF
+using ZetPDF;
+using System;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main()
+    {
+        var merger = new PdfMerger();
+        var files = new List<string> { "document1.pdf", "document2.pdf" };
+        merger.MergeFiles(files, "merged.pdf");
+        Console.WriteLine("PDFs merged successfully");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main()
+    {
+        var pdfs = new List<PdfDocument>
+        {
+            PdfDocument.FromFile("document1.pdf"),
+            PdfDocument.FromFile("document2.pdf")
+        };
+        var merged = PdfDocument.Merge(pdfs);
+        merged.SaveAs("merged.pdf");
+        Console.WriteLine("PDFs merged successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with ZetPDF C# PDF?
+
+Here's how **ZetPDF C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package ZetPDF
+using ZetPDF;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        var htmlContent = "<html><body><h1>Hello World</h1></body></html>";
+        converter.ConvertHtmlToPdf(htmlContent, "output.pdf");
+        Console.WriteLine("PDF created successfully");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var htmlContent = "<html><body><h1>Hello World</h1></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("output.pdf");
+        Console.WriteLine("PDF created successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from ZetPDF C# PDF to IronPDF?
+
+ZetPDF, built on PDFSharp, inherits significant limitations including the lack of HTML-to-PDF conversion and restricted modern PDF features. IronPDF provides enterprise-grade HTML-to-PDF rendering using Chromium, supports advanced PDF manipulation, and offers extensive documentation and support.
+
+**Migrating from ZetPDF C# PDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `ZetPDF`, add `IronPdf`
+2. **Namespace Update**: Replace `ZetPdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: ZetPDF C# PDF → IronPDF](migrate-from-zetpdf.md)**
+
+
 ## Conclusion
 
 ZetPDF, with its commercial backing and robust PDFSharp foundation, provides a reliable solution for developers focused on basic PDF functionalities. However, its lack of differentiation and certain limitations like the absence of HTML-to-PDF features might sway developers towards more comprehensive solutions like IronPDF.

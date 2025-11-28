@@ -4,6 +4,232 @@ When developers look for robust PDF generation options using C#, EO.Pdf often en
 
 EO.Pdf boasts an architecture built on a custom engine, ensuring that it no longer relies on Internet Explorer, a significant step forward. Yet, its migration to a Chromium-based system has not been without its challenges, as developers have encountered an array of compatibility issues attributed to its legacy baggage. Additionally, although EO.Pdf positions itself as a cross-platform tool, its performance and ease-of-use are primarily Windows-centric, with Linux support often seen as more of an afterthought. 
 
+---
+
+## How Do I HTML File To PDF Settings?
+
+Here's how **EO.Pdf** handles this:
+
+```csharp
+// NuGet: Install-Package EO.Pdf
+using EO.Pdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        HtmlToPdfOptions options = new HtmlToPdfOptions();
+        options.PageSize = PdfPageSizes.A4;
+        options.OutputArea = new RectangleF(0.5f, 0.5f, 7.5f, 10.5f);
+        
+        HtmlToPdf.ConvertUrl("file:///C:/input.html", "output.pdf", options);
+        Console.WriteLine("PDF with custom settings created.");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        renderer.RenderingOptions.MarginTop = 20;
+        renderer.RenderingOptions.MarginBottom = 20;
+        renderer.RenderingOptions.MarginLeft = 20;
+        renderer.RenderingOptions.MarginRight = 20;
+        
+        var pdf = renderer.RenderHtmlFileAsPdf("C:/input.html");
+        pdf.SaveAs("output.pdf");
+        Console.WriteLine("PDF with custom settings created.");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **EO.Pdf** handles this:
+
+```csharp
+// NuGet: Install-Package EO.Pdf
+using EO.Pdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        PdfDocument doc1 = new PdfDocument("file1.pdf");
+        PdfDocument doc2 = new PdfDocument("file2.pdf");
+        
+        PdfDocument mergedDoc = new PdfDocument();
+        mergedDoc.Append(doc1);
+        mergedDoc.Append(doc2);
+        
+        mergedDoc.Save("merged.pdf");
+        
+        Console.WriteLine("PDFs merged successfully!");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf1 = PdfDocument.FromFile("file1.pdf");
+        var pdf2 = PdfDocument.FromFile("file2.pdf");
+        
+        var merged = PdfDocument.Merge(new List<PdfDocument> { pdf1, pdf2 });
+        merged.SaveAs("merged.pdf");
+        
+        Console.WriteLine("PDFs merged successfully!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with EO.Pdf?
+
+Here's how **EO.Pdf** handles this:
+
+```csharp
+// NuGet: Install-Package EO.Pdf
+using EO.Pdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        string html = "<html><body><h1>Hello World</h1><p>This is a PDF generated from HTML.</p></body></html>";
+        
+        HtmlToPdf.ConvertHtml(html, "output.pdf");
+        
+        Console.WriteLine("PDF created successfully!");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        string html = "<html><body><h1>Hello World</h1><p>This is a PDF generated from HTML.</p></body></html>";
+        
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+        
+        Console.WriteLine("PDF created successfully!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **EO.Pdf** handles this:
+
+```csharp
+// NuGet: Install-Package EO.Pdf
+using EO.Pdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        string url = "https://www.example.com";
+        
+        HtmlToPdf.ConvertUrl(url, "webpage.pdf");
+        
+        Console.WriteLine("PDF from URL created successfully!");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        string url = "https://www.example.com";
+        
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf(url);
+        pdf.SaveAs("webpage.pdf");
+        
+        Console.WriteLine("PDF from URL created successfully!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from EO.Pdf to IronPDF?
+
+EO.Pdf suffers from a bloated 126MB footprint due to bundled Chrome dependencies, making deployment cumbersome and increasing infrastructure costs. Its legacy architecture—originally built on Internet Explorer before migrating to Chrome—introduces compatibility issues and technical debt.
+
+**Migrating from EO.Pdf to IronPDF involves:**
+
+1. **NuGet Package Change**: Install `IronPdf` package
+2. **Namespace Update**: Replace `EO.Pdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: EO.Pdf → IronPDF](migrate-from-eopdf.md)**
+
+
 ## Comparing EO.Pdf and IronPDF
 
 When evaluating organizations’ selection of PDF libraries, EO.Pdf frequently gets juxtaposed with IronPDF. IronPDF is purpose-built for modern .NET environments, right from the ground up. It emphasizes optimized Chromium packaging, resulting in a more manageable footprint and equal support for all platforms, rather than favoring Windows. This inherent cross-platform versatility can be crucial for applications deployed or developed in diverse environments.

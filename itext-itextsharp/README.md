@@ -71,6 +71,197 @@ class Program
 
 This minimal example showcases IronPDF's easy-to-use approach, illustrating how to convert HTML directly into a PDF document without the need for complex add-ons.
 
+---
+
+## How Do I Convert HTML to PDF in C# with iText / iTextSharp C# PDF: A Comprehensive Comparison with IronPDF?
+
+Here's how **iText / iTextSharp C# PDF: A Comprehensive Comparison with IronPDF** handles this:
+
+```csharp
+// NuGet: Install-Package itext7
+using iText.Html2pdf;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        string html = "<h1>Hello World</h1><p>This is a PDF from HTML.</p>";
+        string outputPath = "output.pdf";
+        
+        using (FileStream fs = new FileStream(outputPath, FileMode.Create))
+        {
+            HtmlConverter.ConvertToPdf(html, fs);
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        string html = "<h1>Hello World</h1><p>This is a PDF from HTML.</p>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Create PDF Text Images?
+
+Here's how **iText / iTextSharp C# PDF: A Comprehensive Comparison with IronPDF** handles this:
+
+```csharp
+// NuGet: Install-Package itext7
+using iText.Kernel.Pdf;
+using iText.Layout;
+using iText.Layout.Element;
+using iText.IO.Image;
+
+class Program
+{
+    static void Main()
+    {
+        string outputPath = "document.pdf";
+        
+        using (PdfWriter writer = new PdfWriter(outputPath))
+        using (PdfDocument pdf = new PdfDocument(writer))
+        using (Document document = new Document(pdf))
+        {
+            document.Add(new Paragraph("Sample PDF Document"));
+            document.Add(new Paragraph("This document contains text and an image."));
+            
+            Image img = new Image(ImageDataFactory.Create("image.jpg"));
+            img.SetWidth(200);
+            document.Add(img);
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        string html = @"
+            <h1>Sample PDF Document</h1>
+            <p>This document contains text and an image.</p>
+            <img src='image.jpg' width='200' />";
+        
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("document.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **iText / iTextSharp C# PDF: A Comprehensive Comparison with IronPDF** handles this:
+
+```csharp
+// NuGet: Install-Package itext7
+using iText.Kernel.Pdf;
+using iText.Kernel.Utils;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        string outputPath = "merged.pdf";
+        string[] inputFiles = { "document1.pdf", "document2.pdf", "document3.pdf" };
+        
+        using (PdfWriter writer = new PdfWriter(outputPath))
+        using (PdfDocument pdfDoc = new PdfDocument(writer))
+        {
+            PdfMerger merger = new PdfMerger(pdfDoc);
+            
+            foreach (string file in inputFiles)
+            {
+                using (PdfDocument sourcePdf = new PdfDocument(new PdfReader(file)))
+                {
+                    merger.Merge(sourcePdf, 1, sourcePdf.GetNumberOfPages());
+                }
+            }
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main()
+    {
+        var pdfDocuments = new List<PdfDocument>
+        {
+            PdfDocument.FromFile("document1.pdf"),
+            PdfDocument.FromFile("document2.pdf"),
+            PdfDocument.FromFile("document3.pdf")
+        };
+        
+        var merged = PdfDocument.Merge(pdfDocuments);
+        merged.SaveAs("merged.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from iText / iTextSharp C# PDF: A Comprehensive Comparison with IronPDF to IronPDF?
+
+iText's AGPL license requires you to open-source your entire application if used in web apps, creating significant legal and business risks. IronPDF offers a straightforward commercial license without viral open-source requirements, includes native HTML-to-PDF rendering without additional add-ons, and provides perpetual licensing options instead of forcing annual subscriptions.
+
+**Migrating from iText / iTextSharp C# PDF: A Comprehensive Comparison with IronPDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `itext7`, add `IronPdf`
+2. **Namespace Update**: Replace `iText.Kernel.Pdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: iText / iTextSharp C# PDF: A Comprehensive Comparison with IronPDF → IronPDF](migrate-from-itext-itextsharp.md)**
+
+
 ## Conclusion
 
 Choosing the right PDF library for your C# application is crucial. iText / iTextSharp, with its comprehensive features, is a powerful tool but comes with significant licensing hurdles and costs. In contrast, IronPDF offers a streamlined, all-inclusive experience with competitive pricing options and excellent development support. For developers eager to avoid the restrictions posed by iText's AGPL license, IronPDF presents a compelling alternative, simplifying PDF tasks and maintaining the integrity and privacy of your source code.

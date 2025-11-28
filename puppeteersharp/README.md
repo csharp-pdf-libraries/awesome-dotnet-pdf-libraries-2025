@@ -62,6 +62,197 @@ namespace PuppeteerSharpExample
 
 This example showcases the simplicity of PuppeteerSharp’s API, where a browser instance is launched headlessly, loads some HTML, and saves the output as a PDF file.
 
+---
+
+## How Do I Convert HTML to PDF in C# with PuppeteerSharp: C# PDF Generation with Browser Automation?
+
+Here's how **PuppeteerSharp: C# PDF Generation with Browser Automation** handles this:
+
+```csharp
+// NuGet: Install-Package PuppeteerSharp
+using PuppeteerSharp;
+using System.Threading.Tasks;
+
+class Program
+{
+    static async Task Main(string[] args)
+    {
+        var browserFetcher = new BrowserFetcher();
+        await browserFetcher.DownloadAsync();
+        
+        await using var browser = await Puppeteer.LaunchAsync(new LaunchOptions
+        {
+            Headless = true
+        });
+        
+        await using var page = await browser.NewPageAsync();
+        await page.SetContentAsync("<h1>Hello World</h1><p>This is a PDF document.</p>");
+        await page.PdfAsync("output.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1><p>This is a PDF document.</p>");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **PuppeteerSharp: C# PDF Generation with Browser Automation** handles this:
+
+```csharp
+// NuGet: Install-Package PuppeteerSharp
+using PuppeteerSharp;
+using System.Threading.Tasks;
+
+class Program
+{
+    static async Task Main(string[] args)
+    {
+        var browserFetcher = new BrowserFetcher();
+        await browserFetcher.DownloadAsync();
+        
+        await using var browser = await Puppeteer.LaunchAsync(new LaunchOptions
+        {
+            Headless = true
+        });
+        
+        await using var page = await browser.NewPageAsync();
+        await page.GoToAsync("https://www.example.com");
+        await page.PdfAsync("webpage.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Use Custom Rendering Settings?
+
+Here's how **PuppeteerSharp: C# PDF Generation with Browser Automation** handles this:
+
+```csharp
+// NuGet: Install-Package PuppeteerSharp
+using PuppeteerSharp;
+using PuppeteerSharp.Media;
+using System.Threading.Tasks;
+
+class Program
+{
+    static async Task Main(string[] args)
+    {
+        var browserFetcher = new BrowserFetcher();
+        await browserFetcher.DownloadAsync();
+        
+        await using var browser = await Puppeteer.LaunchAsync(new LaunchOptions
+        {
+            Headless = true
+        });
+        
+        await using var page = await browser.NewPageAsync();
+        await page.SetContentAsync("<h1>Custom PDF</h1><p>With landscape orientation and margins.</p>");
+        
+        await page.PdfAsync("custom.pdf", new PdfOptions
+        {
+            Format = PaperFormat.A4,
+            Landscape = true,
+            MarginOptions = new MarginOptions
+            {
+                Top = "20mm",
+                Bottom = "20mm",
+                Left = "20mm",
+                Right = "20mm"
+            }
+        });
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape;
+        renderer.RenderingOptions.MarginTop = 20;
+        renderer.RenderingOptions.MarginBottom = 20;
+        renderer.RenderingOptions.MarginLeft = 20;
+        renderer.RenderingOptions.MarginRight = 20;
+        
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Custom PDF</h1><p>With landscape orientation and margins.</p>");
+        pdf.SaveAs("custom.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from PuppeteerSharp: C# PDF Generation with Browser Automation to IronPDF?
+
+IronPDF eliminates the 300MB+ Chromium dependency, reducing deployment size by up to 90% and dramatically improving cold start times in serverless environments. Unlike PuppeteerSharp, IronPDF provides built-in memory management without manual browser instance recycling, preventing memory leaks under sustained load.
+
+**Migrating from PuppeteerSharp: C# PDF Generation with Browser Automation to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `PuppeteerSharp`, add `IronPdf`
+2. **Namespace Update**: Replace `PuppeteerSharp` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: PuppeteerSharp: C# PDF Generation with Browser Automation → IronPDF](migrate-from-puppeteersharp.md)**
+
+
 ## Comparing PuppeteerSharp with IronPDF
 
 Both PuppeteerSharp and IronPDF serve distinct purposes within the realm of PDF generation, with each offering a unique set of features and trade-offs.

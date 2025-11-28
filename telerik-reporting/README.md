@@ -72,3 +72,237 @@ Telerik Reporting and IronPDF both offer significant value to developers, but th
 ---
 
 Jacob Mellor is the Chief Technology Officer at Iron Software, where he leads a team of 50+ developers building enterprise .NET components that have achieved over 41 million NuGet downloads. With an impressive 41 years of coding experience, Jacob has established himself as a seasoned leader in software development and architecture. Based in Chiang Mai, Thailand, he continues to drive innovation in the .NET ecosystem while guiding Iron Software's technical vision. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
+
+---
+
+## How Do I Headers Footers?
+
+Here's how **Telerik Reporting C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package Telerik.Reporting
+using Telerik.Reporting;
+using Telerik.Reporting.Processing;
+using Telerik.Reporting.Drawing;
+
+class TelerikExample
+{
+    static void Main()
+    {
+        var report = new Telerik.Reporting.Report();
+        
+        // Add page header
+        var pageHeader = new Telerik.Reporting.PageHeaderSection();
+        pageHeader.Height = new Unit(0.5, UnitType.Inch);
+        pageHeader.Items.Add(new Telerik.Reporting.TextBox()
+        {
+            Value = "Document Header",
+            Location = new PointU(0, 0),
+            Size = new SizeU(new Unit(6, UnitType.Inch), new Unit(0.3, UnitType.Inch))
+        });
+        report.PageHeaderSection = pageHeader;
+        
+        // Add page footer
+        var pageFooter = new Telerik.Reporting.PageFooterSection();
+        pageFooter.Height = new Unit(0.5, UnitType.Inch);
+        pageFooter.Items.Add(new Telerik.Reporting.TextBox()
+        {
+            Value = "Page {PageNumber} of {PageCount}",
+            Location = new PointU(0, 0),
+            Size = new SizeU(new Unit(6, UnitType.Inch), new Unit(0.3, UnitType.Inch))
+        });
+        report.PageFooterSection = pageFooter;
+        
+        // Add content
+        var htmlTextBox = new Telerik.Reporting.HtmlTextBox()
+        {
+            Value = "<h1>Report Content</h1><p>This is the main content.</p>"
+        };
+        report.Items.Add(htmlTextBox);
+        
+        var instanceReportSource = new Telerik.Reporting.InstanceReportSource();
+        instanceReportSource.ReportDocument = report;
+        
+        var reportProcessor = new ReportProcessor();
+        var result = reportProcessor.RenderReport("PDF", instanceReportSource, null);
+        
+        using (var fs = new System.IO.FileStream("report_with_headers.pdf", System.IO.FileMode.Create))
+        {
+            fs.Write(result.DocumentBytes, 0, result.DocumentBytes.Length);
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+using System;
+
+class IronPdfExample
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        // Configure header and footer
+        renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter()
+        {
+            HtmlFragment = "<div style='text-align:center'>Document Header</div>"
+        };
+        
+        renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter()
+        {
+            HtmlFragment = "<div style='text-align:center'>Page {page} of {total-pages}</div>"
+        };
+        
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Report Content</h1><p>This is the main content.</p>");
+        pdf.SaveAs("report_with_headers.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with Telerik Reporting C# PDF?
+
+Here's how **Telerik Reporting C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package Telerik.Reporting
+using Telerik.Reporting;
+using Telerik.Reporting.Processing;
+using System.Collections.Specialized;
+
+class TelerikExample
+{
+    static void Main()
+    {
+        var reportSource = new Telerik.Reporting.TypeReportSource();
+        var instanceReportSource = new Telerik.Reporting.InstanceReportSource();
+        instanceReportSource.ReportDocument = new Telerik.Reporting.Report()
+        {
+            Items = { new Telerik.Reporting.HtmlTextBox() { Value = "<h1>Hello World</h1><p>Sample HTML content</p>" } }
+        };
+        
+        var reportProcessor = new ReportProcessor();
+        var result = reportProcessor.RenderReport("PDF", instanceReportSource, null);
+        
+        using (var fs = new System.IO.FileStream("output.pdf", System.IO.FileMode.Create))
+        {
+            fs.Write(result.DocumentBytes, 0, result.DocumentBytes.Length);
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class IronPdfExample
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1><p>Sample HTML content</p>");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **Telerik Reporting C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package Telerik.Reporting
+using Telerik.Reporting;
+using Telerik.Reporting.Processing;
+using System.Net;
+
+class TelerikExample
+{
+    static void Main()
+    {
+        string htmlContent;
+        using (var client = new WebClient())
+        {
+            htmlContent = client.DownloadString("https://example.com");
+        }
+        
+        var report = new Telerik.Reporting.Report();
+        var htmlTextBox = new Telerik.Reporting.HtmlTextBox()
+        {
+            Value = htmlContent
+        };
+        report.Items.Add(htmlTextBox);
+        
+        var instanceReportSource = new Telerik.Reporting.InstanceReportSource();
+        instanceReportSource.ReportDocument = report;
+        
+        var reportProcessor = new ReportProcessor();
+        var result = reportProcessor.RenderReport("PDF", instanceReportSource, null);
+        
+        using (var fs = new System.IO.FileStream("webpage.pdf", System.IO.FileMode.Create))
+        {
+            fs.Write(result.DocumentBytes, 0, result.DocumentBytes.Length);
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class IronPdfExample
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://example.com");
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Telerik Reporting C# PDF to IronPDF?
+
+IronPDF eliminates the need to purchase an expensive DevCraft bundle and removes the complexity of report designer installations. Unlike Telerik's report-centric approach, IronPDF provides straightforward, general-purpose PDF generation from HTML, making it ideal for modern web applications.
+
+**Migrating from Telerik Reporting C# PDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Install `IronPdf` package
+2. **Namespace Update**: Replace `Telerik.Reporting` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Telerik Reporting C# PDF → IronPDF](migrate-from-telerik-reporting.md)**
+

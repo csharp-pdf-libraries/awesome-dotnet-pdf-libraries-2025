@@ -61,6 +61,227 @@ namespace PdfGeneration
 
 While the above code snippet works for basic conversion tasks, developers should be aware of potential limitations when dealing with complex HTML or modern CSS layouts due to the library's reliance on outdated technology.
 
+---
+
+## How Do I Convert HTML to PDF in C# with ExpertPdf C# PDF?
+
+Here's how **ExpertPdf C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package ExpertPdf.HtmlToPdf
+using ExpertPdf.HtmlToPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Create the PDF converter
+        PdfConverter pdfConverter = new PdfConverter();
+        
+        // Convert HTML string to PDF
+        byte[] pdfBytes = pdfConverter.GetPdfBytesFromHtmlString("<h1>Hello World</h1><p>This is a PDF document.</p>");
+        
+        // Save to file
+        System.IO.File.WriteAllBytes("output.pdf", pdfBytes);
+        
+        Console.WriteLine("PDF created successfully!");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Create a PDF from HTML string
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1><p>This is a PDF document.</p>");
+        
+        // Save to file
+        pdf.SaveAs("output.pdf");
+        
+        Console.WriteLine("PDF created successfully!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML Files with Headers and Footers?
+
+Here's how **ExpertPdf C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package ExpertPdf.HtmlToPdf
+using ExpertPdf.HtmlToPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Create the PDF converter
+        PdfConverter pdfConverter = new PdfConverter();
+        
+        // Enable header
+        pdfConverter.PdfHeaderOptions.ShowHeader = true;
+        pdfConverter.PdfHeaderOptions.HeaderText = "Document Header";
+        pdfConverter.PdfHeaderOptions.HeaderTextAlignment = HorizontalTextAlign.Center;
+        
+        // Enable footer with page numbers
+        pdfConverter.PdfFooterOptions.ShowFooter = true;
+        pdfConverter.PdfFooterOptions.FooterText = "Page &p; of &P;";
+        pdfConverter.PdfFooterOptions.FooterTextAlignment = HorizontalTextAlign.Right;
+        
+        // Convert HTML file to PDF
+        byte[] pdfBytes = pdfConverter.GetPdfBytesFromHtmlFile("input.html");
+        
+        // Save to file
+        System.IO.File.WriteAllBytes("output-with-header-footer.pdf", pdfBytes);
+        
+        Console.WriteLine("PDF with headers and footers created successfully!");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Create a PDF renderer
+        var renderer = new ChromePdfRenderer();
+        
+        // Configure header
+        renderer.RenderingOptions.TextHeader = new TextHeaderFooter()
+        {
+            CenterText = "Document Header",
+            DrawDividerLine = true
+        };
+        
+        // Configure footer with page numbers
+        renderer.RenderingOptions.TextFooter = new TextHeaderFooter()
+        {
+            RightText = "Page {page} of {total-pages}",
+            DrawDividerLine = true
+        };
+        
+        // Convert HTML file to PDF
+        var pdf = renderer.RenderHtmlFileAsPdf("input.html");
+        
+        // Save to file
+        pdf.SaveAs("output-with-header-footer.pdf");
+        
+        Console.WriteLine("PDF with headers and footers created successfully!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **ExpertPdf C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package ExpertPdf.HtmlToPdf
+using ExpertPdf.HtmlToPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Create the PDF converter
+        PdfConverter pdfConverter = new PdfConverter();
+        
+        // Set page size and orientation
+        pdfConverter.PdfDocumentOptions.PdfPageSize = PdfPageSize.A4;
+        pdfConverter.PdfDocumentOptions.PdfPageOrientation = PdfPageOrientation.Portrait;
+        
+        // Convert URL to PDF
+        byte[] pdfBytes = pdfConverter.GetPdfBytesFromUrl("https://www.example.com");
+        
+        // Save to file
+        System.IO.File.WriteAllBytes("webpage.pdf", pdfBytes);
+        
+        Console.WriteLine("PDF from URL created successfully!");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Create a PDF renderer
+        var renderer = new ChromePdfRenderer();
+        
+        // Set page size and orientation
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Portrait;
+        
+        // Convert URL to PDF
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        
+        // Save to file
+        pdf.SaveAs("webpage.pdf");
+        
+        Console.WriteLine("PDF from URL created successfully!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from ExpertPdf C# PDF to IronPDF?
+
+ExpertPdf has not received documentation updates since 2018 and relies on a wrapper around outdated Chrome versions, creating security and compatibility risks. IronPDF offers modern, actively maintained PDF generation with up-to-date Chromium rendering, comprehensive documentation, and competitive pricing.
+
+**Migrating from ExpertPdf C# PDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `ExpertPdf.HtmlToPdf`, add `IronPdf`
+2. **Namespace Update**: Replace `ExpertPdf.HtmlToPdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: ExpertPdf C# PDF → IronPDF](migrate-from-expertpdf.md)**
+
+
 ## Conclusion
 
 Both ExpertPdf and IronPDF have made efforts to facilitate HTML to PDF conversion within the .NET ecosystem. While ExpertPdf provides basic functionality at a premium cost, its drawbacks, particularly outdated documentation and reliance on legacy technology, significantly impact its overall utility.

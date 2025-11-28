@@ -91,3 +91,209 @@ For organizations prioritizing document editing within application UI, TextContr
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person engineering team building .NET components that have achieved over 41 million NuGet downloads. With 41 years of coding experience, he specializes in architecting scalable document processing and PDF manipulation solutions for enterprise applications. Based in Chiang Mai, Thailand, Jacob continues to drive technical innovation in the .NET ecosystem. Connect with him on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
+
+---
+
+## How Do I Convert HTML to PDF in C# with TextControl (TX Text Control) C# PDF?
+
+Here's how **TextControl (TX Text Control) C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package TXTextControl.Server
+using TXTextControl;
+using System.IO;
+
+namespace TextControlExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            using (ServerTextControl textControl = new ServerTextControl())
+            {
+                textControl.Create();
+                
+                string html = "<html><body><h1>Hello World</h1><p>This is a PDF document.</p></body></html>";
+                
+                textControl.Load(html, StreamType.HTMLFormat);
+                textControl.Save("output.pdf", StreamType.AdobePDF);
+            }
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+namespace IronPdfExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var renderer = new ChromePdfRenderer();
+            
+            string html = "<html><body><h1>Hello World</h1><p>This is a PDF document.</p></body></html>";
+            
+            var pdf = renderer.RenderHtmlAsPdf(html);
+            pdf.SaveAs("output.pdf");
+        }
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **TextControl (TX Text Control) C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package TXTextControl.Server
+using TXTextControl;
+using System.IO;
+
+namespace TextControlExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            using (ServerTextControl textControl = new ServerTextControl())
+            {
+                textControl.Create();
+                
+                byte[] pdf1 = File.ReadAllBytes("document1.pdf");
+                textControl.Load(pdf1, StreamType.AdobePDF);
+                
+                byte[] pdf2 = File.ReadAllBytes("document2.pdf");
+                textControl.Load(pdf2, StreamType.AdobePDF, LoadAppendMode.Append);
+                
+                textControl.Save("merged.pdf", StreamType.AdobePDF);
+            }
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+namespace IronPdfExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var pdf1 = PdfDocument.FromFile("document1.pdf");
+            var pdf2 = PdfDocument.FromFile("document2.pdf");
+            
+            var merged = PdfDocument.Merge(pdf1, pdf2);
+            merged.SaveAs("merged.pdf");
+        }
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Add Header Footer?
+
+Here's how **TextControl (TX Text Control) C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package TXTextControl.Server
+using TXTextControl;
+using System.IO;
+
+namespace TextControlExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            using (ServerTextControl textControl = new ServerTextControl())
+            {
+                textControl.Create();
+                
+                string html = "<html><body><h1>Document Content</h1><p>Main body text.</p></body></html>";
+                textControl.Load(html, StreamType.HTMLFormat);
+                
+                HeaderFooter header = new HeaderFooter(HeaderFooterType.Header);
+                header.Text = "Document Header";
+                textControl.Sections[0].HeadersAndFooters.Add(header);
+                
+                HeaderFooter footer = new HeaderFooter(HeaderFooterType.Footer);
+                footer.Text = "Page {page} of {numpages}";
+                textControl.Sections[0].HeadersAndFooters.Add(footer);
+                
+                textControl.Save("output.pdf", StreamType.AdobePDF);
+            }
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+
+namespace IronPdfExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var renderer = new ChromePdfRenderer();
+            
+            string html = "<html><body><h1>Document Content</h1><p>Main body text.</p></body></html>";
+            
+            var pdf = renderer.RenderHtmlAsPdf(html);
+            
+            pdf.AddTextHeader("Document Header");
+            pdf.AddTextFooter("Page {page} of {total-pages}");
+            
+            pdf.SaveAs("output.pdf");
+        }
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from TextControl (TX Text Control) C# PDF to IronPDF?
+
+TX Text Control's annual licensing costs $3,398+ per developer with mandatory 40% annual renewals, making it 4.5x more expensive than IronPDF for equivalent functionality. Known rendering bugs affect Intel Iris Xe Graphics (11th gen processors) requiring registry workarounds, while TX Text Control's core word processor architecture treats PDF generation as a secondary feature with documented quality issues.
+
+**Migrating from TextControl (TX Text Control) C# PDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `TXTextControl.TextControl`, add `IronPdf`
+2. **Namespace Update**: Replace `TXTextControl` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: TextControl (TX Text Control) C# PDF → IronPDF](migrate-from-textcontrol.md)**
+

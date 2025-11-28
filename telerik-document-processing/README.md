@@ -83,6 +83,173 @@ PDF.SaveAs("IronPDFOutput.pdf");
 
 For more detailed tutorials and guides, refer to IronPDF's [HTML to PDF conversion guide](https://ironpdf.com/how-to/html-file-to-pdf/) and explore their extensive [tutorials](https://ironpdf.com/tutorials/).
 
+---
+
+## How Do I Convert HTML to PDF in C# with Telerik Document Processing?
+
+Here's how **Telerik Document Processing** handles this:
+
+```csharp
+// NuGet: Install-Package Telerik.Documents.Flow
+// NuGet: Install-Package Telerik.Documents.Flow.FormatProviders.Pdf
+using Telerik.Windows.Documents.Flow.FormatProviders.Html;
+using Telerik.Windows.Documents.Flow.FormatProviders.Pdf;
+using Telerik.Windows.Documents.Flow.Model;
+using System.IO;
+
+string html = "<html><body><h1>Hello World</h1><p>This is a PDF document.</p></body></html>";
+
+HtmlFormatProvider htmlProvider = new HtmlFormatProvider();
+RadFlowDocument document = htmlProvider.Import(html);
+
+PdfFormatProvider pdfProvider = new PdfFormatProvider();
+using (FileStream output = File.OpenWrite("output.pdf"))
+{
+    pdfProvider.Export(document, output);
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+string html = "<html><body><h1>Hello World</h1><p>This is a PDF document.</p></body></html>";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **Telerik Document Processing** handles this:
+
+```csharp
+// NuGet: Install-Package Telerik.Documents.Fixed
+using Telerik.Windows.Documents.Fixed.FormatProviders.Pdf;
+using Telerik.Windows.Documents.Fixed.Model;
+using System.IO;
+
+PdfFormatProvider provider = new PdfFormatProvider();
+
+RadFixedDocument document1;
+using (FileStream input = File.OpenRead("document1.pdf"))
+{
+    document1 = provider.Import(input);
+}
+
+RadFixedDocument document2;
+using (FileStream input = File.OpenRead("document2.pdf"))
+{
+    document2 = provider.Import(input);
+}
+
+RadFixedDocument mergedDocument = new RadFixedDocument();
+foreach (var page in document1.Pages)
+{
+    mergedDocument.Pages.Add(page);
+}
+foreach (var page in document2.Pages)
+{
+    mergedDocument.Pages.Add(page);
+}
+
+using (FileStream output = File.OpenWrite("merged.pdf"))
+{
+    provider.Export(mergedDocument, output);
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+var pdf1 = PdfDocument.FromFile("document1.pdf");
+var pdf2 = PdfDocument.FromFile("document2.pdf");
+
+var merged = PdfDocument.Merge(pdf1, pdf2);
+merged.SaveAs("merged.pdf");
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **Telerik Document Processing** handles this:
+
+```csharp
+// NuGet: Install-Package Telerik.Documents.Flow
+// NuGet: Install-Package Telerik.Documents.Flow.FormatProviders.Pdf
+using Telerik.Windows.Documents.Flow.FormatProviders.Html;
+using Telerik.Windows.Documents.Flow.FormatProviders.Pdf;
+using Telerik.Windows.Documents.Flow.Model;
+using System.IO;
+using System.Net.Http;
+using System.Threading.Tasks;
+
+string url = "https://example.com";
+
+using HttpClient client = new HttpClient();
+string html = await client.GetStringAsync(url);
+
+HtmlFormatProvider htmlProvider = new HtmlFormatProvider();
+RadFlowDocument document = htmlProvider.Import(html);
+
+PdfFormatProvider pdfProvider = new PdfFormatProvider();
+using (FileStream output = File.OpenWrite("webpage.pdf"))
+{
+    pdfProvider.Export(document, output);
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+string url = "https://example.com";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderUrlAsPdf(url);
+pdf.SaveAs("webpage.pdf");
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Telerik Document Processing to IronPDF?
+
+IronPDF provides production-grade HTML-to-PDF rendering with full support for modern CSS frameworks including Bootstrap, Flexbox, and Grid layouts. Unlike Telerik's limited CSS parser, IronPDF uses a Chromium-based rendering engine that handles complex stylesheets, external CSS files, and responsive designs exactly as they appear in browsers.
+
+**Migrating from Telerik Document Processing to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `Telerik.Documents.Core`, add `IronPdf`
+2. **Namespace Update**: Replace `Telerik.Windows.Documents.Flow.Model` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Telerik Document Processing → IronPDF](migrate-from-telerik-document-processing.md)**
+
+
 ## Comparison Table
 
 | Feature / Criteria  | Telerik Document Processing | IronPDF                          |

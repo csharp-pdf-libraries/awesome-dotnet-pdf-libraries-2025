@@ -63,6 +63,208 @@ Let's dive deeper into the main features of both solutions with the table below:
 | **Ease of Use**       | Complex setup                    | User-friendly with guides         |
 | **Documentation**     | Basic                            | Extensive with examples           |
 
+---
+
+## How Do I Convert HTML to PDF in C# with TuesPechkin?
+
+Here's how **TuesPechkin** handles this:
+
+```csharp
+// NuGet: Install-Package TuesPechkin
+using TuesPechkin;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new StandardConverter(
+            new RemotingToolset<PdfToolset>(
+                new Win64EmbeddedDeployment(
+                    new TempFolderDeployment())));
+        
+        string html = "<html><body><h1>Hello World</h1></body></html>";
+        byte[] pdfBytes = converter.Convert(new HtmlToPdfDocument
+        {
+            Objects = { new ObjectSettings { HtmlText = html } }
+        });
+        
+        File.WriteAllBytes("output.pdf", pdfBytes);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        string html = "<html><body><h1>Hello World</h1></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **TuesPechkin** handles this:
+
+```csharp
+// NuGet: Install-Package TuesPechkin
+using TuesPechkin;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new StandardConverter(
+            new RemotingToolset<PdfToolset>(
+                new Win64EmbeddedDeployment(
+                    new TempFolderDeployment())));
+        
+        byte[] pdfBytes = converter.Convert(new HtmlToPdfDocument
+        {
+            Objects = {
+                new ObjectSettings {
+                    PageUrl = "https://www.example.com"
+                }
+            }
+        });
+        
+        File.WriteAllBytes("webpage.pdf", pdfBytes);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Use Custom Rendering Settings?
+
+Here's how **TuesPechkin** handles this:
+
+```csharp
+// NuGet: Install-Package TuesPechkin
+using TuesPechkin;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new StandardConverter(
+            new RemotingToolset<PdfToolset>(
+                new Win64EmbeddedDeployment(
+                    new TempFolderDeployment())));
+        
+        string html = "<html><body><h1>Custom PDF</h1></body></html>";
+        
+        var document = new HtmlToPdfDocument
+        {
+            GlobalSettings = {
+                Orientation = GlobalSettings.PdfOrientation.Landscape,
+                PaperSize = GlobalSettings.PdfPaperSize.A4,
+                Margins = new MarginSettings { Unit = Unit.Millimeters, Top = 10, Bottom = 10 }
+            },
+            Objects = {
+                new ObjectSettings { HtmlText = html }
+            }
+        };
+        
+        byte[] pdfBytes = converter.Convert(document);
+        File.WriteAllBytes("custom.pdf", pdfBytes);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Engines.Chrome;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape;
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        renderer.RenderingOptions.MarginTop = 10;
+        renderer.RenderingOptions.MarginBottom = 10;
+        
+        string html = "<html><body><h1>Custom PDF</h1></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        
+        pdf.SaveAs("custom.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from TuesPechkin to IronPDF?
+
+TuesPechkin wraps the legacy wkhtmltopdf library, requiring complex thread management with `ThreadSafeConverter` that still crashes under high load. It inherits all wkhtmltopdf security vulnerabilities (CVEs) and rendering limitations.
+
+**Migrating from TuesPechkin to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `TuesPechkin`, add `IronPdf`
+2. **Namespace Update**: Replace `TuesPechkin` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: TuesPechkin → IronPDF](migrate-from-tuespechkin.md)**
+
+
 ## Conclusion: Choosing the Right Tool
 
 Though both TuesPechkin and IronPDF have their own merits, your choice ultimately depends on your project's specific needs. If budget constraints are a significant factor and you’re willing to handle the challenges of manual thread management, then TuesPechkin might be your go-to option. However, for those prioritizing efficiency, maintenance, and support, IronPDF stands out with its native threading capabilities and ongoing development.

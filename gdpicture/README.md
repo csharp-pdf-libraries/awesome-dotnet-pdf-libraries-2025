@@ -82,6 +82,185 @@ The example above showcases IronPDF’s capability to render HTML into a PDF doc
 3. **Cost-efficient Licensing:**  
    Competitive pricing is a significant draw for IronPDF, making it more accessible to small to medium-sized enterprises and individual developers.
 
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **GdPicture.NET (now Nutrient)** handles this:
+
+```csharp
+// NuGet: Install-Package GdPicture.NET
+using GdPicture14;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        using (GdPicturePDF pdf1 = new GdPicturePDF())
+        using (GdPicturePDF pdf2 = new GdPicturePDF())
+        {
+            pdf1.LoadFromFile("document1.pdf", false);
+            pdf2.LoadFromFile("document2.pdf", false);
+            
+            pdf1.MergePages(pdf2);
+            pdf1.SaveToFile("merged.pdf");
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf1 = PdfDocument.FromFile("document1.pdf");
+        var pdf2 = PdfDocument.FromFile("document2.pdf");
+        
+        var merged = PdfDocument.Merge(new List<PdfDocument> { pdf1, pdf2 });
+        merged.SaveAs("merged.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with GdPicture.NET (now Nutrient)?
+
+Here's how **GdPicture.NET (now Nutrient)** handles this:
+
+```csharp
+// NuGet: Install-Package GdPicture.NET
+using GdPicture14;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        using (GdPictureDocumentConverter converter = new GdPictureDocumentConverter())
+        {
+            string htmlContent = "<html><body><h1>Hello World</h1></body></html>";
+            GdPictureStatus status = converter.LoadFromHTMLString(htmlContent);
+            
+            if (status == GdPictureStatus.OK)
+            {
+                converter.SaveAsPDF("output.pdf");
+            }
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        string htmlContent = "<html><body><h1>Hello World</h1></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Add Watermark PDF?
+
+Here's how **GdPicture.NET (now Nutrient)** handles this:
+
+```csharp
+// NuGet: Install-Package GdPicture.NET
+using GdPicture14;
+using System;
+using System.Drawing;
+
+class Program
+{
+    static void Main()
+    {
+        using (GdPicturePDF pdf = new GdPicturePDF())
+        {
+            pdf.LoadFromFile("input.pdf", false);
+            
+            for (int i = 1; i <= pdf.GetPageCount(); i++)
+            {
+                pdf.SelectPage(i);
+                pdf.SetTextColor(Color.Red);
+                pdf.SetTextSize(48);
+                pdf.DrawText("CONFIDENTIAL", 200, 400);
+            }
+            
+            pdf.SaveToFile("watermarked.pdf");
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Editing;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf = PdfDocument.FromFile("input.pdf");
+        
+        pdf.ApplyWatermark("<h1 style='color:red;'>CONFIDENTIAL</h1>", 50, VerticalAlignment.Middle, HorizontalAlignment.Center);
+        
+        pdf.SaveAs("watermarked.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from GdPicture.NET (now Nutrient) to IronPDF?
+
+IronPDF offers a focused, streamlined solution for developers who need PDF generation and manipulation without the complexity and cost of a full document imaging suite. With a simpler API and straightforward pricing, IronPDF eliminates the overhead of features like OCR and barcode scanning when you only need core PDF functionality.
+
+**Migrating from GdPicture.NET (now Nutrient) to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `GdPicture.NET.14`, add `IronPdf`
+2. **Namespace Update**: Replace `GdPicture14` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: GdPicture.NET (now Nutrient) → IronPDF](migrate-from-gdpicture.md)**
+
+
 ## Conclusion
 
 Choosing between GdPicture.NET (now Nutrient) and IronPDF largely depends on the project requirements. GdPicture.NET’s extensive feature set makes it suitable for enterprises needing a multifunctional document imaging SDK. However, for projects centered exclusively around PDF manipulation, IronPDF’s focused approach, ease of use, and strategic pricing present a compelling case. 

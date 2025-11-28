@@ -87,6 +87,226 @@ Being lightweight, IronPDF simplifies installations drastically, making it a dev
 
 IronPDF is ideal in scenarios requiring modern document generation where the source is HTML/CSS. For instance, generating invoices and receipts from web-based templates or creating reports based on dynamic data visualizations designed for web.
 
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **SAP Crystal Reports** handles this:
+
+```csharp
+// NuGet: Install-Package CrystalReports.Engine
+using CrystalDecisions.CrystalReports.Engine;
+using CrystalDecisions.Shared;
+using System;
+using System.Net;
+
+class Program
+{
+    static void Main()
+    {
+        // Crystal Reports cannot directly convert URLs to PDF
+        // You need to create a report template first
+        
+        // Download HTML content
+        WebClient client = new WebClient();
+        string htmlContent = client.DownloadString("https://example.com");
+        
+        // Crystal Reports requires .rpt template and data binding
+        // This approach is not straightforward for URL conversion
+        ReportDocument reportDocument = new ReportDocument();
+        reportDocument.Load("WebReport.rpt");
+        
+        // Manual data extraction and binding required
+        // reportDocument.SetDataSource(extractedData);
+        
+        reportDocument.ExportToDisk(ExportFormatType.PortableDocFormat, "output.pdf");
+        reportDocument.Close();
+        reportDocument.Dispose();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Create a PDF from a URL
+        var renderer = new ChromePdfRenderer();
+        
+        var pdf = renderer.RenderUrlAsPdf("https://example.com");
+        pdf.SaveAs("output.pdf");
+        
+        Console.WriteLine("PDF created from URL successfully!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Headers Footers?
+
+Here's how **SAP Crystal Reports** handles this:
+
+```csharp
+// NuGet: Install-Package CrystalReports.Engine
+using CrystalDecisions.CrystalReports.Engine;
+using CrystalDecisions.Shared;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Crystal Reports requires design-time configuration
+        ReportDocument reportDocument = new ReportDocument();
+        reportDocument.Load("Report.rpt");
+        
+        // Headers and footers must be designed in the .rpt file
+        // using Crystal Reports designer
+        // You can set parameter values programmatically
+        reportDocument.SetParameterValue("HeaderText", "Company Name");
+        reportDocument.SetParameterValue("FooterText", "Page ");
+        
+        // Crystal Reports handles page numbers through formula fields
+        // configured in the designer
+        
+        reportDocument.ExportToDisk(ExportFormatType.PortableDocFormat, "output.pdf");
+        reportDocument.Close();
+        reportDocument.Dispose();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        // Configure headers and footers
+        renderer.RenderingOptions.TextHeader.CenterText = "Company Name";
+        renderer.RenderingOptions.TextHeader.FontSize = 12;
+        
+        renderer.RenderingOptions.TextFooter.LeftText = "Confidential";
+        renderer.RenderingOptions.TextFooter.RightText = "Page {page} of {total-pages}";
+        renderer.RenderingOptions.TextFooter.FontSize = 10;
+        
+        string htmlContent = "<h1>Document Title</h1><p>Document content goes here.</p>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("output.pdf");
+        
+        Console.WriteLine("PDF with headers and footers created!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with SAP Crystal Reports?
+
+Here's how **SAP Crystal Reports** handles this:
+
+```csharp
+// NuGet: Install-Package CrystalReports.Engine
+using CrystalDecisions.CrystalReports.Engine;
+using CrystalDecisions.Shared;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Crystal Reports requires a .rpt file template
+        ReportDocument reportDocument = new ReportDocument();
+        reportDocument.Load("Report.rpt");
+        
+        // Crystal Reports doesn't directly support HTML
+        // You need to bind data to the report template
+        // reportDocument.SetDataSource(dataSet);
+        
+        ExportOptions exportOptions = reportDocument.ExportOptions;
+        exportOptions.ExportDestinationType = ExportDestinationType.DiskFile;
+        exportOptions.ExportFormatType = ExportFormatType.PortableDocFormat;
+        
+        DiskFileDestinationOptions diskOptions = new DiskFileDestinationOptions();
+        diskOptions.DiskFileName = "output.pdf";
+        exportOptions.DestinationOptions = diskOptions;
+        
+        reportDocument.Export();
+        reportDocument.Close();
+        reportDocument.Dispose();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Create a PDF from HTML string
+        var renderer = new ChromePdfRenderer();
+        
+        string htmlContent = "<h1>Hello World</h1><p>This is a PDF generated from HTML.</p>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("output.pdf");
+        
+        Console.WriteLine("PDF created successfully!");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from SAP Crystal Reports to IronPDF?
+
+SAP Crystal Reports has become a heavyweight legacy solution with complex deployment requirements and significant SAP ecosystem dependencies that limit flexibility. Modern web-based reporting needs demand lighter, more maintainable solutions that integrate seamlessly with .NET applications without massive installations.
+
+**Migrating from SAP Crystal Reports to IronPDF involves:**
+
+1. **NuGet Package Change**: Install `IronPdf` package
+2. **Namespace Update**: Replace `CrystalDecisions.CrystalReports.Engine` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: SAP Crystal Reports → IronPDF](migrate-from-sap-crystal-reports.md)**
+
+
 ## Conclusion
 
 While SAP Crystal Reports remains a robust platform for legacy enterprise reporting, its lack of modern flexibility often renders it less appealing for dynamic, forward-thinking organizations. On the flip side, IronPDF provides a fresh perspective with its ability to seamlessly integrate into .NET environments, support lightweight installations, and focus on web technologies.

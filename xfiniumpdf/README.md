@@ -45,6 +45,210 @@ class Program
 }
 ```
 
+---
+
+## How Do I Convert HTML to PDF in C# with XFINIUM.PDF: A C# Guide to PDF Manipulations?
+
+Here's how **XFINIUM.PDF: A C# Guide to PDF Manipulations** handles this:
+
+```csharp
+// NuGet: Install-Package Xfinium.Pdf
+using Xfinium.Pdf;
+using Xfinium.Pdf.Actions;
+using Xfinium.Pdf.FlowDocument;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        PdfFixedDocument document = new PdfFixedDocument();
+        PdfFlowDocument flowDocument = new PdfFlowDocument();
+        
+        string html = "<html><body><h1>Hello World</h1><p>This is a PDF from HTML.</p></body></html>";
+        
+        PdfFlowContent content = new PdfFlowContent();
+        content.AppendHtml(html);
+        flowDocument.AddContent(content);
+        
+        flowDocument.RenderDocument(document);
+        document.Save("output.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        string html = "<html><body><h1>Hello World</h1><p>This is a PDF from HTML.</p></body></html>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **XFINIUM.PDF: A C# Guide to PDF Manipulations** handles this:
+
+```csharp
+// NuGet: Install-Package Xfinium.Pdf
+using Xfinium.Pdf;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        PdfFixedDocument output = new PdfFixedDocument();
+        
+        FileStream file1 = File.OpenRead("document1.pdf");
+        PdfFixedDocument pdf1 = new PdfFixedDocument(file1);
+        
+        FileStream file2 = File.OpenRead("document2.pdf");
+        PdfFixedDocument pdf2 = new PdfFixedDocument(file2);
+        
+        for (int i = 0; i < pdf1.Pages.Count; i++)
+        {
+            output.Pages.Add(pdf1.Pages[i]);
+        }
+        
+        for (int i = 0; i < pdf2.Pages.Count; i++)
+        {
+            output.Pages.Add(pdf2.Pages[i]);
+        }
+        
+        output.Save("merged.pdf");
+        
+        file1.Close();
+        file2.Close();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf1 = PdfDocument.FromFile("document1.pdf");
+        var pdf2 = PdfDocument.FromFile("document2.pdf");
+        
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Create PDF Text Images?
+
+Here's how **XFINIUM.PDF: A C# Guide to PDF Manipulations** handles this:
+
+```csharp
+// NuGet: Install-Package Xfinium.Pdf
+using Xfinium.Pdf;
+using Xfinium.Pdf.Graphics;
+using Xfinium.Pdf.Core;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        PdfFixedDocument document = new PdfFixedDocument();
+        PdfPage page = document.Pages.Add();
+        
+        PdfStandardFont font = new PdfStandardFont(PdfStandardFontFace.Helvetica, 24);
+        PdfBrush brush = new PdfBrush(PdfRgbColor.Black);
+        
+        page.Graphics.DrawString("Sample PDF Document", font, brush, 50, 50);
+        
+        FileStream imageStream = File.OpenRead("image.jpg");
+        PdfJpegImage image = new PdfJpegImage(imageStream);
+        page.Graphics.DrawImage(image, 50, 100, 200, 150);
+        imageStream.Close();
+        
+        document.Save("output.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        string imageBase64 = Convert.ToBase64String(File.ReadAllBytes("image.jpg"));
+        string html = $@"
+            <html>
+                <body>
+                    <h1>Sample PDF Document</h1>
+                    <img src='data:image/jpeg;base64,{imageBase64}' width='200' height='150' />
+                </body>
+            </html>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from XFINIUM.PDF: A C# Guide to PDF Manipulations to IronPDF?
+
+IronPDF offers superior HTML-to-PDF conversion capabilities with full CSS3 and JavaScript support, making it ideal for modern web-based document generation. It has a larger, more active community with extensive documentation, tutorials, and support resources.
+
+**Migrating from XFINIUM.PDF: A C# Guide to PDF Manipulations to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `Xfinium.Pdf`, add `IronPdf`
+2. **Namespace Update**: Replace `Xfinium.Pdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: XFINIUM.PDF: A C# Guide to PDF Manipulations → IronPDF](migrate-from-xfiniumpdf.md)**
+
+
 ## Comparing XFINIUM.PDF and IronPDF
 
 | Feature                     | XFINIUM.PDF                                          | IronPDF                                                    |

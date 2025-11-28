@@ -66,6 +66,182 @@ IronPDF offers a compelling alternative for developers needing similar functiona
 | **Platform Support**           | Issues on Linux                                  | Cross-platform with fewer reported issues                |
 | **Licensing Model**            | Commercial with ongoing renewals                 | More flexible licensing                                  |
 
+---
+
+## How Do I Merge PDF Files?
+
+Here's how **Aspose.PDF for .NET** handles this:
+
+```csharp
+// NuGet: Install-Package Aspose.PDF
+using Aspose.Pdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var document1 = new Document("file1.pdf");
+        var document2 = new Document("file2.pdf");
+        
+        foreach (Page page in document2.Pages)
+        {
+            document1.Pages.Add(page);
+        }
+        
+        document1.Save("merged.pdf");
+        Console.WriteLine("PDFs merged successfully");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf1 = PdfDocument.FromFile("file1.pdf");
+        var pdf2 = PdfDocument.FromFile("file2.pdf");
+        
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged.pdf");
+        
+        Console.WriteLine("PDFs merged successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with Aspose.PDF for .NET?
+
+Here's how **Aspose.PDF for .NET** handles this:
+
+```csharp
+// NuGet: Install-Package Aspose.PDF
+using Aspose.Pdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var htmlLoadOptions = new HtmlLoadOptions();
+        var document = new Document("input.html", htmlLoadOptions);
+        document.Save("output.pdf");
+        Console.WriteLine("PDF created successfully");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlFileAsPdf("input.html");
+        pdf.SaveAs("output.pdf");
+        Console.WriteLine("PDF created successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert an HTML String to PDF?
+
+Here's how **Aspose.PDF for .NET** handles this:
+
+```csharp
+// NuGet: Install-Package Aspose.PDF
+using Aspose.Pdf;
+using System;
+using System.IO;
+using System.Text;
+
+class Program
+{
+    static void Main()
+    {
+        string htmlContent = "<html><body><h1>Hello World</h1><p>This is a PDF from HTML string.</p></body></html>";
+        
+        using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(htmlContent)))
+        {
+            var htmlLoadOptions = new HtmlLoadOptions();
+            var document = new Document(stream, htmlLoadOptions);
+            document.Save("output.pdf");
+        }
+        
+        Console.WriteLine("PDF created from HTML string");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        string htmlContent = "<html><body><h1>Hello World</h1><p>This is a PDF from HTML string.</p></body></html>";
+        
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("output.pdf");
+        
+        Console.WriteLine("PDF created from HTML string");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Aspose.PDF for .NET to IronPDF?
+
+IronPDF offers a compelling alternative to Aspose.PDF with significantly lower costs (starting at $749 vs $1,199+ annually), modern Chromium-based HTML rendering that handles CSS3 and JavaScript perfectly, and superior performance without the documented slowdowns reported in Aspose.PDF forums. The API is more intuitive and .NET-focused, eliminating the legacy Java engine dependencies that plague Aspose.PDF's HTML-to-PDF conversion.
+
+**Migrating from Aspose.PDF for .NET to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `Aspose.PDF`, add `IronPdf`
+2. **Namespace Update**: Replace `Aspose.Pdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Aspose.PDF for .NET → IronPDF](migrate-from-asposepdf.md)**
+
+
 ## Conclusion
 
 Choosing between Aspose.PDF for .NET and IronPDF largely depends on your specific needs and budget constraints. Aspose.PDF is a feature-rich library that might justify its cost in large enterprise environments where budget is less of a constraint, and deep PDF document manipulation is required. However, for developers and organizations seeking to balance cost with functionality, IronPDF provides an attractive alternative with modern capabilities, reliable performance, and a more affordable licensing model. Ultimately, evaluating the libraries against the backdrop of your project's requirements will guide you to the best choice.

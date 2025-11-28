@@ -54,6 +54,213 @@ Evaluate both options carefully, considering both the short-term practicalities 
 
 ---
 
+---
+
+## How Do I Convert HTML to PDF in C# with HiQPdf C# PDF?
+
+Here's how **HiQPdf C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package HiQPdf
+using HiQPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        HtmlToPdf htmlToPdfConverter = new HtmlToPdf();
+        byte[] pdfBuffer = htmlToPdfConverter.ConvertUrlToMemory("https://example.com");
+        System.IO.File.WriteAllBytes("output.pdf", pdfBuffer);
+        
+        // Convert HTML string
+        string html = "<h1>Hello World</h1><p>This is a PDF document.</p>";
+        byte[] pdfFromHtml = htmlToPdfConverter.ConvertHtmlToMemory(html, "");
+        System.IO.File.WriteAllBytes("fromhtml.pdf", pdfFromHtml);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://example.com");
+        pdf.SaveAs("output.pdf");
+        
+        // Convert HTML string
+        string html = "<h1>Hello World</h1><p>This is a PDF document.</p>";
+        var pdfFromHtml = renderer.RenderHtmlAsPdf(html);
+        pdfFromHtml.SaveAs("fromhtml.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **HiQPdf C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package HiQPdf
+using HiQPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Create first PDF
+        HtmlToPdf converter1 = new HtmlToPdf();
+        byte[] pdf1 = converter1.ConvertHtmlToMemory("<h1>First Document</h1>", "");
+        System.IO.File.WriteAllBytes("doc1.pdf", pdf1);
+        
+        // Create second PDF
+        HtmlToPdf converter2 = new HtmlToPdf();
+        byte[] pdf2 = converter2.ConvertHtmlToMemory("<h1>Second Document</h1>", "");
+        System.IO.File.WriteAllBytes("doc2.pdf", pdf2);
+        
+        // Merge PDFs
+        PdfDocument document1 = PdfDocument.FromFile("doc1.pdf");
+        PdfDocument document2 = PdfDocument.FromFile("doc2.pdf");
+        document1.AddDocument(document2);
+        document1.WriteToFile("merged.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        // Create first PDF
+        var pdf1 = renderer.RenderHtmlAsPdf("<h1>First Document</h1>");
+        pdf1.SaveAs("doc1.pdf");
+        
+        // Create second PDF
+        var pdf2 = renderer.RenderHtmlAsPdf("<h1>Second Document</h1>");
+        pdf2.SaveAs("doc2.pdf");
+        
+        // Merge PDFs
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Add Headers and Footers to PDFs?
+
+Here's how **HiQPdf C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package HiQPdf
+using HiQPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        HtmlToPdf htmlToPdfConverter = new HtmlToPdf();
+        
+        // Add header
+        htmlToPdfConverter.Document.Header.Height = 50;
+        HtmlToPdfVariableElement headerHtml = new HtmlToPdfVariableElement("<div style='text-align:center'>Page Header</div>", "");
+        htmlToPdfConverter.Document.Header.Add(headerHtml);
+        
+        // Add footer with page number
+        htmlToPdfConverter.Document.Footer.Height = 50;
+        HtmlToPdfVariableElement footerHtml = new HtmlToPdfVariableElement("<div style='text-align:center'>Page {CrtPage} of {PageCount}</div>", "");
+        htmlToPdfConverter.Document.Footer.Add(footerHtml);
+        
+        byte[] pdfBuffer = htmlToPdfConverter.ConvertHtmlToMemory("<h1>Document with Headers and Footers</h1>", "");
+        System.IO.File.WriteAllBytes("header-footer.pdf", pdfBuffer);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        // Configure header and footer
+        renderer.RenderingOptions.TextHeader = new TextHeaderFooter()
+        {
+            CenterText = "Page Header",
+            FontSize = 12
+        };
+        
+        renderer.RenderingOptions.TextFooter = new TextHeaderFooter()
+        {
+            CenterText = "Page {page} of {total-pages}",
+            FontSize = 10
+        };
+        
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Document with Headers and Footers</h1>");
+        pdf.SaveAs("header-footer.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from HiQPdf C# PDF to IronPDF?
+
+HiQPdf's "free" version imposes a 3-page limit before adding obtrusive watermarks, making it effectively a trial rather than a viable free option. IronPDF uses a modern Chromium rendering engine that handles contemporary JavaScript frameworks and CSS3 features that HiQPdf's older WebKit engine struggles with.
+
+**Migrating from HiQPdf C# PDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `HiQPdf`, add `IronPdf`
+2. **Namespace Update**: Replace `HiQPdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: HiQPdf C# PDF → IronPDF](migrate-from-hiqpdf.md)**
+
+
 ## Related Tutorials
 
 - **[Best PDF Libraries 2025](../best-pdf-libraries-dotnet-2025.md)** — Comprehensive library comparison

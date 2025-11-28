@@ -73,6 +73,165 @@ public class PdfExample
 
 This example demonstrates how IronPDF can easily be utilized within a C# application to render a webpage into a PDF document. Its simplicity and the control it offers are key benefits when compared to its cloud-based counterparts.
 
+---
+
+## How Do I Convert HTML Files to PDF with Custom Settings?
+
+Here's how **PDFBolt** handles this:
+
+```csharp
+// NuGet: Install-Package PDFBolt
+using PDFBolt;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        converter.PageSize = PageSize.A4;
+        converter.MarginTop = 20;
+        converter.MarginBottom = 20;
+        var html = File.ReadAllText("input.html");
+        var pdf = converter.ConvertHtmlString(html);
+        File.WriteAllBytes("output.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        renderer.RenderingOptions.MarginTop = 20;
+        renderer.RenderingOptions.MarginBottom = 20;
+        var html = File.ReadAllText("input.html");
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with PDFBolt?
+
+Here's how **PDFBolt** handles this:
+
+```csharp
+// NuGet: Install-Package PDFBolt
+using PDFBolt;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        var html = "<html><body><h1>Hello World</h1></body></html>";
+        var pdf = converter.ConvertHtmlString(html);
+        File.WriteAllBytes("output.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var html = "<html><body><h1>Hello World</h1></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **PDFBolt** handles this:
+
+```csharp
+// NuGet: Install-Package PDFBolt
+using PDFBolt;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        var pdf = converter.ConvertUrl("https://www.example.com");
+        File.WriteAllBytes("webpage.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from PDFBolt to IronPDF?
+
+IronPDF provides a self-hosted solution that processes documents locally, eliminating data privacy concerns associated with cloud-only services. Unlike PDFBolt's restrictive free tier of 100 documents per month, IronPDF offers unlimited local processing with no external dependencies.
+
+**Migrating from PDFBolt to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `PDFBolt`, add `IronPdf`
+2. **Namespace Update**: Use `IronPdf` namespace
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: PDFBolt → IronPDF](migrate-from-pdfbolt.md)**
+
+
 ## Conclusion
 
 Both PDFBolt and IronPDF offer valuable solutions for those looking to integrate PDF generation into their applications. However, the choice between them largely depends on your specific needs. PDFBolt serves well for applications that favor quick setup and do not require extensive customization. Conversely, IronPDF shines in environments where data privacy, local processing, and scalability are paramount.

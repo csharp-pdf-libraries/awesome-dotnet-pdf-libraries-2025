@@ -51,6 +51,217 @@ In contrast, IronPDF presents itself not as a continuation or a wrapper of an ex
 
 For a more in-depth understanding of how IronPDF can be leveraged for various PDF conversion needs, detailed tutorials can be explored [here](https://ironpdf.com/tutorials/).
 
+---
+
+## How Do I Convert HTML to PDF in C# with Haukcode.DinkToPdf C# PDF Conversion?
+
+Here's how **Haukcode.DinkToPdf C# PDF Conversion** handles this:
+
+```csharp
+// NuGet: Install-Package DinkToPdf
+using DinkToPdf;
+using DinkToPdf.Contracts;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new SynchronizedConverter(new PdfTools());
+        
+        var doc = new HtmlToPdfDocument()
+        {
+            GlobalSettings = {
+                ColorMode = ColorMode.Color,
+                Orientation = Orientation.Portrait,
+                PaperSize = PaperKind.A4,
+            },
+            Objects = {
+                new ObjectSettings() {
+                    HtmlContent = "<html><body><h1>Hello World</h1></body></html>",
+                }
+            }
+        };
+        
+        byte[] pdf = converter.Convert(doc);
+        File.WriteAllBytes("output.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        var pdf = renderer.RenderHtmlAsPdf("<html><body><h1>Hello World</h1></body></html>");
+        
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Set Custom Page Settings in PDFs?
+
+Here's how **Haukcode.DinkToPdf C# PDF Conversion** handles this:
+
+```csharp
+// NuGet: Install-Package DinkToPdf
+using DinkToPdf;
+using DinkToPdf.Contracts;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new SynchronizedConverter(new PdfTools());
+        
+        var doc = new HtmlToPdfDocument()
+        {
+            GlobalSettings = {
+                ColorMode = ColorMode.Color,
+                Orientation = Orientation.Landscape,
+                PaperSize = PaperKind.Letter,
+                Margins = new MarginSettings() { Top = 10, Bottom = 10, Left = 10, Right = 10 }
+            },
+            Objects = {
+                new ObjectSettings() {
+                    HtmlContent = "<html><body><h1>Landscape Document</h1><p>Custom page settings</p></body></html>",
+                }
+            }
+        };
+        
+        byte[] pdf = converter.Convert(doc);
+        File.WriteAllBytes("landscape.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.Letter;
+        renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape;
+        renderer.RenderingOptions.MarginTop = 10;
+        renderer.RenderingOptions.MarginBottom = 10;
+        renderer.RenderingOptions.MarginLeft = 10;
+        renderer.RenderingOptions.MarginRight = 10;
+        
+        var pdf = renderer.RenderHtmlAsPdf("<html><body><h1>Landscape Document</h1><p>Custom page settings</p></body></html>");
+        
+        pdf.SaveAs("landscape.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **Haukcode.DinkToPdf C# PDF Conversion** handles this:
+
+```csharp
+// NuGet: Install-Package DinkToPdf
+using DinkToPdf;
+using DinkToPdf.Contracts;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new SynchronizedConverter(new PdfTools());
+        
+        var doc = new HtmlToPdfDocument()
+        {
+            GlobalSettings = {
+                ColorMode = ColorMode.Color,
+                Orientation = Orientation.Portrait,
+                PaperSize = PaperKind.A4,
+            },
+            Objects = {
+                new ObjectSettings() {
+                    Page = "https://www.example.com",
+                }
+            }
+        };
+        
+        byte[] pdf = converter.Convert(doc);
+        File.WriteAllBytes("webpage.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Haukcode.DinkToPdf C# PDF Conversion to IronPDF?
+
+Haukcode.DinkToPdf is a fork of an abandoned project that relies on the unmaintained wkhtmltopdf library, inheriting its known security vulnerabilities (CVEs) and limited HTML5/CSS3 support. IronPDF is actively maintained with a modern Chromium rendering engine, providing better security, performance, and comprehensive HTML/CSS rendering.
+
+**Migrating from Haukcode.DinkToPdf C# PDF Conversion to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `DinkToPdf`, add `IronPdf`
+2. **Namespace Update**: Replace `DinkToPdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Haukcode.DinkToPdf C# PDF Conversion → IronPDF](migrate-from-haukcodedinktopdf.md)**
+
+
 ## Comparison Table
 
 | Feature                       | Haukcode.DinkToPdf          | IronPDF                         |

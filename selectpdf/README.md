@@ -75,6 +75,193 @@ Below is a comparison table summarizing key differences and similarities between
 | .NET 10 Support                    | None                             | Full support                      |
 | Deployment in Cloud Environments   | Not Supported                    | Fully supported                   |
 
+---
+
+## How Do I Set Custom Page Settings in PDFs?
+
+Here's how **SelectPdf** handles this:
+
+```csharp
+// NuGet: Install-Package Select.HtmlToPdf
+using SelectPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        HtmlToPdf converter = new HtmlToPdf();
+        
+        converter.Options.PdfPageSize = PdfPageSize.A4;
+        converter.Options.PdfPageOrientation = PdfPageOrientation.Portrait;
+        converter.Options.MarginTop = 20;
+        converter.Options.MarginBottom = 20;
+        converter.Options.MarginLeft = 20;
+        converter.Options.MarginRight = 20;
+        
+        string html = "<html><body><h1>Custom Page Settings</h1></body></html>";
+        PdfDocument doc = converter.ConvertHtmlString(html);
+        doc.Save("custom-settings.pdf");
+        doc.Close();
+        
+        Console.WriteLine("PDF with custom settings created");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Engines.Chrome;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Portrait;
+        renderer.RenderingOptions.MarginTop = 20;
+        renderer.RenderingOptions.MarginBottom = 20;
+        renderer.RenderingOptions.MarginLeft = 20;
+        renderer.RenderingOptions.MarginRight = 20;
+        
+        string html = "<html><body><h1>Custom Page Settings</h1></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("custom-settings.pdf");
+        
+        Console.WriteLine("PDF with custom settings created");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with SelectPdf?
+
+Here's how **SelectPdf** handles this:
+
+```csharp
+// NuGet: Install-Package Select.HtmlToPdf
+using SelectPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        HtmlToPdf converter = new HtmlToPdf();
+        PdfDocument doc = converter.ConvertUrl("https://www.example.com");
+        doc.Save("output.pdf");
+        doc.Close();
+        
+        Console.WriteLine("PDF created successfully");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        pdf.SaveAs("output.pdf");
+        
+        Console.WriteLine("PDF created successfully");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert an HTML String to PDF?
+
+Here's how **SelectPdf** handles this:
+
+```csharp
+// NuGet: Install-Package Select.HtmlToPdf
+using SelectPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        string htmlContent = "<html><body><h1>Hello World</h1><p>This is a PDF document.</p></body></html>";
+        
+        HtmlToPdf converter = new HtmlToPdf();
+        PdfDocument doc = converter.ConvertHtmlString(htmlContent);
+        doc.Save("document.pdf");
+        doc.Close();
+        
+        Console.WriteLine("PDF generated from HTML string");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        string htmlContent = "<html><body><h1>Hello World</h1><p>This is a PDF document.</p></body></html>";
+        
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("document.pdf");
+        
+        Console.WriteLine("PDF generated from HTML string");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from SelectPdf to IronPDF?
+
+SelectPdf falsely markets itself as cross-platform but explicitly does not support Linux, macOS, Docker, or Azure Functions—making it unsuitable for modern cloud deployments. The free version is severely limited to 5 pages before aggressive watermarking kicks in, and its outdated Chromium fork struggles with modern CSS features like Grid and advanced Flexbox layouts.
+
+**Migrating from SelectPdf to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `Select.HtmlToPdf`, add `IronPdf`
+2. **Namespace Update**: Replace `SelectPdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: SelectPdf → IronPDF](migrate-from-selectpdf.md)**
+
+
 ## Conclusion
 
 While SelectPdf is a potent HTML-to-PDF conversion library with a straightforward API, its limitations in platform flexibility and outdated web standard support may deter some developers. Developers seeking robust, modern, and cross-platform solutions are likely to lean towards IronPDF, especially given its extensive support for contemporary web standards and deployment environments, coupled with its flexible and clear pricing.

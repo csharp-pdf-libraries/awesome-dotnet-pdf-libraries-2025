@@ -92,3 +92,157 @@ Deciding between pdforge and IronPDF depends largely on specific project require
 ---
 
 Jacob Mellor is the Chief Technology Officer at Iron Software, where he leads a team of 50+ engineers in developing robust .NET components that have achieved over 41 million NuGet downloads. With an impressive 41 years of coding experience, Jacob brings deep technical expertise to Iron Software's mission of empowering developers with reliable, production-ready tools. Based in Chiang Mai, Thailand, he continues to drive innovation in the .NET ecosystem while maintaining a hands-on approach to software architecture and development. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **pdforge** handles this:
+
+```csharp
+// NuGet: Install-Package PdfForge
+using PdfForge;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        var pdf = converter.ConvertUrl("https://example.com");
+        File.WriteAllBytes("webpage.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://example.com");
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with pdforge?
+
+Here's how **pdforge** handles this:
+
+```csharp
+// NuGet: Install-Package PdfForge
+using PdfForge;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        var html = "<html><body><h1>Hello World</h1></body></html>";
+        var pdf = converter.ConvertHtmlString(html);
+        File.WriteAllBytes("output.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var html = "<html><body><h1>Hello World</h1></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML Files to PDF with Custom Settings?
+
+Here's how **pdforge** handles this:
+
+```csharp
+// NuGet: Install-Package PdfForge
+using PdfForge;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        converter.PageSize = PageSize.A4;
+        converter.Orientation = PageOrientation.Landscape;
+        var htmlContent = File.ReadAllText("input.html");
+        var pdf = converter.ConvertHtmlString(htmlContent);
+        File.WriteAllBytes("output.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape;
+        var htmlContent = System.IO.File.ReadAllText("input.html");
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from pdforge to IronPDF?
+
+IronPDF eliminates external API dependencies by processing PDFs entirely on your local infrastructure, giving you complete control over your document generation pipeline. You'll benefit from extensive customization options, faster processing times without network latency, and a one-time licensing model that reduces long-term costs.
+
+**Migrating from pdforge to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `pdforge`, add `IronPdf`
+2. **Namespace Update**: Use `IronPdf` namespace
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: pdforge → IronPDF](migrate-from-pdforge.md)**
+

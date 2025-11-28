@@ -60,6 +60,213 @@ For more information about using IronPDF to generate PDFs, you can explore the f
 - [Converting HTML Files to PDF with IronPDF](https://ironpdf.com/how-to/html-file-to-pdf/)
 - [Tutorials and Guides on IronPDF](https://ironpdf.com/tutorials/)
 
+---
+
+## How Do I Convert HTML to PDF in C# with Rotativa?
+
+Here's how **Rotativa** handles this:
+
+```csharp
+// NuGet: Install-Package Rotativa.Core
+using Microsoft.AspNetCore.Mvc;
+using Rotativa.AspNetCore;
+using System.Threading.Tasks;
+
+namespace RotativaExample
+{
+    public class PdfController : Controller
+    {
+        public async Task<IActionResult> GeneratePdf()
+        {
+            var htmlContent = "<h1>Hello World</h1><p>This is a PDF document.</p>";
+            
+            // Rotativa requires returning a ViewAsPdf result from MVC controller
+            return new ViewAsPdf()
+            {
+                ViewName = "PdfView",
+                PageSize = Rotativa.AspNetCore.Options.Size.A4
+            };
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+namespace IronPdfExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var renderer = new ChromePdfRenderer();
+            var htmlContent = "<h1>Hello World</h1><p>This is a PDF document.</p>";
+            
+            var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+            pdf.SaveAs("output.pdf");
+            
+            Console.WriteLine("PDF generated successfully!");
+        }
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **Rotativa** handles this:
+
+```csharp
+// NuGet: Install-Package Rotativa.Core
+using Microsoft.AspNetCore.Mvc;
+using Rotativa.AspNetCore;
+using System.Threading.Tasks;
+
+namespace RotativaExample
+{
+    public class UrlPdfController : Controller
+    {
+        public async Task<IActionResult> ConvertUrlToPdf()
+        {
+            // Rotativa works within MVC framework and returns ActionResult
+            return new UrlAsPdf("https://www.example.com")
+            {
+                FileName = "webpage.pdf",
+                PageSize = Rotativa.AspNetCore.Options.Size.A4,
+                PageOrientation = Rotativa.AspNetCore.Options.Orientation.Portrait
+            };
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+namespace IronPdfExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var renderer = new ChromePdfRenderer();
+            
+            var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+            pdf.SaveAs("webpage.pdf");
+            
+            Console.WriteLine("URL converted to PDF successfully!");
+        }
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Add Headers and Footers to PDFs?
+
+Here's how **Rotativa** handles this:
+
+```csharp
+// NuGet: Install-Package Rotativa.Core
+using Microsoft.AspNetCore.Mvc;
+using Rotativa.AspNetCore;
+using Rotativa.AspNetCore.Options;
+using System.Threading.Tasks;
+
+namespace RotativaExample
+{
+    public class HeaderFooterController : Controller
+    {
+        public async Task<IActionResult> GeneratePdfWithHeaderFooter()
+        {
+            return new ViewAsPdf("Report")
+            {
+                PageSize = Size.A4,
+                PageMargins = new Margins(20, 10, 20, 10),
+                CustomSwitches = "--header-center \"Page Header\" --footer-center \"Page [page] of [toPage]\""
+            };
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+using System;
+
+namespace IronPdfExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var renderer = new ChromePdfRenderer();
+            
+            renderer.RenderingOptions.TextHeader = new TextHeaderFooter()
+            {
+                CenterText = "Page Header",
+                DrawDividerLine = true
+            };
+            
+            renderer.RenderingOptions.TextFooter = new TextHeaderFooter()
+            {
+                CenterText = "Page {page} of {total-pages}",
+                DrawDividerLine = true
+            };
+            
+            var htmlContent = "<h1>Report Title</h1><p>Report content goes here.</p>";
+            var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+            pdf.SaveAs("report.pdf");
+            
+            Console.WriteLine("PDF with headers and footers created successfully!");
+        }
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Rotativa to IronPDF?
+
+Rotativa is limited to ASP.NET MVC and has been abandoned, with no updates addressing critical security vulnerabilities like CVE-2022-35583 in its underlying wkhtmltopdf engine. IronPDF provides actively maintained, cross-platform support for all .NET project types including Razor Pages, Blazor, minimal APIs, and .NET Core/5+, with modern security standards and ongoing updates.
+
+**Migrating from Rotativa to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `Rotativa`, add `IronPdf`
+2. **Namespace Update**: Use `IronPdf` namespace
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Rotativa → IronPDF](migrate-from-rotativa.md)**
+
+
 ## Comparison Table: Rotativa vs. IronPDF
 
 | Feature                   | Rotativa                                                      | IronPDF                                                       |

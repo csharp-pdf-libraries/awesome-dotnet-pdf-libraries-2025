@@ -32,6 +32,192 @@ IronPDF is tailored for contemporary developers who need powerful and flexible H
 
 1. **Cost**: As a commercial product, full access to IronPDF's features requires a purchase, which may be a consideration for teams with tight budgets.
 
+---
+
+## How Do I Convert HTML to PDF in C# with HTMLDOC?
+
+Here's how **HTMLDOC** handles this:
+
+```csharp
+// HTMLDOC command-line approach
+using System.Diagnostics;
+
+class HtmlDocExample
+{
+    static void Main()
+    {
+        // HTMLDOC requires external executable
+        ProcessStartInfo startInfo = new ProcessStartInfo
+        {
+            FileName = "htmldoc",
+            Arguments = "--webpage -f output.pdf input.html",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            CreateNoWindow = true
+        };
+        
+        Process process = Process.Start(startInfo);
+        process.WaitForExit();
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class IronPdfExample
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlFileAsPdf("input.html");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Url To PDF With Headers?
+
+Here's how **HTMLDOC** handles this:
+
+```csharp
+// HTMLDOC command-line with URL and headers
+using System.Diagnostics;
+
+class HtmlDocExample
+{
+    static void Main()
+    {
+        // HTMLDOC has limited support for URLs and headers
+        ProcessStartInfo startInfo = new ProcessStartInfo
+        {
+            FileName = "htmldoc",
+            Arguments = "--webpage --header \"Page #\" --footer \"t\" -f output.pdf https://example.com",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        
+        Process process = Process.Start(startInfo);
+        process.WaitForExit();
+        
+        // Note: HTMLDOC may not render modern web pages correctly
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class IronPdfExample
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        
+        renderer.RenderingOptions.TextHeader.CenterText = "Page {page}";
+        renderer.RenderingOptions.TextFooter.CenterText = "{date}";
+        
+        var pdf = renderer.RenderUrlAsPdf("https://example.com");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert an HTML String to PDF?
+
+Here's how **HTMLDOC** handles this:
+
+```csharp
+// HTMLDOC command-line with string input
+using System.Diagnostics;
+using System.IO;
+
+class HtmlDocExample
+{
+    static void Main()
+    {
+        string htmlContent = "<html><body><h1>Hello World</h1></body></html>";
+        
+        // Write HTML to temporary file
+        string tempFile = Path.GetTempFileName() + ".html";
+        File.WriteAllText(tempFile, htmlContent);
+        
+        ProcessStartInfo startInfo = new ProcessStartInfo
+        {
+            FileName = "htmldoc",
+            Arguments = $"--webpage -f output.pdf {tempFile}",
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        
+        Process process = Process.Start(startInfo);
+        process.WaitForExit();
+        
+        File.Delete(tempFile);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class IronPdfExample
+{
+    static void Main()
+    {
+        string htmlContent = "<html><body><h1>Hello World</h1></body></html>";
+        
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from HTMLDOC to IronPDF?
+
+HTMLDOC is outdated technology from the early 2000s with minimal modern web standards support and GPL licensing restrictions that can complicate commercial deployments. IronPDF is a modern .NET library with active development, comprehensive HTML5/CSS3 support, and a commercial license suitable for enterprise applications.
+
+**Migrating from HTMLDOC to IronPDF involves:**
+
+1. **NuGet Package Change**: Install `IronPdf` package
+2. **Namespace Update**: Use `IronPdf` namespace
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: HTMLDOC → IronPDF](migrate-from-htmldoc.md)**
+
+
 ## Comparison Table
 
 | Feature                        | HTMLDOC                       | IronPDF                       |

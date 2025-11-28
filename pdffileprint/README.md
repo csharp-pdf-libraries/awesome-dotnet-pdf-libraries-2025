@@ -62,6 +62,158 @@ class Program
 
 This code snippet sets up a `ProcessStartInfo` to run the `PDFFilePrint.exe` command-line tool, specifying the printer and the PDF file to be printed.
 
+---
+
+## How Do I Convert HTML to PDF in C# with PDFFilePrint?
+
+Here's how **PDFFilePrint** handles this:
+
+```csharp
+// NuGet: Install-Package PDFFilePrint
+using System;
+using PDFFilePrint;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf = new PDFFile();
+        string htmlContent = "<html><body><h1>Hello World</h1></body></html>";
+        pdf.CreateFromHtml(htmlContent);
+        pdf.SaveToFile("output.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        string htmlContent = "<html><body><h1>Hello World</h1></body></html>";
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **PDFFilePrint** handles this:
+
+```csharp
+// NuGet: Install-Package PDFFilePrint
+using System;
+using PDFFilePrint;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf = new PDFFile();
+        pdf.CreateFromUrl("https://www.example.com");
+        pdf.SaveToFile("webpage.pdf");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Print PDF File?
+
+Here's how **PDFFilePrint** handles this:
+
+```csharp
+// NuGet: Install-Package PDFFilePrint
+using System;
+using PDFFilePrint;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf = new PDFFile();
+        pdf.LoadFromFile("document.pdf");
+        pdf.Print("Default Printer");
+        Console.WriteLine("PDF sent to printer");
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var pdf = PdfDocument.FromFile("document.pdf");
+        pdf.Print();
+        Console.WriteLine("PDF sent to printer");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from PDFFilePrint to IronPDF?
+
+PDFFilePrint is limited to printing PDF files and typically requires command-line execution with Windows-specific dependencies. IronPDF provides a comprehensive .NET library that not only handles PDF printing but also enables PDF creation, manipulation, conversion, and advanced features like digital signatures and form filling.
+
+**Migrating from PDFFilePrint to IronPDF involves:**
+
+1. **NuGet Package Change**: Install `IronPdf` package
+2. **Namespace Update**: Use `IronPdf` namespace
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: PDFFilePrint → IronPDF](migrate-from-pdffileprint.md)**
+
+
 ## Comparing PDFFilePrint and IronPDF
 
 IronPDF is renowned for its extensive range of features that go beyond printing. To better understand their differences and suitability for different needs, let's compare both in a structured table:

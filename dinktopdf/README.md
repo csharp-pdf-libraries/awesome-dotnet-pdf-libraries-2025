@@ -88,6 +88,207 @@ Here’s a comparison between DinkToPdf and IronPDF across different criteria to
 | Platform Compatibility (latest) | Limited and outdated                | Full .NET Framework & Core support|
 | Support and Maintenance         | Outdated since 2020                 | Regular updates and support       |
 
+---
+
+## How Do I Convert HTML to PDF in C# with DinkToPdf?
+
+Here's how **DinkToPdf** handles this:
+
+```csharp
+// NuGet: Install-Package DinkToPdf
+using DinkToPdf;
+using DinkToPdf.Contracts;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new SynchronizedConverter(new PdfTools());
+        var doc = new HtmlToPdfDocument()
+        {
+            GlobalSettings = {
+                ColorMode = ColorMode.Color,
+                Orientation = Orientation.Portrait,
+                PaperSize = PaperKind.A4,
+            },
+            Objects = {
+                new ObjectSettings() {
+                    HtmlContent = "<h1>Hello World</h1><p>This is a PDF from HTML.</p>",
+                    WebSettings = { DefaultEncoding = "utf-8" }
+                }
+            }
+        };
+        byte[] pdf = converter.Convert(doc);
+        File.WriteAllBytes("output.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1><p>This is a PDF from HTML.</p>");
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert a URL to PDF in .NET?
+
+Here's how **DinkToPdf** handles this:
+
+```csharp
+// NuGet: Install-Package DinkToPdf
+using DinkToPdf;
+using DinkToPdf.Contracts;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new SynchronizedConverter(new PdfTools());
+        var doc = new HtmlToPdfDocument()
+        {
+            GlobalSettings = {
+                ColorMode = ColorMode.Color,
+                Orientation = Orientation.Portrait,
+                PaperSize = PaperKind.A4,
+            },
+            Objects = {
+                new ObjectSettings() {
+                    Page = "https://www.example.com",
+                }
+            }
+        };
+        byte[] pdf = converter.Convert(doc);
+        File.WriteAllBytes("webpage.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Use Custom Rendering Settings?
+
+Here's how **DinkToPdf** handles this:
+
+```csharp
+// NuGet: Install-Package DinkToPdf
+using DinkToPdf;
+using DinkToPdf.Contracts;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new SynchronizedConverter(new PdfTools());
+        var doc = new HtmlToPdfDocument()
+        {
+            GlobalSettings = {
+                ColorMode = ColorMode.Color,
+                Orientation = Orientation.Landscape,
+                PaperSize = PaperKind.A4,
+                Margins = new MarginSettings { Top = 10, Bottom = 10, Left = 15, Right = 15 }
+            },
+            Objects = {
+                new ObjectSettings() {
+                    HtmlContent = "<h1>Custom PDF</h1><p>Landscape orientation with custom margins.</p>",
+                    WebSettings = { DefaultEncoding = "utf-8" }
+                }
+            }
+        };
+        byte[] pdf = converter.Convert(doc);
+        File.WriteAllBytes("custom.pdf", pdf);
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Rendering;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape;
+        renderer.RenderingOptions.MarginTop = 10;
+        renderer.RenderingOptions.MarginBottom = 10;
+        renderer.RenderingOptions.MarginLeft = 15;
+        renderer.RenderingOptions.MarginRight = 15;
+        
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Custom PDF</h1><p>Landscape orientation with custom margins.</p>");
+        pdf.SaveAs("custom.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from DinkToPdf to IronPDF?
+
+DinkToPdf relies on wkhtmltopdf, which is no longer actively maintained and contains critical security vulnerabilities like CVE-2022-35583 (SSRF). The library requires complex native binary deployment across different platforms and suffers from thread-safety issues that cause crashes in production environments.
+
+**Migrating from DinkToPdf to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `DinkToPdf`, add `IronPdf`
+2. **Namespace Update**: Replace `DinkToPdf` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: DinkToPdf → IronPDF](migrate-from-dinktopdf.md)**
+
+
 ## Conclusion
 
 While DinkToPdf offers robust capabilities for PDF generation from HTML, particularly appealing to those preferring open-source solutions, it faces challenges from security vulnerabilities, thread-safety issues, and dependency complexities. IronPDF, alternatively, addresses these challenges, presenting a compelling choice for developers seeking stability and security in their PDF generation endeavors.

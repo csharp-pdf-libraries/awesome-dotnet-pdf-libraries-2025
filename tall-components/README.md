@@ -74,3 +74,241 @@ Explore more features of IronPDF and its documentation through these links: [HTM
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person engineering team building .NET components that have achieved over 41 million NuGet downloads. With 41 years of coding experience, he has architected tools now used by space agencies and automotive giants. Based in Chiang Mai, Thailand, Jacob champions engineer-driven innovation and maintains an active presence on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/) and [GitHub](https://github.com/jacob-mellor).
+
+---
+
+## How Do I Add Watermark?
+
+Here's how **Tall Components (TallPDF, PDFKit) C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package TallComponents.PDF.Kit
+using TallComponents.PDF.Kit;
+using TallComponents.PDF.Layout;
+using System.IO;
+using System.Drawing;
+
+class Program
+{
+    static void Main()
+    {
+        // Load existing PDF
+        using (FileStream fs = new FileStream("input.pdf", FileMode.Open))
+        using (Document document = new Document(fs))
+        {
+            // Iterate through pages
+            foreach (Page page in document.Pages)
+            {
+                // Create watermark text
+                TextShape watermark = new TextShape();
+                watermark.Text = "CONFIDENTIAL";
+                watermark.Font = new Font("Arial", 60);
+                watermark.PenColor = Color.FromArgb(128, 255, 0, 0);
+                watermark.X = 200;
+                watermark.Y = 400;
+                watermark.Rotate = 45;
+                
+                // Add to page
+                page.Overlay.Shapes.Add(watermark);
+            }
+            
+            // Save document
+            using (FileStream output = new FileStream("watermarked.pdf", FileMode.Create))
+            {
+                document.Write(output);
+            }
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Editing;
+
+class Program
+{
+    static void Main()
+    {
+        // Load existing PDF
+        var pdf = PdfDocument.FromFile("input.pdf");
+        
+        // Create watermark
+        var watermark = new TextStamper()
+        {
+            Text = "CONFIDENTIAL",
+            FontSize = 60,
+            Opacity = 50,
+            Rotation = 45,
+            VerticalAlignment = VerticalAlignment.Middle,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        
+        // Apply watermark to all pages
+        pdf.ApplyStamp(watermark);
+        
+        // Save watermarked PDF
+        pdf.SaveAs("watermarked.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Merge Multiple PDFs in C#?
+
+Here's how **Tall Components (TallPDF, PDFKit) C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package TallComponents.PDF.Kit
+using TallComponents.PDF.Kit;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        // Create output document
+        using (Document outputDoc = new Document())
+        {
+            // Load first PDF
+            using (FileStream fs1 = new FileStream("document1.pdf", FileMode.Open))
+            using (Document doc1 = new Document(fs1))
+            {
+                foreach (Page page in doc1.Pages)
+                {
+                    outputDoc.Pages.Add(page.Clone());
+                }
+            }
+            
+            // Load second PDF
+            using (FileStream fs2 = new FileStream("document2.pdf", FileMode.Open))
+            using (Document doc2 = new Document(fs2))
+            {
+                foreach (Page page in doc2.Pages)
+                {
+                    outputDoc.Pages.Add(page.Clone());
+                }
+            }
+            
+            // Save merged document
+            using (FileStream output = new FileStream("merged.pdf", FileMode.Create))
+            {
+                outputDoc.Write(output);
+            }
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        // Load PDFs
+        var pdf1 = PdfDocument.FromFile("document1.pdf");
+        var pdf2 = PdfDocument.FromFile("document2.pdf");
+        
+        // Merge PDFs
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        
+        // Save merged document
+        merged.SaveAs("merged.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Do I Convert HTML to PDF in C# with Tall Components (TallPDF, PDFKit) C# PDF?
+
+Here's how **Tall Components (TallPDF, PDFKit) C# PDF** handles this:
+
+```csharp
+// NuGet: Install-Package TallComponents.PDF.Kit
+using TallComponents.PDF.Kit;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        // Create a new document
+        using (Document document = new Document())
+        {
+            string html = "<html><body><h1>Hello World</h1><p>This is a PDF from HTML.</p></body></html>";
+            
+            // Create HTML fragment
+            Fragment fragment = Fragment.FromText(html);
+            
+            // Add to document
+            Section section = document.Sections.Add();
+            section.Fragments.Add(fragment);
+            
+            // Save to file
+            using (FileStream fs = new FileStream("output.pdf", FileMode.Create))
+            {
+                document.Write(fs);
+            }
+        }
+    }
+}
+```
+
+**With IronPDF**, the same task is simpler and more intuitive:
+
+```csharp
+// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        // Create a PDF from HTML string
+        var renderer = new ChromePdfRenderer();
+        string html = "<html><body><h1>Hello World</h1><p>This is a PDF from HTML.</p></body></html>";
+        
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+```
+
+IronPDF's approach offers cleaner syntax and better integration with modern .NET applications, making it easier to maintain and scale your PDF generation workflows.
+
+---
+
+## How Can I Migrate from Tall Components (TallPDF, PDFKit) C# PDF to IronPDF?
+
+Tall Components (TallPDF, PDFKit) has been discontinued after its acquisition by Apryse, with no new licenses available and users redirected to iText SDK. The product lacks modern HTML-to-PDF capabilities, supporting only XML-based document creation, making it unsuitable for contemporary web-based PDF generation.
+
+**Migrating from Tall Components (TallPDF, PDFKit) C# PDF to IronPDF involves:**
+
+1. **NuGet Package Change**: Remove `TallComponents.PDF.Kit`, add `IronPdf`
+2. **Namespace Update**: Replace `TallComponents.PDF.Kit` with `IronPdf`
+3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+
+**Key Benefits of Migrating:**
+
+- Modern Chromium rendering engine with full CSS/JavaScript support
+- Active maintenance and security updates
+- Better .NET integration and async/await support
+- Comprehensive documentation and professional support
+
+For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+**[Complete Migration Guide: Tall Components (TallPDF, PDFKit) C# PDF → IronPDF](migrate-from-tall-components.md)**
+
