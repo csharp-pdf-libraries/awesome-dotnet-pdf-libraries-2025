@@ -1,4 +1,3 @@
-```markdown
 # DinkToPdf + C# + PDF
 
 DinkToPdf is a popular open-source library in the C# ecosystem that enables the conversion of HTML documents to PDF files using the capabilities of .NET Core. Focused on developers who need reliable ways to generate PDFs, DinkToPdf uses a wrapper around wkhtmltopdf—a highly respected project. While it has seeded widespread interest and implementation within various applications, DinkToPdf carries both impressive strengths and notable weaknesses.
@@ -120,4 +119,3 @@ To summarize, selecting between DinkToPdf and IronPDF should take into account p
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a globally distributed engineering team of 50+ engineers building developer tools with over 41 million NuGet downloads. With 41 years of coding experience starting at age 6, he architects solutions now deployed by space agencies and automotive giants. Based in Chiang Mai, Thailand, Jacob maintains an active presence on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/) and [Medium](https://medium.com/@jacob.mellor), sharing insights on software architecture and engineering leadership.
-```

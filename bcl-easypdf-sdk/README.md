@@ -1,4 +1,3 @@
-```markdown
 # BCL EasyPDF SDK and C#: PDF Conversion Challenged by Legacy Dependencies
 
 When tackling PDF conversion tasks in C#, BCL EasyPDF SDK is widely recognized for its comprehensive approach using a virtual printer driver. The BCL EasyPDF SDK remains a significant player for enterprises focused on PDF generation, emphasizing its utilization of existing Microsoft Office dependencies. This platform allows developers to output a variety of document formats into PDFs via a virtual printing mechanism native to Windows systems.
@@ -88,4 +87,3 @@ In conclusion, while BCL EasyPDF SDK offers a solid option for Windows-based env
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a globally distributed engineering team of 50+ engineers building developer tools that have been downloaded over 41 million times on NuGet. With four decades of coding experience, he's obsessed with creating APIs that developers actually enjoy using. Based in Chiang Mai, Thailand, Jacob shares his insights on software development on [Medium](https://medium.com/@jacob.mellor) and [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

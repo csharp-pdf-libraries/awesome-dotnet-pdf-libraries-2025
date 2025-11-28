@@ -195,7 +195,7 @@ public class PdfService
 {
     public byte[] CreateReportPdf(string html)
     {
-        var pdfMaker = new [ChromePdfRenderer](https://ironpdf.com/blog/videos/how-to-render-html-string-to-pdf-in-csharp-ironpdf/)();
+        var pdfMaker = new ChromePdfRenderer();
         var doc = pdfMaker.RenderHtmlAsPdf(html);
         return doc.BinaryData;
     }

@@ -1,4 +1,3 @@
-```markdown
 # PrinceXML + C# + PDF
 
 In the realm of document processing, particularly for converting HTML to PDF in C#, two solutions that often come into play are PrinceXML and IronPDF. PrinceXML is synonymous with exceptional print-quality PDFs via its CSS Paged Media support, making it a renowned choice for developers focusing on print-specific CSS designs. Another mention of PrinceXML is its role as a standalone conversion engine that appeals to developers with its specialized handling of print formatting using CSS. On the other hand, IronPDF is recognized for its tight integration within the .NET ecosystem, streamlining deployments and offering native support with extensive PDF manipulation capabilities. Let's delve deeper into a comparative analysis of these two robust tools.
@@ -108,4 +107,3 @@ For more information on how IronPDF handles HTML to PDF conversions and its broa
 ---
 
 [Jacob Mellor](https://ironsoftware.com/about-us/authors/jacobmellor/) is the CTO of Iron Software, where he leads a 50+ person engineering team building document processing and data extraction tools that have achieved over 41 million NuGet downloads. With 41 years of coding experience beginning at age 6, Jacob brings deep technical expertise in software architecture, API design, and developer tooling. He actively explores emerging AI technologies to enhance software development workflows and maintains an active presence on [GitHub](https://github.com/jacob-mellor) contributing to the .NET ecosystem.
-```

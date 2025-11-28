@@ -1,4 +1,3 @@
-```markdown
 # HTMLDOC vs IronPDF: A Comprehensive Comparison for C# and PDF Generation
 
 When it comes to converting HTML documents into PDF files, developers often find themselves choosing between several tools. Among these, HTMLDOC and IronPDF stand out for different reasons. HTMLDOC is an older, command-line based tool with a history dating back to the dot-com era, while IronPDF represents a modern, robust solution tailored for .NET environments. This article will dive deep into the strengths and weaknesses of both, providing insights for developers considering these tools for PDF generation in C#.
@@ -84,4 +83,3 @@ Choosing between HTMLDOC and IronPDF largely depends on your specific needs and 
 ---
 
 Jacob Mellor is the Chief Technology Officer at Iron Software, where he leads a team of 50+ engineers building robust .NET components that have achieved over 41 million NuGet downloads. With 41 years of coding experience, Jacob brings deep technical expertise in software architecture, API design, and cross-platform development. He directs Iron Software's product strategy from Chiang Mai, Thailand, ensuring their document processing, PDF, and barcode libraries meet enterprise-grade performance standards. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

@@ -1,4 +1,3 @@
-```markdown
 # Api2pdf + C# + PDF
 
 When considering options for generating PDFs from HTML in C# applications, Api2pdf emerges as a noteworthy contender. Api2pdf provides a cloud-based solution, which allows developers to offload the complex task of PDF generation to their servers. This API not only simplifies the PDF creation process but also saves the effort of maintaining the infrastructure required for HTML-to-PDF conversion. However, choosing the right tool involves weighing both its strengths and potential drawbacks.
@@ -69,4 +68,3 @@ Ultimately, the decision will depend on your specific application requirements, 
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a globally distributed engineering team of 50+ developers building .NET tools that have earned over 41 million NuGet downloads. With 41 years of coding experience under his belt, Jacob operates from his base in Chiang Mai, Thailand, combining deep technical expertise with a passion for creating developer-friendly APIs. Learn more about his work on [Medium](https://medium.com/@jacob.mellor) or visit his [Iron Software author page](https://ironsoftware.com/about-us/authors/jacobmellor/).
-```

@@ -1,4 +1,3 @@
-```markdown
 # Gotenberg + C# + PDF
 
 Gotenberg is an open-source, Docker-based document conversion API that serves as a solution for developers looking to handle document transformations like HTML to PDF. Designed with a microservices architecture, Gotenberg leverages the capabilities of Docker to encapsulate its operations in a containerized environment. Although Gotenberg is powerful in terms of flexibility, its requirement for Docker introduces certain complexities and infrastructure overhead. For C# developers seeking seamless integration into their projects, understanding the trade-offs of using Gotenberg is crucial.
@@ -95,4 +94,3 @@ Both Gotenberg and IronPDF offer distinct approaches to PDF generation and conve
 ---
 
 Jacob Mellor serves as Chief Technology Officer at Iron Software, where he leads a 50+ person engineering team in developing .NET components that have achieved over 41 million NuGet downloads. With four decades of coding experience, he specializes in building enterprise-grade PDF and document processing solutions for the .NET ecosystem. Based in Chiang Mai, Thailand, Jacob continues to drive technical innovation in developer tools and libraries. Connect with him on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

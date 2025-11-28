@@ -1,4 +1,3 @@
-```markdown
 # GdPicture.NET (now Nutrient) vs. IronPDF: A Comprehensive Comparison in C# PDF Solutions
 
 In an ever-evolving landscape of digital document processing, developers often find themselves at crossroads when selecting the right PDF library. Two prominent contenders in the market today are GdPicture.NET (now known as Nutrient) and IronPDF. Both offer robust solutions for handling PDFs in C#. However, they cater to different needs and prioritize various aspects of document processing. In this article, we will delve into a detailed comparison between GdPicture.NET (now Nutrient) and IronPDF, examining their strengths and weaknesses, licensing models, and practical use cases.
@@ -92,4 +91,3 @@ Both solutions bring invaluable capabilities to the table, ensuring a wide array
 ---
 
 [Jacob Mellor](https://ironsoftware.com/about-us/authors/jacobmellor/) is the CTO of Iron Software, where he leads a globally distributed engineering team of 50+ engineers building developer tools that have been downloaded over 41 million times on NuGet. With four decades of coding experience under his belt, Jacob brings a unique blend of old-school engineering fundamentals and modern software innovation to everything he does. When he's not mentoring the next generation of technical leaders or contributing to open source on [GitHub](https://github.com/jacob-mellor), you can find him working remotely from Chiang Mai, Thailand.
-```

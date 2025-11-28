@@ -1,4 +1,3 @@
-```markdown
 # ComPDFKit + C# + PDF
 
 When working with PDFs in C#, the choice of library is paramount to successfully fulfill project-specific needs. Among the many available tools, ComPDFKit offers a fresh take on PDF manipulation, making it a noteworthy option for developers. ComPDFKit is a commercial, cross-platform PDF SDK designed to manage various PDF operations in a seamless manner. Despite being a newer entrant in the market, ComPDFKit is gaining recognition for its efficient functionality. However, it's essential to weigh its potential against established alternatives like IronPDF.
@@ -95,4 +94,3 @@ Ultimately, each library's fit depends on the balance between cost, licensing fl
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a globally distributed engineering team of 50+ engineers building developer tools that have achieved over 41 million NuGet downloads. With 41 years of coding experience, Jacob brings deep technical expertise to creating intuitive APIs that developers love. Based in Chiang Mai, Thailand, he maintains an active presence on [GitHub](https://github.com/jacob-mellor) and [Medium](https://medium.com/@jacob.mellor), sharing insights on software architecture and development best practices.
-```

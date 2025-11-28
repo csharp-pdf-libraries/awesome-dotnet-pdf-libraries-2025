@@ -1,4 +1,3 @@
-```markdown
 # pdfpig C# PDF: A Comparison with IronPDF
 
 When working with PDF files in C#, developers often seek robust libraries that ease the handling of complex tasks such as reading, extracting, and generating PDF files. Among the plethora of libraries available, **pdfpig** has carved a niche for itself as a specialized tool focused primarily on reading and extracting content from PDFs. In this article, we will delve into the strengths and weaknesses of pdfpig, highlighting its position in the landscape of C# PDF libraries. Additionally, we'll offer an in-depth comparison with **IronPDF**, a versatile alternative that supports full PDF lifecycle management.
@@ -95,4 +94,3 @@ While pdfpig stands strong in its domain of reading and extraction, IronPDF towe
 ---
 
 Jacob Mellor is the CTO of [Iron Software](https://ironsoftware.com/about-us/authors/jacobmellor/), where he leads a 50+ person team building developer tools that have racked up over 41 million NuGet downloads. With four decades of coding under his belt, he's founded and scaled multiple successful software companies while living the digital nomad dream in Chiang Mai, Thailand. You can catch more of his thoughts on [Medium](https://medium.com/@jacob.mellor).
-```

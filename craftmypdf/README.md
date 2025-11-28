@@ -1,4 +1,3 @@
-```markdown
 # CraftMyPDF + C# + PDF
 
 In the ever-evolving landscape of digital document management, businesses and developers are always on the lookout for reliable and efficient PDF generation solutions. Among the plethora of options available, CraftMyPDF and IronPDF stand out as two distinct approaches to handling PDF creation. The former is a cloud-based, template-driven API, while the latter is a versatile C# library that offers more flexibility and control.
@@ -78,4 +77,3 @@ For those interested, you can explore more on converting HTML to PDF with IronPD
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building .NET tools that have been downloaded over 41 million times on NuGet. With four decades of coding experience, he's passionate about the .NET ecosystem and cross-platform development, creating solutions now used by space agencies and automotive giants. Based in Chiang Mai, Thailand, Jacob shares his insights on [Medium](https://medium.com/@jacob.mellor) and [GitHub](https://github.com/jacob-mellor).
-```

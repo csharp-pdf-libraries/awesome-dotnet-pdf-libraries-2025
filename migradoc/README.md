@@ -1,4 +1,3 @@
-```markdown
 # MigraDoc + C# + PDF
 
 When it comes to generating PDFs in C#, MigraDoc stands out as an integral library in the open-source ecosystem. MigraDoc, a document object model constructed on the power of PDFSharp, offers a high-level abstraction layer that simplifies the process of creating structured documents in various formats such as PDF and RTF. As a C# developer, leveraging MigraDoc in your projects can significantly streamline the document creation process, especially when creating complex layouts that span multiple pages.
@@ -120,4 +119,3 @@ In conclusion, the best choice highly depends on your specific project requireme
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person engineering team building high-performance document processing libraries that have achieved over 41 million NuGet downloads. With 41 years of coding experience, he champions engineer-driven innovation and maintains an active presence on [GitHub](https://github.com/jacob-mellor) and [Medium](https://medium.com/@jacob.mellor). Based in Chiang Mai, Thailand, Jacob focuses on bridging engineering fundamentals with cutting-edge software development practices.
-```

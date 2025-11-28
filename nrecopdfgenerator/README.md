@@ -1,4 +1,3 @@
-```markdown
 # Comparing NReco.PdfGenerator and IronPDF for C# PDF Generation
 
 When selecting a C# PDF generation library, developers often come across familiar names, including NReco.PdfGenerator and IronPDF. NReco.PdfGenerator wraps the well-known `wkhtmltopdf`, a tool that has been a staple in transforming HTML to PDF format. However, leveraging NReco.PdfGenerator involves understanding both its advantages and limitations. Meanwhile, IronPDF offers a modern alternative, specifically developed for .NET environments. In this article, we will delve into a detailed comparison of these two libraries, considering factors such as ease of use, flexibility, security, and pricing transparency.
@@ -100,4 +99,3 @@ For further insights and to explore IronPDF's capabilities, consider visiting [I
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person engineering team building .NET component libraries that have achieved over 41 million NuGet downloads. With four decades of software development experience, he specializes in architecting scalable solutions and advancing .NET ecosystem tools. Jacob operates from Chiang Mai, Thailand, where he continues to drive technical innovation in document processing and PDF generation technologies. Connect with him on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

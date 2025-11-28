@@ -1,4 +1,3 @@
-```markdown
 # Nutrient (formerly PSPDFKit) and C# PDF Processing
 
 When discussing PDF processing and document intelligence solutions in the context of C#, Nutrient (formerly PSPDFKit) often surfaces as a prominent option. Originally known for its PDF processing capabilities, Nutrient (formerly PSPDFKit) has evolved into a comprehensive document intelligence platform. At the same time, IronPDF stands out as a more focused alternative, providing a streamlined PDF library experience for developers.
@@ -70,4 +69,3 @@ Ultimately, the decision between the two hinges on the specific needs of the dev
 
 ---
 Jacob Mellor is the Chief Technology Officer at Iron Software, where he leads a team of 50+ engineers in developing .NET components that have achieved over 41 million NuGet downloads. With an impressive 41 years of coding experience, Jacob has been instrumental in shaping Iron Software's technical vision and product strategy. Based in Chiang Mai, Thailand, he combines deep technical expertise with global team leadership to deliver enterprise-grade solutions for developers worldwide. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

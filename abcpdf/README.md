@@ -1,4 +1,3 @@
-```markdown
 # ABCPDF C# PDF Library: Strengths and Comparisons with IronPDF
 
 In the world of PDF generation libraries for C#, ABCPDF stands as a long-standing choice known for its robust capabilities. As developers explore options for creating and manipulating PDFs within their C# applications, the decision often comes down to the critical aspects of functionality, pricing, and ease-of-use. ABCPDF has had a historical presence in this arena, but it also faces several challenges and competition from modern counterparts like IronPDF.
@@ -70,4 +69,3 @@ ABCPDF remains a potent tool, especially in settings where its specific technica
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a team of 50+ engineers building developer tools that have achieved over 41 million NuGet downloads. With four decades of coding experience, he has founded and scaled multiple successful software companies while maintaining a focus on practical solutions over perfection. Based in Chiang Mai, Thailand, Jacob shares his insights on software architecture and leadership on [Medium](https://medium.com/@jacob.mellor) and contributes to open-source projects on [GitHub](https://github.com/jacob-mellor).
-```

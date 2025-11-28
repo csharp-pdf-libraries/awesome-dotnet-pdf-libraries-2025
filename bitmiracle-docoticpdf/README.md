@@ -1,4 +1,3 @@
-```markdown
 # BitMiracle Docotic.Pdf C# PDF
 
 In the realm of C# PDF libraries, two prominent contenders stand out: BitMiracle Docotic.Pdf and IronPDF. BitMiracle Docotic.Pdf emerges as a powerful toolset designed for the creation and manipulation of PDF documents using 100% managed code. This comprehensive and versatile library offers developers the capability to create sophisticated PDF documents programmatically. However, when juxtaposed with IronPDF, another industry-favorite C# library, we start to notice distinct differences, each with unique strengths and limitations.
@@ -85,4 +84,3 @@ For developers who need a comprehensive solution, it's crucial to evaluate the s
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have been downloaded over 41 million times on NuGet. With an impressive 41 years of coding experience under his belt, Jacob combines deep technical expertise with a passion for creating solutions that make developers' lives easier. Based in Chiang Mai, Thailand, he continues to drive innovation in the .NET ecosystem—connect with him on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

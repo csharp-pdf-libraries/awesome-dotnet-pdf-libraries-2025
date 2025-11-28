@@ -1,4 +1,3 @@
-```markdown
 # HiQPdf C# PDF
 
 Creating PDF documents from HTML content is a common requirement in many C# applications today. Two popular libraries that fulfill this need are HiQPdf and IronPDF. In this article, we compare these two tools to help you choose the one that suits your project requirements the best.
@@ -76,4 +75,3 @@ Evaluate both options carefully, considering both the short-term practicalities 
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have earned over 41 million NuGet downloads. With 41 years of coding experience and a track record of founding and scaling multiple successful software companies, Jacob is a long-time champion of the .NET community. Based in Chiang Mai, Thailand, you can follow his insights on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/) and [Medium](https://medium.com/@jacob.mellor).
-```

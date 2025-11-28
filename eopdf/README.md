@@ -1,4 +1,3 @@
-```markdown
 # EO.Pdf + C# + PDF
 
 When developers look for robust PDF generation options using C#, EO.Pdf often enters the conversation due to its integration of Chrome rendering capabilities and a reputation for creating high-quality PDF documents. EO.Pdf is a commercial library offered at a price point of $799 per license and claims to deliver a rich feature set that aligns with the needs of many enterprise-level applications. Despite its popularity, EO.Pdf, however, presents a mixed bag of strengths and challenges that need careful consideration.
@@ -91,4 +90,3 @@ Both libraries present beneficial features, but the decision largely rests upon 
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have been downloaded over 41 million times on NuGet. With an impressive 41 years of coding experience, Jacob combines deep technical expertise with a passion for creating solutions that make developers' lives easier. Based in Chiang Mai, Thailand, he continues to drive innovation in the PDF and document processing space. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

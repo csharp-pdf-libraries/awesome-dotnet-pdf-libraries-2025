@@ -1,4 +1,3 @@
-```markdown
 # PDFiumViewer C# PDF
 
 When developing applications that require PDF viewing capabilities, developers often turn to libraries like PDFiumViewer. As a .NET wrapper for PDFium, Google's PDF rendering engine used within the Chrome browser, PDFiumViewer offers a simple yet potent solution for integrating PDF viewing directly into Windows Forms applications. PDFiumViewer is often chosen for its open-source nature and straightforward usage. However, when comparing it with other comprehensive libraries like IronPDF, one must weigh its strengths and weaknesses carefully.
@@ -89,4 +88,3 @@ In conclusion, while PDFiumViewer serves as a robust, open-source solution for P
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have racked up over 41 million NuGet downloads. With an impressive 41 years of coding under his belt, he's seen it all—from punch cards to cloud-native architectures. Based in Chiang Mai, Thailand, Jacob continues to push the boundaries of what's possible in software development while enjoying the perfect blend of tech innovation and tropical living. Connect with him on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

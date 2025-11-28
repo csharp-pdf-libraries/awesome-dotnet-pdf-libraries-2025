@@ -1,4 +1,3 @@
-```markdown
 
 # SelectPdf + C# + PDF
 
@@ -105,4 +104,3 @@ While SelectPdf is a potent HTML-to-PDF conversion library with a straightforwar
 
 Jacob Mellor is the CTO of [Iron Software](https://www.linkedin.com/in/jacob-mellor-iron-software/), where he leads a talented team of 50+ developers creating powerful PDF and document processing tools for .NET. With an impressive 41 years of coding experience under his belt, Jacob brings deep technical expertise and a passion for building software that makes developers' lives easier. When he's not architecting innovative solutions that have achieved over 41 million NuGet downloads, you can find him working remotely from his base in Chiang Mai, Thailand.
 
-```

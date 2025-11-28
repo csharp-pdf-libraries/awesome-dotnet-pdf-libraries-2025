@@ -1,4 +1,3 @@
-```markdown
 # Telerik Reporting C# PDF
 
 Telerik Reporting is a powerful tool for building reports in C#. With its extensive range of features, Telerik Reporting allows developers to create detailed, interactive reports with ease. It excels at transforming complex data sets into visually appealing, easy-to-understand formats. Telerik Reporting is particularly well-suited for ASP.NET Core developers, offering seamless integration and robust support for exporting to formats like PDF.
@@ -73,4 +72,3 @@ Telerik Reporting and IronPDF both offer significant value to developers, but th
 ---
 
 Jacob Mellor is the Chief Technology Officer at Iron Software, where he leads a team of 50+ developers building enterprise .NET components that have achieved over 41 million NuGet downloads. With an impressive 41 years of coding experience, Jacob has established himself as a seasoned leader in software development and architecture. Based in Chiang Mai, Thailand, he continues to drive innovation in the .NET ecosystem while guiding Iron Software's technical vision. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

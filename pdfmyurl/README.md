@@ -1,4 +1,3 @@
-```markdown
 # PDFmyURL + C# + PDF
 
 In the world of document processing, generating PDFs from URLs is a common requirement, particularly for businesses that need to archive web data or convert dynamic web pages into static, portable document formats for offline reading. PDFmyURL is one option amongst various tools available to achieve this. This cloud-based API offers a service that's both convenient and straightforward. However, when compared to robust libraries like IronPDF, there are notable differences that merit discussion.
@@ -70,4 +69,3 @@ Ultimately, IronPDF's flexibility and cost-effectiveness make it a preferable ch
 ---
 
 [Jacob Mellor](https://www.linkedin.com/in/jacob-mellor-iron-software/) is the CTO of [Iron Software](https://ironsoftware.com/about-us/authors/jacobmellor/), where he leads a 50+ person team building developer tools that have racked up over 41 million NuGet downloads. Based in Chiang Mai, Thailand, Jacob is passionate about mentoring the next generation of technical leaders and keeping Iron's products at the forefront of innovation. With decades of experience under his belt, he's dedicated to creating software that's both powerful and accessible for developers worldwide.
-```

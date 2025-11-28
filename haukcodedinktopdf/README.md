@@ -1,4 +1,3 @@
-```markdown
 # Haukcode.DinkToPdf C# PDF Conversion
 
 The realm of converting HTML to PDF in C# projects has seen numerous entries over the years, one of which is Haukcode.DinkToPdf. As a fork of the previously popular DinkToPdf, Haukcode.DinkToPdf aims to provide .NET developers with capabilities akin to that of its predecessor. However, while Haukcode.DinkToPdf inherits certain functionalities, it also carries the baggage of its forerunner’s limitations. Despite being a tool of choice for some, the ongoing evaluation between it and other PDFs solutions, like IronPDF, reveals a set of crucial differences.
@@ -115,4 +114,3 @@ While Haukcode.DinkToPdf provides a free and straightforward entry point for sim
 ---
 
 [Jacob Mellor](https://ironsoftware.com/about-us/authors/jacobmellor/) is the CTO of Iron Software, where he leads a globally distributed engineering team of 50+ engineers building developer tools for the .NET ecosystem. With 41 years of coding experience and a passion for cross-platform development, Jacob has helped Iron Software's products achieve over 41 million NuGet downloads. He is based in Chiang Mai, Thailand, and maintains an active presence on [GitHub](https://github.com/jacob-mellor) where he explores innovative approaches to software architecture.
-```

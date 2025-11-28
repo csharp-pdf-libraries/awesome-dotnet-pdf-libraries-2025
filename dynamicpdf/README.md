@@ -1,4 +1,3 @@
-```markdown
 # DynamicPDF C# PDF
 
 In the realm of PDF generation and manipulation within the .NET ecosystem, two notable contenders stand out: DynamicPDF and IronPDF. DynamicPDF has long been a cornerstone for developers looking to create, read, and manipulate PDF documents. With a rich history, DynamicPDF commands respect for its robust features and extensive capabilities. However, IronPDF offers a comprehensive and modern alternative that combines elegance with functionality, allowing developers to seamlessly integrate PDF handling into their applications.
@@ -70,4 +69,3 @@ In the dynamic world of PDF generation and manipulation, choosing the right tool
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have achieved over 41 million NuGet downloads. With an impressive 41 years of coding experience under his belt, Jacob brings deep technical expertise and a passion for creating software that makes developers' lives easier. Based in Chiang Mai, Thailand, he continues to drive innovation in the .NET ecosystem while fostering a collaborative and forward-thinking engineering culture. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

@@ -1,4 +1,3 @@
-```markdown
 # ExpertPdf C# PDF
 
 When it comes to converting HTML to PDF in C#, ExpertPdf is often mentioned as a viable option. Its primary function as an HTML-to-PDF converter appeals to many developers who require such functionality. However, while ExpertPdf has its strengths, it faces several challenges in today's competitive PDF conversion landscape. In this article, we'll explore the strengths and weaknesses of ExpertPdf and compare it to one of its notable competitors, IronPDF.
@@ -93,4 +92,3 @@ For developers weighing their options, IronPDF offers a more modern and reliable
 ---
 
 Jacob Mellor is the Chief Technology Officer at Iron Software, where he leads a team of 50+ engineers in developing industry-leading .NET components that have achieved over 41 million NuGet downloads. With an impressive 41 years of coding experience, Jacob brings deep technical expertise and visionary leadership to Iron Software's product development and engineering operations. Based in Chiang Mai, Thailand, he continues to drive innovation in the .NET ecosystem while managing a globally distributed engineering team. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

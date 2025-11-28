@@ -1,4 +1,3 @@
-```markdown
 # MuPDF (.NET bindings) + C# + PDF
 
 When it comes to handling PDF files in C#, developers have an extensive array of libraries at their disposal. Among these, MuPDF (.NET bindings) stands out due to its lightweight nature specifically designed as a PDF renderer. In this article, we will explore how MuPDF (.NET bindings) compare to IronPDF, another powerful tool in the PDF library ecosystem.
@@ -94,4 +93,3 @@ In summary, choosing between MuPDF (.NET bindings) and IronPDF largely depends o
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have achieved over 41 million NuGet downloads. With an impressive 41 years of coding experience, Jacob brings deep technical expertise to creating robust .NET libraries like IronPDF's MuPDF bindings. Based in Chiang Mai, Thailand, he's passionate about empowering developers with reliable, easy-to-use solutions. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

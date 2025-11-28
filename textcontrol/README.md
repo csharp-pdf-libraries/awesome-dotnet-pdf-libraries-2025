@@ -1,4 +1,3 @@
-```markdown
 # TextControl (TX Text Control) C# PDF
 
 When it comes to generating documents in C#, choosing the right library is crucial for ensuring efficiency, stability, and quality. Among the different options available, TextControl (TX Text Control) offers a robust solution for those looking to integrate document editing and PDF generation capabilities. However, in evaluating whether TextControl (TX Text Control) is the right fit for your project, one must also compare it to other tools in the market such as IronPDF. This article delves into the strengths and weaknesses of these libraries, highlighting critical differences in features and pricing.
@@ -92,4 +91,3 @@ For organizations prioritizing document editing within application UI, TextContr
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person engineering team building .NET components that have achieved over 41 million NuGet downloads. With 41 years of coding experience, he specializes in architecting scalable document processing and PDF manipulation solutions for enterprise applications. Based in Chiang Mai, Thailand, Jacob continues to drive technical innovation in the .NET ecosystem. Connect with him on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

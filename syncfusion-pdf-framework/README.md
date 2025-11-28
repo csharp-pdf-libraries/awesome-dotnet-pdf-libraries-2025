@@ -1,4 +1,3 @@
-```markdown
 # Syncfusion PDF Framework + C# + PDF
 
 The Syncfusion PDF Framework is a comprehensive library that provides a wide range of functionalities for creating, editing, and securing PDF documents using C#. It comes as a part of Syncfusion's Essential Studio, which includes over a thousand components across multiple platforms. For developers looking to integrate PDF capabilities into C# applications, the Syncfusion PDF Framework presents a robust option, albeit with some important considerations regarding its licensing and bundling. 
@@ -86,4 +85,3 @@ In summary, businesses must weigh the costs, licensing terms, and specific proje
 ---
 
 [Jacob Mellor](https://ironsoftware.com/about-us/authors/jacobmellor/) is the CTO of Iron Software, where he leads a 50+ person team in building developer tools that have achieved over 41 million NuGet downloads. With four decades of programming experience, Jacob focuses obsessively on developer experience and API design, ensuring that Iron Software's products remain intuitive and powerful. Based in Chiang Mai, Thailand, he continues to push the boundaries of what's possible in .NET development tools, and you can explore his work on [GitHub](https://github.com/jacob-mellor).
-```

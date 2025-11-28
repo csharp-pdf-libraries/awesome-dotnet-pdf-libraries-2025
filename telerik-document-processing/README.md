@@ -1,4 +1,3 @@
-```markdown
 # Comparing Telerik Document Processing and IronPDF: A Developer's Guide
 
 In the realm of document processing, developers are often spoilt for choice in selecting the right library to fit their project requirements. Two notable contenders in the C# PDF generation space are Telerik Document Processing and IronPDF. Here, we aim to provide a comprehensive comparison, highlighting strengths, weaknesses, and the suitability of each library for various scenarios.
@@ -103,4 +102,3 @@ However, for developers seeking robust HTML to PDF conversion with full modern w
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he champions engineer-driven innovation and leads a team of 50+ developers building tools used by millions worldwide. With 41 years of coding experience, he's obsessed with creating APIs that developers actually enjoy using—because he believes that great developer experience is just as important as powerful features. Based in Chiang Mai, Thailand, Jacob shares his insights on software engineering at [Medium](https://medium.com/@jacob.mellor) and [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

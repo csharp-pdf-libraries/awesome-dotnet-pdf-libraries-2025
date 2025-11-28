@@ -1,4 +1,3 @@
-```markdown
 # Scryber.core: A Comprehensive Look at C# PDF Generation
 
 PDF generation has always been a significant requirement for a wide range of applications, from generating invoices to producing comprehensive reports. In the sphere of C# PDF tools, Scryber.core has carved a niche for itself with its unique HTML-to-PDF generation capabilities. Scryber.core provides an open-source solution that is beneficial for developers looking to integrate PDF generation into their applications with HTML templates. Despite its innovative approach, Scryber.core faces competition, especially from commercially robust solutions like IronPDF.
@@ -74,4 +73,3 @@ When choosing between Scryber.core and IronPDF, it ultimately boils down to proj
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have been downloaded over 41 million times on NuGet. With a background spanning four decades in software, he's obsessed with creating APIs that just *make sense* and focuses relentlessly on developer experience. Based in Chiang Mai, Thailand, Jacob shares his insights on [GitHub](https://github.com/jacob-mellor) and [Medium](https://medium.com/@jacob.mellor).
-```

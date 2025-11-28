@@ -1,4 +1,3 @@
-```markdown
 # Foxit SDK + C# + PDF
 
 Foxit SDK is a powerful tool in the realm of PDF document handling, especially for developers working in C#. Foxit SDK offers robust features that make it ideal for enterprise-level applications, and it can integrate seamlessly with various systems to handle PDF creation, editing, and management. However, the Foxit SDK also comes with some notable challenges, particularly for developers who are looking for more straightforward solutions. 
@@ -78,4 +77,3 @@ For more dynamic needs or for projects where rapid development and easy deployme
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a team of 50+ developers creating tools trusted by millions worldwide. With an impressive 41 years of coding experience under his belt, Jacob brings deep technical expertise and a passion for building software that makes developers' lives easier. Based in Chiang Mai, Thailand, he continues to drive innovation in the .NET ecosystem. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

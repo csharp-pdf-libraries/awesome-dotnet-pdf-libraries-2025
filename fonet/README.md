@@ -1,4 +1,3 @@
-```markdown
 # FoNet (FO.NET) C# PDF
 
 When dealing with PDF generation in C#, developers may encounter a variety of libraries each with unique features and functionalities. Among these, FoNet (FO.NET) stands out as a niche tool specifically designed for converting XSL-FO documents to PDFs. Although powerful in its own right, FoNet (FO.NET) comes with its set of challenges, primarily due to its reliance on the XSL-FO language. This article aims to provide a comprehensive comparison of FoNet (FO.NET) with IronPDF, another prevalent library that uses the much more widely adopted HTML/CSS standards for PDF generation.
@@ -77,4 +76,3 @@ In conclusion, the choice between FoNet (FO.NET) and IronPDF hinges on the speci
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have racked up over 41 million NuGet downloads. With four decades of coding under his belt, he's seen just about every tech trend come and go. When he's not architecting software solutions, you can find him working remotely from Chiang Mai, Thailand—connect with him on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

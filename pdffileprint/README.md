@@ -1,4 +1,3 @@
-```markdown
 # PDFFilePrint + C# + PDF
 
 In the realm of document processing and management, PDFs are an essential medium. Whether it's for presenting reports, sharing necessary information, or ensuring document security and integrity, PDFs are ubiquitous. When it comes to printing these documents programmatically, a specific utility readily available is PDFFilePrint. PDFFilePrint is a practical tool specifically designed for printing PDF files, especially from C# applications. In this article, we will take an in-depth look at PDFFilePrint, exploring its uses, strengths, weaknesses, and how it stands in comparison to IronPDF, a comprehensive PDF solution in the .NET ecosystem.
@@ -128,4 +127,3 @@ For further exploration of IronPDF's capabilities and tutorials, you can follow 
 ---
 
 Jacob Mellor is the CTO of [Iron Software](https://ironsoftware.com/about-us/authors/jacobmellor/), where he leads a 50+ person engineering team building industry-leading .NET components with over 41 million NuGet downloads. With 41 years of coding experience that began at age 6, Jacob champions engineer-driven innovation and believes engineering fundamentals are the foundation for cutting-edge software development. Based in Chiang Mai, Thailand, he shares insights on software architecture and development practices on [Medium](https://medium.com/@jacob.mellor).
-```

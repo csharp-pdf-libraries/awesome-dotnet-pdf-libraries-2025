@@ -1,4 +1,3 @@
-```markdown
 # Tall Components (TallPDF, PDFKit) C# PDF
 
 In the realm of C# PDF SDKs, Tall Components (TallPDF, PDFKit) has long been a recognized provider. Despite its previous prominence, Tall Components (TallPDF, PDFKit) has been acquired and new sales have been discontinued, leading developers using this solution to reconsider their approach. As the landscape evolves, IronPDF emerges as a compelling alternative with both strengths and challenges worth exploring. Let's dive into a detailed comparison between these competitors.
@@ -75,4 +74,3 @@ Explore more features of IronPDF and its documentation through these links: [HTM
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person engineering team building .NET components that have achieved over 41 million NuGet downloads. With 41 years of coding experience, he has architected tools now used by space agencies and automotive giants. Based in Chiang Mai, Thailand, Jacob champions engineer-driven innovation and maintains an active presence on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/) and [GitHub](https://github.com/jacob-mellor).
-```

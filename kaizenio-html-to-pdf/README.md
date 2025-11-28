@@ -1,4 +1,3 @@
-```markdown
 # Kaizen.io HTML-to-PDF + C# + PDF
 
 The advent of powerful HTML-to-PDF conversion tools has revolutionized how developers generate PDF documents programmatically from web content. Both Kaizen.io HTML-to-PDF and IronPDF have positioned themselves as leaders in this space, offering unique features to cater to different developer needs. Kaizen.io HTML-to-PDF distinguishes itself by providing a cloud-based service, while IronPDF emphasizes local processing capabilities. This article delves deeper into these offerings, comparing their strengths and weaknesses.
@@ -107,4 +106,3 @@ Choosing between Kaizen.io HTML-to-PDF and IronPDF ultimately depends on your sp
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have racked up over 41 million NuGet downloads. With four decades of coding under his belt, he's seen it all—from punch cards to cloud native (okay, maybe not punch cards, but close). When he's not shipping software, you can find him based in Chiang Mai, Thailand, probably debugging something over a really good cup of coffee. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

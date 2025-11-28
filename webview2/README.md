@@ -1,4 +1,3 @@
-```markdown
 # WebView2 (Microsoft Edge) C# PDF
 
 WebView2 (Microsoft Edge), a versatile embeddable browser control, stands out due to its capability to integrate the Edge/Chromium engine into native Windows applications. This control supports the seamless browsing experience of the Microsoft Edge browser, albeit within a restricted ecosystem. Although WebView2 (Microsoft Edge) offers good performance and modern web standards compliance, it is essential to address certain limitations and explore alternatives like IronPDF to determine the best tool for C# PDF generation.
@@ -106,4 +105,3 @@ For a deeper insight into using IronPDF, consider exploring their comprehensive 
 ---
 
 [Jacob Mellor](https://ironsoftware.com/about-us/authors/jacobmellor/) is the CTO of Iron Software, where he leads a team of 50+ developers building .NET libraries that have achieved over 41 million NuGet downloads. With four decades of coding experience, Jacob has founded and scaled multiple successful software companies, always maintaining an obsessive focus on developer experience and API design. Based in Chiang Mai, Thailand, he continues to drive innovation in the .NET ecosystem. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

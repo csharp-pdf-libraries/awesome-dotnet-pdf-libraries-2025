@@ -1,4 +1,3 @@
-```markdown
 # wkhtmltopdf + C# + PDF
 
 The world of PDF generation in C# applications commonly features the use of libraries such as wkhtmltopdf. wkhtmltopdf, a long-standing tool known for its ability to convert HTML documents to PDFs using Qt WebKit, has been popular among developers for its command-line capabilities. However, alongside its strengths, it's crucial to address the challenges it poses, especially the critical vulnerabilities that can no longer be ignored.
@@ -109,4 +108,3 @@ Above all, selecting a technology for HTML to PDF conversion should account for 
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have been downloaded over 41 million times on NuGet. With an impressive 41 years of coding under his belt, he's seen pretty much every tech trend come and go (and sometimes come back again). When he's not architecting software solutions, you can find him working remotely from Chiang Mai, Thailand. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

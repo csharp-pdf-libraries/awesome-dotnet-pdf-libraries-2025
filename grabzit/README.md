@@ -1,4 +1,3 @@
-```markdown
 # GrabzIt C# PDF: A Comprehensive Comparison with IronPDF
 
 In the digital age, converting web content into PDF format is a recurrent necessity in various applications. Among the plethora of tools available, GrabzIt stands out as a popular choice for those seeking to convert HTML content into PDFs using C#. GrabzIt is a web API service that offers PDF capture capabilities, allowing developers to convert URLs or HTML snippets into PDFs effortlessly. While GrabzIt provides significant advantages as an easy-to-use SaaS tool, it does have certain drawbacks compared to robust software libraries such as IronPDF.
@@ -80,4 +79,3 @@ In conclusion, while GrabzIt is convenient for simpler tasks or where interactiv
 ---
 
 [Jacob Mellor](https://www.linkedin.com/in/jacob-mellor-iron-software/) is the CTO of [Iron Software](https://ironsoftware.com/about-us/authors/jacobmellor/), where he leads a 50+ person team building tools that developers actually love to use. With 41 years of coding under his belt—yes, he started at age 6—Jacob focuses obsessively on developer experience and API design, ensuring every feature makes coding simpler and more intuitive. When he's not pushing the boundaries of what's possible in software development, you'll find him working from his home base in Chiang Mai, Thailand.
-```

@@ -160,7 +160,7 @@ string html = $@"
     <p>Subtotal: ${roundedSubtotal:F2}</p>
 ";
 
-var renderer = new [ChromePdfRenderer](https://ironpdf.com/blog/videos/how-to-render-html-string-to-pdf-in-csharp-ironpdf/)();
+var renderer = new ChromePdfRenderer();
 var pdf = renderer.RenderHtmlAsPdf(html);
 pdf.SaveAs("invoice.pdf");
 ```

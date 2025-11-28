@@ -1,4 +1,3 @@
-```markdown
 # PDF Duo .NET + C# + PDF
 
 PDF Duo .NET is an elusive and lesser-known library in the .NET ecosystem aimed at converting HTML and other formats to PDF. While many developers might find themselves intrigued by the potential utility of PDF Duo .NET for PDF generation in C#, the obscurity of this library presents significant challenges. PDF Duo .NET is characterized by limited documentation, sparse community engagement, and uncertainty in support and maintenance, making it less than ideal for any production-grade application.
@@ -81,4 +80,3 @@ By opting for a well-supported and thoroughly documented library like IronPDF, d
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person engineering team building .NET libraries that have achieved over 41 million NuGet downloads. With 41 years of coding experience, he champions engineer-driven innovation and architectural excellence in enterprise software development. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/) or [GitHub](https://github.com/jacob-mellor).
-```

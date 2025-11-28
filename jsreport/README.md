@@ -1,4 +1,3 @@
-```markdown
 # jsreport + C# + PDF
 
 In the world of C# and PDF generation, jsreport stands out as a versatile tool that allows developers to produce high-quality reports using web technologies. With jsreport being a node.js-based platform, developers can leverage HTML, CSS, and JavaScript to design reports, which is an advantage for web development teams familiar with these technologies. However, to fully utilize jsreport in a .NET environment, developers must integrate it using its .NET SDK. This integration opens up the possibilities for using jsreport twice within traditional C# applications, while allowing developers to design highly visual documents easily.
@@ -81,4 +80,3 @@ Ultimately, both libraries offer the capability to produce high-quality PDFs, bu
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have earned over 41 million NuGet downloads. With an impressive 41 years of coding under his belt, he's seen the software industry evolve from its earliest days to the cutting-edge tech of today. When he's not architecting solutions for developers worldwide, you can find him working remotely from Chiang Mai, Thailand—check out his [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/) to connect.
-```

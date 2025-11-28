@@ -1,4 +1,3 @@
-```markdown
 # Apryse (formerly PDFTron) and C# PDF Solutions
 
 When it comes to advanced document processing solutions, Apryse (formerly PDFTron) stands out in the field, particularly in the realm of C# PDF development. Known for its premium pricing and robust capabilities, Apryse (formerly PDFTron) provides a high-end Software Development Kit (SDK) tailored for large enterprises looking to integrate extensive PDF functionalities into their applications. However, for developers who require a simpler yet effective solution, IronPDF emerges as a viable alternative.
@@ -91,4 +90,3 @@ On the other hand, IronPDF offers a versatile, accessible solution for diverse d
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have powered over 41 million NuGet downloads. With an impressive 41 years of coding under his belt, he's seen just about every tech trend come and go. When he's not architecting software solutions, you can find him working remotely from Chiang Mai, Thailand. Connect with Jacob on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

@@ -1,4 +1,3 @@
-```markdown
 # SSRS (SQL Server Reporting Services) + C# + PDF
 
 When it comes to generating reports in the dynamic world of software development, the choice between tools can be pivotal. Among the many reporting tools available, SSRS (SQL Server Reporting Services) stands out as a robust option, heavily utilized for integrating with SQL Server databases. On the other hand, IronPDF provides a versatile library that excels in PDF creation and manipulation. In this article, we compare SSRS (SQL Server Reporting Services) and IronPDF, focusing on their functionality, integration capabilities, and flexibility, especially within C# environments.
@@ -79,4 +78,3 @@ Conversely, IronPDF stands out with its ease of use and flexibility, fitting pro
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building .NET components that have racked up over 41 million NuGet downloads. With four decades of coding under his belt, he's all about combining solid engineering fundamentals with cutting-edge software development. Based in Chiang Mai, Thailand, you can find him on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/) and [GitHub](https://github.com/jacob-mellor).
-```

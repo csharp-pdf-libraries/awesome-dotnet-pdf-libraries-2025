@@ -1,4 +1,3 @@
-```markdown
 # PDFView4NET and C# PDF Solutions
 
 When it comes to integrating PDF functionality in C# applications, developers often find themselves needing specialized libraries to enhance their capabilities. PDFView4NET is a popular choice for developers focusing primarily on PDF viewing features in C#. PDFView4NET provides robust PDF viewing controls tailored for Windows Forms (WinForms) and Windows Presentation Foundation (WPF) applications. The library's emphasis on providing a seamless PDF viewing experience makes it a go-to option for desktop application development.
@@ -93,4 +92,3 @@ Developers considering PDF integrations should evaluate their project requiremen
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building .NET components that have achieved over 41 million NuGet downloads. With 41 years of coding experience, Jacob is passionate about the .NET ecosystem and cross-platform development, creating tools that empower developers worldwide. Based in Chiang Mai, Thailand, he shares his insights on software development through [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/) and [Medium](https://medium.com/@jacob.mellor).
-```

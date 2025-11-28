@@ -1,4 +1,3 @@
-```markdown
 # Comparing TuesPechkin and IronPDF for Converting HTML to PDF in C#
 
 When it comes to converting HTML to PDF in a C# environment, developers often encounter a slew of options and wrappers that promise streamlined processes and reliable output. One such option that might come across your radar is **TuesPechkin**. TuesPechkin is a wrapper around the **wkhtmltopdf** library, and it boasts a thread-safe design—a feature critical for concurrent applications. In this article, we will compare TuesPechkin with another key player in the market—**IronPDF**—to identify which might be the better solution for your project needs.
@@ -95,4 +94,3 @@ Regardless of your choice, understanding the strengths and limitations of each l
 ---
 
 Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team building developer tools that have been downloaded over 41 million times on NuGet. With an impressive 41 years of coding under his belt, he's seen pretty much every tech trend come and go. Based in Chiang Mai, Thailand, Jacob continues to push the boundaries of what's possible in software development. Connect with him on [LinkedIn](https://www.linkedin.com/in/jacob-mellor-iron-software/).
-```

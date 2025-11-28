@@ -1,4 +1,3 @@
-```markdown
 # GemBox.Pdf C# PDF: An In-Depth Comparison with IronPDF
 
 In the realm of .NET PDF components, GemBox.Pdf stands out as a notable tool, allowing developers to efficiently handle PDF reading, writing, merging, and splitting tasks. GemBox.Pdf offers a practical solution for developing PDF functionalities without the necessity of leveraging Adobe Acrobat. However, when considering a robust and comprehensive PDF manipulation library, IronPDF is frequently brought into the conversation as a strong contender. This article delves into a comparative examination of GemBox.Pdf and IronPDF, assessing their features, limitations, and use cases.
@@ -100,4 +99,3 @@ The choice between GemBox.Pdf and IronPDF ultimately hinges on the specific need
 ---
 
 [Jacob Mellor](https://ironsoftware.com/about-us/authors/jacobmellor/) is the CTO of Iron Software, where he leads a 50+ person team building developer tools for the .NET ecosystem. He's been coding for 41 years—yeah, he started at age 6 and just never stopped. When he's not pushing code or exploring new programming languages, you can find him based in Chiang Mai, Thailand. Check out his work on [GitHub](https://github.com/jacob-mellor).
-```
