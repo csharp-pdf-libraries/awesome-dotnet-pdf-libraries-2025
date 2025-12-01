@@ -262,21 +262,145 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from Foxit SDK to IronPDF?
 
-IronPDF offers a streamlined alternative to Foxit SDK with straightforward licensing, simple integration requiring minimal setup, and pricing suitable for projects of all sizes. The library provides intuitive APIs for PDF generation and manipulation without the complexity of enterprise-focused configuration.
+### The Foxit SDK Challenges
 
-**Migrating from Foxit SDK to IronPDF involves:**
+Foxit PDF SDK is a powerful enterprise-level library with significant complexity:
 
-1. **NuGet Package Change**: Install `IronPdf` package
-2. **Namespace Update**: Replace `foxit` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Complex Licensing System**: Multiple products, SKUs, and license types (per-developer, per-server, OEM, etc.) make choosing difficult
+2. **Enterprise Pricing**: Pricing tailored for large organizations, prohibitive for smaller teams
+3. **Manual Installation**: Requires manual DLL references or private NuGet feeds—no simple public NuGet package
+4. **Verbose API**: `Library.Initialize()`, `Library.Release()`, ErrorCode checking add boilerplate
+5. **Separate HTML Add-on**: HTML to PDF conversion requires additional add-on purchase
+6. **C++ Heritage**: API patterns reflect C++ origins, feeling less natural in modern C#
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | Foxit SDK | IronPDF |
+|--------|-----------|---------|
+| Installation | Manual DLLs/private feeds | Simple NuGet package |
+| Licensing | Complex, enterprise-focused | Transparent, all sizes |
+| Initialization | `Library.Initialize(sn, key)` + `Library.Release()` | Set license key once |
+| Error Handling | ErrorCode enums | Standard .NET exceptions |
+| HTML to PDF | Separate add-on | Built-in Chromium |
+| API Style | C++ heritage, verbose | Modern .NET patterns |
+| Resource Cleanup | Manual `Close()`/`Release()` | IDisposable/automatic |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| Foxit SDK | IronPDF | Notes |
+|-----------|---------|-------|
+| `Library.Initialize(sn, key)` | `IronPdf.License.LicenseKey = "key"` | One-time setup |
+| `Library.Release()` | N/A | Not needed |
+| `new PDFDoc(path)` | `PdfDocument.FromFile(path)` | Load from file |
+| `doc.LoadW(password)` | `PdfDocument.FromFile(path, password)` | Password protected |
+| `doc.GetPageCount()` | `pdf.PageCount` | Property access |
+| `doc.GetPage(index)` | `pdf.Pages[index]` | Page access |
+| `doc.SaveAs(path, flags)` | `pdf.SaveAs(path)` | Save document |
+| `doc.Close()` | `pdf.Dispose()` or using | Cleanup |
+| `new HTML2PDF(settings)` | `new ChromePdfRenderer()` | HTML conversion |
+| `html2pdf.Convert(html, path)` | `renderer.RenderHtmlAsPdf(html)` | Convert HTML |
+| `html2pdf.ConvertFromURL(url, path)` | `renderer.RenderUrlAsPdf(url)` | URL conversion |
+| `new Watermark(doc, text, font, size)` | `new TextStamper()` | Watermarks |
+| `doc.GetMetadata()` | `pdf.MetaData` | Metadata access |
+| `doc.SetSecurityHandler()` | `pdf.SecuritySettings` | Security |
+| `new TextPage(page)` | `pdf.ExtractTextFromPage(i)` | Text extraction |
+
+### Migration Code Example
+
+**Before (Foxit SDK):**
+```csharp
+using foxit;
+using foxit.common;
+using foxit.addon.conversion;
+
+string sn = "YOUR_SN";
+string key = "YOUR_KEY";
+
+ErrorCode err = Library.Initialize(sn, key);
+if (err != ErrorCode.e_ErrSuccess)
+{
+    Console.WriteLine("Failed to initialize library");
+    return;
+}
+
+try
+{
+    HTML2PDFSettingData settings = new HTML2PDFSettingData();
+    settings.page_width = 612.0f;   // Letter width in points
+    settings.page_height = 792.0f;
+    settings.page_margin_top = 72.0f;
+
+    using (HTML2PDF html2pdf = new HTML2PDF(settings))
+    {
+        html2pdf.Convert("<h1>Hello World</h1>", "output.pdf");
+    }
+}
+finally
+{
+    Library.Release();  // Don't forget!
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = PdfPaperSize.Letter;
+renderer.RenderingOptions.MarginTop = 25.4;  // 1 inch in mm
+
+var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1>");
+pdf.SaveAs("output.pdf");
+// No Release() needed - automatic cleanup
+```
+
+### Critical Migration Notes
+
+1. **No Initialization/Release**: IronPDF doesn't need `Library.Initialize()` or `Library.Release()`. Just set the license key once at startup.
+
+2. **Exception-Based Errors**: Replace ErrorCode checks with try/catch:
+   ```csharp
+   // Foxit: if (err != ErrorCode.e_ErrSuccess) {...}
+   // IronPDF: try { ... } catch (Exception ex) { ... }
+   ```
+
+3. **Unit Conversion**: Foxit uses points; IronPDF uses millimeters:
+   - `72 points` = `25.4mm` = `1 inch`
+   - Formula: `mm = points × 0.353`
+
+4. **Resource Cleanup**: Replace `doc.Close()` with `using` statements or `Dispose()`.
+
+5. **HTML Conversion Built-in**: No separate add-on needed—`ChromePdfRenderer` includes full HTML/CSS/JS support.
+
+### NuGet Package Migration
+
+```bash
+# Foxit SDK typically requires manual DLL removal from .csproj
+# Remove references like:
+# <Reference Include="fsdk_dotnet">
+#     <HintPath>..\libs\Foxit\fsdk_dotnet.dll</HintPath>
+# </Reference>
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All Foxit SDK References
+
+```bash
+grep -r "foxit\|PDFDoc\|PDFPage\|Library.Initialize\|Library.Release" --include="*.cs" --include="*.csproj" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping for PDFDoc, PDFPage, HTML2PDF, and all Foxit classes
+- 8 detailed code conversion examples
+- Form field manipulation
+- Security and encryption migration
+- Unit conversion helper
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: Foxit SDK → IronPDF](migrate-from-foxit-sdk.md)**
 

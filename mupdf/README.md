@@ -261,21 +261,179 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from MuPDF (.NET bindings) to IronPDF?
 
-MuPDF's AGPL license poses viral licensing concerns for commercial applications, requiring costly commercial licenses for proprietary software. While MuPDF excels at rendering PDFs, it's not designed for PDF creation or manipulation workflows common in .NET applications.
+### The MuPDF Limitations
 
-**Migrating from MuPDF (.NET bindings) to IronPDF involves:**
+MuPDF is a PDF renderer—excellent at viewing but limited for .NET application development:
 
-1. **NuGet Package Change**: Remove `MuPDF.NET`, add `IronPdf`
-2. **Namespace Update**: Replace `MuPDF.NET` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **AGPL License Trap**: Either open-source your entire application or purchase expensive commercial license
+2. **Rendering-Only**: Cannot create PDFs from HTML, URLs, or images
+3. **Limited Manipulation**: No built-in merging, splitting, watermarks, or security
+4. **Native Dependencies**: Platform-specific binaries require manual deployment management
+5. **No Headers/Footers**: Cannot add page numbers or repeating content
+6. **C Interop Complexity**: Memory management and marshalling overhead
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | MuPDF | IronPDF |
+|--------|-------|---------|
+| License | AGPL (viral) or commercial | Commercial with transparent pricing |
+| Primary Focus | Rendering/viewing | Complete PDF solution |
+| HTML to PDF | Not supported | Full Chromium engine |
+| PDF Creation | Not supported | HTML, URL, images |
+| Manipulation | Limited | Full (merge, split, edit) |
+| Dependencies | Native binaries | Fully managed |
+| Platform Support | Manual per-platform | Automatic |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| MuPDF | IronPDF | Notes |
+|-------|---------|-------|
+| `new MuPDFDocument(context, path)` | `PdfDocument.FromFile(path)` | Load PDF |
+| `document.Pages.Count` | `pdf.PageCount` | Page count |
+| `document.Pages[index]` | `pdf.Pages[index]` | Access page |
+| `page.RenderPixMap(dpi, dpi, alpha)` | `pdf.RasterizeToImageFiles(path, dpi)` | Render to image |
+| `page.GetText()` | `page.Text` | Page text |
+| _(not supported)_ | `ChromePdfRenderer.RenderHtmlAsPdf()` | Create from HTML |
+| _(not supported)_ | `PdfDocument.Merge()` | Merge PDFs |
+| _(not supported)_ | `pdf.ApplyWatermark()` | Add watermark |
+| _(not supported)_ | `pdf.SecuritySettings` | Password protection |
+| `document.SaveAs(path)` | `pdf.SaveAs(path)` | Save PDF |
+
+### Migration Code Example
+
+**Before (MuPDF):**
+```csharp
+using MuPDFCore;
+
+public class MuPdfService
+{
+    public void ProcessPdf(string pdfPath)
+    {
+        using (var context = new MuPDFContext())
+        using (var document = new MuPDFDocument(context, pdfPath))
+        {
+            // Can only render and extract text
+            for (int i = 0; i < document.Pages.Count; i++)
+            {
+                using (var page = document.Pages[i])
+                {
+                    var pixmap = page.RenderPixMap(150, 150, false);
+                    pixmap.SaveAsPng($"page_{i + 1}.png");
+
+                    var text = page.GetText();
+                    Console.WriteLine(text);
+
+                    pixmap.Dispose();
+                }
+            }
+
+            // Cannot create, modify, merge, or secure PDFs
+        }
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public PdfService()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        _renderer = new ChromePdfRenderer();
+    }
+
+    public void ProcessPdf(string pdfPath)
+    {
+        var pdf = PdfDocument.FromFile(pdfPath);
+
+        // Render all pages at 150 DPI
+        pdf.RasterizeToImageFiles("page_*.png", DPI: 150);
+
+        // Extract all text
+        var text = pdf.ExtractAllText();
+        Console.WriteLine(text);
+    }
+
+    public void CreatePdf(string html, string outputPath)
+    {
+        // Create PDF from HTML (not possible in MuPDF)
+        var pdf = _renderer.RenderHtmlAsPdf(html);
+
+        // Add watermark (not possible in MuPDF)
+        pdf.ApplyWatermark("<div style='color:gray'>DRAFT</div>");
+
+        // Secure document (not possible in MuPDF)
+        pdf.SecuritySettings.OwnerPassword = "admin";
+
+        pdf.SaveAs(outputPath);
+    }
+}
+```
+
+### Critical Migration Notes
+
+1. **Remove Native Binaries**: Delete all MuPDF native libraries from deployment:
+   ```bash
+   rm -f mupdf*.dll libmupdf*.so libmupdf*.dylib
+   rm -rf runtimes/*/native/
+   ```
+
+2. **Dispose Pattern Simplified**: IronPDF doesn't require explicit context management
+   ```csharp
+   // MuPDF: using (var context) using (var document) using (var page) ...
+   // IronPDF: var pdf = PdfDocument.FromFile(path);
+   ```
+
+3. **DPI vs Scale Factor**: MuPDF uses scale (1.0 = 72 DPI), IronPDF uses direct DPI
+   ```csharp
+   // MuPDF: scale 2.0 = 144 DPI
+   // IronPDF: DPI: 144
+   ```
+
+4. **Pixmap → RasterizeToImageFiles**: Replace pixmap rendering
+   ```csharp
+   // MuPDF: page.RenderPixMap(dpi, dpi, false).SaveAsPng(path)
+   // IronPDF: pdf.RasterizeToImageFiles("*.png", DPI: dpi)
+   ```
+
+5. **PDF Creation Now Available**: Add HTML-to-PDF workflows MuPDF couldn't support
+
+6. **No More Platform-Specific Builds**: IronPDF handles cross-platform automatically
+
+### NuGet Package Migration
+
+```bash
+# Remove MuPDF packages
+dotnet remove package MuPDF.NET
+dotnet remove package MuPDFCore
+dotnet remove package MuPDFCore.MuPDFWrapper
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All MuPDF References
+
+```bash
+# Find MuPDF usage
+grep -r "MuPDF\|MuPDFCore\|MuPDFContext\|MuPDFDocument" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (30+ methods and properties)
+- Document loading and page access conversions
+- 10 detailed code migration examples
+- Native dependency removal guide
+- Pixmap → image rendering conversions
+- PDF creation capabilities (new with IronPDF)
+- Performance comparison data
+- Troubleshooting guide for 6+ common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: MuPDF (.NET bindings) → IronPDF](migrate-from-mupdf.md)**
 

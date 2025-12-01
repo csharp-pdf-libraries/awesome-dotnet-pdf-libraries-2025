@@ -263,23 +263,121 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from ExpertPdf C# PDF to IronPDF?
 
-ExpertPdf has not received documentation updates since 2018 and relies on a wrapper around outdated Chrome versions, creating security and compatibility risks. IronPDF offers modern, actively maintained PDF generation with up-to-date Chromium rendering, comprehensive documentation, and competitive pricing.
+### The ExpertPdf Problems
 
-**Migrating from ExpertPdf C# PDF to IronPDF involves:**
+ExpertPdf has significant issues that make migration worthwhile:
 
-1. **NuGet Package Change**: Remove `ExpertPdf.HtmlToPdf`, add `IronPdf`
-2. **Namespace Update**: Replace `ExpertPdf.HtmlToPdf` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Documentation Frozen Since 2018**: Over 6 years without documentation updates
+2. **Outdated Chrome Version**: Legacy rendering engine misses modern CSS3 features
+3. **Premium Pricing for Legacy Tech**: $550-$1,200 for outdated technology
+4. **Fragmented Product Suite**: Separate packages (HtmlToPdf, PDFMerge, PDFSecurity, PDFSplit) each requiring separate licenses
+5. **Limited Modern .NET Support**: Lags behind current .NET versions
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | ExpertPdf | IronPDF |
+|--------|-----------|---------|
+| Documentation | Frozen since 2018 | Continuously updated |
+| Rendering Engine | Legacy Chrome | Latest Chromium |
+| CSS Support | Limited CSS3 | Full CSS3 (Flexbox, Grid) |
+| Price | $550-$1,200 | Competitive pricing |
+| Product Model | Fragmented (5+ packages) | All-in-one library |
+| Update Frequency | Infrequent | Monthly releases |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
-**[Complete Migration Guide: ExpertPdf C# PDF → IronPDF](migrate-from-expertpdf.md)**
+### Key API Mappings
+
+| ExpertPdf | IronPDF | Notes |
+|-----------|---------|-------|
+| `PdfConverter` | `ChromePdfRenderer` | Main conversion class |
+| `pdfConverter.GetPdfBytesFromHtmlString(html)` | `renderer.RenderHtmlAsPdf(html).BinaryData` | |
+| `pdfConverter.SavePdfFromUrlToFile(url, path)` | `renderer.RenderUrlAsPdf(url).SaveAs(path)` | Two-step |
+| `PdfDocumentOptions.PdfPageSize` | `RenderingOptions.PaperSize` | |
+| `PdfHeaderOptions`, `PdfFooterOptions` | `HtmlHeaderFooter` | Configurable HTML |
+| `&p;` / `&P;` (page tokens) | `{page}` / `{total-pages}` | Different syntax |
+| `PDFMerge` (separate package) | `PdfDocument.Merge()` | Included in main package |
+| `PdfSecurityOptions` | `pdf.SecuritySettings` | |
+| `pdfConverter.LicenseKey` | `IronPdf.License.LicenseKey` | Global, set once |
+
+### Migration Code Example
+
+**Before (ExpertPdf):**
+```csharp
+using ExpertPdf.HtmlToPdf;
+
+PdfConverter pdfConverter = new PdfConverter();
+pdfConverter.LicenseKey = "EXPERTPDF-LICENSE";
+pdfConverter.PdfDocumentOptions.PdfPageSize = PdfPageSize.A4;
+pdfConverter.PdfDocumentOptions.ShowHeader = true;
+pdfConverter.PdfHeaderOptions.HeaderText = "Report Header";
+pdfConverter.PdfDocumentOptions.ShowFooter = true;
+pdfConverter.PdfFooterOptions.FooterText = "Page &p; of &P;";
+
+byte[] pdfBytes = pdfConverter.GetPdfBytesFromHtmlString(html);
+File.WriteAllBytes("report.pdf", pdfBytes);
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+IronPdf.License.LicenseKey = "IRONPDF-LICENSE";  // Set once at startup
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter()
+{
+    HtmlFragment = "<div style='text-align:center;'>Report Header</div>"
+};
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter()
+{
+    HtmlFragment = "<div style='text-align:right;'>Page {page} of {total-pages}</div>"
+};
+
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("report.pdf");
+```
+
+### Critical Migration Notes
+
+1. **License Key Location**: ExpertPdf uses `pdfConverter.LicenseKey`, IronPDF uses global `IronPdf.License.LicenseKey` (set once at startup)
+
+2. **Page Numbering Tokens**: ExpertPdf uses `&p;`/`&P;`, IronPDF uses `{page}`/`{total-pages}`
+
+3. **Headers/Footers**: ExpertPdf uses `ShowHeader = true` + text properties. IronPDF uses `HtmlHeaderFooter` with full HTML control
+
+4. **Separate Packages Consolidated**: ExpertPdf's PDFMerge, PDFSecurity, PDFSplit are all included in IronPDF's single package
+
+5. **Custom Page Sizes**: ExpertPdf uses points, IronPDF uses millimeters. Convert: `points / 72 * 25.4 = mm`
+
+### NuGet Package Migration
+
+```bash
+# Remove all ExpertPdf packages
+dotnet remove package ExpertPdf.HtmlToPdf
+dotnet remove package ExpertPdf.PDFMerge
+dotnet remove package ExpertPdf.PDFSecurity
+dotnet remove package ExpertPdf.PDFSplit
+
+# Install IronPDF (includes all features)
+dotnet add package IronPdf
+```
+
+### Find All ExpertPdf References
+
+```bash
+grep -r "ExpertPdf\|PdfConverter\|PDFMerge" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping for all ExpertPdf packages
+- 10 detailed code conversion examples
+- Header/footer placeholder conversion
+- Security settings migration
+- Custom page size unit conversion
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
+**[Complete Migration Guide: ExpertPdf → IronPDF](migrate-from-expertpdf.md)**
 
 
 ## Conclusion

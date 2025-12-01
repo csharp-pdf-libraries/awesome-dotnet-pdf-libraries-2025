@@ -265,21 +265,156 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from FoNet (FO.NET) C# PDF to IronPDF?
 
-FoNet requires learning XSL-FO, an obsolete XML-based formatting language that lacks modern adoption and has a steep learning curve. IronPDF allows you to generate PDFs directly from HTML and CSS, technologies familiar to most developers, eliminating the need for XSL-FO expertise.
+### The FoNet (FO.NET) Challenges
 
-**Migrating from FoNet (FO.NET) C# PDF to IronPDF involves:**
+FoNet is an XSL-FO to PDF renderer with significant limitations for modern development:
 
-1. **NuGet Package Change**: Install `IronPdf` package
-2. **Namespace Update**: Replace `Fonet` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Obsolete Technology**: XSL-FO is a W3C specification from 2001 with no updates since 2006—largely considered obsolete
+2. **Steep Learning Curve**: XSL-FO requires complex XML markup with specialized formatting objects (fo:block, fo:table, fo:page-sequence)
+3. **No HTML/CSS Support**: Cannot render HTML or CSS—requires manual conversion from HTML to XSL-FO
+4. **Abandoned/Unmaintained**: Original CodePlex repository defunct; GitHub forks are no longer maintained
+5. **Windows-Only**: Internal System.Drawing dependencies prevent Linux/macOS usage
+6. **No URL Rendering**: Cannot directly render web pages
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | FoNet (FO.NET) | IronPDF |
+|--------|---------------|---------|
+| Input Format | XSL-FO (obsolete XML) | HTML/CSS (modern web standards) |
+| Learning Curve | Steep (XSL-FO expertise) | Gentle (HTML/CSS knowledge) |
+| Maintenance | Abandoned | Actively maintained monthly |
+| Platform Support | Windows only | True cross-platform |
+| CSS Support | None | Full CSS3 (Flexbox, Grid) |
+| URL Rendering | Not supported | Built-in |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| FoNet | IronPDF | Notes |
+|-------|---------|-------|
+| `FonetDriver.Make()` | `new ChromePdfRenderer()` | Create renderer |
+| `driver.Render(inputStream, outputStream)` | `renderer.RenderHtmlAsPdf(html)` | Core rendering |
+| `driver.Render(inputFile, outputStream)` | `renderer.RenderHtmlFileAsPdf(path)` | File-based |
+| `driver.BaseDirectory` | `RenderingOptions.BaseUrl` | Base path for resources |
+| `driver.OnError += handler` | Try/catch around render | Error handling |
+| XSL-FO `page-height`/`page-width` | `RenderingOptions.PaperSize` | Page dimensions |
+| XSL-FO margins | `RenderingOptions.MarginTop/Bottom/Left/Right` | In millimeters |
+
+### XSL-FO to HTML Conversion
+
+| XSL-FO Element | HTML Equivalent | Notes |
+|----------------|-----------------|-------|
+| `<fo:block>` | `<p>`, `<div>`, `<h1>` | Block content |
+| `<fo:table>` | `<table>` | Tables |
+| `<fo:list-block>` | `<ul>`, `<ol>` | Lists |
+| `<fo:external-graphic>` | `<img>` | Images |
+| `<fo:static-content>` | `HtmlHeaderFooter` | Headers/footers |
+| `<fo:page-number/>` | `{page}` placeholder | Page numbers |
+| `space-before`/`space-after` | `margin-top`/`margin-bottom` | CSS margins |
+
+### Migration Code Example
+
+**Before (FoNet with XSL-FO):**
+```csharp
+using Fonet;
+using System.IO;
+
+string xslFo = @"<?xml version='1.0' encoding='utf-8'?>
+    <fo:root xmlns:fo='http://www.w3.org/1999/XSL/Format'>
+        <fo:layout-master-set>
+            <fo:simple-page-master master-name='page'
+                page-height='11in' page-width='8.5in' margin='1in'>
+                <fo:region-body/>
+            </fo:simple-page-master>
+        </fo:layout-master-set>
+        <fo:page-sequence master-reference='page'>
+            <fo:flow flow-name='xsl-region-body'>
+                <fo:block font-size='18pt' font-weight='bold'>Hello World</fo:block>
+                <fo:block>This is XSL-FO content.</fo:block>
+            </fo:flow>
+        </fo:page-sequence>
+    </fo:root>";
+
+FonetDriver driver = FonetDriver.Make();
+using (FileStream output = new FileStream("output.pdf", FileMode.Create))
+{
+    driver.Render(new StringReader(xslFo), output);
+}
+```
+
+**After (IronPDF with HTML):**
+```csharp
+using IronPdf;
+
+string html = @"
+    <html>
+    <head>
+        <style>
+            body { font-family: Arial; margin: 1in; }
+            h1 { font-size: 18pt; font-weight: bold; }
+        </style>
+    </head>
+    <body>
+        <h1>Hello World</h1>
+        <p>This is HTML content.</p>
+    </body>
+    </html>";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = PdfPaperSize.Letter;
+renderer.RenderingOptions.MarginTop = 25.4;  // 1 inch in mm
+renderer.RenderingOptions.MarginBottom = 25.4;
+renderer.RenderingOptions.MarginLeft = 25.4;
+renderer.RenderingOptions.MarginRight = 25.4;
+
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+```
+
+### Critical Migration Notes
+
+1. **Technology Shift**: XSL-FO → HTML/CSS is the fundamental change. You'll convert verbose XML to clean HTML.
+
+2. **fo:static-content → HtmlHeaderFooter**: Replace XSL-FO regions with IronPDF headers/footers:
+   ```csharp
+   renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter()
+   {
+       HtmlFragment = "<div style='text-align:center;'>Header</div>"
+   };
+   ```
+
+3. **Page Numbers**: Replace `<fo:page-number/>` with `{page}` and `<fo:page-number-citation>` with `{total-pages}`.
+
+4. **Unit Conversion**: XSL-FO uses various units; IronPDF uses millimeters:
+   - `1in` = `25.4mm`
+   - `1pt` = `0.353mm`
+
+5. **98% Fewer Developers**: Know XSL-FO vs HTML. Your team will thank you.
+
+### NuGet Package Migration
+
+```bash
+# Remove FoNet package
+dotnet remove package Fonet
+dotnet remove package FO.NET
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All FoNet References
+
+```bash
+grep -r "FonetDriver\|Fonet\|\.fo\"\|xsl-region" --include="*.cs" --include="*.csproj" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete XSL-FO to HTML element mapping (25+ elements)
+- XSL-FO property to CSS property conversion table
+- 6 detailed code conversion examples
+- XSLT transformation alternatives
+- Unit conversion helper
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: FoNet (FO.NET) C# PDF → IronPDF](migrate-from-fonet.md)**
 

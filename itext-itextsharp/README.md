@@ -241,25 +241,194 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ---
 
-## How Can I Migrate from iText / iTextSharp C# PDF: A Comprehensive Comparison with IronPDF to IronPDF?
+## How Can I Migrate from iText / iTextSharp to IronPDF?
 
-iText's AGPL license requires you to open-source your entire application if used in web apps, creating significant legal and business risks. IronPDF offers a straightforward commercial license without viral open-source requirements, includes native HTML-to-PDF rendering without additional add-ons, and provides perpetual licensing options instead of forcing annual subscriptions.
+### The AGPL License Trap
 
-**Migrating from iText / iTextSharp C# PDF: A Comprehensive Comparison with IronPDF to IronPDF involves:**
+iText presents serious legal and business risks for commercial applications:
 
-1. **NuGet Package Change**: Remove `itext7`, add `IronPdf`
-2. **Namespace Update**: Replace `iText.Kernel.Pdf` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **AGPL Viral License**: Web apps using iText must **open-source their ENTIRE codebase** or pay expensive commercial license
+2. **No Perpetual License**: iText forces annual subscription renewals—no one-time purchase option
+3. **pdfHTML Add-On Cost**: HTML-to-PDF requires separate pdfHTML purchase at additional cost
+4. **Programmatic API**: Requires manual low-level PDF construction with `Paragraph`, `Table`, `Cell`
+5. **No JavaScript**: Even with pdfHTML, no JavaScript execution capability
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | iText 7 / iTextSharp | IronPDF |
+|--------|---------------------|---------|
+| License | AGPL (viral) or subscription | Commercial, perpetual option |
+| HTML-to-PDF | Separate pdfHTML add-on | Built-in Chromium |
+| CSS Support | Basic CSS | Full CSS3, Flexbox, Grid |
+| JavaScript | None | Full execution |
+| API Paradigm | Programmatic construction | HTML-first design |
+| Learning Curve | Steep (PDF coordinates) | Web developer friendly |
+| Open Source Risk | Must open-source web apps | No viral requirements |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
-**[Complete Migration Guide: iText / iTextSharp C# PDF: A Comprehensive Comparison with IronPDF → IronPDF](migrate-from-itext-itextsharp.md)**
+### Key API Mappings
+
+| iText 7 | iTextSharp | IronPDF | Notes |
+|---------|-----------|---------|-------|
+| `new PdfWriter(stream)` | `new PdfWriter(stream)` | `new ChromePdfRenderer()` | Different paradigm |
+| `new PdfDocument(writer)` | `new Document(stream)` | `renderer.RenderHtmlAsPdf()` | Returns PdfDocument |
+| `new Document(pdfDoc)` | `document.Open()` | N/A (automatic) | Not needed |
+| `document.Add(new Paragraph())` | `document.Add(new Paragraph())` | HTML `<p>` element | Use HTML |
+| `new Table(columns)` | `new PdfPTable(columns)` | HTML `<table>` | Use HTML |
+| `new Cell()` | `new PdfPCell()` | HTML `<td>` | Use HTML |
+| `HtmlConverter.ConvertToPdf()` | N/A | `renderer.RenderHtmlAsPdf()` | Built-in |
+| `PdfMerger.Merge()` | `PdfCopy` | `PdfDocument.Merge()` | Simpler API |
+| `PdfTextExtractor.GetTextFromPage()` | `PdfTextExtractor` | `pdf.ExtractAllText()` | One-liner |
+| `SetTextAlignment()` | `SetAlignment()` | CSS `text-align` | Use CSS |
+| `SetFontSize(12)` | `font.Size` | CSS `font-size: 12px` | Use CSS |
+| `SetBold()` | `Font.BOLD` | CSS `font-weight: bold` | Use CSS |
+
+### Migration Code Example
+
+**Before (iText 7):**
+```csharp
+using iText.Kernel.Pdf;
+using iText.Layout;
+using iText.Layout.Element;
+using iText.Layout.Properties;
+
+public class ItextService
+{
+    public byte[] CreateReport(string title, List<Item> items)
+    {
+        using (var ms = new MemoryStream())
+        {
+            using (var writer = new PdfWriter(ms))
+            using (var pdfDoc = new PdfDocument(writer))
+            using (var document = new Document(pdfDoc))
+            {
+                document.Add(new Paragraph(title)
+                    .SetTextAlignment(TextAlignment.CENTER)
+                    .SetFontSize(24)
+                    .SetBold());
+
+                var table = new Table(UnitValue.CreatePercentArray(3))
+                    .UseAllAvailableWidth();
+
+                table.AddHeaderCell(new Cell().Add(new Paragraph("ID")));
+                table.AddHeaderCell(new Cell().Add(new Paragraph("Name")));
+                table.AddHeaderCell(new Cell().Add(new Paragraph("Value")));
+
+                foreach (var item in items)
+                {
+                    table.AddCell(new Cell().Add(new Paragraph(item.Id.ToString())));
+                    table.AddCell(new Cell().Add(new Paragraph(item.Name)));
+                    table.AddCell(new Cell().Add(new Paragraph(item.Value.ToString("C"))));
+                }
+
+                document.Add(table);
+            }
+            return ms.ToArray();
+        }
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public PdfService()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        _renderer = new ChromePdfRenderer();
+    }
+
+    public byte[] CreateReport(string title, List<Item> items)
+    {
+        string html = $@"
+            <html>
+            <head>
+                <style>
+                    h1 {{ text-align: center; font-size: 24px; font-weight: bold; }}
+                    table {{ width: 100%; border-collapse: collapse; }}
+                    th, td {{ border: 1px solid #ddd; padding: 8px; }}
+                    th {{ background-color: #4CAF50; color: white; }}
+                </style>
+            </head>
+            <body>
+                <h1>{title}</h1>
+                <table>
+                    <tr><th>ID</th><th>Name</th><th>Value</th></tr>
+                    {string.Join("", items.Select(i => $"<tr><td>{i.Id}</td><td>{i.Name}</td><td>{i.Value:C}</td></tr>"))}
+                </table>
+            </body>
+            </html>";
+
+        return _renderer.RenderHtmlAsPdf(html).BinaryData;
+    }
+}
+```
+
+### Critical Migration Notes
+
+1. **Paradigm Shift**: iText builds PDFs programmatically; IronPDF uses HTML/CSS:
+   ```csharp
+   // iText: document.Add(new Paragraph("Title").SetBold());
+   // IronPDF: "<h1 style='font-weight:bold;'>Title</h1>"
+   ```
+
+2. **AGPL Elimination**: Remove AGPL compliance worries—IronPDF has clean commercial license
+
+3. **No pdfHTML Add-On**: IronPDF includes HTML-to-PDF; no separate purchase needed
+
+4. **CSS Instead of Methods**: Replace `SetTextAlignment()`, `SetFontSize()` with CSS properties
+
+5. **Simpler Merging**: Replace `PdfMerger` with one-liner:
+   ```csharp
+   PdfDocument.Merge(pdf1, pdf2).SaveAs("merged.pdf");
+   ```
+
+6. **Event Handlers → HTML Headers**: Replace `IEventHandler` with simple HTML:
+   ```csharp
+   renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter {
+       HtmlFragment = "<div>Page {page}</div>"
+   };
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove iText packages
+dotnet remove package itext7
+dotnet remove package itext7.pdfhtml
+dotnet remove package itextsharp
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All iText References
+
+```bash
+# Find iText usage
+grep -r "using iText\|using iTextSharp" --include="*.cs" .
+grep -r "PdfWriter\|PdfDocument\|Paragraph\|Table\|Cell" --include="*.cs" .
+grep -r "HtmlConverter\|ConverterProperties" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (iText 7 + iTextSharp → IronPDF)
+- Namespace mapping table (9 namespaces)
+- Class mapping table (12+ classes)
+- Method mapping table (20+ operations)
+- 10 detailed code conversion examples
+- Programmatic → HTML-first paradigm shift guide
+- Event handler to HTML header/footer conversion
+- Razor template integration
+- Performance comparison data
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
+**[Complete Migration Guide: iText / iTextSharp → IronPDF](migrate-from-itext-itextsharp.md)**
 
 
 ## Conclusion

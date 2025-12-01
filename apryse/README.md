@@ -48,25 +48,112 @@ Unlike Apryse, IronPDF does not provide dedicated viewer controls for embedding 
 
 ---
 
-## How Can I Migrate from Apryse (formerly PDFTron) and C# PDF Solutions to IronPDF?
+## How Can I Migrate from Apryse (formerly PDFTron) to IronPDF?
 
-Apryse targets enterprise customers with premium pricing that can be prohibitive for small to medium-sized projects. IronPDF offers a more straightforward, cost-effective solution with simpler integration and minimal configuration overhead.
+Apryse targets enterprise customers with premium pricing ($1,500+/developer/year) that can be prohibitive for small to medium-sized projects. IronPDF offers a more straightforward, cost-effective solution with simpler integration and one-time perpetual licensing.
 
-**Migrating from Apryse (formerly PDFTron) and C# PDF Solutions to IronPDF involves:**
+### Quick Migration Overview
 
-1. **NuGet Package Change**: Remove `PDFTron.NET.x64`, add `IronPdf`
-2. **Namespace Update**: Replace `pdftron` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+| Aspect | Apryse (PDFTron) | IronPDF |
+|--------|-----------------|---------|
+| Pricing | $1,500+/developer/year (subscription) | $749 one-time (Lite) |
+| Setup | Module paths, external binaries | Single NuGet package |
+| Initialization | `PDFNet.Initialize()` required | Simple property assignment |
+| HTML Rendering | External html2pdf module | Built-in Chromium engine |
+| API Style | C++ heritage, complex | Modern C# conventions |
+| Dependencies | Multiple platform-specific DLLs | Self-contained package |
 
-**Key Benefits of Migrating:**
+### Key API Mappings
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Common Task | Apryse (PDFTron) | IronPDF |
+|-------------|-----------------|---------|
+| Initialize | `PDFNet.Initialize(key)` | `License.LicenseKey = key` |
+| HTML to PDF | `HTML2PDF.Convert(doc)` | `renderer.RenderHtmlAsPdf(html)` |
+| URL to PDF | `converter.InsertFromURL(url)` | `renderer.RenderUrlAsPdf(url)` |
+| Load PDF | `new PDFDoc(path)` | `PdfDocument.FromFile(path)` |
+| Save PDF | `doc.Save(path, SaveOptions)` | `pdf.SaveAs(path)` |
+| Merge PDFs | `doc.AppendPages(doc2, start, end)` | `PdfDocument.Merge(pdfs)` |
+| Extract text | `TextExtractor.GetAsText()` | `pdf.ExtractAllText()` |
+| Watermark | `Stamper.StampText(doc, text)` | `pdf.ApplyWatermark(html)` |
+| Encrypt | `SecurityHandler.ChangeUserPassword()` | `pdf.SecuritySettings.UserPassword` |
+| To image | `PDFDraw.Export(page, path)` | `pdf.RasterizeToImageFiles(path)` |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
-**[Complete Migration Guide: Apryse (formerly PDFTron) and C# PDF Solutions → IronPDF](migrate-from-apryse.md)**
+### Migration Code Example
+
+**Before (Apryse/PDFTron):**
+```csharp
+using pdftron;
+using pdftron.PDF;
+
+PDFNet.Initialize("YOUR_LICENSE_KEY");
+PDFNet.SetResourcesPath("path/to/resources");
+
+using (PDFDoc doc = new PDFDoc())
+{
+    HTML2PDF converter = new HTML2PDF();
+    converter.SetModulePath("path/to/html2pdf");
+    converter.InsertFromHtmlString("<h1>Report</h1>");
+
+    if (converter.Convert(doc))
+    {
+        doc.Save("output.pdf", SDFDoc.SaveOptions.e_linearized);
+    }
+}
+
+PDFNet.Terminate();
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+// Optional: Set license for production
+License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf("<h1>Report</h1>");
+pdf.SaveAs("output.pdf");
+// No Terminate() needed!
+```
+
+### Critical Migration Notes
+
+1. **Remove Initialization Boilerplate**: Delete `PDFNet.Initialize()`, `SetResourcesPath()`, and `Terminate()` calls.
+
+2. **No Module Paths**: IronPDF's Chromium engine is built-in—remove all `SetModulePath()` configuration.
+
+3. **Simpler Save**: Replace `doc.Save(path, SDFDoc.SaveOptions.e_linearized)` with `pdf.SaveAs(path)`.
+
+4. **Replace Low-Level APIs**: `ElementReader`/`ElementWriter` patterns should use HTML rendering or `ExtractAllText()`.
+
+5. **PDFViewCtrl Alternative**: IronPDF doesn't include viewer controls—use PDF.js or system PDF viewers.
+
+### NuGet Package Migration
+
+```bash
+# Remove Apryse/PDFTron
+dotnet remove package PDFTron.NET.x64
+dotnet remove package pdftron
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All Apryse References
+
+```bash
+grep -r "using pdftron\|PDFNet\|PDFDoc\|HTML2PDF\|ElementReader" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- 30+ API method mappings organized by category
+- 10 detailed code conversion examples
+- ASP.NET Core integration patterns
+- Docker deployment configuration
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
+**[Complete Migration Guide: Apryse (PDFTron) → IronPDF](migrate-from-apryse.md)**
 
 
 ## Comparing Apryse and IronPDF

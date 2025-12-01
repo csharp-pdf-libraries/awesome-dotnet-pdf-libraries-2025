@@ -224,23 +224,177 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ---
 
-## How Can I Migrate from GrabzIt C# PDF: A Comprehensive Comparison with IronPDF to IronPDF?
+## How Can I Migrate from GrabzIt to IronPDF?
 
-GrabzIt creates image-based PDFs rather than true searchable, text-based documents, which limits accessibility and file size efficiency. Additionally, GrabzIt processes content on external servers, raising privacy and latency concerns for sensitive data.
+### The GrabzIt Challenges
 
-**Migrating from GrabzIt C# PDF: A Comprehensive Comparison with IronPDF to IronPDF involves:**
+GrabzIt is a cloud-based screenshot and PDF capture service with fundamental limitations:
 
-1. **NuGet Package Change**: Remove `GrabzIt`, add `IronPdf`
-2. **Namespace Update**: Replace `GrabzIt` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Image-Based PDFs**: Creates screenshot-based PDFs where text is NOT selectable—essentially images wrapped in PDF format
+2. **External Processing**: All content sent to GrabzIt's servers—privacy and compliance concerns for sensitive data
+3. **Callback Complexity**: Asynchronous callback model requires webhook handling infrastructure
+4. **Per-Capture Pricing**: Pay-per-use model becomes expensive at scale
+5. **No Text Search**: PDFs are image-based—text search and extraction require OCR
+6. **Larger File Sizes**: Image-based PDFs are 5-10x larger than vector-based PDFs
+7. **Network Dependency**: Cannot generate PDFs without internet connection
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | GrabzIt | IronPDF |
+|--------|---------|---------|
+| PDF Type | Image-based (screenshot) | True vector PDF |
+| Text Selection | Not possible | Full text selection |
+| Text Search | Requires OCR | Native searchable |
+| Processing | External servers | Local/in-process |
+| Latency | 2-5 seconds (network) | 100-500ms (local) |
+| Callback Required | Yes (async) | No (sync) |
+| File Size | Large (image data) | Small (vector data) |
+| Offline Capability | No | Yes |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
-**[Complete Migration Guide: GrabzIt C# PDF: A Comprehensive Comparison with IronPDF → IronPDF](migrate-from-grabzit.md)**
+### Key API Mappings
+
+| GrabzIt | IronPDF | Notes |
+|---------|---------|-------|
+| `new GrabzItClient(key, secret)` | `new ChromePdfRenderer()` | No authentication needed |
+| `HTMLToPDF(html)` | `renderer.RenderHtmlAsPdf(html)` | Returns PDF directly |
+| `URLToPDF(url)` | `renderer.RenderUrlAsPdf(url)` | Returns PDF directly |
+| `Save(callbackUrl)` | `pdf.SaveAs(path)` or `pdf.BinaryData` | Immediate result |
+| `SaveTo(filePath)` | `pdf.SaveAs(filePath)` | Same functionality |
+| `GetResult(id)` | N/A | No callbacks needed |
+| `PDFOptions.MarginTop` | `RenderingOptions.MarginTop` | Same unit (mm) |
+| `PDFOptions.PageSize` | `RenderingOptions.PaperSize` | Use enum |
+| `PDFOptions.Delay` | `RenderingOptions.RenderDelay` | In milliseconds |
+| `options.SetCustomWaterMark()` | `pdf.ApplyWatermark()` | HTML-based watermarks |
+| `options.TemplateId` | `RenderingOptions.HtmlHeader/Footer` | Use HTML templates |
+
+### Migration Code Example
+
+**Before (GrabzIt with Callback):**
+```csharp
+using GrabzIt;
+using GrabzIt.Parameters;
+
+public class GrabzItService
+{
+    private readonly GrabzItClient _client;
+
+    public GrabzItService()
+    {
+        _client = new GrabzItClient("APP_KEY", "APP_SECRET");
+    }
+
+    public void CreatePdf(string html)
+    {
+        var options = new PDFOptions();
+        options.MarginTop = 20;
+        options.PageSize = PageSize.A4;
+
+        _client.HTMLToPDF(html, options);
+        _client.Save("https://myserver.com/grabzit-callback");
+        // Result arrives later via callback...
+    }
+}
+
+// Callback handler - receives result asynchronously
+public class GrabzItCallback : IHttpHandler
+{
+    public void ProcessRequest(HttpContext context)
+    {
+        string id = context.Request.QueryString["id"];
+        var client = new GrabzItClient("APP_KEY", "APP_SECRET");
+        var result = client.GetResult(id);
+        result.Save("output.pdf");
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public PdfService()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        _renderer = new ChromePdfRenderer();
+        _renderer.RenderingOptions.MarginTop = 20;
+        _renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+    }
+
+    public byte[] CreatePdf(string html)
+    {
+        // Synchronous - no callback needed!
+        var pdf = _renderer.RenderHtmlAsPdf(html);
+        return pdf.BinaryData;  // Available immediately!
+    }
+}
+
+// No callback handler needed - DELETE GrabzItCallback class!
+```
+
+### Critical Migration Notes
+
+1. **No Callbacks**: IronPDF returns results immediately—delete all callback handlers
+
+2. **True Text PDFs**: Text is now selectable and searchable (no OCR needed):
+   ```csharp
+   var pdf = PdfDocument.FromFile("document.pdf");
+   string text = pdf.ExtractAllText();  // Works natively!
+   ```
+
+3. **Smaller Files**: Vector PDFs are 5-10x smaller than GrabzIt's image-based PDFs
+
+4. **Templates → HTML**: Replace GrabzIt templates with HTML headers/footers:
+   ```csharp
+   // GrabzIt: options.TemplateId = "my-template";
+   // IronPDF:
+   renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter()
+   {
+       HtmlFragment = "<div>Company Name - Page {page}</div>"
+   };
+   ```
+
+5. **Watermarks**: Replace pre-configured watermarks with HTML-based:
+   ```csharp
+   pdf.ApplyWatermark(
+       "<div style='font-size:48px; color:red; opacity:0.3;'>DRAFT</div>",
+       opacity: 30);
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove GrabzIt
+dotnet remove package GrabzIt
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All GrabzIt References
+
+```bash
+# Find client usage
+grep -r "GrabzItClient\|GrabzIt\." --include="*.cs" .
+
+# Find callback handlers
+grep -r "GrabzIt\|grabzit" --include="*.ashx" --include="*.aspx" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (GrabzItClient, PDFOptions, ImageOptions)
+- 10 detailed code conversion examples
+- Callback handler removal patterns
+- Template to HTML header/footer conversion
+- Watermark migration
+- Text extraction (now possible without OCR!)
+- Batch processing without callbacks
+- Performance comparison data
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
+**[Complete Migration Guide: GrabzIt → IronPDF](migrate-from-grabzit.md)**
 

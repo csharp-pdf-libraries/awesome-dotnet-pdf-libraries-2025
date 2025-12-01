@@ -231,23 +231,135 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ---
 
-## How Can I Migrate from pdfpig C# PDF: A Comparison with IronPDF to IronPDF?
+## How Can I Migrate from PdfPig to IronPDF?
 
-PdfPig is excellent for reading and extracting content from PDFs but lacks robust document creation and HTML-to-PDF conversion capabilities. IronPDF provides comprehensive PDF generation from HTML, advanced creation features, and full manipulation capabilities alongside extraction features.
+### The Reading-Only Limitation
 
-**Migrating from pdfpig C# PDF: A Comparison with IronPDF to IronPDF involves:**
+PdfPig excels at PDF reading and text extraction, but cannot help when you need to:
 
-1. **NuGet Package Change**: Remove `PdfPig`, add `IronPdf`
-2. **Namespace Update**: Replace `UglyToad.PdfPig` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **No PDF Generation**: Cannot create PDFs from HTML, URLs, or programmatically
+2. **No HTML-to-PDF**: Cannot convert web content to PDF documents
+3. **No Document Manipulation**: Cannot merge, split, or modify PDFs
+4. **No Security Features**: Cannot add passwords, encryption, or digital signatures
+5. **No Watermarks/Stamps**: Cannot add visual overlays to existing documents
+6. **No Form Filling**: Cannot programmatically fill PDF forms
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | PdfPig | IronPDF |
+|--------|--------|---------|
+| Primary Focus | Reading/Extraction | Full PDF lifecycle |
+| PDF Creation | Very limited | Comprehensive |
+| HTML to PDF | Not supported | Full Chromium engine |
+| Text Extraction | Excellent | Excellent |
+| PDF Manipulation | Not supported | Merge, split, rotate |
+| Watermarks | Not supported | Full support |
+| Security/Encryption | Not supported | Full support |
+| Page Indexing | 1-based | 0-based |
+| License | Apache 2.0 (free) | Commercial |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
-**[Complete Migration Guide: pdfpig C# PDF: A Comparison with IronPDF → IronPDF](migrate-from-pdfpig.md)**
+### Key API Mappings
+
+| PdfPig | IronPDF | Notes |
+|--------|---------|-------|
+| `PdfDocument.Open(path)` | `PdfDocument.FromFile(path)` | Load from file |
+| `document.NumberOfPages` | `pdf.PageCount` | Page count |
+| `document.GetPage(1)` | `pdf.Pages[0]` | First page (note: index difference) |
+| `page.Text` | `pdf.Pages[i].Text` | Page text |
+| `page.GetWords()` | `pdf.ExtractTextFromPage(i)` | Text extraction |
+| `document.Information.Title` | `pdf.MetaData.Title` | Metadata access |
+| `PdfDocumentBuilder` | `ChromePdfRenderer` | PDF creation (paradigm shift) |
+| _(not available)_ | `renderer.RenderHtmlAsPdf(html)` | NEW: HTML to PDF |
+| _(not available)_ | `renderer.RenderUrlAsPdf(url)` | NEW: URL to PDF |
+| _(not available)_ | `PdfDocument.Merge()` | NEW: Merge PDFs |
+| _(not available)_ | `pdf.ApplyWatermark()` | NEW: Watermarks |
+
+### Migration Code Example
+
+**Before (PdfPig):**
+```csharp
+using UglyToad.PdfPig;
+using System.Text;
+
+using (var document = PdfDocument.Open("input.pdf"))
+{
+    var text = new StringBuilder();
+    foreach (var page in document.GetPages())  // 1-based iteration
+    {
+        text.AppendLine(page.Text);
+    }
+    Console.WriteLine(text.ToString());
+    Console.WriteLine($"Pages: {document.NumberOfPages}");
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var pdf = PdfDocument.FromFile("input.pdf");
+string text = pdf.ExtractAllText();  // All text at once
+Console.WriteLine(text);
+Console.WriteLine($"Pages: {pdf.PageCount}");
+```
+
+### Critical Migration Notes
+
+1. **Page Indexing**: PdfPig uses 1-based; IronPDF uses 0-based
+   ```csharp
+   // PdfPig: document.GetPage(1) - first page
+   // IronPDF: pdf.Pages[0] - first page
+   ```
+
+2. **Creation Paradigm Shift**: PdfPig uses coordinate positioning; IronPDF uses HTML/CSS
+   ```csharp
+   // PdfPig: page.AddText("Hello", 12, new PdfPoint(50, 800), font);
+   // IronPDF: renderer.RenderHtmlAsPdf("<p style='margin:50px;'>Hello</p>");
+   ```
+
+3. **Word Positions**: PdfPig provides word bounding boxes; IronPDF extracts text only
+   ```csharp
+   // PdfPig: word.BoundingBox.Left, word.BoundingBox.Top (available)
+   // IronPDF: Text only, no position data (consider hybrid approach)
+   ```
+
+4. **Disposal Pattern**: PdfPig requires `using`; IronPDF doesn't require it
+   ```csharp
+   // PdfPig: using (var doc = PdfDocument.Open(...)) { }
+   // IronPDF: var pdf = PdfDocument.FromFile(...);
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove PdfPig
+dotnet remove package PdfPig
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All PdfPig References
+
+```bash
+# Find PdfPig usage
+grep -r "UglyToad\.PdfPig\|PdfDocument\.Open\|GetPages\(\)" --include="*.cs" .
+
+# Find page index references (may need 1→0 conversion)
+grep -r "GetPage(\|NumberOfPages" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (30+ methods and properties)
+- 10 detailed code conversion examples
+- Page index migration patterns (1-based to 0-based)
+- Coordinate-based to HTML/CSS paradigm shift
+- Hybrid approach for advanced text analysis
+- New features (PDF generation, manipulation, security)
+- Server deployment (Linux dependencies)
+- Pre/post migration checklists
+
+**[Complete Migration Guide: PdfPig → IronPDF](migrate-from-pdfpig.md)**
 

@@ -265,22 +265,168 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from Pdfium.NET to IronPDF?
 
-IronPDF offers comprehensive PDF creation, editing, and rendering capabilities beyond Pdfium.NET's viewing-focused functionality. It eliminates native dependency management by providing a fully managed .NET library with cross-platform support.
+### The Rendering-Only Limitation
 
-**Migrating from Pdfium.NET to IronPDF involves:**
+Pdfium.NET wraps Google's PDFium library—excellent for rendering but limited for modern application needs:
 
-1. **NuGet Package Change**: Install `IronPdf` package
-2. **Namespace Update**: Replace `Pdfium` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Rendering-Only**: Cannot create PDFs from HTML, images, or programmatically
+2. **No PDF Manipulation**: Cannot merge, split, or modify PDF content
+3. **Native Binary Dependencies**: Requires platform-specific PDFium binaries
+4. **Deployment Complexity**: Must bundle and manage native DLLs per platform
+5. **No HTML to PDF**: Cannot convert web content to PDF
+6. **No Headers/Footers/Watermarks**: Cannot add page numbers or overlays
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | Pdfium.NET | IronPDF |
+|--------|------------|---------|
+| Primary Focus | Rendering/viewing | Complete PDF solution |
+| PDF Creation | ✗ | ✓ (HTML, URL, images) |
+| PDF Manipulation | ✗ | ✓ (merge, split, edit) |
+| Watermarks | ✗ | ✓ |
+| Headers/Footers | ✗ | ✓ |
+| Form Filling | ✗ | ✓ |
+| Native Dependencies | Required | None (fully managed) |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| Pdfium.NET | IronPDF | Notes |
+|------------|---------|-------|
+| `PdfDocument.Load(path)` | `PdfDocument.FromFile(path)` | Load from file |
+| `document.PageCount` | `document.PageCount` | Same |
+| `page.Render(width, height)` | `pdf.RasterizeToImageFiles(path, dpi)` | DPI-based |
+| `document.GetPdfText(index)` | `pdf.Pages[index].Text` | Per-page text |
+| _(manual loop)_ | `pdf.ExtractAllText()` | All text at once |
+| `document.Save(path)` | `pdf.SaveAs(path)` | Different method name |
+| _(not available)_ | `ChromePdfRenderer.RenderHtmlAsPdf()` | NEW: Create PDFs |
+| _(not available)_ | `PdfDocument.Merge()` | NEW: Merge PDFs |
+| _(not available)_ | `pdf.ApplyWatermark()` | NEW: Watermarks |
+| _(not available)_ | `pdf.SecuritySettings` | NEW: Password protection |
+
+### Migration Code Example
+
+**Before (Pdfium.NET):**
+```csharp
+using Pdfium;
+using System.Drawing;
+
+public class PdfRenderService
+{
+    public void RenderPdfToImages(string pdfPath, string outputFolder)
+    {
+        using (var document = PdfDocument.Load(pdfPath))
+        {
+            for (int i = 0; i < document.PageCount; i++)
+            {
+                using (var page = document.Pages[i])
+                {
+                    int width = (int)(page.Width * 2); // 2x scale
+                    int height = (int)(page.Height * 2);
+
+                    using (var bitmap = page.Render(width, height, PdfRenderFlags.Annotations))
+                    {
+                        bitmap.Save($"{outputFolder}/page_{i + 1}.png");
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+public class PdfRenderService
+{
+    public PdfRenderService()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+    }
+
+    public void RenderPdfToImages(string pdfPath, string outputFolder)
+    {
+        var pdf = PdfDocument.FromFile(pdfPath);
+
+        // Render all pages at 150 DPI (2x of 72 DPI default)
+        pdf.RasterizeToImageFiles($"{outputFolder}/page_*.png", DPI: 150);
+    }
+
+    // NEW: Can also create PDFs from HTML
+    public void CreatePdfFromHtml(string html, string outputPath)
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs(outputPath);
+    }
+}
+```
+
+### Critical Migration Notes
+
+1. **Scale → DPI Conversion**: `IronPDF DPI = 72 × Pdfium scale`
+   ```csharp
+   // Pdfium scale 2.0 → IronPDF DPI 144
+   pdf.RasterizeToImageFiles("*.png", DPI: 144);
+   ```
+
+2. **Remove Native Binaries**: Delete all pdfium.dll files
+   ```bash
+   rm -rf x86/ x64/ runtimes/
+   ```
+
+3. **Simplified Disposal**: No nested `using` statements required
+   ```csharp
+   // Pdfium: using (doc) using (page) using (bitmap) ...
+   // IronPDF: var pdf = PdfDocument.FromFile(path);
+   ```
+
+4. **Document Loading**: Different method name
+   ```csharp
+   // Pdfium: PdfDocument.Load(path)
+   // IronPDF: PdfDocument.FromFile(path)
+   ```
+
+5. **Save Method**: Different method name
+   ```csharp
+   // Pdfium: document.Save(path)
+   // IronPDF: pdf.SaveAs(path)
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove Pdfium packages
+dotnet remove package Pdfium.NET
+dotnet remove package Pdfium.Net.SDK
+dotnet remove package PdfiumViewer
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All Pdfium References
+
+```bash
+# Find Pdfium usage
+grep -r "Pdfium\|PdfDocument\.Load\|\.Render\(" --include="*.cs" .
+
+# Find native binary references
+grep -r "pdfium\.dll" --include="*.csproj" --include="*.config" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (30+ methods and properties)
+- DPI and scale conversion formulas
+- 10 detailed code conversion examples
+- Native dependency removal guide
+- New features (PDF creation, merging, watermarks, security, forms)
+- Disposal pattern simplification
+- Cross-platform deployment simplification
+- Troubleshooting guide for common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: Pdfium.NET → IronPDF](migrate-from-pdfium.md)**
 
 

@@ -213,25 +213,117 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ---
 
-## How Can I Migrate from BitMiracle Docotic.Pdf C# PDF to IronPDF?
+## How Can I Migrate from BitMiracle Docotic.Pdf to IronPDF?
 
-IronPDF offers native HTML-to-PDF conversion capabilities, making it ideal for generating PDFs from web content, templates, and dynamic data. With a larger community and extensive documentation, developers benefit from more resources, examples, and support.
+Docotic.Pdf is a capable 100% managed code PDF library, but its modular add-on architecture (separate packages for HTML-to-PDF, Layout, etc.) adds complexity compared to IronPDF's all-in-one package. While both libraries now use Chromium for HTML rendering, IronPDF includes this functionality built-in rather than requiring a separate add-on package and additional licensing.
 
-**Migrating from BitMiracle Docotic.Pdf C# PDF to IronPDF involves:**
+### Quick Migration Overview
 
-1. **NuGet Package Change**: Remove `BitMiracle.Docotic.Pdf`, add `IronPdf`
-2. **Namespace Update**: Replace `BitMiracle.Docotic.Pdf` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+| Aspect | Docotic.Pdf | IronPDF |
+|--------|-------------|---------|
+| HTML-to-PDF | Separate add-on package | Built-in core feature |
+| Package Structure | Core + multiple add-ons | Single NuGet package |
+| Licensing | Per-add-on | All features included |
+| API Style | Canvas-based drawing | HTML/CSS-based |
+| Page Indexing | 0-based (`Pages[0]`) | 0-based (`Pages[0]`) |
+| Dispose Pattern | Required (`using`) | Optional |
+| Async Support | HtmlToPdf add-on only | Full async/await |
 
-**Key Benefits of Migrating:**
+### Key API Mappings
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Common Task | Docotic.Pdf | IronPDF |
+|-------------|-------------|---------|
+| Load PDF | `new PdfDocument(path)` | `PdfDocument.FromFile(path)` |
+| Save PDF | `doc.Save(path)` | `pdf.SaveAs(path)` |
+| HTML to PDF | `HtmlEngine.CreatePdfAsync(html)` | `renderer.RenderHtmlAsPdf(html)` |
+| URL to PDF | `HtmlEngine.CreatePdfAsync(uri)` | `renderer.RenderUrlAsPdf(url)` |
+| Extract text | `doc.GetText()` / `page.GetText()` | `pdf.ExtractAllText()` |
+| Merge PDFs | `doc1.Append(doc2)` | `PdfDocument.Merge(pdf1, pdf2)` |
+| Get page count | `doc.PageCount` | `pdf.PageCount` |
+| Draw text | `canvas.DrawString(x, y, text)` | HTML with CSS positioning |
+| Add watermark | `canvas.DrawString()` with transparency | `pdf.ApplyWatermark(html)` |
+| Set password | `doc.Encrypt(owner, user, perms)` | `pdf.SecuritySettings.OwnerPassword` |
+| Sign PDF | `doc.Sign(certificate)` | `pdf.Sign(signature)` |
+| PDF to images | `page.Render(dpi)` | `pdf.RasterizeToImageFiles()` |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
-**[Complete Migration Guide: BitMiracle Docotic.Pdf C# PDF → IronPDF](migrate-from-bitmiracle-docoticpdf.md)**
+### Migration Code Example
+
+**Before (Docotic.Pdf with HtmlToPdf Add-on):**
+```csharp
+using BitMiracle.Docotic.Pdf;
+using BitMiracle.Docotic.Pdf.HtmlToPdf;
+
+// Create HTML engine (downloads Chromium on first use)
+using var engine = await HtmlEngine.CreateAsync();
+
+var options = new HtmlConversionOptions();
+options.PageSize = PaperKind.A4;
+options.PageMargins = new PageMargins(20);
+
+string html = "<h1>Invoice #12345</h1><p>Details...</p>";
+
+using var pdf = await engine.CreatePdfAsync(html, options);
+pdf.Save("invoice.pdf");
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 20;
+renderer.RenderingOptions.MarginBottom = 20;
+renderer.RenderingOptions.MarginLeft = 20;
+renderer.RenderingOptions.MarginRight = 20;
+
+string html = "<h1>Invoice #12345</h1><p>Details...</p>";
+
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("invoice.pdf");
+// No disposal required, simpler API
+```
+
+### Critical Migration Notes
+
+1. **No Add-On Required**: IronPDF includes HTML-to-PDF built-in—remove the HtmlToPdf add-on package.
+
+2. **Canvas → HTML Paradigm**: Docotic.Pdf's `PdfCanvas.DrawString(x, y, text)` approach must be converted to HTML with CSS positioning.
+
+3. **Async Simplified**: Docotic.Pdf HtmlToPdf requires async everywhere; IronPDF supports both sync and async patterns.
+
+4. **Same Page Indexing**: Both libraries use 0-based indexing (`Pages[0]` is first page)—no changes needed.
+
+5. **Disposal Optional**: IronPDF doesn't require `using` statements for memory management.
+
+### NuGet Package Migration
+
+```bash
+# Remove Docotic.Pdf packages
+dotnet remove package BitMiracle.Docotic.Pdf
+dotnet remove package BitMiracle.Docotic.Pdf.HtmlToPdf
+dotnet remove package BitMiracle.Docotic.Pdf.Layout
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All Docotic.Pdf References
+
+```bash
+grep -r "using BitMiracle.Docotic\|PdfDocument\|PdfCanvas\|HtmlEngine" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- 30+ API method mappings organized by category
+- 10 detailed code conversion examples
+- Canvas-to-HTML conversion patterns
+- ASP.NET Core integration patterns
+- Docker deployment configuration
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
+**[Complete Migration Guide: Docotic.Pdf → IronPDF](migrate-from-bitmiracle-docoticpdf.md)**
 
 
 ## Comparison Table

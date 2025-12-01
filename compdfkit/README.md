@@ -268,21 +268,111 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from ComPDFKit to IronPDF?
 
-IronPDF offers a more mature and battle-tested solution with extensive documentation, a large active community, and comprehensive Stack Overflow support. With over a decade in the market, IronPDF provides enterprise-grade stability and a proven track record across thousands of production environments.
+ComPDFKit is a newer market entrant with cross-platform PDF capabilities, but it lacks native HTML-to-PDF rendering and requires manual resource management with `Release()` calls. IronPDF offers a more mature, battle-tested solution with 10+ years of development, extensive documentation, and a large active community with comprehensive Stack Overflow support.
 
-**Migrating from ComPDFKit to IronPDF involves:**
+### Quick Migration Overview
 
-1. **NuGet Package Change**: Remove `ComPDFKit.NetCore`, add `IronPdf`
-2. **Namespace Update**: Replace `ComPDFKit.PDFDocument` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+| Aspect | ComPDFKit | IronPDF |
+|--------|-----------|---------|
+| HTML-to-PDF | Manual implementation | Native Chromium rendering |
+| Market Maturity | Newer entrant | 10+ years, battle-tested |
+| Community Size | Smaller | Large, active community |
+| NuGet Downloads | Growing | 10+ million |
+| Memory Management | Manual `Release()` calls | Automatic GC |
+| API Style | C++ influenced | Modern .NET fluent API |
+| Page Indexing | 0-based | 0-based |
 
-**Key Benefits of Migrating:**
+### Key API Mappings
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Common Task | ComPDFKit | IronPDF |
+|-------------|-----------|---------|
+| Load PDF | `CPDFDocument.InitWithFilePath(path)` | `PdfDocument.FromFile(path)` |
+| Save PDF | `document.WriteToFilePath(path)` | `pdf.SaveAs(path)` |
+| Release memory | `document.Release()` | Not needed (automatic) |
+| HTML to PDF | Manual implementation | `renderer.RenderHtmlAsPdf(html)` |
+| URL to PDF | Manual implementation | `renderer.RenderUrlAsPdf(url)` |
+| Access page | `document.PageAtIndex(i)` | `pdf.Pages[i]` |
+| Extract text | `textPage.GetText(0, count)` | `pdf.ExtractAllText()` |
+| Merge PDFs | `doc1.ImportPagesAtIndex(doc2, range, index)` | `PdfDocument.Merge(pdf1, pdf2)` |
+| Add watermark | Via editor with `SetTransparency()` | `pdf.ApplyWatermark(html)` |
+| Form fields | Loop through `form.GetField(i)` | `pdf.Form.SetFieldValue(name, value)` |
+| Sign PDF | `CPDFSigner.SignDocument()` | `pdf.Sign(signature)` |
+| PDF to images | `page.RenderPageBitmap()` | `pdf.RasterizeToImageFiles()` |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Migration Code Example
+
+**Before (ComPDFKit):**
+```csharp
+using ComPDFKit.PDFDocument;
+using System.Text;
+
+var document = CPDFDocument.InitWithFilePath("document.pdf");
+
+// Extract text (verbose)
+var allText = new StringBuilder();
+for (int i = 0; i < document.PageCount; i++)
+{
+    var page = document.PageAtIndex(i);
+    var textPage = page.GetTextPage();
+    allText.AppendLine(textPage.GetText(0, textPage.CountChars()));
+    textPage.Release();
+    page.Release();
+}
+
+document.WriteToFilePath("output.pdf");
+document.Release(); // Must remember to release!
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+var pdf = PdfDocument.FromFile("document.pdf");
+
+// Extract text (one-liner)
+string allText = pdf.ExtractAllText();
+
+pdf.SaveAs("output.pdf");
+// No Release() needed - GC handles cleanup
+```
+
+### Critical Migration Notes
+
+1. **No More Release() Calls**: Remove all `document.Release()`, `page.Release()`, `textPage.Release()` calls—IronPDF handles memory automatically.
+
+2. **Native HTML Rendering**: ComPDFKit requires manual text placement; IronPDF renders HTML/CSS natively with Chromium.
+
+3. **Same Page Indexing**: Both use 0-based indexing (`Pages[0]` is first page)—no changes needed.
+
+4. **Simplified Text Extraction**: Replace multi-line `GetTextPage()` + `GetText()` + `Release()` pattern with single `ExtractAllText()` call.
+
+5. **Fluent Merge API**: Replace `ImportPagesAtIndex(doc2, "0-9", pageCount)` with simple `Merge(pdf1, pdf2)`.
+
+### NuGet Package Migration
+
+```bash
+# Remove ComPDFKit packages
+dotnet remove package ComPDFKit.NetCore
+dotnet remove package ComPDFKit.NetFramework
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All ComPDFKit References
+
+```bash
+grep -r "using ComPDFKit\|CPDFDocument\|CPDFPage\|Release()" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- 30+ API method mappings organized by category
+- 10 detailed code conversion examples
+- Memory management migration patterns
+- ASP.NET Core integration examples
+- Docker deployment configuration
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: ComPDFKit → IronPDF](migrate-from-compdfkit.md)**
 

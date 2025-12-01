@@ -195,22 +195,177 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from PDFFilePrint to IronPDF?
 
-PDFFilePrint is limited to printing PDF files and typically requires command-line execution with Windows-specific dependencies. IronPDF provides a comprehensive .NET library that not only handles PDF printing but also enables PDF creation, manipulation, conversion, and advanced features like digital signatures and form filling.
+### The Command-Line Dependency Problem
 
-**Migrating from PDFFilePrint to IronPDF involves:**
+PDFFilePrint's architecture creates significant limitations:
 
-1. **NuGet Package Change**: Install `IronPdf` package
-2. **Namespace Update**: Use `IronPdf` namespace
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Printing-Only**: Cannot create, edit, merge, or manipulate PDFs
+2. **Command-Line Dependency**: Requires external executable, Process.Start() calls
+3. **Windows-Only**: Relies on Windows printing subsystem
+4. **No .NET Integration**: No native API, no NuGet package, no IntelliSense
+5. **External Process Management**: Must handle process lifecycle, exit codes, errors
+6. **Deployment Complexity**: Must bundle PDFFilePrint.exe with application
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | PDFFilePrint | IronPDF |
+|--------|--------------|---------|
+| Type | Command-line utility | Native .NET library |
+| Integration | Process.Start() | Direct API calls |
+| PDF Printing | ✓ | ✓ |
+| PDF Creation | ✗ | ✓ (HTML, URL, images) |
+| PDF Manipulation | ✗ | ✓ (merge, split, edit) |
+| Cross-Platform | Windows only | Windows, Linux, macOS |
+| Error Handling | Parse stdout/stderr | Native exceptions |
+| NuGet Package | ✗ | ✓ |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| PDFFilePrint Command | IronPDF API | Notes |
+|---------------------|-------------|-------|
+| `PDFFilePrint.exe "file.pdf" "Printer"` | `pdf.Print("Printer")` | Basic printing |
+| `-printer "Name"` | `PrintSettings.PrinterName = "Name"` | Printer selection |
+| `-copies N` | `PrintSettings.NumberOfCopies = N` | Copy count |
+| `-silent` | `PrintSettings.ShowPrintDialog = false` | Silent mode |
+| `-pages "1-5"` | `PrintSettings.FromPage`, `PrintSettings.ToPage` | Page range |
+| `-orientation landscape` | `PrintSettings.PaperOrientation = Landscape` | Orientation |
+| `-duplex` | `PrintSettings.Duplex = Duplex.Vertical` | Double-sided |
+| _(not available)_ | `ChromePdfRenderer.RenderHtmlAsPdf()` | NEW: Create PDFs |
+| _(not available)_ | `PdfDocument.Merge()` | NEW: Merge PDFs |
+| _(not available)_ | `pdf.ApplyWatermark()` | NEW: Watermarks |
+
+### Migration Code Example
+
+**Before (PDFFilePrint):**
+```csharp
+using System.Diagnostics;
+
+public class PrintService
+{
+    private readonly string _pdfFilePrintPath = @"C:\tools\PDFFilePrint.exe";
+
+    public void PrintPdf(string pdfPath, string printerName, int copies)
+    {
+        var args = $"-silent -copies {copies} -printer \"{printerName}\" \"{pdfPath}\"";
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = _pdfFilePrintPath,
+            Arguments = args,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+
+        using (var process = Process.Start(startInfo))
+        {
+            process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                var error = process.StandardError.ReadToEnd();
+                throw new Exception($"Print failed: {error}");
+            }
+        }
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+public class PrintService
+{
+    public PrintService()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+    }
+
+    public void PrintPdf(string pdfPath, string printerName, int copies)
+    {
+        var pdf = PdfDocument.FromFile(pdfPath);
+
+        var settings = new PrintSettings
+        {
+            ShowPrintDialog = false,
+            PrinterName = printerName,
+            NumberOfCopies = copies
+        };
+
+        pdf.Print(settings);
+    }
+
+    // NEW: Can also create and print in one step
+    public void CreateAndPrint(string html, string printerName)
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.Print(printerName);
+    }
+}
+```
+
+### Critical Migration Notes
+
+1. **Process.Start → Direct API**:
+   ```csharp
+   // PDFFilePrint: Process.Start("PDFFilePrint.exe", args)
+   // IronPDF: pdf.Print(settings)
+   ```
+
+2. **Silent Flag → ShowPrintDialog**:
+   ```csharp
+   // PDFFilePrint: -silent
+   // IronPDF: ShowPrintDialog = false (inverted logic)
+   ```
+
+3. **Exit Code → Exception Handling**:
+   ```csharp
+   // PDFFilePrint: if (process.ExitCode != 0) throw ...
+   // IronPDF: try { pdf.Print(); } catch { }
+   ```
+
+4. **Path Quoting No Longer Needed**:
+   ```csharp
+   // PDFFilePrint: Arguments = $"\"{pathWithSpaces}\""
+   // IronPDF: PdfDocument.FromFile(pathWithSpaces)
+   ```
+
+5. **Remove PDFFilePrint.exe from Deployment**: No external executable needed
+
+### NuGet Package Migration
+
+```bash
+# No package to remove - PDFFilePrint has no NuGet package
+# Remove bundled PDFFilePrint.exe from your project
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All PDFFilePrint References
+
+```bash
+# Find command-line execution patterns
+grep -r "PDFFilePrint\|ProcessStartInfo.*pdf\|Process.Start.*print" --include="*.cs" .
+
+# Find batch scripts
+find . -name "*.bat" -o -name "*.cmd" | xargs grep -l "PDFFilePrint"
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete command-line to API mapping
+- 10 detailed code conversion examples
+- PrintSettings reference
+- Printer discovery patterns
+- Error handling migration from exit codes to exceptions
+- New features (PDF creation, merging, watermarks)
+- Deployment simplification guide
+- Troubleshooting common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: PDFFilePrint → IronPDF](migrate-from-pdffileprint.md)**
 
 

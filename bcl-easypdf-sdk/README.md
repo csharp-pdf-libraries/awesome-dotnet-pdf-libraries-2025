@@ -228,23 +228,114 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ---
 
-## How Can I Migrate from BCL EasyPDF SDK and C#: PDF Conversion Challenged by Legacy Dependencies to IronPDF?
+## How Can I Migrate from BCL EasyPDF SDK to IronPDF?
 
-BCL EasyPDF SDK's reliance on Windows-only architecture, Microsoft Office automation, and virtual printer drivers creates significant deployment challenges, especially in modern containerized and cloud environments. Developers frequently encounter server failures, DLL dependency issues, and timeout problems that work locally but fail in production due to interactive session requirements and COM interop limitations.
+BCL EasyPDF SDK's reliance on Windows-only architecture, Microsoft Office automation, virtual printer drivers, and COM interop creates fundamental deployment challenges. Developers frequently encounter "printer not found" errors, DLL loading failures, timeout problems, and "access denied" errors when deploying to servers—all stemming from requiring interactive Windows sessions that don't exist in modern production environments.
 
-**Migrating from BCL EasyPDF SDK and C#: PDF Conversion Challenged by Legacy Dependencies to IronPDF involves:**
+### Quick Migration Overview
 
-1. **NuGet Package Change**: Install `IronPdf` package
-2. **Namespace Update**: Replace `BCL.easyPDF` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+| Aspect | BCL EasyPDF SDK | IronPDF |
+|--------|-----------------|---------|
+| Platform | Windows-only | Windows, Linux, macOS, Docker |
+| Office Dependency | Required for document conversion | None |
+| Installation | Complex MSI + printer driver + COM | Simple NuGet package |
+| Server Support | Requires interactive session | Runs headless |
+| HTML Rendering | Basic (Office-based) | Full Chromium (CSS3, JS) |
+| .NET Support | Limited .NET Core | Full .NET 5/6/7/8/9 |
+| Async Pattern | Callback-based | Native async/await |
+| Containers | Cannot run | Full Docker/Kubernetes |
 
-**Key Benefits of Migrating:**
+### Key API Mappings
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Common Task | BCL EasyPDF SDK | IronPDF |
+|-------------|-----------------|---------|
+| Create renderer | `new Printer()` | `new ChromePdfRenderer()` |
+| HTML to PDF | `printer.RenderHTMLToPDF(html, path)` | `renderer.RenderHtmlAsPdf(html).SaveAs(path)` |
+| URL to PDF | `printer.RenderUrlToPDF(url, path)` | `renderer.RenderUrlAsPdf(url).SaveAs(path)` |
+| Load PDF | `new PDFDocument(path)` | `PdfDocument.FromFile(path)` |
+| Save PDF | `doc.Save(path)` | `pdf.SaveAs(path)` |
+| Merge PDFs | `doc1.Append(doc2)` | `PdfDocument.Merge(pdf1, pdf2)` |
+| Extract text | `doc.ExtractText()` | `pdf.ExtractAllText()` |
+| Timeout | `config.TimeOut = 120` | `RenderingOptions.Timeout = 120000` |
+| Paper size | `config.PageSize = A4` | `RenderingOptions.PaperSize = PdfPaperSize.A4` |
+| Orientation | `config.PageOrientation = Landscape` | `RenderingOptions.PaperOrientation = Landscape` |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
-**[Complete Migration Guide: BCL EasyPDF SDK and C#: PDF Conversion Challenged by Legacy Dependencies → IronPDF](migrate-from-bcl-easypdf-sdk.md)**
+### Migration Code Example
+
+**Before (BCL EasyPDF SDK):**
+```csharp
+using BCL.easyPDF;
+using BCL.easyPDF.Interop;
+
+Printer printer = new Printer();
+printer.Configuration.TimeOut = 120;
+printer.Configuration.PageOrientation = PageOrientation.Portrait;
+printer.Configuration.PageSize = PageSize.Letter;
+
+try
+{
+    printer.RenderHTMLToPDF("<h1>Report</h1>", "report.pdf");
+}
+catch (Exception ex)
+{
+    // Common: printer not found, timeout, session errors
+    Console.WriteLine($"Error: {ex.Message}");
+}
+finally
+{
+    printer.Dispose();
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.Timeout = 120000;
+renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Portrait;
+renderer.RenderingOptions.PaperSize = PdfPaperSize.Letter;
+
+var pdf = renderer.RenderHtmlAsPdf("<h1>Report</h1>");
+pdf.SaveAs("report.pdf");
+// No printer drivers, no Office, no interactive session!
+```
+
+### Critical Migration Notes
+
+1. **Uninstall BCL EasyPDF SDK**: Remove MSI installer, DLL references, COM interop, and GAC entries.
+
+2. **No Printer Drivers**: IronPDF renders directly via Chromium—no virtual printers needed.
+
+3. **No Office Required**: BCL requires Office for document conversion; IronPDF doesn't need Office.
+
+4. **Page Index Change**: BCL uses 1-based indexing, IronPDF uses 0-based (`doc.ExtractPages(1, 5)` → `pdf.CopyPages(0, 4)`).
+
+5. **Timeout in Milliseconds**: BCL uses seconds, IronPDF uses milliseconds.
+
+### NuGet Package Migration
+
+```bash
+# BCL EasyPDF SDK has no NuGet package
+# Uninstall via Programs and Features or remove DLL references
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All BCL EasyPDF References
+
+```bash
+grep -r "using BCL\|Printer\|PDFDocument\|RenderHTMLToPDF" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- 30+ API method mappings organized by category
+- 10 detailed code conversion examples
+- ASP.NET Core integration patterns
+- Docker and cloud deployment configuration
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
+**[Complete Migration Guide: BCL EasyPDF SDK → IronPDF](migrate-from-bcl-easypdf-sdk.md)**
 

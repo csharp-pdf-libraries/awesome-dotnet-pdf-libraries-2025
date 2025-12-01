@@ -200,23 +200,158 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from DynamicPDF C# PDF to IronPDF?
 
-IronPDF offers a unified, modern API that consolidates PDF generation, manipulation, and rendering into a single package, eliminating product fragmentation. With straightforward licensing, excellent documentation, and active development using current .NET patterns, IronPDF simplifies PDF workflows while providing superior HTML-to-PDF conversion capabilities.
+### The Product Fragmentation Problem
 
-**Migrating from DynamicPDF C# PDF to IronPDF involves:**
+DynamicPDF is sold as **separate products with separate licenses**:
 
-1. **NuGet Package Change**: Remove `ceTe.DynamicPDF.CoreSuite.NET`, add `IronPdf`
-2. **Namespace Update**: Replace `ceTe.DynamicPDF` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+- **DynamicPDF Generator**: Create PDFs from scratch
+- **DynamicPDF Merger**: Merge, split, manipulate PDFs (separate purchase)
+- **DynamicPDF HTML Converter**: HTML to PDF (separate add-on)
+- **DynamicPDF Core Suite**: Combined Generator + Merger
+- **DynamicPDF ReportWriter**: Report generation
+- **DynamicPDF Print Manager**: Print PDFs
 
-**Key Benefits of Migrating:**
+**A complete PDF solution requires 3-5 separate licenses with DynamicPDF. IronPDF includes everything in one package.**
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+### Quick Migration Overview
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
-**[Complete Migration Guide: DynamicPDF C# PDF → IronPDF](migrate-from-dynamicpdf.md)**
+| Aspect | DynamicPDF | IronPDF |
+|--------|------------|---------|
+| Product Model | Fragmented (5+ products) | All-in-one library |
+| Licensing | Multiple licenses required | Single license |
+| HTML to PDF | Separate add-on purchase | Built-in, Chromium-based |
+| CSS Support | Limited (requires add-on) | Full CSS3 with Flexbox/Grid |
+| API Style | Coordinate-based positioning | HTML/CSS + manipulation API |
+| Learning Curve | Steep (multiple APIs) | Gentle (web technologies) |
+| Modern .NET | .NET Standard 2.0 | .NET 6/7/8/9+ native |
+
+### Key API Mappings
+
+| DynamicPDF | IronPDF | Notes |
+|------------|---------|-------|
+| `Document` + `Page` | `ChromePdfRenderer` | HTML-based generation |
+| `Label`, `TextArea` | HTML `<p>`, `<div>` | Style with CSS |
+| `Table2` | HTML `<table>` | Full CSS styling |
+| `MergeDocument` | `PdfDocument.Merge()` | Static method |
+| `HtmlConverter` | `ChromePdfRenderer` | Built-in, no add-on |
+| `pdfDoc.Pages[i].GetText()` | `pdf.ExtractTextFromPage(i)` | |
+| `Aes256Security` | `pdf.SecuritySettings` | |
+| `form.Fields["name"]` | `pdf.Form.GetFieldByName("name")` | |
+| `PageNumberingLabel` `%%CP%%` | `{page}` placeholder | Different syntax |
+| `Template` | `HtmlHeaderFooter` | For headers/footers |
+| `document.Draw()` | `pdf.SaveAs()` / `pdf.BinaryData` | |
+
+### Migration Code Example
+
+**Before (DynamicPDF with multiple products):**
+```csharp
+using ceTe.DynamicPDF;
+using ceTe.DynamicPDF.PageElements;
+using ceTe.DynamicPDF.Merger;
+
+// Generation (requires Generator license)
+Document document = new Document();
+Page page = new Page(PageSize.A4);
+Label title = new Label("Invoice Report", 0, 0, 595, 30, Font.HelveticaBold, 18);
+title.Align = TextAlign.Center;
+page.Elements.Add(title);
+
+Table2 table = new Table2(40, 60, 515, 500);
+// ... complex table setup with columns, rows, cells...
+page.Elements.Add(table);
+document.Pages.Add(page);
+document.Draw("invoice.pdf");
+
+// Merging (requires Merger license)
+MergeDocument mergeDoc = new MergeDocument("cover.pdf");
+mergeDoc.Append("invoice.pdf");
+mergeDoc.Draw("final.pdf");
+```
+
+**After (IronPDF - one package):**
+```csharp
+using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+
+// All features in one library
+var html = @"
+<html>
+<head>
+    <style>
+        body { font-family: Helvetica, sans-serif; padding: 40px; }
+        h1 { text-align: center; font-size: 18pt; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ccc; padding: 8px; }
+    </style>
+</head>
+<body>
+    <h1>Invoice Report</h1>
+    <table>
+        <tr><th>Product</th><th>Qty</th><th>Price</th></tr>
+        <tr><td>Widget</td><td>10</td><td>$99.99</td></tr>
+    </table>
+</body>
+</html>";
+
+var invoice = renderer.RenderHtmlAsPdf(html);
+
+// Merging included - no separate license
+var cover = PdfDocument.FromFile("cover.pdf");
+var final = PdfDocument.Merge(cover, invoice);
+final.SaveAs("final.pdf");
+```
+
+### Critical Migration Notes
+
+1. **Paradigm Shift**: DynamicPDF uses coordinate-based positioning (X, Y, width, height). IronPDF uses HTML/CSS. This is a fundamental change in how you design documents.
+
+2. **Remove Multiple Packages**:
+   ```bash
+   dotnet remove package ceTe.DynamicPDF.CoreSuite.NET
+   dotnet remove package ceTe.DynamicPDF.Generator.NET
+   dotnet remove package ceTe.DynamicPDF.Merger.NET
+   dotnet remove package ceTe.DynamicPDF.HtmlConverter.NET
+   dotnet add package IronPdf
+   ```
+
+3. **Page Numbering Syntax**: DynamicPDF uses `%%CP%%` / `%%TP%%`, IronPDF uses `{page}` / `{total-pages}`.
+
+4. **No Separate HtmlConverter**: DynamicPDF requires buying HtmlConverter separately; IronPDF includes it.
+
+5. **Web Technologies**: If you know HTML/CSS, IronPDF will feel natural. DynamicPDF's API is more traditional.
+
+### NuGet Package Migration
+
+```bash
+# Remove all DynamicPDF packages
+dotnet remove package ceTe.DynamicPDF.CoreSuite.NET
+dotnet remove package ceTe.DynamicPDF.Generator.NET
+dotnet remove package ceTe.DynamicPDF.Merger.NET
+dotnet remove package ceTe.DynamicPDF.HtmlConverter.NET
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All DynamicPDF References
+
+```bash
+grep -r "ceTe.DynamicPDF\|DynamicPDF" --include="*.cs" --include="*.csproj" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping for all DynamicPDF products (Generator, Merger, HtmlConverter)
+- Namespace and class mapping tables
+- 10 detailed code conversion examples
+- Coordinate-to-CSS positioning conversion
+- Table2 to HTML table migration
+- Template to HtmlHeaderFooter conversion
+- Security and encryption migration
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
+**[Complete Migration Guide: DynamicPDF → IronPDF](migrate-from-dynamicpdf.md)**
 
 
 ## Conclusion

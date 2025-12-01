@@ -213,22 +213,180 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from PDFBolt to IronPDF?
 
-IronPDF provides a self-hosted solution that processes documents locally, eliminating data privacy concerns associated with cloud-only services. Unlike PDFBolt's restrictive free tier of 100 documents per month, IronPDF offers unlimited local processing with no external dependencies.
+### The Cloud-Only Problem
 
-**Migrating from PDFBolt to IronPDF involves:**
+PDFBolt's architecture creates fundamental limitations for production applications:
 
-1. **NuGet Package Change**: Remove `PDFBolt`, add `IronPdf`
-2. **Namespace Update**: Use `IronPdf` namespace
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Data Privacy Risks**: Every document passes through external servers
+2. **Usage Limits**: Free tier capped at 100 documents/month
+3. **Network Dependency**: Internet outages = no PDF generation
+4. **Latency**: Network round-trip adds seconds to every conversion
+5. **Compliance Issues**: GDPR, HIPAA, SOC2 complicated by external processing
+6. **API Key Security**: Leaked keys = unauthorized usage billed to your account
+7. **Vendor Lock-in**: Your application fails if PDFBolt changes terms or shuts down
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | PDFBolt | IronPDF |
+|--------|---------|---------|
+| Data Location | External servers | Your servers only |
+| Usage Limits | 100 free, then per-document | Unlimited |
+| Internet Required | Yes, always | No |
+| Latency | Network round-trip | Milliseconds |
+| Compliance | Complex (external processing) | Simple (local processing) |
+| Offline Operation | Impossible | Fully supported |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| PDFBolt | IronPDF | Notes |
+|---------|---------|-------|
+| `new Client(apiKey)` | `new ChromePdfRenderer()` | No API key needed |
+| `await client.HtmlToPdf(html)` | `renderer.RenderHtmlAsPdf(html)` | Sync by default |
+| `await client.UrlToPdf(url)` | `renderer.RenderUrlAsPdf(url)` | Sync by default |
+| `result.GetBytes()` | `pdf.BinaryData` | Property access |
+| `await result.SaveToFile(path)` | `pdf.SaveAs(path)` | Sync method |
+| `options.PageSize = PageSize.A4` | `renderer.RenderingOptions.PaperSize = PdfPaperSize.A4` | Enum names differ |
+| `options.MarginTop = 20` | `renderer.RenderingOptions.MarginTop = 20` | Individual properties |
+| `{pageNumber}` | `{page}` | Placeholder syntax |
+| `{totalPages}` | `{total-pages}` | Placeholder syntax |
+| `options.WaitForNetworkIdle = true` | `renderer.RenderingOptions.WaitFor.NetworkIdle()` | Wait strategy |
+| _(not available)_ | `PdfDocument.Merge()` | NEW feature |
+| _(not available)_ | `pdf.ApplyWatermark()` | NEW feature |
+| _(not available)_ | `pdf.SecuritySettings` | NEW feature |
+| _(not available)_ | `pdf.ExtractAllText()` | NEW feature |
+
+### Migration Code Example
+
+**Before (PDFBolt):**
+```csharp
+using PDFBolt;
+
+public class PdfService
+{
+    private readonly Client _client;
+
+    public PdfService(IConfiguration config)
+    {
+        // API key from config - security risk if leaked
+        var apiKey = config["PDFBolt:ApiKey"];
+        _client = new Client(apiKey);
+    }
+
+    public async Task<byte[]> GeneratePdfAsync(string html)
+    {
+        try
+        {
+            var options = new PdfOptions
+            {
+                PageSize = PageSize.A4,
+                MarginTop = 20,
+                DisplayHeaderFooter = true,
+                Footer = "Page {pageNumber} of {totalPages}"
+            };
+
+            var result = await _client.HtmlToPdf(html, options);
+            return result.GetBytes();
+        }
+        catch (PDFBoltException ex) when (ex.Code == "RATE_LIMIT")
+        {
+            throw new Exception("Monthly limit exceeded");
+        }
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public PdfService()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        _renderer = new ChromePdfRenderer();
+
+        _renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        _renderer.RenderingOptions.MarginTop = 20;
+        _renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+        {
+            HtmlFragment = "<div style='text-align:center;'>Page {page} of {total-pages}</div>",
+            MaxHeight = 20
+        };
+    }
+
+    public byte[] GeneratePdf(string html)
+    {
+        // No rate limits, no network required, no external processing
+        var pdf = _renderer.RenderHtmlAsPdf(html);
+        return pdf.BinaryData;
+    }
+}
+```
+
+### Critical Migration Notes
+
+1. **Async → Sync**: Remove await keywords (IronPDF is sync by default)
+   ```csharp
+   // PDFBolt: var result = await client.HtmlToPdf(html);
+   // IronPDF: var pdf = renderer.RenderHtmlAsPdf(html);
+   ```
+
+2. **API Key → License Key**: Different security model
+   ```csharp
+   // PDFBolt: new Client(apiKey) per request
+   // IronPDF: License.LicenseKey = "..." once at startup
+   ```
+
+3. **Page Number Placeholders**:
+   ```csharp
+   // PDFBolt: "Page {pageNumber} of {totalPages}"
+   // IronPDF: "Page {page} of {total-pages}"
+   ```
+
+4. **Remove Rate Limit Handling**: IronPDF has no limits
+   ```csharp
+   // Delete: catch (PDFBoltException ex) when (ex.Code == "RATE_LIMIT")
+   ```
+
+5. **Remove Network Error Handling**: Local processing means no network errors
+   ```csharp
+   // Delete: catch (HttpRequestException), catch (TaskCanceledException)
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove PDFBolt
+dotnet remove package PDFBolt
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All PDFBolt References
+
+```bash
+# Find PDFBolt usage
+grep -r "PDFBolt\|Client\|HtmlToPdf\|UrlToPdf\|PdfOptions" --include="*.cs" .
+
+# Find API key references
+grep -r "PDFBOLT\|ApiKey" --include="*.cs" --include="*.json" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (40+ methods and properties)
+- Async → sync conversion patterns
+- 10 detailed code conversion examples
+- New features not available in PDFBolt (merge, watermark, security, text extraction)
+- API key removal and security cleanup
+- Dependency injection migration
+- Performance comparison data
+- Troubleshooting guide for common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: PDFBolt → IronPDF](migrate-from-pdfbolt.md)**
 
 

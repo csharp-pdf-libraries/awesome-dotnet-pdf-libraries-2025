@@ -304,21 +304,183 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from jsreport to IronPDF?
 
-IronPDF eliminates the complexity of running a separate Node.js server and learning JavaScript templating systems by providing a pure C# solution for PDF generation. With IronPDF, you can work directly with HTML strings, Razor views, or URLs without leaving the .NET ecosystem.
+### The jsreport Challenges
 
-**Migrating from jsreport to IronPDF involves:**
+jsreport introduces complexity that doesn't belong in a pure .NET environment:
 
-1. **NuGet Package Change**: Install `IronPdf` package
-2. **Namespace Update**: Replace `jsreport.Local` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Node.js Dependency**: Requires Node.js runtime and binaries, adding infrastructure complexity
+2. **External Binary Management**: Must download/manage platform-specific binaries (Windows, Linux, OSX)
+3. **Separate Server Process**: Runs as utility or web server—additional process management needed
+4. **JavaScript Templating**: Forces learning Handlebars, JsRender, or other JS templating systems
+5. **Complex Request Structure**: Verbose `RenderRequest` with nested `Template` objects
+6. **Stream-Based Output**: Returns streams requiring manual file operations
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | jsreport | IronPDF |
+|--------|----------|---------|
+| Runtime | Node.js + .NET | Pure .NET |
+| Binary Management | Manual (jsreport.Binary packages) | Automatic |
+| Server Process | Required (utility or web server) | In-process |
+| Templating | JavaScript (Handlebars) | C# (Razor, string interpolation) |
+| API Style | Verbose request objects | Clean fluent methods |
+| Output | Stream | PdfDocument object |
+| Async Support | Async-only | Both sync and async |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| jsreport | IronPDF | Notes |
+|----------|---------|-------|
+| `new LocalReporting().UseBinary().AsUtility().Create()` | `new ChromePdfRenderer()` | One-liner |
+| `rs.RenderAsync(request)` | `renderer.RenderHtmlAsPdf(html)` | Direct call |
+| `Template.Content` | First parameter | HTML string |
+| `Template.Recipe = Recipe.ChromePdf` | _(not needed)_ | Default |
+| `Template.Engine = Engine.Handlebars` | _(not needed)_ | Use C# |
+| `Chrome.HeaderTemplate` | `RenderingOptions.HtmlHeader` | HTML |
+| `Chrome.FooterTemplate` | `RenderingOptions.HtmlFooter` | HTML |
+| `Chrome.MarginTop = "2cm"` | `RenderingOptions.MarginTop = 20` | mm units |
+| `Chrome.Format = "A4"` | `RenderingOptions.PaperSize = PdfPaperSize.A4` | Enum |
+| `Chrome.Landscape = true` | `RenderingOptions.PaperOrientation = Landscape` | Enum |
+| `{#pageNum}` | `{page}` | Placeholder |
+| `{#numPages}` | `{total-pages}` | Placeholder |
+| `rs.StartAsync()` | _(not needed)_ | In-process |
+| `rs.KillAsync()` | _(not needed)_ | Auto-cleanup |
+
+### Migration Code Example
+
+**Before (jsreport):**
+```csharp
+using jsreport.Binary;
+using jsreport.Local;
+using jsreport.Types;
+
+public class JsReportService
+{
+    private readonly ILocalUtilityReportingService _rs;
+
+    public JsReportService()
+    {
+        _rs = new LocalReporting()
+            .UseBinary(JsReportBinary.GetBinary())
+            .AsUtility()
+            .Create();
+    }
+
+    public async Task<byte[]> GeneratePdfAsync(string html)
+    {
+        var report = await _rs.RenderAsync(new RenderRequest
+        {
+            Template = new Template
+            {
+                Recipe = Recipe.ChromePdf,
+                Engine = Engine.None,
+                Content = html,
+                Chrome = new Chrome
+                {
+                    Format = "A4",
+                    DisplayHeaderFooter = true,
+                    FooterTemplate = "<div>Page {#pageNum} of {#numPages}</div>",
+                    MarginBottom = "2cm"
+                }
+            }
+        });
+
+        using (var ms = new MemoryStream())
+        {
+            await report.Content.CopyToAsync(ms);
+            return ms.ToArray();
+        }
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public PdfService()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        _renderer = new ChromePdfRenderer();
+
+        _renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        _renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+        {
+            HtmlFragment = "<div>Page {page} of {total-pages}</div>",
+            MaxHeight = 20
+        };
+        _renderer.RenderingOptions.MarginBottom = 20;
+    }
+
+    public byte[] GeneratePdf(string html)
+    {
+        return _renderer.RenderHtmlAsPdf(html).BinaryData;
+    }
+}
+```
+
+### Critical Migration Notes
+
+1. **No Server Required**: IronPDF runs in-process—delete `StartAsync()`, `KillAsync()`
+
+2. **No Binary Management**: Remove all platform-specific package references:
+   ```bash
+   dotnet remove package jsreport.Binary
+   dotnet remove package jsreport.Binary.Linux
+   dotnet remove package jsreport.Binary.OSX
+   ```
+
+3. **Placeholder Syntax**: Update all header/footer placeholders:
+   - `{#pageNum}` → `{page}`
+   - `{#numPages}` → `{total-pages}`
+   - `{#timestamp}` → `{date}`
+
+4. **Margin Units**: jsreport uses CSS units ("2cm"), IronPDF uses millimeters:
+   ```csharp
+   // "2cm" = 20mm, "1in" = 25mm
+   ```
+
+5. **Replace Handlebars**: Use C# string interpolation instead:
+   ```csharp
+   // Handlebars: {{#each items}}...{{/each}}
+   // C#: string.Join("", items.Select(i => $"..."))
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove jsreport packages
+dotnet remove package jsreport.Binary
+dotnet remove package jsreport.Local
+dotnet remove package jsreport.Types
+dotnet remove package jsreport.Client
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All jsreport References
+
+```bash
+# Find jsreport usage
+grep -r "using jsreport\|LocalReporting\|RenderRequest\|RenderAsync" --include="*.cs" .
+grep -r "JsReportBinary\|Template\|Recipe\|Engine\." --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (30+ methods and properties)
+- RenderRequest property mappings
+- 10 detailed code conversion examples
+- Handlebars → C# template conversion
+- Web server mode elimination
+- Platform binary removal
+- Performance comparison data
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: jsreport → IronPDF](migrate-from-jsreport.md)**
 

@@ -241,25 +241,177 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ---
 
-## How Can I Migrate from Haukcode.DinkToPdf C# PDF Conversion to IronPDF?
+## How Can I Migrate from Haukcode.DinkToPdf to IronPDF?
 
-Haukcode.DinkToPdf is a fork of an abandoned project that relies on the unmaintained wkhtmltopdf library, inheriting its known security vulnerabilities (CVEs) and limited HTML5/CSS3 support. IronPDF is actively maintained with a modern Chromium rendering engine, providing better security, performance, and comprehensive HTML/CSS rendering.
+### The Critical Security Problem
 
-**Migrating from Haukcode.DinkToPdf C# PDF Conversion to IronPDF involves:**
+Haukcode.DinkToPdf wraps the **abandoned wkhtmltopdf library** which has critical, unfixable security vulnerabilities:
 
-1. **NuGet Package Change**: Remove `DinkToPdf`, add `IronPdf`
-2. **Namespace Update**: Replace `DinkToPdf` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **CVE-2022-35583 (CVSS 9.8 CRITICAL)**: Server-Side Request Forgery (SSRF) vulnerability allows attackers to access internal resources, AWS metadata, and local files
+2. **Abandoned Project**: wkhtmltopdf was archived in January 2023—no security patches coming
+3. **Outdated WebKit**: Uses Qt WebKit from ~2015—missing years of security updates
+4. **Native Binary Dependency**: Must distribute platform-specific DLLs/binaries
+5. **Thread Safety Issues**: Requires strict singleton pattern with `SynchronizedConverter`
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | Haukcode.DinkToPdf | IronPDF |
+|--------|-------------------|---------|
+| Security Status | CVE-2022-35583 (CRITICAL, unfixable) | Actively patched |
+| Underlying Engine | wkhtmltopdf (Qt WebKit ~2015) | Chromium (regularly updated) |
+| Project Status | Fork of abandoned project | Actively developed |
+| Native Binaries | Required (platform-specific) | Self-contained |
+| Thread Safety | Requires singleton pattern | Thread-safe by design |
+| HTML5/CSS3 | Limited | Full support |
+| JavaScript | Limited, insecure | Full V8 engine |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
-**[Complete Migration Guide: Haukcode.DinkToPdf C# PDF Conversion → IronPDF](migrate-from-haukcodedinktopdf.md)**
+### Key API Mappings
+
+| Haukcode.DinkToPdf | IronPDF | Notes |
+|-------------------|---------|-------|
+| `SynchronizedConverter` | `ChromePdfRenderer` | Thread-safe, no singleton needed |
+| `HtmlToPdfDocument` | Method parameters | Direct method call |
+| `GlobalSettings.PaperSize` | `RenderingOptions.PaperSize` | Use `PdfPaperSize` enum |
+| `GlobalSettings.Orientation` | `RenderingOptions.PaperOrientation` | `Portrait`/`Landscape` |
+| `GlobalSettings.Margins.Top` | `RenderingOptions.MarginTop` | In millimeters |
+| `GlobalSettings.ColorMode` | `RenderingOptions.GrayScale` | Boolean |
+| `ObjectSettings.HtmlContent` | First parameter to `RenderHtmlAsPdf()` | Direct parameter |
+| `ObjectSettings.Page` (URL) | `renderer.RenderUrlAsPdf(url)` | Separate method |
+| `HeaderSettings.Right = "[page]"` | `TextHeader.RightText = "{page}"` | Different placeholder syntax |
+| `converter.Convert(doc)` | `renderer.RenderHtmlAsPdf(html)` | Returns `PdfDocument` |
+
+### Migration Code Example
+
+**Before (Haukcode.DinkToPdf):**
+```csharp
+using DinkToPdf;
+using DinkToPdf.Contracts;
+
+public class PdfService
+{
+    // MUST be singleton due to thread safety issues!
+    private readonly IConverter _converter;
+
+    public PdfService()
+    {
+        _converter = new SynchronizedConverter(new PdfTools());
+    }
+
+    public byte[] GeneratePdf(string html)
+    {
+        var doc = new HtmlToPdfDocument()
+        {
+            GlobalSettings = {
+                ColorMode = ColorMode.Color,
+                Orientation = Orientation.Portrait,
+                PaperSize = PaperKind.A4,
+                Margins = new MarginSettings { Top = 10, Bottom = 10 }
+            },
+            Objects = {
+                new ObjectSettings {
+                    HtmlContent = html,
+                    WebSettings = { DefaultEncoding = "utf-8" },
+                    HeaderSettings = { Right = "Page [page] of [toPage]" }
+                }
+            }
+        };
+
+        return _converter.Convert(doc);
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public PdfService()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        _renderer = new ChromePdfRenderer();
+        _renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        _renderer.RenderingOptions.MarginTop = 10;
+        _renderer.RenderingOptions.MarginBottom = 10;
+        _renderer.RenderingOptions.TextHeader = new TextHeaderFooter
+        {
+            RightText = "Page {page} of {total-pages}"  // Note: different placeholders
+        };
+    }
+
+    public byte[] GeneratePdf(string html)
+    {
+        var pdf = _renderer.RenderHtmlAsPdf(html);
+        return pdf.BinaryData;
+    }
+}
+
+// Thread-safe! No singleton requirement!
+```
+
+### Critical Migration Notes
+
+1. **Security**: Migrating eliminates CVE-2022-35583 (SSRF) and other wkhtmltopdf vulnerabilities
+
+2. **No Native Binaries**: Delete these after migration:
+   - `libwkhtmltox.dll` (Windows)
+   - `libwkhtmltox.so` (Linux)
+   - `libwkhtmltox.dylib` (macOS)
+
+3. **Placeholder Syntax**: DinkToPdf uses `[page]`, IronPDF uses `{page}`:
+   - `[page]` → `{page}`
+   - `[toPage]` → `{total-pages}`
+   - `[date]` → `{date}`
+
+4. **Thread Safety**: No more singleton requirement—use freely per-request
+
+5. **Return Type**: `converter.Convert()` returns `byte[]`, `renderer.RenderHtmlAsPdf()` returns `PdfDocument`:
+   ```csharp
+   var pdf = renderer.RenderHtmlAsPdf(html);
+   byte[] bytes = pdf.BinaryData;  // Get bytes
+   pdf.SaveAs("output.pdf");       // Or save directly
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove DinkToPdf packages
+dotnet remove package DinkToPdf
+dotnet remove package Haukcode.DinkToPdf
+dotnet remove package Haukcode.WkHtmlToPdf-DotNet
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All DinkToPdf References
+
+```bash
+# Find namespace usage
+grep -r "using DinkToPdf\|using Haukcode" --include="*.cs" .
+
+# Find converter usage
+grep -r "SynchronizedConverter\|HtmlToPdfDocument\|GlobalSettings\|ObjectSettings" --include="*.cs" .
+
+# Find native library loading
+grep -r "wkhtmltopdf\|libwkhtmltox" --include="*.cs" --include="*.csproj" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (GlobalSettings, ObjectSettings, WebSettings, HeaderSettings)
+- 10 detailed code conversion examples
+- Native binary removal instructions
+- SSRF vulnerability remediation
+- Thread safety improvements
+- Dependency injection updates
+- Troubleshooting guide for 8+ common issues
+- Security best practices
+- Pre/post migration checklists
+
+**[Complete Migration Guide: Haukcode.DinkToPdf → IronPDF](migrate-from-haukcodedinktopdf.md)**
 
 
 ## Comparison Table

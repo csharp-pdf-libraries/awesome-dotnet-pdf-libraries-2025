@@ -273,22 +273,271 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from MigraDoc to IronPDF?
 
-IronPDF eliminates MigraDoc's complexity by allowing you to generate PDFs directly from HTML, CSS, and JavaScript—no need to learn a proprietary document model. This approach provides unlimited styling flexibility, matches modern web designs perfectly, and leverages your existing web development skills.
+### The Document Object Model Challenges
 
-**Migrating from MigraDoc to IronPDF involves:**
+MigraDoc's programmatic approach introduces complexity that HTML-first design eliminates:
 
-1. **NuGet Package Change**: Install `IronPdf` package
-2. **Namespace Update**: Replace `MigraDoc.DocumentObjectModel` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Proprietary Document Model**: Must learn Document, Section, Paragraph, Table, Row, Cell hierarchy
+2. **No HTML Support**: Cannot convert existing web designs—must rebuild from scratch
+3. **Verbose API**: Simple layouts require many lines of code with nested object creation
+4. **Limited Styling**: MigraDoc styles are less flexible than CSS
+5. **Chart Complexity**: Built-in charting requires learning additional APIs
+6. **Page Layout Control**: Manual page breaks and section management
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | MigraDoc | IronPDF |
+|--------|----------|---------|
+| Approach | Programmatic DOM | HTML/CSS |
+| Design Tool | Code only | Any HTML editor |
+| Styling | MigraDoc Styles | Full CSS |
+| Tables | Table/Row/Cell objects | HTML `<table>` |
+| Headers/Footers | Section.Headers/Footers | RenderingOptions |
+| Page Numbers | AddPageField() | `{page}` placeholder |
+| Charts | MigraDoc.Charts | JavaScript (Chart.js) |
+| Learning Curve | High (proprietary) | Low (web skills) |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| MigraDoc | IronPDF | Notes |
+|----------|---------|-------|
+| `new Document()` | `new ChromePdfRenderer()` | Entry point |
+| `document.AddSection()` | HTML `<div>` | Section container |
+| `section.AddParagraph()` | HTML `<p>` | Text block |
+| `section.AddTable()` | HTML `<table>` | Table element |
+| `table.AddColumn("3cm")` | CSS `width: 3cm` | Column width |
+| `table.AddRow()` | HTML `<tr>` | Table row |
+| `row.Cells[0].AddParagraph()` | HTML `<td>` | Table cell |
+| `AddFormattedText(text, TextFormat.Bold)` | HTML `<strong>` | Bold text |
+| `paragraph.Format.Font.Size = 12` | CSS `font-size: 12pt` | Font size |
+| `paragraph.Format.Font.Color = Colors.Red` | CSS `color: red` | Text color |
+| `paragraph.Format.Alignment = Center` | CSS `text-align: center` | Alignment |
+| `section.Headers.Primary` | `RenderingOptions.HtmlHeader` | Page header |
+| `section.Footers.Primary` | `RenderingOptions.HtmlFooter` | Page footer |
+| `AddPageField()` | `{page}` | Current page |
+| `AddNumPagesField()` | `{total-pages}` | Total pages |
+| `AddImage("path.png")` | HTML `<img src="path.png">` | Image |
+| `section.AddPageBreak()` | CSS `page-break-before: always` | Page break |
+| `document.Styles["Heading1"]` | CSS `.heading1 { }` | Custom style |
+| `PdfDocumentRenderer` | `ChromePdfRenderer` | Renderer |
+| `renderer.RenderDocument()` | `renderer.RenderHtmlAsPdf()` | Generate PDF |
+| `pdfDocument.Save()` | `pdf.SaveAs()` | Save file |
+
+### Migration Code Example
+
+**Before (MigraDoc):**
+```csharp
+using MigraDoc.DocumentObjectModel;
+using MigraDoc.DocumentObjectModel.Tables;
+using MigraDoc.Rendering;
+
+public class MigraDocService
+{
+    public void GenerateInvoice(Invoice data)
+    {
+        Document document = new Document();
+
+        // Define styles
+        Style style = document.Styles["Normal"];
+        style.Font.Name = "Arial";
+        style.Font.Size = 10;
+
+        Style heading = document.Styles.AddStyle("Heading1", "Normal");
+        heading.Font.Size = 18;
+        heading.Font.Bold = true;
+
+        Section section = document.AddSection();
+
+        // Header
+        Paragraph header = section.Headers.Primary.AddParagraph();
+        header.AddText("INVOICE");
+        header.Format.Font.Size = 24;
+        header.Format.Font.Bold = true;
+
+        // Footer with page numbers
+        Paragraph footer = section.Footers.Primary.AddParagraph();
+        footer.AddText("Page ");
+        footer.AddPageField();
+        footer.AddText(" of ");
+        footer.AddNumPagesField();
+        footer.Format.Alignment = ParagraphAlignment.Center;
+
+        // Company info
+        Paragraph company = section.AddParagraph();
+        company.AddFormattedText("Acme Corp", TextFormat.Bold);
+        company.Format.SpaceAfter = "1cm";
+
+        // Invoice details table
+        Table table = section.AddTable();
+        table.Borders.Width = 0.5;
+
+        table.AddColumn("5cm");
+        table.AddColumn("2cm");
+        table.AddColumn("2cm");
+        table.AddColumn("2cm");
+
+        // Header row
+        Row headerRow = table.AddRow();
+        headerRow.Shading.Color = Colors.LightGray;
+        headerRow.Cells[0].AddParagraph("Item");
+        headerRow.Cells[1].AddParagraph("Qty");
+        headerRow.Cells[2].AddParagraph("Price");
+        headerRow.Cells[3].AddParagraph("Total");
+
+        // Data rows
+        foreach (var item in data.Items)
+        {
+            Row row = table.AddRow();
+            row.Cells[0].AddParagraph(item.Name);
+            row.Cells[1].AddParagraph(item.Quantity.ToString());
+            row.Cells[2].AddParagraph(item.Price.ToString("C"));
+            row.Cells[3].AddParagraph(item.Total.ToString("C"));
+        }
+
+        // Render
+        PdfDocumentRenderer pdfRenderer = new PdfDocumentRenderer(true);
+        pdfRenderer.Document = document;
+        pdfRenderer.RenderDocument();
+        pdfRenderer.PdfDocument.Save("invoice.pdf");
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public PdfService()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        _renderer = new ChromePdfRenderer();
+
+        _renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+        {
+            HtmlFragment = "<div style='font-size:24px; font-weight:bold; text-align:center;'>INVOICE</div>",
+            MaxHeight = 30
+        };
+
+        _renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+        {
+            HtmlFragment = "<div style='text-align:center;'>Page {page} of {total-pages}</div>",
+            MaxHeight = 20
+        };
+    }
+
+    public void GenerateInvoice(Invoice data)
+    {
+        string itemRows = string.Join("", data.Items.Select(item => $@"
+            <tr>
+                <td>{item.Name}</td>
+                <td>{item.Quantity}</td>
+                <td>{item.Price:C}</td>
+                <td>{item.Total:C}</td>
+            </tr>"));
+
+        string html = $@"
+            <html>
+            <head>
+                <style>
+                    body {{ font-family: Arial, sans-serif; font-size: 10pt; }}
+                    .company {{ font-weight: bold; margin-bottom: 1cm; }}
+                    table {{ width: 100%; border-collapse: collapse; }}
+                    th, td {{ border: 0.5pt solid black; padding: 5px; }}
+                    th {{ background-color: #d3d3d3; }}
+                </style>
+            </head>
+            <body>
+                <div class='company'>Acme Corp</div>
+                <table>
+                    <tr>
+                        <th style='width:5cm'>Item</th>
+                        <th style='width:2cm'>Qty</th>
+                        <th style='width:2cm'>Price</th>
+                        <th style='width:2cm'>Total</th>
+                    </tr>
+                    {itemRows}
+                </table>
+            </body>
+            </html>";
+
+        var pdf = _renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("invoice.pdf");
+    }
+}
+```
+
+### Critical Migration Notes
+
+1. **Paradigm Shift**: MigraDoc builds documents programmatically; IronPDF uses HTML/CSS
+   - Think in HTML elements instead of Document Object Model
+   - Use CSS for all styling instead of Format properties
+
+2. **Page Number Placeholders**: Update all field references:
+   - `AddPageField()` → `{page}`
+   - `AddNumPagesField()` → `{total-pages}`
+   - `AddDateField()` → `{date}`
+
+3. **Headers/Footers**: Move from Section to RenderingOptions:
+   ```csharp
+   // MigraDoc: section.Headers.Primary.AddParagraph("Header")
+   // IronPDF:
+   renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+   {
+       HtmlFragment = "<div>Header</div>",
+       MaxHeight = 25
+   };
+   ```
+
+4. **Styles to CSS**: Convert MigraDoc styles to CSS classes:
+   ```csharp
+   // MigraDoc: document.Styles.AddStyle("Heading1", "Normal")
+   // IronPDF: <style>.heading1 { font-size: 18pt; font-weight: bold; }</style>
+   ```
+
+5. **Charts**: Replace MigraDoc charts with JavaScript libraries:
+   - Use Chart.js, Plotly, or other JavaScript charting libraries
+   - IronPDF executes JavaScript before rendering
+
+6. **Unit Conversion**: MigraDoc uses various units; IronPDF margins use millimeters:
+   - "1cm" = 10mm
+   - "1in" = 25.4mm
+   - "72pt" = 25.4mm
+
+### NuGet Package Migration
+
+```bash
+# Remove MigraDoc packages
+dotnet remove package PDFsharp-MigraDoc
+dotnet remove package PDFsharp-MigraDoc-GDI
+dotnet remove package PDFsharp-MigraDoc-WPF
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All MigraDoc References
+
+```bash
+# Find MigraDoc usage
+grep -r "using MigraDoc\|Document document\|AddSection\|AddParagraph\|PdfDocumentRenderer" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (40+ methods and properties)
+- Document structure to HTML element conversions
+- 10 detailed code conversion examples
+- Style → CSS migration patterns
+- Chart migration to JavaScript libraries
+- Headers/footers with dynamic content
+- Multi-section document handling
+- Performance comparison data
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: MigraDoc → IronPDF](migrate-from-migradoc.md)**
 
 

@@ -240,25 +240,144 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ---
 
-## How Can I Migrate from Gnostice (Document Studio .NET, PDFOne) C# PDF Library to IronPDF?
+## How Can I Migrate from Gnostice (Document Studio .NET, PDFOne) to IronPDF?
 
-Gnostice Document Studio and PDFOne suffer from extensive documented limitations including no external CSS, JavaScript, digital signatures, or right-to-left Unicode support, along with persistent memory leaks and stability issues reported across Stack Overflow and user forums. The platform is fragmented across separate products for different frameworks (.NET, Java, VCL) with inconsistent feature sets between WinForms, WPF, ASP.NET, and Xamarin implementations.
+### The Gnostice Challenges
 
-**Migrating from Gnostice (Document Studio .NET, PDFOne) C# PDF Library to IronPDF involves:**
+Gnostice Document Studio and PDFOne have well-documented limitations:
 
-1. **NuGet Package Change**: Remove `Gnostice.DocumentStudio.NET`, add `IronPdf`
-2. **Namespace Update**: Replace `Gnostice.Documents` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **No External CSS Support**: Explicitly documented limitation—external stylesheets don't work
+2. **No JavaScript Execution**: Dynamic content requiring JS cannot be rendered
+3. **No Right-to-Left Unicode**: Arabic, Hebrew explicitly unsupported—dealbreaker for international apps
+4. **Platform Fragmentation**: Separate products for WinForms, WPF, ASP.NET, Xamarin with different feature sets
+5. **Memory Leaks**: User forums report persistent leaks, JPEG Error #53, StackOverflow exceptions
+6. **Limited Digital Signatures**: Historically missing or unreliable
+7. **Coordinate-Based API**: Manual X/Y positioning rather than modern layout approaches
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | Gnostice | IronPDF |
+|--------|----------|---------|
+| External CSS | Not supported | Full support |
+| JavaScript | Not supported | Full Chromium engine |
+| RTL Languages | Not supported | Full Unicode support |
+| Digital Signatures | Limited/Missing | Full X509 support |
+| Platform | Fragmented products | Single unified library |
+| Memory Stability | Reported issues | Stable, well-managed |
+| Modern CSS (Flexbox, Grid) | Not supported | Full CSS3 support |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
-**[Complete Migration Guide: Gnostice (Document Studio .NET, PDFOne) C# PDF Library → IronPDF](migrate-from-gnostice.md)**
+### Key API Mappings
+
+| Gnostice | IronPDF | Notes |
+|----------|---------|-------|
+| `PDFDocument` | `PdfDocument` | Main PDF class |
+| `DocExporter` | `ChromePdfRenderer` | HTML to PDF |
+| `doc.Load(path)` | `PdfDocument.FromFile(path)` | Load PDF |
+| `doc.Save(path)` | `pdf.SaveAs(path)` | Save PDF |
+| `doc.Pages.Count` | `pdf.PageCount` | Page count |
+| `doc1.Append(doc2)` | `PdfDocument.Merge(pdf1, pdf2)` | Merge PDFs |
+| `doc.GetPageText(i)` | `pdf.ExtractTextFromPage(i)` | Extract text |
+| `page.Draw(textElement, x, y)` | Use HTML stamping | Add text |
+| `PDFFont` objects | CSS font styling | Font specification |
+| `doc.SetEncryption(...)` | `pdf.SecuritySettings` | Security |
+| `doc.AddHeaderText(...)` | `renderer.RenderingOptions.HtmlHeader` | Headers |
+| `doc.AddFooterText(...)` | `renderer.RenderingOptions.HtmlFooter` | Footers |
+| Page number `%n`/`%N` | `{page}`/`{total-pages}` | Page numbering |
+
+### Migration Code Example
+
+**Before (Gnostice PDFOne):**
+```csharp
+using Gnostice.PDFOne;
+using Gnostice.PDFOne.Graphics;
+using System.Drawing;
+
+PDFDocument doc = new PDFDocument();
+doc.Load("contract.pdf");
+
+PDFFont font = new PDFFont(PDFStandardFont.Helvetica, 48);
+
+foreach (PDFPage page in doc.Pages)
+{
+    // Calculate center position manually
+    double centerX = page.Width / 2 - 100;
+    double centerY = page.Height / 2;
+
+    PDFTextElement watermark = new PDFTextElement();
+    watermark.Text = "CONFIDENTIAL";
+    watermark.Font = font;
+    watermark.Color = Color.FromArgb(128, 255, 0, 0);
+    watermark.RotationAngle = -45;
+    watermark.Draw(page, centerX, centerY);
+}
+
+doc.Save("watermarked.pdf");
+doc.Close();
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var pdf = PdfDocument.FromFile("contract.pdf");
+
+// HTML watermark - no coordinate calculations needed!
+pdf.ApplyWatermark(
+    "<div style='color:red; font-size:48px; font-weight:bold; " +
+    "transform:rotate(-45deg); opacity:0.3;'>CONFIDENTIAL</div>",
+    opacity: 30,
+    VerticalAlignment.Middle,
+    HorizontalAlignment.Center
+);
+
+pdf.SaveAs("watermarked.pdf");
+```
+
+### Critical Migration Notes
+
+1. **Features You Gain**: External CSS, JavaScript execution, RTL languages, CSS Grid/Flexbox, digital signatures—all now work!
+
+2. **Page Indexing**: Gnostice often uses 1-indexed pages; IronPDF uses 0-indexed
+
+3. **Coordinate to HTML**: Replace `element.Draw(page, x, y)` with HTML/CSS positioning
+
+4. **Font Objects to CSS**: Replace `PDFFont` with CSS `font-family` and `font-size`
+
+5. **Memory Improvement**: Gnostice's reported memory leaks shouldn't occur with IronPDF
+
+### NuGet Package Migration
+
+```bash
+# Remove Gnostice packages
+dotnet remove package PDFOne.NET
+dotnet remove package Gnostice.DocumentStudio.NET
+dotnet remove package Gnostice.PDFOne.NET
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All Gnostice References
+
+```bash
+grep -r "Gnostice\|PDFOne\|PDFDocument\|PDFPage\|DocExporter" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping for all Gnostice classes
+- 10 detailed code conversion examples
+- RTL language support examples (now possible!)
+- Digital signature implementation (now possible!)
+- Modern CSS features (Flexbox, Grid) usage
+- Memory management best practices
+- Viewer control alternatives
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
+**[Complete Migration Guide: Gnostice (Document Studio .NET, PDFOne) → IronPDF](migrate-from-gnostice.md)**
 
 
 ## Conclusion

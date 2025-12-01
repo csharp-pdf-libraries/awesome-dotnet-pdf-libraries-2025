@@ -276,22 +276,148 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from PDFreactor to IronPDF?
 
-IronPDF is a native .NET library that eliminates the complexity of Java integration and separate service architecture required by PDFreactor. It offers seamless deployment within .NET applications without external dependencies, reducing infrastructure overhead and simplifying maintenance.
+### The Java Dependency Problem
 
-**Migrating from PDFreactor to IronPDF involves:**
+PDFreactor requires a Java runtime and runs as a separate server process, creating significant complexity:
 
-1. **NuGet Package Change**: Install `IronPdf` package
-2. **Namespace Update**: Replace `com.realobjects.pdfreactor` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Java Runtime Required**: Must install and maintain JRE/JDK on all servers
+2. **Server Architecture**: Runs as a separate service requiring REST API calls
+3. **Complex Deployment**: Two runtimes (Java + .NET) to manage in CI/CD pipelines
+4. **Network Latency**: Every PDF conversion requires HTTP round-trip to server
+5. **Separate Infrastructure**: Additional server to monitor, scale, and maintain
+6. **License Complexity**: Per-server licensing tied to Java service instance
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | PDFreactor | IronPDF |
+|--------|-----------|---------|
+| Runtime | Java (external server) | Native .NET (in-process) |
+| Architecture | REST API service | NuGet library |
+| Deployment | Java + server config | Single NuGet package |
+| Dependencies | JRE + HTTP client | Self-contained |
+| Latency | Network round-trip | Direct method calls |
+| CSS Support | CSS Paged Media | Chromium engine |
+| PDF Manipulation | Conversion only | Full lifecycle |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| PDFreactor | IronPDF | Notes |
+|------------|---------|-------|
+| `new PDFreactor(serverUrl)` | `new ChromePdfRenderer()` | No server needed |
+| `config.Document = html` | `renderer.RenderHtmlAsPdf(html)` | HTML to PDF |
+| `config.Document = url` | `renderer.RenderUrlAsPdf(url)` | URL to PDF |
+| `config.PageFormat = PageFormat.A4` | `RenderingOptions.PaperSize = PdfPaperSize.A4` | Paper size |
+| `config.PageOrientation` | `RenderingOptions.PaperOrientation` | Orientation |
+| `config.PageMargins` | `RenderingOptions.MarginTop/Bottom/Left/Right` | Margins (mm) |
+| `config.EnableJavaScript = true` | `RenderingOptions.EnableJavaScript = true` | JS execution |
+| `config.AddUserStyleSheet(css)` | Embed CSS in HTML | CSS injection |
+| `result.Document` (byte[]) | `pdf.BinaryData` | Raw bytes |
+| `pdfReactor.Convert(config)` | `renderer.RenderHtmlAsPdf(html)` | Convert |
+| `config.Title` | `pdf.MetaData.Title` | Metadata |
+| `config.Encryption` | `pdf.SecuritySettings` | Security |
+| _(not available)_ | `PdfDocument.Merge()` | NEW: Merge PDFs |
+| _(not available)_ | `pdf.ApplyWatermark()` | NEW: Watermarks |
+| _(not available)_ | `pdf.ExtractAllText()` | NEW: Text extraction |
+
+### Migration Code Example
+
+**Before (PDFreactor):**
+```csharp
+using RealObjects.PDFreactor;
+using System.IO;
+
+var pdfReactor = new PDFreactor("http://localhost:9423");
+
+var config = new Configuration
+{
+    Document = "<h1>Report</h1>",
+    PageFormat = PageFormat.A4,
+    PageOrientation = Orientation.LANDSCAPE,
+    EnableJavaScript = true
+};
+
+config.AddUserStyleSheet("@page { @bottom-center { content: 'Page ' counter(page); } }");
+
+Result result = pdfReactor.Convert(config);
+File.WriteAllBytes("report.pdf", result.Document);
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape;
+renderer.RenderingOptions.EnableJavaScript = true;
+renderer.RenderingOptions.TextFooter = new TextHeaderFooter
+{
+    CenterText = "Page {page}"
+};
+
+var pdf = renderer.RenderHtmlAsPdf("<h1>Report</h1>");
+pdf.SaveAs("report.pdf");
+```
+
+### Critical Migration Notes
+
+1. **No Server Required**: IronPDF runs in-process—no Java server to configure
+   ```csharp
+   // PDFreactor: new PDFreactor("http://localhost:9423")
+   // IronPDF: new ChromePdfRenderer()  // No server URL
+   ```
+
+2. **CSS Paged Media → IronPDF API**: Replace CSS `@page` rules with RenderingOptions
+   ```csharp
+   // PDFreactor CSS: @page { @bottom-center { content: 'Page ' counter(page); } }
+   // IronPDF: renderer.RenderingOptions.TextFooter = new TextHeaderFooter { CenterText = "Page {page}" };
+   ```
+
+3. **Margin Units**: PDFreactor uses strings ("1in"); IronPDF uses millimeters
+   ```csharp
+   // PDFreactor: config.PageMargins.Top = "1in"
+   // IronPDF: renderer.RenderingOptions.MarginTop = 25.4  // 1 inch in mm
+   ```
+
+4. **Result Handling**: Configuration + Result → Direct PdfDocument
+   ```csharp
+   // PDFreactor: Result result = pdfReactor.Convert(config); byte[] bytes = result.Document;
+   // IronPDF: var pdf = renderer.RenderHtmlAsPdf(html); byte[] bytes = pdf.BinaryData;
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove PDFreactor
+dotnet remove package PDFreactor.NET
+dotnet remove package PDFreactor.Native.Windows.x64
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All PDFreactor References
+
+```bash
+# Find PDFreactor usage
+grep -r "PDFreactor\|RealObjects\|Configuration.*Document" --include="*.cs" .
+
+# Find CSS Paged Media rules to convert
+grep -r "@page\|counter(page)\|counter(pages)" --include="*.cs" --include="*.css" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (40+ methods and properties)
+- 10 detailed code conversion examples
+- CSS Paged Media to IronPDF API migration
+- Header/footer placeholder conversion
+- Server architecture elimination guide
+- JavaScript and async content handling
+- Docker deployment examples (Java removal)
+- Pre/post migration checklists
+
 **[Complete Migration Guide: PDFreactor → IronPDF](migrate-from-pdfreactor.md)**
 
 

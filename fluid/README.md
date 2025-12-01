@@ -271,22 +271,157 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from Fluid (templating) to IronPDF?
 
-While Fluid is an excellent templating engine for generating HTML content, it requires integration with a separate PDF generation library to create PDF documents. IronPDF provides an all-in-one solution that combines HTML templating capabilities with robust PDF generation, eliminating the need for multiple dependencies.
+### The Fluid + External PDF Library Challenge
 
-**Migrating from Fluid (templating) to IronPDF involves:**
+Fluid is an excellent Liquid-based templating engine, but using it for PDF generation introduces significant complexity:
 
-1. **NuGet Package Change**: Install `IronPdf` package
-2. **Namespace Update**: Replace `Fluid` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Two-Library Dependency**: Fluid only generates HTML—you need a separate PDF library (wkhtmltopdf, PuppeteerSharp, etc.) to create PDFs
+2. **Integration Complexity**: Coordinating two libraries means managing two sets of configurations, error handling, and updates
+3. **Liquid Syntax Learning Curve**: Developers must learn Liquid templating syntax (`{{ }}`, `{% %}`) when C# already has powerful string handling
+4. **Thread Safety Concerns**: `TemplateContext` is not thread-safe and requires careful management in concurrent applications
+5. **Debugging Challenges**: Errors can occur at either the templating or PDF generation stage
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | Fluid + PDF Library | IronPDF |
+|--------|-------------------|---------|
+| Dependencies | 2+ packages (Fluid + PDF library) | Single package |
+| Templating | Liquid syntax (`{{ }}`) | C# string interpolation or Razor |
+| PDF Generation | External library required | Built-in Chromium engine |
+| CSS Support | Depends on PDF library | Full CSS3 with Flexbox/Grid |
+| Thread Safety | TemplateContext not thread-safe | ChromePdfRenderer is thread-safe |
+| Learning Curve | Liquid + PDF library API | HTML/CSS (web standards) |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| Fluid | IronPDF | Notes |
+|-------|---------|-------|
+| `FluidParser` | N/A | Not needed—use C# strings |
+| `parser.TryParse(source, out template)` | `renderer.RenderHtmlAsPdf(html)` | Direct PDF rendering |
+| `new TemplateContext()` | N/A | Not needed |
+| `context.SetValue("key", value)` | `$"{variable}"` | C# string interpolation |
+| `template.Render(context)` | Build HTML string | Use StringBuilder or Razor |
+| `template.RenderAsync(context)` | `renderer.RenderHtmlAsPdf(html)` | Sync rendering |
+| `TemplateOptions.FileProvider` | `RenderingOptions.BaseUrl` | For file references |
+| `{{ variable }}` | `$"{variable}"` | String interpolation |
+| `{% for item in items %}` | `foreach (var item in items)` | C# loop |
+| `{% if condition %}` | `if (condition)` | C# conditional |
+| `{{ x \| upcase }}` | `x.ToUpper()` | C# method |
+| `{{ x \| date: '%Y-%m-%d' }}` | `x.ToString("yyyy-MM-dd")` | C# formatting |
+
+### Migration Code Example
+
+**Before (Fluid + external PDF library):**
+```csharp
+using Fluid;
+using SomeExternalPdfLibrary;
+
+private static readonly FluidParser _parser = new FluidParser();
+
+public async Task<byte[]> GenerateInvoicePdf(Invoice invoice)
+{
+    string source = @"
+        <html><body>
+            <h1>Invoice #{{ invoice.Number }}</h1>
+            <table>
+                {% for item in invoice.Items %}
+                    <tr>
+                        <td>{{ item.Name }}</td>
+                        <td>${{ item.Price | number_with_precision: 2 }}</td>
+                    </tr>
+                {% endfor %}
+            </table>
+            <p>Total: ${{ invoice.Total }}</p>
+        </body></html>";
+
+    if (_parser.TryParse(source, out var template, out var error))
+    {
+        var context = new TemplateContext();  // NOT thread-safe!
+        context.SetValue("invoice", invoice);
+
+        string html = await template.RenderAsync(context);
+
+        // Need separate PDF library
+        var pdfGenerator = new PdfGenerator();
+        return await pdfGenerator.GenerateAsync(html);
+    }
+    throw new Exception(error);
+}
+```
+
+**After (IronPDF - all-in-one):**
+```csharp
+using IronPdf;
+using System.Text;
+
+public byte[] GenerateInvoicePdf(Invoice invoice)
+{
+    // No Liquid syntax - use C# directly
+    var html = new StringBuilder();
+    html.Append($@"
+        <html><body>
+            <h1>Invoice #{invoice.Number}</h1>
+            <table>");
+
+    foreach (var item in invoice.Items)
+    {
+        html.Append($"<tr><td>{item.Name}</td><td>${item.Price:F2}</td></tr>");
+    }
+
+    html.Append($@"
+            </table>
+            <p>Total: ${invoice.Total:F2}</p>
+        </body></html>");
+
+    // Thread-safe renderer
+    var renderer = new ChromePdfRenderer();
+    var pdf = renderer.RenderHtmlAsPdf(html.ToString());
+    return pdf.BinaryData;
+}
+```
+
+### Critical Migration Notes
+
+1. **No Liquid Syntax**: IronPDF doesn't use `{{ }}` or `{% %}`. Replace with C# string interpolation (`$"{variable}"`) and standard C# control flow (`if`, `foreach`).
+
+2. **Thread Safety**: `ChromePdfRenderer` is thread-safe (can be shared), unlike `TemplateContext`. Simplifies concurrent PDF generation.
+
+3. **Single Package**: No need to coordinate Fluid + external PDF library—IronPDF does both templating (via HTML/CSS) and PDF generation.
+
+4. **Filters to Methods**: Liquid filters like `| upcase` become C# methods like `.ToUpper()`:
+   ```csharp
+   // Liquid: {{ name | upcase }}
+   // C#: $"{name.ToUpper()}"
+   ```
+
+5. **For Complex Templates**: Consider Razor (RazorLight) with IronPDF for template files with C# syntax instead of Liquid.
+
+### NuGet Package Migration
+
+```bash
+# Remove Fluid and external PDF library
+dotnet remove package Fluid.Core
+dotnet remove package WkHtmlToPdf-DotNet  # or whatever PDF library you used
+
+# Install IronPDF (all-in-one solution)
+dotnet add package IronPdf
+```
+
+### Find All Fluid References
+
+```bash
+grep -r "FluidParser\|FluidTemplate\|TemplateContext\|using Fluid" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete Liquid syntax to C# mapping (30+ mappings)
+- All Liquid filter equivalents in C#
+- 10 detailed code conversion examples
+- Thread-safe service patterns
+- Razor integration for complex templates
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: Fluid (templating) → IronPDF](migrate-from-fluid.md)**
 
 

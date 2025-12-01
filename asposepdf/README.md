@@ -223,23 +223,111 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from Aspose.PDF for .NET to IronPDF?
 
-IronPDF offers a compelling alternative to Aspose.PDF with significantly lower costs (starting at $749 vs $1,199+ annually), modern Chromium-based HTML rendering that handles CSS3 and JavaScript perfectly, and superior performance without the documented slowdowns reported in Aspose.PDF forums. The API is more intuitive and .NET-focused, eliminating the legacy Java engine dependencies that plague Aspose.PDF's HTML-to-PDF conversion.
+IronPDF offers a compelling alternative to Aspose.PDF with significantly lower costs ($749 one-time vs $1,199+/year), modern Chromium-based HTML rendering that handles CSS3 and JavaScript perfectly, and superior performance without the documented slowdowns (up to 30x slower) reported in Aspose.PDF forums.
 
-**Migrating from Aspose.PDF for .NET to IronPDF involves:**
+### Quick Migration Overview
 
-1. **NuGet Package Change**: Remove `Aspose.PDF`, add `IronPdf`
-2. **Namespace Update**: Replace `Aspose.Pdf` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+| Aspect | Aspose.PDF | IronPDF |
+|--------|-----------|---------|
+| Pricing | $1,199/developer/year (subscription) | $749 one-time (Lite) |
+| HTML Engine | Flying Saucer (limited CSS) | Chromium (full CSS3/JS) |
+| Performance | Documented slowdowns | Optimized |
+| License Model | Annual renewal + .lic file | Perpetual + code-based key |
+| Linux Support | Issues reported (CPU, memory) | Stable |
+| Page Indexing | 1-based (`Pages[1]`) | 0-based (`Pages[0]`) |
 
-**Key Benefits of Migrating:**
+### Key API Mappings
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Common Task | Aspose.PDF | IronPDF |
+|-------------|-----------|---------|
+| HTML to PDF | `new Document(stream, new HtmlLoadOptions())` | `renderer.RenderHtmlAsPdf(html)` |
+| Load PDF | `new Document(path)` | `PdfDocument.FromFile(path)` |
+| Save PDF | `doc.Save(path)` | `pdf.SaveAs(path)` |
+| Merge PDFs | `PdfFileEditor.Concatenate(files, output)` | `PdfDocument.Merge(pdfs)` |
+| Extract text | `TextAbsorber` + `page.Accept()` | `pdf.ExtractAllText()` |
+| Watermark | `TextStamp` / `ImageStamp` | `pdf.ApplyWatermark(html)` |
+| Encrypt | `doc.Encrypt(user, owner, perms)` | `pdf.SecuritySettings` |
+| Page count | `doc.Pages.Count` | `pdf.PageCount` |
+| Forms | `doc.Form.Fields` | `pdf.Form.Fields` |
+| PDF to image | `PngDevice.Process()` | `pdf.RasterizeToImageFiles()` |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
-**[Complete Migration Guide: Aspose.PDF for .NET → IronPDF](migrate-from-asposepdf.md)**
+### Migration Code Example
+
+**Before (Aspose.PDF):**
+```csharp
+using Aspose.Pdf;
+using System.IO;
+using System.Text;
+
+// License required
+var license = new License();
+license.SetLicense("Aspose.Pdf.lic");
+
+string html = "<h1>Hello World</h1>";
+using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(html)))
+{
+    var options = new HtmlLoadOptions();
+    options.PageInfo.Width = 612;
+    options.PageInfo.Margin = new MarginInfo(20, 20, 20, 20);
+
+    var doc = new Document(stream, options);
+    doc.Save("output.pdf");
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+// Optional for development
+License.LicenseKey = "YOUR-KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = PdfPaperSize.Letter;
+renderer.RenderingOptions.MarginTop = 20;
+renderer.RenderingOptions.MarginBottom = 20;
+
+var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1>");
+pdf.SaveAs("output.pdf");
+```
+
+### Critical Migration Notes
+
+1. **License File → Code Key**: Replace `.lic` file with `IronPdf.License.LicenseKey = "KEY";`
+
+2. **MemoryStream Not Needed**: Aspose requires wrapping HTML in streams. IronPDF accepts strings directly.
+
+3. **Page Index Change**: Aspose uses 1-based (`Pages[1]`), IronPDF uses 0-based (`Pages[0]`).
+
+4. **Better CSS Rendering**: IronPDF's Chromium engine handles modern CSS that Aspose.PDF's Flying Saucer engine cannot.
+
+5. **Facades Replacement**: Replace `PdfFileEditor`, `TextAbsorber`, etc. with direct `PdfDocument` methods.
+
+### NuGet Package Migration
+
+```bash
+# Remove Aspose.PDF
+dotnet remove package Aspose.PDF
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All Aspose.PDF References
+
+```bash
+grep -r "using Aspose.Pdf\|HtmlLoadOptions\|TextAbsorber\|PdfFileEditor" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- 30+ API method mappings organized by category
+- 10 detailed code conversion examples
+- ASP.NET Core integration patterns
+- Docker deployment configuration
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
+**[Complete Migration Guide: Aspose.PDF → IronPDF](migrate-from-asposepdf.md)**
 
 
 ## Conclusion

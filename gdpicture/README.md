@@ -242,23 +242,157 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from GdPicture.NET (now Nutrient) to IronPDF?
 
-IronPDF offers a focused, streamlined solution for developers who need PDF generation and manipulation without the complexity and cost of a full document imaging suite. With a simpler API and straightforward pricing, IronPDF eliminates the overhead of features like OCR and barcode scanning when you only need core PDF functionality.
+### The GdPicture.NET Challenges
 
-**Migrating from GdPicture.NET (now Nutrient) to IronPDF involves:**
+GdPicture.NET (now rebranded as Nutrient) presents several challenges for PDF-focused development:
 
-1. **NuGet Package Change**: Remove `GdPicture.NET.14`, add `IronPdf`
-2. **Namespace Update**: Replace `GdPicture14` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Overkill for PDF-Only Projects**: Full document imaging suite including OCR, barcode, scanning—you're paying for features you may never use
+2. **Enterprise Pricing**: License costs start at $2,999 for PDF plugin alone, scaling to $10,000+ for Ultimate edition
+3. **Status Code Pattern**: Every operation returns `GdPictureStatus` enum that must be checked—no exceptions thrown
+4. **1-Indexed Pages**: Unlike standard .NET collections (0-indexed), GdPicture uses 1-indexed pages
+5. **Version-Locked Namespace**: `GdPicture14` namespace includes version number, requiring changes on major upgrades
+6. **Steep Learning Curve**: API designed around document imaging concepts, not modern .NET patterns
+7. **Rebranding Confusion**: Documentation fragmented between gdpicture.com and nutrient.io
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | GdPicture.NET | IronPDF |
+|--------|---------------|---------|
+| Focus | Document imaging suite (overkill for PDF) | PDF-specific library |
+| Pricing | $2,999-$10,000+ enterprise tier | Competitive, scales with business |
+| API Style | Status codes, manual management | Exceptions, IDisposable, modern .NET |
+| Page Indexing | 1-indexed | 0-indexed (standard .NET) |
+| HTML Rendering | Basic, internal engine | Latest Chromium with CSS3/JS |
+| Thread Safety | Manual synchronization required | Thread-safe by design |
+| Namespace | Version-specific (`GdPicture14`) | Stable (`IronPdf`) |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
-**[Complete Migration Guide: GdPicture.NET (now Nutrient) → IronPDF](migrate-from-gdpicture.md)**
+### Key API Mappings
+
+| GdPicture.NET | IronPDF | Notes |
+|---------------|---------|-------|
+| `GdPicturePDF` | `PdfDocument` | Main PDF class |
+| `GdPictureDocumentConverter` | `ChromePdfRenderer` | HTML/URL to PDF |
+| `LicenseManager.RegisterKEY(key)` | `IronPdf.License.LicenseKey = key` | License setup |
+| `GdPictureStatus` enum checks | try-catch exceptions | Error handling |
+| `pdf.LoadFromFile(path, false)` | `PdfDocument.FromFile(path)` | Load PDF |
+| `converter.LoadFromHTMLString(html)` | `renderer.RenderHtmlAsPdf(html)` | HTML to PDF |
+| `converter.LoadFromURL(url)` | `renderer.RenderUrlAsPdf(url)` | URL to PDF |
+| `pdf.SaveToFile(path)` | `pdf.SaveAs(path)` | Save PDF |
+| `pdf.GetPageCount()` | `pdf.PageCount` | Page count |
+| `pdf.SelectPage(pageNo)` | `pdf.Pages[index]` | Page access (1-indexed vs 0-indexed) |
+| `pdf.MergePages(pdf2)` | `PdfDocument.Merge(pdf1, pdf2)` | Merge PDFs |
+| `pdf.GetPageText()` | `pdf.ExtractTextFromPage(i)` | Extract text |
+| `pdf.DrawText(font, x, y, text)` | HTML stamping | Add text |
+| `pdf.SetFillColor(r, g, b)` | CSS styling | Set colors |
+| `pdf.SaveToFile(path, encryption, userPwd, ownerPwd, ...)` | `pdf.SecuritySettings` | Encryption |
+
+### Migration Code Example
+
+**Before (GdPicture.NET):**
+```csharp
+using GdPicture14;
+
+// License registration required before any operation
+LicenseManager.RegisterKEY("GDPICTURE-LICENSE-KEY");
+
+using (GdPictureDocumentConverter converter = new GdPictureDocumentConverter())
+{
+    // Set options
+    converter.HtmlSetPageWidth(8.5f);
+    converter.HtmlSetPageHeight(11.0f);
+    converter.HtmlSetMargins(0.5f, 0.5f, 0.5f, 0.5f);
+
+    // Load HTML - must check status
+    GdPictureStatus status = converter.LoadFromHTMLString("<h1>Hello World</h1>");
+
+    if (status == GdPictureStatus.OK)
+    {
+        status = converter.SaveAsPDF("output.pdf");
+
+        if (status != GdPictureStatus.OK)
+        {
+            Console.WriteLine($"Save error: {status}");
+        }
+    }
+    else
+    {
+        Console.WriteLine($"Load error: {status}");
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+// License set once at startup
+IronPdf.License.LicenseKey = "IRONPDF-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+
+// Configure options
+renderer.RenderingOptions.PaperSize = PdfPaperSize.Letter;
+renderer.RenderingOptions.MarginTop = 12.7;      // 0.5 inches in mm
+renderer.RenderingOptions.MarginBottom = 12.7;
+renderer.RenderingOptions.MarginLeft = 12.7;
+renderer.RenderingOptions.MarginRight = 12.7;
+
+// Clean, exception-based API - no status checking needed
+var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1>");
+pdf.SaveAs("output.pdf");
+```
+
+### Critical Migration Notes
+
+1. **Page Indexing**: GdPicture uses 1-indexed pages; IronPDF uses 0-indexed:
+   ```csharp
+   // GdPicture: for (int i = 1; i <= pageCount; i++) pdf.SelectPage(i);
+   // IronPDF:   for (int i = 0; i < pdf.PageCount; i++) pdf.Pages[i]...
+   ```
+
+2. **Status Codes → Exceptions**: Replace `if (status != GdPictureStatus.OK)` with try-catch
+
+3. **Unit Conversion**: GdPicture uses points/inches; IronPDF uses millimeters for margins:
+   ```csharp
+   // GdPicture: 0.5 inches margin
+   // IronPDF:   0.5 * 25.4 = 12.7 mm margin
+   ```
+
+4. **Thread Safety**: GdPicture requires manual synchronization; IronPDF is thread-safe by design
+
+5. **OCR/Barcode Features**: Not in IronPDF core—use IronOCR or IronBarcode as companion products
+
+### NuGet Package Migration
+
+```bash
+# Remove GdPicture packages
+dotnet remove package GdPicture.NET.14
+dotnet remove package GdPicture.NET.14.API
+dotnet remove package GdPicture
+dotnet remove package GdPicture.API
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All GdPicture References
+
+```bash
+grep -r "GdPicture14\|GdPicturePDF\|GdPictureDocumentConverter\|GdPictureStatus\|LicenseManager\.RegisterKEY" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping for all GdPicture classes
+- 10 detailed code conversion examples
+- Thread-safe batch processing patterns
+- Error handling pattern migration
+- Page indexing conversion strategies
+- Unit conversion formulas
+- OCR/barcode feature alternatives
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
+**[Complete Migration Guide: GdPicture.NET (Nutrient) → IronPDF](migrate-from-gdpicture.md)**
 
 
 ## Conclusion

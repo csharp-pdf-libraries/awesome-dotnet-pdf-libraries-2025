@@ -216,25 +216,183 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ---
 
-## How Can I Migrate from Nutrient (formerly PSPDFKit) and C# PDF Processing to IronPDF?
+## How Can I Migrate from Nutrient (formerly PSPDFKit) to IronPDF?
 
-Nutrient is a comprehensive platform with AI features and enterprise-level complexity that many projects don't require. IronPDF provides a focused, straightforward library specifically for PDF generation and manipulation without platform overhead.
+### The Platform Complexity Problem
 
-**Migrating from Nutrient (formerly PSPDFKit) and C# PDF Processing to IronPDF involves:**
+Nutrient (formerly PSPDFKit) has evolved from a PDF SDK into a full "document intelligence platform":
 
-1. **NuGet Package Change**: Remove `PSPDFKit`, add `IronPdf`
-2. **Namespace Update**: Replace `PSPDFKit.Pdf` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Platform Overengineering**: AI features and document workflows beyond PDF tasks
+2. **Enterprise Pricing**: Opaque pricing requiring sales contact
+3. **Async-First Complexity**: Everything requires async/await patterns
+4. **Heavy Dependencies**: Full platform has larger footprint
+5. **Rebrand Confusion**: PSPDFKit → Nutrient transition creates documentation issues
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | Nutrient (PSPDFKit) | IronPDF |
+|--------|-------------------|---------|
+| Focus | Document intelligence platform | PDF library |
+| Pricing | Enterprise (contact sales) | Transparent, published |
+| API Style | Async-first, complex | Sync with async options |
+| Configuration | Config objects | Property-based |
+| Watermarks | Annotation-based | HTML-based |
+| Headers/Footers | Manual per-page | Built-in placeholders |
+| Learning Curve | Steep (platform) | Gentle (library) |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
-**[Complete Migration Guide: Nutrient (formerly PSPDFKit) and C# PDF Processing → IronPDF](migrate-from-nutrient.md)**
+### Key API Mappings
+
+| Nutrient (PSPDFKit) | IronPDF | Notes |
+|---------------------|---------|-------|
+| `await PdfProcessor.CreateAsync()` | `new ChromePdfRenderer()` | No async needed |
+| `await processor.OpenAsync(path)` | `PdfDocument.FromFile(path)` | Sync by default |
+| `await processor.GeneratePdfFromHtmlStringAsync(html)` | `renderer.RenderHtmlAsPdf(html)` | Sync |
+| `await processor.MergeAsync(docs)` | `PdfDocument.Merge(pdfs)` | Sync |
+| `new PdfConfiguration { PageSize = ... }` | `RenderingOptions.PaperSize = ...` | Properties |
+| `config.Margins = new Margins(t, r, b, l)` | Individual margin properties | MarginTop, etc. |
+| `await document.AddAnnotationAsync(annotation)` | `pdf.ApplyWatermark(html)` | HTML-based |
+| `new TextAnnotation("text")` | HTML string | More flexible |
+| `await document.SaveAsync(path)` | `pdf.SaveAs(path)` | Sync |
+| `{page count logic}` | `{page}` / `{total-pages}` | Built-in placeholders |
+
+### Migration Code Example
+
+**Before (Nutrient/PSPDFKit):**
+```csharp
+using PSPDFKit.Pdf;
+using System.Threading.Tasks;
+
+public class NutrientService
+{
+    public async Task<byte[]> GeneratePdfAsync(string html)
+    {
+        using var processor = await PdfProcessor.CreateAsync();
+
+        var config = new PdfConfiguration
+        {
+            PageSize = PageSize.A4,
+            Margins = new Margins(20, 20, 20, 20)
+        };
+
+        var document = await processor.GeneratePdfFromHtmlStringAsync(html, config);
+
+        // Add watermark (complex annotation approach)
+        for (int i = 0; i < document.PageCount; i++)
+        {
+            var watermark = new TextAnnotation("DRAFT") { Opacity = 0.3f };
+            await document.AddAnnotationAsync(i, watermark);
+        }
+
+        return await document.ToBytesAsync();
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+using IronPdf.Editing;
+
+public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public PdfService()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        _renderer = new ChromePdfRenderer();
+
+        _renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        _renderer.RenderingOptions.MarginTop = 20;
+        _renderer.RenderingOptions.MarginBottom = 20;
+        _renderer.RenderingOptions.MarginLeft = 20;
+        _renderer.RenderingOptions.MarginRight = 20;
+
+        _renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+        {
+            HtmlFragment = "<div style='text-align:center'>Page {page} of {total-pages}</div>",
+            MaxHeight = 20
+        };
+    }
+
+    public byte[] GeneratePdf(string html)
+    {
+        var pdf = _renderer.RenderHtmlAsPdf(html);
+
+        // Add watermark (simple HTML)
+        pdf.ApplyWatermark(
+            "<div style='color:gray; opacity:0.3;'>DRAFT</div>",
+            45,
+            VerticalAlignment.Middle,
+            HorizontalAlignment.Center);
+
+        return pdf.BinaryData;
+    }
+}
+```
+
+### Critical Migration Notes
+
+1. **Async → Sync**: Remove unnecessary async/await
+   ```csharp
+   // Nutrient: await processor.OpenAsync(path)
+   // IronPDF: PdfDocument.FromFile(path)
+   ```
+
+2. **Config Objects → Properties**:
+   ```csharp
+   // Nutrient: new PdfConfiguration { PageSize = PageSize.A4 }
+   // IronPDF: renderer.RenderingOptions.PaperSize = PdfPaperSize.A4
+   ```
+
+3. **Processor Lifecycle**: IronPDF doesn't need processor creation/disposal
+   ```csharp
+   // Nutrient: using var processor = await PdfProcessor.CreateAsync()
+   // IronPDF: var renderer = new ChromePdfRenderer()
+   ```
+
+4. **Annotations → HTML**: Watermarks use HTML instead of annotation objects
+   ```csharp
+   // Nutrient: new TextAnnotation("DRAFT") { Opacity = 0.3f }
+   // IronPDF: "<div style='opacity:0.3'>DRAFT</div>"
+   ```
+
+5. **Page Numbers**: Use built-in placeholders instead of manual counting
+   ```csharp
+   // Nutrient: for each page, add annotation with i+1
+   // IronPDF: HtmlFragment = "Page {page} of {total-pages}"
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove Nutrient/PSPDFKit packages
+dotnet remove package PSPDFKit.NET
+dotnet remove package Nutrient
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All Nutrient References
+
+```bash
+# Find Nutrient/PSPDFKit usage
+grep -r "PSPDFKit\|Nutrient\|PdfProcessor\|PdfConfiguration" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (30+ methods and properties)
+- Async → sync conversion patterns
+- 10 detailed code conversion examples
+- Configuration object → property mappings
+- Annotation → HTML watermark conversions
+- Header/footer with page number placeholders
+- Performance comparison data
+- Troubleshooting guide for 5+ common issues
+- Pre/post migration checklists
+
+**[Complete Migration Guide: Nutrient (formerly PSPDFKit) → IronPDF](migrate-from-nutrient.md)**
 
 
 ## Conclusion

@@ -299,21 +299,170 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from FastReport.NET to IronPDF?
 
-IronPDF provides a simpler, more intuitive approach to PDF generation focused on HTML-to-PDF conversion, eliminating the need for visual designers and complex reporting templates. It's ideal for developers who want to generate PDFs programmatically using familiar web technologies (HTML/CSS) rather than learning report-specific design tools.
+### The FastReport.NET Challenges
 
-**Migrating from FastReport.NET to IronPDF involves:**
+FastReport.NET is a powerful reporting tool with several limitations for modern PDF generation:
 
-1. **NuGet Package Change**: Remove `FastReport.OpenSource`, add `IronPdf`
-2. **Namespace Update**: Replace `FastReport` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Report Designer Dependency**: Complex layouts require the visual designer or deep .frx file knowledge—not suitable for code-first development
+2. **Steep Learning Curve**: Band-based architecture (DataBand, PageHeaderBand, etc.) requires understanding report-specific concepts
+3. **Limited CSS Support**: Web-standard styling isn't natively supported; styling uses FastReport's proprietary format
+4. **Complex Data Binding**: RegisterData() and DataSource connections add boilerplate for simple PDF generation
+5. **Fragmented Packages**: Multiple NuGet packages needed (FastReport.OpenSource, FastReport.OpenSource.Export.PdfSimple, etc.)
+6. **Licensing Complexity**: Open source version has limited features; commercial version required for PDF encryption, digital signing, and font embedding
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | FastReport.NET | IronPDF |
+|--------|----------------|---------|
+| Design Approach | Visual designer + .frx files | HTML/CSS (web technologies) |
+| Learning Curve | Steep (band-based concepts) | Gentle (HTML/CSS knowledge) |
+| Data Binding | RegisterData(), DataBand | String interpolation, Razor, templating |
+| CSS Support | Limited | Full CSS3 with Flexbox/Grid |
+| Package Model | Multiple packages | Single package (all features) |
+| Rendering Engine | Custom | Latest Chromium |
+| PDF Manipulation | Export-focused | Full (merge, split, security, forms) |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| FastReport.NET | IronPDF | Notes |
+|----------------|---------|-------|
+| `Report` | `ChromePdfRenderer` | Main rendering class |
+| `report.Load("template.frx")` | HTML template file or string | Use HTML/CSS for layout |
+| `report.RegisterData(data, "name")` | String interpolation or Razor | Direct data binding in HTML |
+| `report.Prepare()` | N/A | Not needed (direct rendering) |
+| `report.Export(new PDFExport(), path)` | `pdf.SaveAs(path)` | Simplified export |
+| `TextObject` | HTML `<p>`, `<span>`, `<div>` | Use CSS for styling |
+| `TableObject` | HTML `<table>` | Full CSS styling |
+| `DataBand` | Loop in template | `foreach` in Razor or StringBuilder |
+| `PageHeaderBand` | `HtmlHeaderFooter` | Page headers |
+| `PageFooterBand` | `HtmlHeaderFooter` | Page footers |
+| `[Page]` / `[TotalPages]` | `{page}` / `{total-pages}` | Page number placeholders |
+| `PictureObject` | HTML `<img>` | Supports Base64 or file paths |
+| `PDFExport.OwnerPassword` | `pdf.SecuritySettings.OwnerPassword` | Security settings |
+| `PDFExport.AllowPrint` | `pdf.SecuritySettings.AllowUserPrinting` | Permissions |
+
+### Migration Code Example
+
+**Before (FastReport.NET - band-based with .frx template):**
+```csharp
+using FastReport;
+using FastReport.Export.PdfSimple;
+using System.Data;
+
+// Create data
+DataTable products = new DataTable("Products");
+products.Columns.Add("Name", typeof(string));
+products.Columns.Add("Price", typeof(decimal));
+products.Rows.Add("Widget A", 29.99m);
+products.Rows.Add("Widget B", 49.99m);
+
+using (Report report = new Report())
+{
+    // Load template with DataBand configuration
+    report.Load("products.frx");
+
+    // Register and enable data source
+    report.RegisterData(products, "Products");
+    report.GetDataSource("Products").Enabled = true;
+
+    // Prepare the report
+    report.Prepare();
+
+    // Export to PDF
+    using (var export = new PDFSimpleExport())
+    {
+        report.Export(export, "products.pdf");
+    }
+}
+```
+
+**After (IronPDF - HTML/CSS based):**
+```csharp
+using IronPdf;
+using System.Text;
+
+// Create data
+var products = new[]
+{
+    new { Name = "Widget A", Price = 29.99m },
+    new { Name = "Widget B", Price = 49.99m }
+};
+
+// Build HTML with data - no template file needed
+var html = new StringBuilder();
+html.Append(@"
+    <html>
+    <head>
+        <style>
+            body { font-family: Arial; padding: 20px; }
+            table { width: 100%; border-collapse: collapse; }
+            th { background: #4CAF50; color: white; padding: 10px; }
+            td { border: 1px solid #ddd; padding: 8px; }
+        </style>
+    </head>
+    <body>
+        <h1>Product Catalog</h1>
+        <table>
+            <tr><th>Product</th><th>Price</th></tr>");
+
+foreach (var p in products)
+{
+    html.Append($"<tr><td>{p.Name}</td><td>${p.Price:F2}</td></tr>");
+}
+
+html.Append("</table></body></html>");
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(html.ToString());
+pdf.SaveAs("products.pdf");
+```
+
+### Critical Migration Notes
+
+1. **Paradigm Shift**: FastReport uses band-based visual design; IronPDF uses HTML/CSS. This is the fundamental change—web developers will find IronPDF much more intuitive.
+
+2. **No .frx Files**: FastReport templates (.frx) won't work with IronPDF. Convert your layouts to HTML/CSS templates.
+
+3. **Page Number Syntax**: FastReport uses `[Page]`/`[TotalPages]`, IronPDF uses `{page}`/`{total-pages}`.
+
+4. **Data Binding**: Replace RegisterData() with direct HTML generation using loops, string interpolation, or templating engines like Razor.
+
+5. **Headers/Footers**: Replace PageHeaderBand/PageFooterBand with:
+   ```csharp
+   renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter()
+   {
+       HtmlFragment = "<div style='text-align:center'>Header</div>"
+   };
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove all FastReport packages
+dotnet remove package FastReport.OpenSource
+dotnet remove package FastReport.OpenSource.Export.PdfSimple
+dotnet remove package FastReport.OpenSource.Web
+dotnet remove package FastReport.OpenSource.Data.MsSql
+
+# Install IronPDF (includes all features)
+dotnet add package IronPdf
+```
+
+### Find All FastReport References
+
+```bash
+grep -r "FastReport\|\.frx\|PDFExport\|PDFSimpleExport\|DataBand\|RegisterData" --include="*.cs" --include="*.csproj" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping for Report, PDFExport, and all band classes
+- 10 detailed code conversion examples
+- Master-detail data binding patterns
+- Razor templating integration
+- Headers/footers with page numbers
+- Security and encryption migration
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: FastReport.NET → IronPDF](migrate-from-fastreport.md)**
 

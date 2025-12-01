@@ -187,22 +187,101 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from Api2pdf to IronPDF?
 
-Api2pdf sends your sensitive HTML and documents to third-party servers, creating security and compliance risks. You pay per conversion indefinitely, with costs accumulating over time and creating vendor lock-in.
+Api2pdf sends your sensitive HTML and documents to third-party servers, creating security and compliance risks. You pay per conversion indefinitely, with costs accumulating over time and creating vendor lock-in. IronPDF runs entirely on your infrastructure with a one-time license, eliminating these concerns.
 
-**Migrating from Api2pdf to IronPDF involves:**
+### Quick Migration Overview
 
-1. **NuGet Package Change**: Remove `Api2Pdf`, add `IronPdf`
-2. **Namespace Update**: Replace `Api2Pdf` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+| Aspect | Api2pdf | IronPDF |
+|--------|---------|---------|
+| Data Handling | Sent to third-party cloud servers | Processed locally on your infrastructure |
+| Pricing | Pay-per-conversion (~$0.005/PDF) | One-time perpetual license |
+| Latency | 2-5 seconds (network round-trip) | 100-500ms (local processing) |
+| Offline | Not available | Works fully offline |
+| Installation | API key + HTTP client | Simple NuGet package |
+| Compliance | GDPR/HIPAA concerns (data leaves network) | Full compliance control |
 
-**Key Benefits of Migrating:**
+### Key API Mappings
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Common Task | Api2pdf | IronPDF |
+|-------------|---------|---------|
+| Create client | `new Api2PdfClient("API_KEY")` | `new ChromePdfRenderer()` |
+| HTML to PDF | `client.HeadlessChrome.FromHtmlAsync(html)` | `renderer.RenderHtmlAsPdf(html)` |
+| URL to PDF | `client.HeadlessChrome.FromUrlAsync(url)` | `renderer.RenderUrlAsPdf(url)` |
+| Get PDF | `response.Pdf` (URL to download) | `pdf.BinaryData` or `pdf.SaveAs()` |
+| Merge PDFs | `client.PdfSharp.MergePdfsAsync(urls)` | `PdfDocument.Merge(pdfs)` |
+| Set password | `client.PdfSharp.SetPasswordAsync(url, pwd)` | `pdf.SecuritySettings.OwnerPassword` |
+| Landscape | `options.Landscape = true` | `RenderingOptions.PaperOrientation = Landscape` |
+| Page size | `options.PageSize = "A4"` | `RenderingOptions.PaperSize = PdfPaperSize.A4` |
+| Delay | `options.Delay = 3000` | `RenderingOptions.WaitFor.RenderDelay(3000)` |
+| Print background | `options.PrintBackground = true` | `RenderingOptions.PrintHtmlBackgrounds = true` |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Migration Code Example
+
+**Before (Api2pdf):**
+```csharp
+using Api2Pdf.DotNet;
+
+var a2pClient = new Api2PdfClient("YOUR_API_KEY");
+var options = new HeadlessChromeOptions { Landscape = true, PrintBackground = true };
+var response = await a2pClient.HeadlessChrome.FromHtmlAsync("<h1>Report</h1>", options);
+
+if (response.Success)
+{
+    // Download PDF from URL
+    using var httpClient = new HttpClient();
+    var pdfBytes = await httpClient.GetByteArrayAsync(response.Pdf);
+    File.WriteAllBytes("report.pdf", pdfBytes);
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape;
+renderer.RenderingOptions.PrintHtmlBackgrounds = true;
+
+var pdf = renderer.RenderHtmlAsPdf("<h1>Report</h1>");
+pdf.SaveAs("report.pdf");  // Immediate - no download step!
+```
+
+### Critical Migration Notes
+
+1. **No API Key Needed**: IronPDF runs locally—remove all API key configuration.
+
+2. **No Download Step**: Api2pdf returns a URL requiring a separate download. IronPDF gives you the PDF directly via `BinaryData`, `Stream`, or `SaveAs()`.
+
+3. **Sync by Default**: Api2pdf is async (HTTP). IronPDF is sync by default but offers `RenderHtmlAsPdfAsync()` when needed.
+
+4. **Exception Handling**: Api2pdf uses `response.Success` checks. IronPDF throws exceptions—use try/catch.
+
+5. **No Per-Conversion Cost**: Remove any metering or usage tracking code.
+
+### NuGet Package Migration
+
+```bash
+# Remove Api2pdf
+dotnet remove package Api2Pdf
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All Api2pdf References
+
+```bash
+grep -r "using Api2Pdf\|Api2PdfClient\|HeadlessChrome\|WkHtmlToPdf" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- 30+ API method mappings organized by category
+- 10 detailed code conversion examples
+- ASP.NET Core integration patterns
+- Docker deployment configuration
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: Api2pdf → IronPDF](migrate-from-api2pdf.md)**
 
 

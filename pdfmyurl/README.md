@@ -227,21 +227,145 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from PDFmyURL to IronPDF?
 
-PDFmyURL is an API service that processes documents on external servers, creating privacy concerns and requiring ongoing monthly subscriptions ($39+/month). IronPDF is a true .NET library that runs locally in your application, giving you full control over document processing, eliminating recurring costs after purchase, and keeping sensitive data secure.
+### The Cloud Processing Problem
 
-**Migrating from PDFmyURL to IronPDF involves:**
+PDFmyURL processes all your documents on external servers. This architecture creates significant concerns:
 
-1. **NuGet Package Change**: Remove `PdfMyUrl`, add `IronPdf`
-2. **Namespace Update**: Replace `PdfMyUrl` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Privacy & Data Security**: Every document travels to and through PDFmyURL's servers—sensitive contracts, financial reports, personal data all processed externally
+2. **Ongoing Subscription Costs**: Starting at $39/month, annual costs exceed $468/year with no ownership
+3. **Internet Dependency**: Every conversion requires network connectivity—no offline capability
+4. **Rate Limits & Throttling**: API calls can be throttled during peak usage
+5. **Service Availability**: Your application depends on a third-party service being online
+6. **Vendor Lock-in**: API changes can break your integration without notice
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | PDFmyURL | IronPDF |
+|--------|----------|---------|
+| Processing Location | External servers | Local (your server) |
+| Authentication | API key per request | One-time license key |
+| Network Required | Every conversion | Only initial setup |
+| Pricing Model | Monthly subscription ($39+) | Perpetual license available |
+| Rate Limits | Yes (plan-dependent) | None |
+| Data Privacy | Data sent externally | Data stays local |
+| PDF Manipulation | Limited | Full suite (merge, split, edit) |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| PDFmyURL (Pdfcrowd) | IronPDF | Notes |
+|---------------------|---------|-------|
+| `new HtmlToPdfClient("user", "key")` | `new ChromePdfRenderer()` | No per-request credentials |
+| `client.convertUrlToFile(url, file)` | `renderer.RenderUrlAsPdf(url).SaveAs(file)` | URL to PDF |
+| `client.convertStringToFile(html, file)` | `renderer.RenderHtmlAsPdf(html).SaveAs(file)` | HTML to PDF |
+| `client.setPageSize("A4")` | `renderer.RenderingOptions.PaperSize = PdfPaperSize.A4` | Paper size |
+| `client.setOrientation("landscape")` | `renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape` | Orientation |
+| `client.setMarginTop("10mm")` | `renderer.RenderingOptions.MarginTop = 10` | Margins (mm) |
+| `client.setHeaderHtml(html)` | `renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter { HtmlFragment = html }` | Header |
+| `client.setFooterHtml(html)` | `renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter { HtmlFragment = html }` | Footer |
+| `client.setJavascriptDelay(500)` | `renderer.RenderingOptions.RenderDelay = 500` | JS wait time |
+| `response.GetBytes()` | `pdf.BinaryData` | Get raw bytes |
+| _(not available)_ | `PdfDocument.Merge()` | NEW: Merge PDFs |
+| _(not available)_ | `pdf.ExtractAllText()` | NEW: Text extraction |
+| _(not available)_ | `pdf.ApplyWatermark()` | NEW: Watermarks |
+
+### Migration Code Example
+
+**Before (PDFmyURL/Pdfcrowd):**
+```csharp
+using Pdfcrowd;
+
+try
+{
+    var client = new HtmlToPdfClient("username", "apikey");
+    client.setPageSize("A4");
+    client.setHeaderHtml("<div>Page {page_number} of {total_pages}</div>");
+    client.convertUrlToFile("https://example.com", "output.pdf");
+}
+catch (Error why)
+{
+    Console.WriteLine("Error: " + why);
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    HtmlFragment = "<div>Page {page} of {total-pages}</div>"  // Note: different placeholders
+};
+
+var pdf = renderer.RenderUrlAsPdf("https://example.com");
+pdf.SaveAs("output.pdf");
+```
+
+### Critical Migration Notes
+
+1. **Placeholder Syntax**: PDFmyURL uses `{page_number}` and `{total_pages}`; IronPDF uses `{page}` and `{total-pages}`
+   ```csharp
+   // PDFmyURL: "Page {page_number} of {total_pages}"
+   // IronPDF: "Page {page} of {total-pages}"
+   ```
+
+2. **API Key → License Key**: One-time setup at app startup
+   ```csharp
+   // PDFmyURL: new HtmlToPdfClient("user", "apikey") - per request
+   // IronPDF: IronPdf.License.LicenseKey = "KEY" - once at startup
+   ```
+
+3. **Async Patterns**: PDFmyURL requires async; IronPDF is sync by default
+   ```csharp
+   // PDFmyURL: await client.ConvertUrlAsync(url)
+   // IronPDF: await Task.Run(() => renderer.RenderUrlAsPdf(url))
+   ```
+
+4. **Setter Methods → Properties**: Configuration style change
+   ```csharp
+   // PDFmyURL: client.setPageSize("A4");
+   // IronPDF: renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+   ```
+
+5. **Error Handling**: Different exception types
+   ```csharp
+   // PDFmyURL: catch (Pdfcrowd.Error e)
+   // IronPDF: catch (IronPdf.Exceptions.IronPdfRenderingException e)
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove PDFmyURL packages
+dotnet remove package PdfMyUrl
+dotnet remove package Pdfcrowd
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All PDFmyURL References
+
+```bash
+# Find PDFmyURL usage
+grep -r "PdfMyUrl\|Pdfcrowd\|HtmlToPdfClient" --include="*.cs" .
+
+# Find placeholder patterns to migrate
+grep -r "{page_number}\|{total_pages}" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (30+ methods and properties)
+- 10 detailed code conversion examples
+- Async pattern migration strategies
+- Header/footer placeholder conversion
+- New features (PDF manipulation, text extraction, watermarks, security)
+- Server deployment (Linux dependencies)
+- Troubleshooting guide for common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: PDFmyURL → IronPDF](migrate-from-pdfmyurl.md)**
 

@@ -236,22 +236,101 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from Syncfusion PDF Framework to IronPDF?
 
-IronPDF offers straightforward, standalone licensing without forcing you to purchase an entire suite of components. Unlike Syncfusion's restrictive community license (requiring both <$1M revenue AND <5 developers), IronPDF provides flexible licensing options suitable for teams of any size.
+### The Bundle Licensing Problem
 
-**Migrating from Syncfusion PDF Framework to IronPDF involves:**
+Syncfusion's licensing creates significant challenges for teams that only need PDF functionality:
 
-1. **NuGet Package Change**: Remove `Syncfusion.Pdf.Net.Core`, add `IronPdf`
-2. **Namespace Update**: Replace `Syncfusion.Pdf` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Suite-Only Purchase**: Cannot buy PDF library standalone—must purchase entire Essential Studio
+2. **Community License Restrictions**: Free tier requires BOTH <$1M revenue AND <5 developers
+3. **Complex Deployment Licensing**: Different licenses for web, desktop, server deployments
+4. **Annual Renewal Required**: Subscription model with yearly costs
+5. **Suite Bloat**: Includes 1000+ components you don't need
 
-**Key Benefits of Migrating:**
+### Quick Migration Comparison
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | Syncfusion PDF | IronPDF |
+|--------|----------------|---------|
+| Purchase Model | Suite bundle only | Standalone |
+| Licensing | Complex tiers | Simple per-developer |
+| API Style | Coordinate-based graphics | HTML/CSS-first |
+| HTML Support | Requires BlinkBinaries | Native Chromium |
+| CSS Support | Limited | Full CSS3/flexbox/grid |
+| Dependencies | Multiple packages | Single NuGet |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Comprehensive API Mappings
+
+| Syncfusion | IronPDF | Notes |
+|------------|---------|-------|
+| `PdfDocument` | `ChromePdfRenderer` | Create PDFs |
+| `PdfLoadedDocument` | `PdfDocument.FromFile()` | Load PDFs |
+| `graphics.DrawString()` | HTML text elements | `<p>`, `<h1>` |
+| `graphics.DrawImage()` | `<img>` tag | HTML images |
+| `PdfGrid` | HTML `<table>` | Tables |
+| `PdfStandardFont` | CSS `font-family` | Fonts |
+| `PdfBrushes.Black` | CSS `color: black` | Colors |
+| `document.Security` | `pdf.SecuritySettings` | Security |
+| `PdfTextExtractor` | `pdf.ExtractAllText()` | Text extraction |
+| `ImportPageRange()` | `PdfDocument.Merge()` | Merging |
+
+### Migration Code Example
+
+**Before (Syncfusion):**
+```csharp
+using Syncfusion.Pdf;
+using Syncfusion.Pdf.Graphics;
+Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense("KEY");
+
+PdfDocument document = new PdfDocument();
+PdfPage page = document.Pages.Add();
+PdfGraphics graphics = page.Graphics;
+PdfFont font = new PdfStandardFont(PdfFontFamily.Helvetica, 20);
+graphics.DrawString("Hello World", font, PdfBrushes.Black, new PointF(0, 0));
+
+using (FileStream stream = new FileStream("output.pdf", FileMode.Create))
+{
+    document.Save(stream);
+}
+document.Close(true);
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1>");
+pdf.SaveAs("output.pdf");
+```
+
+### NuGet Package Migration
+
+```bash
+# Remove Syncfusion packages
+dotnet remove package Syncfusion.Pdf.Net.Core
+dotnet remove package Syncfusion.HtmlToPdfConverter.Net.Windows
+dotnet remove package Syncfusion.Licensing
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All Syncfusion References
+
+```bash
+grep -r "Syncfusion.Pdf\|PdfDocument\|PdfGraphics\|PdfGrid" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- 100+ API mappings across all Syncfusion PDF features
+- 15+ detailed code conversion examples
+- Graphics/drawing to HTML/CSS conversion
+- PdfGrid to HTML table migration
+- Security, forms, signatures migration
+- Text extraction, merging, splitting examples
+- Complete pre/post migration checklists
+
 **[Complete Migration Guide: Syncfusion PDF Framework → IronPDF](migrate-from-syncfusion-pdf-framework.md)**
 
 

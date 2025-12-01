@@ -211,22 +211,109 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from EO.Pdf to IronPDF?
 
-EO.Pdf suffers from a bloated 126MB footprint due to bundled Chrome dependencies, making deployment cumbersome and increasing infrastructure costs. Its legacy architecture—originally built on Internet Explorer before migrating to Chrome—introduces compatibility issues and technical debt.
+### The EO.Pdf Problems
 
-**Migrating from EO.Pdf to IronPDF involves:**
+EO.Pdf has several significant issues:
 
-1. **NuGet Package Change**: Install `IronPdf` package
-2. **Namespace Update**: Replace `EO.Pdf` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Massive 126MB Package**: Bundles its own Chromium, inflating Docker images and slowing deployments
+2. **Legacy IE Baggage**: Originally built on Internet Explorer before Chrome migration, introducing compatibility issues
+3. **$799 Per License**: High cost compared to alternatives with similar or better functionality
+4. **Static Global Options**: `HtmlToPdf.Options` is not thread-safe for multi-tenant applications
+5. **Windows-Centric**: Limited Linux/macOS support despite "cross-platform" claims
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | EO.Pdf | IronPDF |
+|--------|--------|---------|
+| Package Size | 126MB | ~50MB (optimized) |
+| Legacy Issues | IE migration baggage | Clean, modern codebase |
+| Configuration | Static/global (not thread-safe) | Instance-based, thread-safe |
+| Platform Support | Windows-focused | True cross-platform |
+| Price | $799/developer | Competitive pricing |
+| Documentation | Limited | Comprehensive tutorials |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| EO.Pdf | IronPDF | Notes |
+|--------|---------|-------|
+| `HtmlToPdf.ConvertHtml(html, path)` | `renderer.RenderHtmlAsPdf(html)` then `SaveAs()` | Two-step in IronPDF |
+| `HtmlToPdf.ConvertUrl(url, path)` | `renderer.RenderUrlAsPdf(url)` then `SaveAs()` | |
+| `HtmlToPdf.Options.PageSize` | `renderer.RenderingOptions.PaperSize` | Instance, not static |
+| `HtmlToPdf.Options.OutputArea` | `MarginTop/Bottom/Left/Right` | Individual properties |
+| `new PdfDocument(path)` | `PdfDocument.FromFile(path)` | Static factory |
+| `doc.Append(other)` | `PdfDocument.Merge(doc1, doc2)` | Static merge method |
+| `doc.Security.UserPassword` | `pdf.SecuritySettings.UserPassword` | |
+| `AcmRender`, `AcmText`, `AcmBlock` | HTML/CSS | No ACM needed |
+| `AfterRenderPage` event | `HtmlHeaderFooter` | For headers/footers |
+
+### Migration Code Example
+
+**Before (EO.Pdf - static options, not thread-safe):**
+```csharp
+using EO.Pdf;
+using System.Drawing;
+
+// DANGER: Static options affect ALL threads!
+HtmlToPdf.Options.PageSize = PdfPageSizes.A4;
+HtmlToPdf.Options.OutputArea = new RectangleF(0.5f, 0.5f, 7.5f, 10.5f);  // inches
+HtmlToPdf.Options.BaseUrl = "https://example.com";
+HtmlToPdf.ConvertHtml(html, "output.pdf");
+```
+
+**After (IronPDF - instance-based, thread-safe):**
+```csharp
+using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 12.7;    // 0.5" = 12.7mm
+renderer.RenderingOptions.MarginBottom = 12.7;
+renderer.RenderingOptions.MarginLeft = 12.7;
+renderer.RenderingOptions.MarginRight = 12.7;
+renderer.RenderingOptions.BaseUrl = new Uri("https://example.com");
+
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+// Thread-safe, isolated options per renderer instance!
+```
+
+### Critical Migration Notes
+
+1. **Margin Unit Conversion**: EO.Pdf uses inches in `OutputArea`, IronPDF uses millimeters. Convert: `inches × 25.4 = mm`
+
+2. **Static to Instance**: Replace all `HtmlToPdf.Options.X` with `renderer.RenderingOptions.X`
+
+3. **ACM to HTML**: If using `AcmRender`, `AcmText`, `AcmBlock`, migrate to HTML/CSS (much simpler!)
+
+4. **Two-Step Save**: EO.Pdf saves directly in `ConvertHtml()`. IronPDF returns `PdfDocument`, then call `SaveAs()`
+
+5. **Constructor to Factory**: `new PdfDocument(path)` becomes `PdfDocument.FromFile(path)`
+
+### NuGet Package Migration
+
+```bash
+# Remove EO.Pdf
+dotnet remove package EO.Pdf
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All EO.Pdf References
+
+```bash
+grep -r "EO.Pdf\|HtmlToPdf\|AcmRender\|PdfPageSizes" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping for HtmlToPdf, ACM, and PdfDocument classes
+- 10 detailed code conversion examples
+- ACM to HTML/CSS migration patterns
+- Thread-safe service patterns
+- Unit conversion helpers (inches to mm)
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: EO.Pdf → IronPDF](migrate-from-eopdf.md)**
 
 

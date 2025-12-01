@@ -237,22 +237,134 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from Ghostscript to IronPDF?
 
-IronPDF offers a native .NET library with a permissive commercial license, eliminating the AGPL licensing concerns of Ghostscript. Unlike Ghostscript's command-line interface requiring complex process management, IronPDF provides a clean, object-oriented API designed specifically for .NET applications.
+### The Ghostscript Challenges
 
-**Migrating from Ghostscript to IronPDF involves:**
+Ghostscript presents several challenges for modern .NET development:
 
-1. **NuGet Package Change**: Install `IronPdf` package
-2. **Namespace Update**: Replace `Ghostscript.NET` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **AGPL License Restrictions**: Ghostscript's AGPL license requires source code disclosure unless you purchase an expensive commercial license from Artifex
+2. **Command-Line Interface**: Fundamentally a CLI tool—using it from C# requires process spawning, string arguments, and stderr parsing
+3. **External Binary Dependency**: Must install separately, manage PATH variables, ensure version compatibility across environments
+4. **No HTML-to-PDF Support**: Ghostscript cannot convert HTML to PDF—requires external tools like wkhtmltopdf
+5. **Complex Switch Syntax**: Operations controlled via cryptic switches like `-dNOPAUSE -dBATCH -sDEVICE=pdfwrite`
+6. **Platform-Specific DLLs**: Different DLLs for 32-bit vs 64-bit (`gsdll32.dll` vs `gsdll64.dll`)
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | Ghostscript | IronPDF |
+|--------|-------------|---------|
+| License | AGPL (viral) or expensive commercial | Commercial with clear terms |
+| Integration | Command-line process spawning | Native .NET library |
+| API Design | String-based switches | Typed, IntelliSense-enabled API |
+| Error Handling | Parse stderr text | .NET exceptions |
+| HTML-to-PDF | Not supported (need external tools) | Built-in Chromium engine |
+| Dependencies | External binary installation | Self-contained NuGet package |
+| Thread Safety | Process isolation only | Thread-safe by design |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API and Switch Mappings
+
+| Ghostscript | IronPDF | Notes |
+|-------------|---------|-------|
+| `GhostscriptProcessor` | `PdfDocument` methods | PDF operations |
+| `GhostscriptRasterizer` | `pdf.RasterizeToImageFiles()` | PDF to images |
+| `GhostscriptVersionInfo` | N/A (not needed) | No external DLLs |
+| `-dNOPAUSE -dBATCH` | N/A (not needed) | Automatic |
+| `-sDEVICE=pdfwrite` | `PdfDocument.Merge()` / `SaveAs()` | PDF output |
+| `-sDEVICE=png16m -r300` | `pdf.RasterizeToImageFiles("*.png", 300)` | PNG at 300 DPI |
+| `-dPDFSETTINGS=/ebook` | `pdf.CompressImages(75)` | Compression |
+| `-dFirstPage=5 -dLastPage=10` | `pdf.CopyPages(4, 5, 6, 7, 8, 9)` | Page extraction (0-indexed) |
+| `-sOwnerPassword=X` | `pdf.SecuritySettings.OwnerPassword = "X"` | Encryption |
+| `-sUserPassword=X` | `pdf.SecuritySettings.UserPassword = "X"` | Password |
+| `processor.Process(switches)` | Method calls with parameters | Type-safe API |
+
+### Migration Code Example
+
+**Before (Ghostscript.NET):**
+```csharp
+using Ghostscript.NET;
+using Ghostscript.NET.Processor;
+using System.Collections.Generic;
+
+// Must locate Ghostscript DLL
+GhostscriptVersionInfo gvi = new GhostscriptVersionInfo("gsdll64.dll");
+
+using (GhostscriptProcessor processor = new GhostscriptProcessor(gvi))
+{
+    // Pass switches as strings - no IntelliSense, no type safety
+    List<string> switches = new List<string>
+    {
+        "-dNOPAUSE",
+        "-dBATCH",
+        "-dSAFER",
+        "-sDEVICE=pdfwrite",
+        "-dPDFSETTINGS=/ebook",
+        "-sOwnerPassword=secret123",
+        "-sOutputFile=compressed.pdf",
+        "large_document.pdf"
+    };
+
+    processor.Process(switches.ToArray());
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+// No external DLLs, no switches to memorize
+var pdf = PdfDocument.FromFile("large_document.pdf");
+
+// Type-safe, IntelliSense-enabled API
+pdf.CompressImages(75);  // Similar to -dPDFSETTINGS=/ebook
+pdf.SecuritySettings.OwnerPassword = "secret123";
+
+pdf.SaveAs("compressed.pdf");
+```
+
+### Critical Migration Notes
+
+1. **Process to Library**: No more `Process.Start()` or stderr parsing—use native .NET methods
+
+2. **Page Indexing**: Ghostscript uses 1-indexed (`-dFirstPage=5`); IronPDF uses 0-indexed (`CopyPages(4)`)
+
+3. **PostScript Not Supported**: IronPDF doesn't handle .ps files—convert to PDF first or use HTML
+
+4. **No External Binaries**: Remove `gsdll*.dll` files, uninstall Ghostscript from servers
+
+5. **AGPL Concerns Eliminated**: IronPDF's commercial license has no source code disclosure requirements
+
+### NuGet Package Migration
+
+```bash
+# Remove Ghostscript.NET
+dotnet remove package Ghostscript.NET
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All Ghostscript References
+
+```bash
+# Ghostscript.NET library references
+grep -r "Ghostscript\.NET\|GhostscriptProcessor\|GhostscriptRasterizer" --include="*.cs" .
+
+# Direct process calls to Ghostscript
+grep -r "gswin64c\|gswin32c\|gsdll" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete command-line switch mapping table
+- 10 detailed code conversion examples
+- PDF to image conversion
+- PDF compression and optimization
+- Password protection migration
+- Batch processing patterns
+- PostScript handling options
+- Troubleshooting guide for 8+ common issues
+- Deployment checklist for removing Ghostscript dependencies
+
 **[Complete Migration Guide: Ghostscript → IronPDF](migrate-from-ghostscript.md)**
 
 

@@ -259,21 +259,152 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from Kaizen.io HTML-to-PDF to IronPDF?
 
-IronPDF eliminates cloud dependencies by processing PDF generation entirely on your local infrastructure, ensuring your sensitive data never leaves your network. You'll experience significantly faster performance without network latency while maintaining complete control over your rendering environment.
+### The Cloud-Based API Challenges
 
-**Migrating from Kaizen.io HTML-to-PDF to IronPDF involves:**
+Kaizen.io HTML-to-PDF, like other cloud-based services, introduces limitations:
 
-1. **NuGet Package Change**: Remove `Kaizen.HtmlToPdf`, add `IronPdf`
-2. **Namespace Update**: Replace `Kaizen.HtmlToPdf` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Cloud Dependency**: Requires constant internet connection and external service availability
+2. **Data Privacy Concerns**: Sensitive HTML content transmitted to third-party servers
+3. **Network Latency**: Every PDF generation incurs network round-trip delays
+4. **Per-Request Pricing**: Costs scale directly with usage volume
+5. **Rate Limiting**: API throttling during high-traffic periods
+6. **Vendor Lock-In**: API changes or service discontinuation risk
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | Kaizen.io | IronPDF |
+|--------|-----------|---------|
+| Processing | Cloud (external servers) | Local (in-process) |
+| Data Privacy | Data transmitted externally | Data never leaves network |
+| Latency | Network round-trip (100-500ms+) | Local (50-200ms) |
+| Pricing | Per-request or subscription | One-time or annual license |
+| Offline Mode | Not possible | Full functionality |
+| Rate Limits | API throttling | No limits |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| Kaizen.io | IronPDF | Notes |
+|-----------|---------|-------|
+| `new HtmlToPdfConverter(apiKey)` | `new ChromePdfRenderer()` | No API key needed |
+| `converter.Convert(html)` | `renderer.RenderHtmlAsPdf(html)` | Returns PdfDocument |
+| `converter.ConvertUrl(url)` | `renderer.RenderUrlAsPdf(url)` | Direct URL support |
+| `converter.ConvertAsync(...)` | `renderer.RenderHtmlAsPdfAsync(...)` | Async version |
+| `ConversionOptions.PageSize` | `RenderingOptions.PaperSize` | Enum value |
+| `ConversionOptions.Orientation` | `RenderingOptions.PaperOrientation` | Enum value |
+| `ConversionOptions.MarginTop` | `RenderingOptions.MarginTop` | In millimeters |
+| `ConversionOptions.Header` | `RenderingOptions.HtmlHeader` | HTML-based |
+| `ConversionOptions.Footer` | `RenderingOptions.HtmlFooter` | HTML-based |
+| `{page}` | `{page}` | Same placeholder |
+| `{total}` | `{total-pages}` | Different placeholder |
+
+### Migration Code Example
+
+**Before (Kaizen.io):**
+```csharp
+using Kaizen.IO;
+
+public class KaizenService
+{
+    public byte[] GeneratePdf(string html)
+    {
+        var converter = new HtmlToPdfConverter("YOUR_API_KEY");
+        var options = new ConversionOptions
+        {
+            PageSize = PageSize.A4,
+            MarginTop = 20,
+            MarginBottom = 20,
+            Header = new HeaderOptions { HtmlContent = "<div>Company Report</div>" },
+            Footer = new FooterOptions { HtmlContent = "<div>Page {page} of {total}</div>" }
+        };
+
+        return converter.Convert(html, options);
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public PdfService()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        _renderer = new ChromePdfRenderer();
+
+        _renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        _renderer.RenderingOptions.MarginTop = 20;
+        _renderer.RenderingOptions.MarginBottom = 20;
+
+        _renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+        {
+            HtmlFragment = "<div>Company Report</div>",
+            MaxHeight = 25
+        };
+
+        _renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+        {
+            HtmlFragment = "<div>Page {page} of {total-pages}</div>",
+            MaxHeight = 25
+        };
+    }
+
+    public byte[] GeneratePdf(string html)
+    {
+        return _renderer.RenderHtmlAsPdf(html).BinaryData;
+    }
+}
+```
+
+### Critical Migration Notes
+
+1. **No API Key**: IronPDF uses license key set once at startup (not per-request)
+
+2. **Placeholder Syntax**: Update total pages placeholder:
+   - `{total}` → `{total-pages}`
+   - `{title}` → `{html-title}`
+
+3. **Return Type**: Kaizen returns `byte[]`; IronPDF returns `PdfDocument`:
+   ```csharp
+   var pdf = renderer.RenderHtmlAsPdf(html);
+   byte[] bytes = pdf.BinaryData;  // Get bytes
+   pdf.SaveAs("output.pdf");        // Or save directly
+   ```
+
+4. **Delete Network Error Handling**: No more rate limits, 429 errors, or network failures
+
+5. **Options on Renderer**: Configure `RenderingOptions` on renderer, not per-call options object
+
+### NuGet Package Migration
+
+```bash
+# Remove Kaizen.io package
+dotnet remove package Kaizen.HtmlToPdf
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All Kaizen.io References
+
+```bash
+# Find Kaizen.io usage
+grep -r "using Kaizen\|HtmlToPdfConverter\|ConversionOptions" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (30+ methods and properties)
+- ConversionOptions property mappings
+- 10 detailed code conversion examples
+- Cloud-to-local migration patterns
+- Rate limit/retry logic removal
+- Data privacy improvements
+- Performance comparison data
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: Kaizen.io HTML-to-PDF → IronPDF](migrate-from-kaizenio-html-to-pdf.md)**
 

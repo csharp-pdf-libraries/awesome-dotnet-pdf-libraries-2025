@@ -210,22 +210,127 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from PDFPrinting.NET to IronPDF?
 
-IronPDF is a comprehensive PDF library that not only prints PDFs but also creates, edits, and manipulates them programmatically. Unlike PDFPrinting.NET's Windows-only printing capabilities, IronPDF works cross-platform (Windows, Linux, macOS) and provides enterprise-grade features including HTML-to-PDF conversion, digital signatures, form filling, and advanced rendering options.
+### The Printing-Only Limitation
 
-**Migrating from PDFPrinting.NET to IronPDF involves:**
+PDFPrinting.NET focuses exclusively on silent PDF printing within Windows:
 
-1. **NuGet Package Change**: Remove `PDFPrinting.NET`, add `IronPdf`
-2. **Namespace Update**: Replace `PDFPrinting` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Printing Only**: Cannot create, edit, or manipulate PDF documents
+2. **Windows Only**: Tied to Windows printing infrastructure—no Linux/macOS support
+3. **No PDF Generation**: Cannot convert HTML, URLs, or data to PDF
+4. **No Document Manipulation**: Cannot merge, split, watermark, or secure PDFs
+5. **No Text Extraction**: Cannot read or extract content from PDFs
+6. **No Form Handling**: Cannot fill or flatten PDF forms
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | PDFPrinting.NET | IronPDF |
+|--------|-----------------|---------|
+| Primary Focus | Silent PDF printing | Full PDF lifecycle |
+| PDF Creation | Not supported | Comprehensive |
+| HTML to PDF | Not supported | Full Chromium engine |
+| PDF Manipulation | Not supported | Merge, split, rotate |
+| Text Extraction | Not supported | Full support |
+| Platform Support | Windows only | Cross-platform |
+| Silent Printing | Yes | Yes |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| PDFPrinting.NET | IronPDF | Notes |
+|-----------------|---------|-------|
+| `new PDFPrinter()` | `PdfDocument.FromFile(path)` | Load PDF first |
+| `printer.Print(filePath)` | `pdf.Print()` | Print to default |
+| `printer.Print(path, printerName)` | `pdf.Print(printerName)` | Specific printer |
+| `printer.PrinterName = "..."` | `pdf.Print("...")` | Printer selection |
+| `printer.GetPrintDocument(path)` | `pdf.GetPrintDocument()` | Get PrintDocument |
+| `printer.Copies = n` | `printSettings.NumberOfCopies = n` | Copy count |
+| `printer.Duplex = true` | `printSettings.DuplexMode = Duplex.Vertical` | Duplex |
+| `printer.CollatePages = true` | `printSettings.Collate = true` | Collation |
+| _(not available)_ | `renderer.RenderHtmlAsPdf(html)` | NEW: HTML to PDF |
+| _(not available)_ | `PdfDocument.Merge()` | NEW: Merge PDFs |
+| _(not available)_ | `pdf.ApplyWatermark()` | NEW: Watermarks |
+
+### Migration Code Example
+
+**Before (PDFPrinting.NET):**
+```csharp
+using PDFPrintingNET;
+
+var printer = new PDFPrinter();
+printer.PrinterName = "Office Printer";
+printer.Copies = 2;
+printer.PageScaling = PDFPageScaling.FitToPrintableArea;
+printer.Print("document.pdf");
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+using IronPdf.Printing;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var pdf = PdfDocument.FromFile("document.pdf");
+var settings = new PrintSettings
+{
+    PrinterName = "Office Printer",
+    NumberOfCopies = 2
+};
+pdf.Print(settings);
+```
+
+### Critical Migration Notes
+
+1. **Load-Then-Print Pattern**: PDFPrinting.NET passes path directly; IronPDF loads first
+   ```csharp
+   // PDFPrinting.NET: printer.Print("document.pdf");
+   // IronPDF: var pdf = PdfDocument.FromFile("document.pdf"); pdf.Print();
+   ```
+
+2. **Print Settings**: Property-based → Settings object
+   ```csharp
+   // PDFPrinting.NET: printer.Copies = 2;
+   // IronPDF: new PrintSettings { NumberOfCopies = 2 };
+   ```
+
+3. **Cross-Platform**: IronPDF works on Linux/macOS too (requires CUPS on Linux)
+
+4. **New Capabilities**: With IronPDF, you can now generate PDFs before printing
+   ```csharp
+   var renderer = new ChromePdfRenderer();
+   var pdf = renderer.RenderHtmlAsPdf("<h1>Invoice</h1>");
+   pdf.Print("Invoice Printer");
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove PDFPrinting.NET
+dotnet remove package PDFPrinting.NET
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All PDFPrinting.NET References
+
+```bash
+# Find PDFPrinting.NET usage
+grep -r "PDFPrinting\|PDFPrinter" --include="*.cs" .
+
+# Find print-related code
+grep -r "\.Print(\|PrinterName\|GetPrintDocument" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (20+ print settings)
+- 10 detailed code conversion examples
+- Print settings migration reference
+- Cross-platform printing (Windows, Linux, macOS)
+- New features (PDF generation, manipulation, watermarks)
+- Merge-and-print workflows
+- Server deployment (Linux CUPS setup)
+- Pre/post migration checklists
+
 **[Complete Migration Guide: PDFPrinting.NET → IronPDF](migrate-from-pdfprinting.md)**
 
 

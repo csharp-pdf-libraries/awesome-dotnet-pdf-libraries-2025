@@ -228,21 +228,147 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from pdforge to IronPDF?
 
-IronPDF eliminates external API dependencies by processing PDFs entirely on your local infrastructure, giving you complete control over your document generation pipeline. You'll benefit from extensive customization options, faster processing times without network latency, and a one-time licensing model that reduces long-term costs.
+### The Cloud API Dependency Problem
 
-**Migrating from pdforge to IronPDF involves:**
+pdforge processes all documents on external cloud servers. This architecture creates significant concerns:
 
-1. **NuGet Package Change**: Remove `pdforge`, add `IronPdf`
-2. **Namespace Update**: Use `IronPdf` namespace
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **External Server Processing**: Every PDF you generate requires sending your HTML/data to pdforge's servers
+2. **Privacy & Compliance Risks**: Sensitive data travels over the internet to third-party servers
+3. **Ongoing Subscription Costs**: Monthly fees accumulate indefinitely with no asset ownership
+4. **Internet Dependency**: No PDF generation when network is unavailable
+5. **Rate Limits**: API usage caps can throttle high-volume applications
+6. **Network Latency**: Round-trip time adds seconds to every PDF generation
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | pdforge | IronPDF |
+|--------|---------|---------|
+| Processing Location | External cloud servers | Local (your server) |
+| Authentication | API key per request | One-time license key |
+| Network Required | Every generation | Only initial setup |
+| Pricing Model | Monthly subscription | Perpetual license available |
+| Rate Limits | Yes (plan-dependent) | None |
+| Data Privacy | Data sent externally | Data stays local |
+| PDF Manipulation | Limited | Full suite (merge, split, edit) |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| pdforge | IronPDF | Notes |
+|---------|---------|-------|
+| `new PdfClient("api-key")` | `new ChromePdfRenderer()` | No per-request credentials |
+| `client.GenerateAsync(request)` | `renderer.RenderHtmlAsPdf(html)` | HTML to PDF |
+| `new UrlToPdfRequest { Url = url }` | `renderer.RenderUrlAsPdf(url)` | URL to PDF |
+| `PageSize = PageSize.A4` | `renderer.RenderingOptions.PaperSize = PdfPaperSize.A4` | Paper size |
+| `Orientation = Orientation.Landscape` | `renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape` | Orientation |
+| `Header = "text"` | `renderer.RenderingOptions.TextHeader = new TextHeaderFooter { CenterText = "text" }` | Header |
+| `Footer = "Page {page} of {totalPages}"` | `renderer.RenderingOptions.TextFooter = new TextHeaderFooter { CenterText = "Page {page} of {total-pages}" }` | Footer (note: different placeholder) |
+| `File.WriteAllBytes(path, bytes)` | `pdf.SaveAs(path)` | Save to disk |
+| _(not available)_ | `PdfDocument.Merge()` | NEW: Merge PDFs |
+| _(not available)_ | `pdf.ExtractAllText()` | NEW: Text extraction |
+| _(not available)_ | `pdf.ApplyWatermark()` | NEW: Watermarks |
+
+### Migration Code Example
+
+**Before (pdforge):**
+```csharp
+using PdForge;
+using PdForge.Client;
+using System.IO;
+
+var client = new PdfClient("your-api-key");
+
+var request = new HtmlToPdfRequest
+{
+    Html = "<h1>Report</h1>",
+    PageSize = PageSize.A4,
+    Footer = "Page {page} of {totalPages}"
+};
+
+byte[] pdfBytes = await client.GenerateAsync(request);
+File.WriteAllBytes("report.pdf", pdfBytes);
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+renderer.RenderingOptions.TextFooter = new TextHeaderFooter
+{
+    CenterText = "Page {page} of {total-pages}"  // Note: different placeholder
+};
+
+var pdf = renderer.RenderHtmlAsPdf("<h1>Report</h1>");
+pdf.SaveAs("report.pdf");
+```
+
+### Critical Migration Notes
+
+1. **Placeholder Syntax**: pdforge uses `{totalPages}`; IronPDF uses `{total-pages}` (with hyphen)
+   ```csharp
+   // pdforge: "Page {page} of {totalPages}"
+   // IronPDF: "Page {page} of {total-pages}"
+   ```
+
+2. **Async to Sync**: pdforge requires async; IronPDF is sync by default
+   ```csharp
+   // pdforge: await client.GenerateAsync(request)
+   // IronPDF: renderer.RenderHtmlAsPdf(html)
+   // IronPDF async: await Task.Run(() => renderer.RenderHtmlAsPdf(html))
+   ```
+
+3. **Return Type**: pdforge returns `byte[]`; IronPDF returns `PdfDocument`
+   ```csharp
+   // pdforge: byte[] pdfBytes = await client.GenerateAsync(request);
+   // IronPDF: var pdf = renderer.RenderHtmlAsPdf(html);
+   //          byte[] bytes = pdf.BinaryData;  // if you need bytes
+   ```
+
+4. **API Key → License Key**: One-time setup at app startup
+   ```csharp
+   // pdforge: new PdfClient("api-key") - per client
+   // IronPDF: IronPdf.License.LicenseKey = "KEY" - once at startup
+   ```
+
+5. **Configuration Location**: Request object → RenderingOptions
+   ```csharp
+   // pdforge: request.PageSize = PageSize.A4;
+   // IronPDF: renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove pdforge packages
+dotnet remove package pdforge
+dotnet remove package PdfForge
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All pdforge References
+
+```bash
+# Find pdforge usage
+grep -r "PdForge\|PdfClient\|HtmlToPdfRequest" --include="*.cs" .
+
+# Find placeholder patterns to migrate
+grep -r "{totalPages}" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (30+ methods and properties)
+- 10 detailed code conversion examples
+- Async to sync pattern migration
+- Header/footer placeholder conversion
+- New features (PDF manipulation, text extraction, watermarks, security)
+- Server deployment (Linux dependencies)
+- Troubleshooting guide for common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: pdforge → IronPDF](migrate-from-pdforge.md)**
 

@@ -160,22 +160,190 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from PDF Duo .NET to IronPDF?
 
-IronPDF is a well-established, actively maintained PDF library with comprehensive documentation and enterprise-grade support. Unlike PDF Duo .NET, which has unclear provenance and limited resources, IronPDF offers regular updates, extensive tutorials, and a proven track record in production environments.
+### The PDF Duo Risk Problem
 
-**Migrating from PDF Duo .NET to IronPDF involves:**
+PDF Duo .NET presents significant risks for production applications:
 
-1. **NuGet Package Change**: Remove `PDFDuo.NET`, add `IronPdf`
-2. **Namespace Update**: Replace `PDFDuo` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Unclear Provenance**: Unknown developer/company, no verifiable support channel
+2. **Abandoned Status**: No recent updates, sparse documentation
+3. **Unknown Rendering Engine**: No transparency about underlying technology
+4. **Missing Features**: No headers/footers, watermarks, or security features
+5. **Zero Community**: Virtually no Stack Overflow presence or community help
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | PDF Duo .NET | IronPDF |
+|--------|--------------|---------|
+| Maintenance | Abandoned/Unknown | Active development |
+| Documentation | Nearly non-existent | Comprehensive |
+| Rendering Engine | Unknown | Chromium-based |
+| Support | None | Professional support |
+| Headers/Footers | Not supported | Full HTML support |
+| Watermarks | Not supported | HTML-based watermarks |
+| Security | Not supported | Encryption & permissions |
+| Community | None | Active community |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| PDF Duo .NET | IronPDF | Notes |
+|--------------|---------|-------|
+| `new HtmlToPdfConverter()` | `new ChromePdfRenderer()` | Modern renderer |
+| `converter.ConvertHtmlString(html, path)` | `renderer.RenderHtmlAsPdf(html).SaveAs(path)` | Chainable API |
+| `converter.ConvertUrl(url, path)` | `renderer.RenderUrlAsPdf(url).SaveAs(path)` | URL rendering |
+| `converter.ConvertHtmlFile(file, path)` | `renderer.RenderHtmlFileAsPdf(file).SaveAs(path)` | File input |
+| `new PdfMerger()` | `PdfDocument.Merge()` | Static method |
+| `merger.AddFile(path)` | `PdfDocument.FromFile(path)` | Load first |
+| `merger.Merge(output)` | `merged.SaveAs(output)` | After merge |
+| `converter.PageWidth = ...` | `renderer.RenderingOptions.PaperSize` | Use PdfPaperSize |
+| `converter.PageHeight = ...` | `renderer.RenderingOptions.SetCustomPaperSize()` | Custom sizes |
+| `converter.Margins = new Margins(...)` | Individual margin properties | MarginTop, etc. |
+| _(not available)_ | `HtmlHeaderFooter` | NEW feature |
+| _(not available)_ | `pdf.ApplyWatermark()` | NEW feature |
+| _(not available)_ | `pdf.SecuritySettings` | NEW feature |
+| _(not available)_ | `pdf.ExtractAllText()` | NEW feature |
+
+### Migration Code Example
+
+**Before (PDF Duo .NET):**
+```csharp
+using PDFDuo;
+
+public class PdfDuoService
+{
+    public void CreatePdf(string html, string outputPath)
+    {
+        var converter = new HtmlToPdfConverter();
+
+        // Limited configuration options
+        converter.PageWidth = 8.5f;
+        converter.PageHeight = 11f;
+        converter.Margins = new Margins(0.5f, 0.5f, 0.5f, 0.5f);
+
+        converter.ConvertHtmlString(html, outputPath);
+
+        // No headers, footers, watermarks, or security
+        // No way to add page numbers
+        // No text extraction capability
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+using IronPdf.Editing;
+
+public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public PdfService()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        _renderer = new ChromePdfRenderer();
+
+        // Paper size with built-in options
+        _renderer.RenderingOptions.PaperSize = PdfPaperSize.Letter;
+
+        // Individual margin properties (in mm)
+        _renderer.RenderingOptions.MarginTop = 15;
+        _renderer.RenderingOptions.MarginBottom = 15;
+        _renderer.RenderingOptions.MarginLeft = 15;
+        _renderer.RenderingOptions.MarginRight = 15;
+
+        // NEW: Headers and footers with page numbers
+        _renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+        {
+            HtmlFragment = "<div style='text-align:center; font-size:10px;'>Page {page} of {total-pages}</div>",
+            MaxHeight = 20
+        };
+    }
+
+    public void CreatePdf(string html, string outputPath)
+    {
+        var pdf = _renderer.RenderHtmlAsPdf(html);
+
+        // NEW: Watermark support
+        pdf.ApplyWatermark("<div style='color:gray; opacity:0.3; font-size:72px;'>CONFIDENTIAL</div>",
+            45,
+            VerticalAlignment.Middle,
+            HorizontalAlignment.Center);
+
+        // NEW: Security settings
+        pdf.SecuritySettings.OwnerPassword = "admin123";
+        pdf.SecuritySettings.AllowUserPrinting = IronPdf.Security.PdfPrintSecurity.FullPrintRights;
+
+        pdf.SaveAs(outputPath);
+    }
+
+    // NEW: Text extraction (not possible in PDF Duo)
+    public string ExtractText(string pdfPath)
+    {
+        var pdf = PdfDocument.FromFile(pdfPath);
+        return pdf.ExtractAllText();
+    }
+}
+```
+
+### Critical Migration Notes
+
+1. **Margins Object → Individual Properties**:
+   ```csharp
+   // PDF Duo: converter.Margins = new Margins(top, right, bottom, left)
+   // IronPDF: Individual properties in millimeters
+   renderer.RenderingOptions.MarginTop = 15;
+   renderer.RenderingOptions.MarginBottom = 15;
+   ```
+
+2. **Page Size → PaperSize Enum**:
+   ```csharp
+   // PDF Duo: converter.PageWidth = 8.5f; converter.PageHeight = 11f;
+   // IronPDF: Use built-in paper sizes
+   renderer.RenderingOptions.PaperSize = PdfPaperSize.Letter;
+   ```
+
+3. **Merger Pattern → Static Merge**:
+   ```csharp
+   // PDF Duo: merger.AddFile(path); merger.Merge(output);
+   // IronPDF: Load files, then static merge
+   var merged = PdfDocument.Merge(pdf1, pdf2);
+   ```
+
+4. **NEW Feature - Page Numbers**: Use `{page}` and `{total-pages}` placeholders
+   ```csharp
+   HtmlFragment = "Page {page} of {total-pages}"
+   ```
+
+5. **NEW Feature - Watermarks**: HTML-based with full CSS support
+   ```csharp
+   pdf.ApplyWatermark("<div style='...'>DRAFT</div>");
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove PDF Duo .NET
+dotnet remove package PDFDuo.NET
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All PDF Duo References
+
+```bash
+# Find PDF Duo usage in your codebase
+grep -r "PDFDuo\|HtmlToPdfConverter\|PdfMerger" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping reference
+- 10 detailed code conversion examples
+- Feature comparison showing IronPDF advantages
+- New features not available in PDF Duo (headers, footers, watermarks, security, text extraction, PDF to image, form filling)
+- Troubleshooting common migration issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: PDF Duo .NET → IronPDF](migrate-from-pdf-duo.md)**
 
 

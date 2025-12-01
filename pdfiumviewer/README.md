@@ -253,22 +253,181 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from PDFiumViewer C# PDF to IronPDF?
 
-IronPDF provides comprehensive PDF functionality beyond viewing, including PDF creation, editing, and manipulation. Unlike PDFiumViewer's Windows Forms limitation, IronPDF works across multiple platforms (.NET Framework, .NET Core, .NET 5+) and application types (Console, Web, Desktop).
+### The Viewer-Only Limitation
 
-**Migrating from PDFiumViewer C# PDF to IronPDF involves:**
+PDFiumViewer wraps Google's PDFium engine—excellent for WinForms viewing but limited for modern needs:
 
-1. **NuGet Package Change**: Remove `PdfiumViewer`, add `IronPdf`
-2. **Namespace Update**: Replace `PdfiumViewer` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Viewing-Only**: Cannot create, edit, or manipulate PDFs
+2. **Windows Forms Only**: Restricted to WinForms applications
+3. **No Text Extraction**: Cannot extract text from PDFs
+4. **Native Binary Dependencies**: Requires platform-specific PDFium binaries
+5. **Uncertain Maintenance**: Limited updates and unclear long-term support
+6. **No HTML to PDF**: Cannot convert web content to PDF
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | PDFiumViewer | IronPDF |
+|--------|--------------|---------|
+| Primary Focus | WinForms PDF viewer | Complete PDF solution |
+| PDF Creation | ✗ | ✓ (HTML, URL, images) |
+| Text Extraction | ✗ | ✓ |
+| PDF Manipulation | ✗ | ✓ (merge, split, edit) |
+| Built-in Viewer | ✓ | ✗ (backend-focused) |
+| Platform Support | Windows Forms only | Console, Web, Desktop |
+| Maintenance | Uncertain | Active |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| PDFiumViewer | IronPDF | Notes |
+|--------------|---------|-------|
+| `PdfDocument.Load(path)` | `PdfDocument.FromFile(path)` | Load from file |
+| `document.PageCount` | `document.PageCount` | Same |
+| `document.Render(index, dpi, dpi, flag)` | `pdf.RasterizeToImageFiles(path, dpi)` | Render to image |
+| `document.PageSizes[index]` | `pdf.Pages[index].Width/Height` | Page dimensions |
+| `document.Save(path)` | `pdf.SaveAs(path)` | Different method name |
+| `pdfViewer.Document = doc` | Use external viewer | IronPDF is backend-focused |
+| _(not available)_ | `pdf.ExtractAllText()` | NEW: Text extraction |
+| _(not available)_ | `ChromePdfRenderer.RenderHtmlAsPdf()` | NEW: Create PDFs |
+| _(not available)_ | `PdfDocument.Merge()` | NEW: Merge PDFs |
+| _(not available)_ | `pdf.ApplyWatermark()` | NEW: Watermarks |
+
+### Migration Code Example
+
+**Before (PDFiumViewer):**
+```csharp
+using PdfiumViewer;
+using System.Windows.Forms;
+
+public partial class MainForm : Form
+{
+    private PdfViewer pdfViewer;
+
+    public MainForm()
+    {
+        pdfViewer = new PdfViewer();
+        pdfViewer.Dock = DockStyle.Fill;
+        this.Controls.Add(pdfViewer);
+    }
+
+    private void OpenPdf(string path)
+    {
+        var document = PdfDocument.Load(path);
+        pdfViewer.Document = document;
+    }
+
+    private void RenderToImage(string pdfPath)
+    {
+        using (var document = PdfDocument.Load(pdfPath))
+        {
+            using (var image = document.Render(0, 150, 150, true))
+            {
+                image.Save("page1.png");
+            }
+        }
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+using System.Windows.Forms;
+using System.Diagnostics;
+
+public partial class MainForm : Form
+{
+    public MainForm()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+    }
+
+    private void OpenPdf(string path)
+    {
+        // IronPDF is backend-focused - open in default viewer
+        Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+    }
+
+    private void RenderToImage(string pdfPath)
+    {
+        var pdf = PdfDocument.FromFile(pdfPath);
+        pdf.RasterizeToImageFiles("page_*.png", DPI: 150);
+    }
+
+    // NEW: Features PDFiumViewer couldn't provide
+    private void CreateAndView(string html)
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        var tempPath = Path.GetTempFileName() + ".pdf";
+        pdf.SaveAs(tempPath);
+        OpenPdf(tempPath);
+    }
+}
+```
+
+### Critical Migration Notes
+
+1. **No Built-in Viewer**: IronPDF is backend-focused. Use Process.Start() or WebBrowser control
+   ```csharp
+   // PDFiumViewer: pdfViewer.Document = document;
+   // IronPDF: Process.Start(path) or webBrowser.Navigate(path)
+   ```
+
+2. **Render Method → RasterizeToImageFiles**:
+   ```csharp
+   // PDFiumViewer: document.Render(0, 150, 150, true)
+   // IronPDF: pdf.RasterizeToImageFiles("*.png", DPI: 150)
+   ```
+
+3. **PageSizes → Pages[].Width/Height**:
+   ```csharp
+   // PDFiumViewer: document.PageSizes[index]
+   // IronPDF: pdf.Pages[index].Width, pdf.Pages[index].Height
+   ```
+
+4. **Remove Native Binaries**: Delete all pdfium.dll files
+   ```bash
+   rm -rf x86/ x64/ runtimes/
+   ```
+
+5. **Document Loading**: Different method name
+   ```csharp
+   // PDFiumViewer: PdfDocument.Load(path)
+   // IronPDF: PdfDocument.FromFile(path)
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove PDFiumViewer packages
+dotnet remove package PdfiumViewer
+dotnet remove package PdfiumViewer.Native.x86.v8-xfa
+dotnet remove package PdfiumViewer.Native.x64.v8-xfa
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All PDFiumViewer References
+
+```bash
+# Find PDFiumViewer usage
+grep -r "PdfiumViewer\|PdfViewer\|PdfDocument\.Load" --include="*.cs" .
+
+# Find native binary references
+grep -r "pdfium\.dll\|Native\.x86\|Native\.x64" --include="*.csproj" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (30+ methods and properties)
+- Viewer control replacement strategies
+- 10 detailed code conversion examples
+- Native dependency removal guide
+- New features (PDF creation, text extraction, merging, watermarks, security)
+- WinForms migration patterns
+- Troubleshooting guide for common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: PDFiumViewer C# PDF → IronPDF](migrate-from-pdfiumviewer.md)**
 
 

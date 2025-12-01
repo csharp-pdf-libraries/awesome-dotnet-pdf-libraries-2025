@@ -210,22 +210,169 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from NReco.PdfGenerator to IronPDF?
 
-NReco.PdfGenerator's free version includes watermarks and requires purchasing a commercial license for production use with opaque pricing that requires contacting sales. Additionally, it inherits all CVEs from the underlying wkhtmltopdf engine, creating ongoing security concerns.
+### The wkhtmltopdf Security Problem
 
-**Migrating from NReco.PdfGenerator to IronPDF involves:**
+NReco.PdfGenerator wraps wkhtmltopdf, inheriting all its security vulnerabilities:
 
-1. **NuGet Package Change**: Remove `NReco.PdfGenerator`, add `IronPdf`
-2. **Namespace Update**: Replace `NReco.PdfGenerator` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **20+ Documented CVEs**: Including SSRF, local file read, and RCE vulnerabilities
+2. **Abandoned Project**: wkhtmltopdf development stopped in 2020—no patches coming
+3. **Deprecated Engine**: WebKit Qt (circa 2012) with limited CSS3/JS support
+4. **Watermarked Free Version**: Production requires paid license with opaque pricing
+5. **External Binary**: Must manage wkhtmltopdf binaries per platform
+6. **Synchronous Only**: No async/await support blocks web application threads
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | NReco.PdfGenerator | IronPDF |
+|--------|-------------------|---------|
+| Rendering Engine | WebKit Qt (2012) | Chromium (current) |
+| Security | 20+ CVEs, abandoned | Active security updates |
+| CSS Support | CSS2.1, limited CSS3 | Full CSS3, Grid, Flexbox |
+| JavaScript | Basic ES5 | Full ES6+ |
+| Dependencies | External wkhtmltopdf binary | Self-contained |
+| Async Support | Synchronous only | Full async/await |
+| Free Trial | Watermarked | Full functionality |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings
+
+| NReco.PdfGenerator | IronPDF | Notes |
+|-------------------|---------|-------|
+| `new HtmlToPdfConverter()` | `new ChromePdfRenderer()` | Main renderer |
+| `GeneratePdf(html)` | `RenderHtmlAsPdf(html)` | Returns PdfDocument |
+| `GeneratePdfFromFile(url, out)` | `RenderUrlAsPdf(url)` | Direct URL support |
+| `Orientation = PageOrientation.Landscape` | `RenderingOptions.PaperOrientation` | Enum value |
+| `Size = PageSize.A4` | `RenderingOptions.PaperSize = PdfPaperSize.A4` | Paper size |
+| `Margins.Top = 10` | `RenderingOptions.MarginTop = 10` | Individual properties |
+| `Zoom = 0.9f` | `RenderingOptions.Zoom = 90` | Float to percentage |
+| `PageHeaderHtml = "..."` | `RenderingOptions.HtmlHeader` | HtmlHeaderFooter object |
+| `PageFooterHtml = "..."` | `RenderingOptions.HtmlFooter` | HtmlHeaderFooter object |
+| `[page]` | `{page}` | Current page placeholder |
+| `[topage]` | `{total-pages}` | Total pages placeholder |
+| `CustomWkHtmlArgs` | Native RenderingOptions | Built-in properties |
+| _(returns byte[])_ | `.BinaryData` | Get byte array |
+
+### Migration Code Example
+
+**Before (NReco.PdfGenerator):**
+```csharp
+using NReco.PdfGenerator;
+
+public class NRecoService
+{
+    public byte[] GeneratePdf(string html)
+    {
+        var converter = new HtmlToPdfConverter
+        {
+            Orientation = PageOrientation.Portrait,
+            Size = PageSize.A4,
+            Margins = new PageMargins { Top = 20, Bottom = 20, Left = 10, Right = 10 },
+            PageFooterHtml = "<div style='text-align:center'>Page [page] of [topage]</div>"
+        };
+
+        return converter.GeneratePdf(html);
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public PdfService()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        _renderer = new ChromePdfRenderer();
+
+        _renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Portrait;
+        _renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        _renderer.RenderingOptions.MarginTop = 20;
+        _renderer.RenderingOptions.MarginBottom = 20;
+        _renderer.RenderingOptions.MarginLeft = 10;
+        _renderer.RenderingOptions.MarginRight = 10;
+
+        _renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+        {
+            HtmlFragment = "<div style='text-align:center'>Page {page} of {total-pages}</div>",
+            MaxHeight = 20
+        };
+    }
+
+    public byte[] GeneratePdf(string html)
+    {
+        return _renderer.RenderHtmlAsPdf(html).BinaryData;
+    }
+}
+```
+
+### Critical Migration Notes
+
+1. **Remove wkhtmltopdf Binaries**: Delete all wkhtmltopdf.exe, wkhtmltox.dll files
+   ```bash
+   rm -rf wkhtmltopdf/
+   rm -f App_Data/wkhtmltopdf/*
+   ```
+
+2. **Placeholder Syntax**: Update all header/footer placeholders:
+   - `[page]` → `{page}`
+   - `[topage]` → `{total-pages}`
+   - `[date]` → `{date}`
+   - `[title]` → `{html-title}`
+
+3. **Zoom Conversion**: NReco uses float (0.0-2.0), IronPDF uses percentage:
+   ```csharp
+   // NReco: Zoom = 0.75f
+   // IronPDF: Zoom = 75
+   int zoom = (int)(nrecoZoom * 100);
+   ```
+
+4. **Margins Object → Individual Properties**:
+   ```csharp
+   // NReco: Margins = new PageMargins { Top = 10, ... }
+   // IronPDF: RenderingOptions.MarginTop = 10
+   ```
+
+5. **Return Type**: NReco returns `byte[]`, IronPDF returns `PdfDocument`:
+   ```csharp
+   // Get bytes: renderer.RenderHtmlAsPdf(html).BinaryData
+   // Save file: renderer.RenderHtmlAsPdf(html).SaveAs("file.pdf")
+   ```
+
+6. **Async Support**: IronPDF supports async/await (NReco doesn't):
+   ```csharp
+   var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+   ```
+
+### NuGet Package Migration
+
+```bash
+# Remove NReco.PdfGenerator
+dotnet remove package NReco.PdfGenerator
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All NReco.PdfGenerator References
+
+```bash
+# Find NReco usage
+grep -r "NReco.PdfGenerator\|HtmlToPdfConverter\|GeneratePdf" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (30+ methods and properties)
+- 10 detailed code conversion examples
+- CustomWkHtmlArgs → IronPDF property mappings
+- Security artifact removal (binaries, Docker, scripts)
+- Async migration patterns
+- Performance comparison data
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: NReco.PdfGenerator → IronPDF](migrate-from-nrecopdfgenerator.md)**
 
 

@@ -217,22 +217,129 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from CraftMyPDF to IronPDF?
 
-IronPDF eliminates vendor lock-in by allowing you to generate PDFs directly from HTML, CSS, and JavaScript without template restrictions. Unlike CraftMyPDF's cloud-only architecture, IronPDF runs entirely on-premise, giving you complete control over your data and eliminating recurring API costs.
+### The Problem with Cloud-Based PDF APIs
 
-**Migrating from CraftMyPDF to IronPDF involves:**
+CraftMyPDF and similar cloud PDF services introduce fundamental issues:
 
-1. **NuGet Package Change**: Remove `CraftMyPDF`, add `IronPdf`
-2. **Namespace Update**: Replace `CraftMyPdf` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Your Data Leaves Your System**: Every HTML template and JSON payload is transmitted to third-party servers—creating HIPAA, GDPR, and SOC2 compliance risks for sensitive documents like invoices, contracts, and medical records.
 
-**Key Benefits of Migrating:**
+2. **Network Latency**: CraftMyPDF's own documentation states 1.5-30 seconds per PDF. IronPDF generates locally in milliseconds.
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+3. **Print-Optimized Output**: Cloud APIs often optimize for print—reducing backgrounds and simplifying colors to save "ink." The result never looks like your HTML on screen.
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+4. **Per-PDF Costs Add Up**: 10,000 PDFs/month at $0.01-0.05 each vs. one-time perpetual license.
+
+### Quick Migration Overview
+
+| Aspect | CraftMyPDF | IronPDF |
+|--------|------------|---------|
+| Data Location | Cloud (leaves your system) | On-premise (stays local) |
+| Latency | 1.5-30 seconds per PDF | Milliseconds |
+| Pricing | Per-PDF subscription | One-time perpetual license |
+| Template System | Proprietary drag-and-drop | Any HTML/CSS/JavaScript |
+| Output Quality | Print-optimized | Pixel-perfect screen rendering |
+| Works Offline | No (requires internet) | Yes |
+| Compliance | Data leaves organization | SOC2/HIPAA friendly |
+
+### Key API Mappings
+
+| CraftMyPDF | IronPDF | Notes |
+|------------|---------|-------|
+| `POST /v1/create` | `renderer.RenderHtmlAsPdf(html)` | No API call needed |
+| `X-API-KEY` header | `License.LicenseKey = "..."` | Set once at startup |
+| `template_id` | Standard HTML string | Use any HTML |
+| `{%name%}` placeholders | `$"{name}"` C# interpolation | Standard .NET |
+| `POST /v1/merge` | `PdfDocument.Merge(pdfs)` | Local, instant |
+| `POST /v1/add-watermark` | `pdf.ApplyWatermark(html)` | HTML-based |
+| Webhook callbacks | Not needed | Results are synchronous |
+| Rate limiting | Not applicable | No limits |
+
+### Migration Code Example
+
+**Before (CraftMyPDF):**
+```csharp
+using RestSharp;
+using System.IO;
+
+var client = new RestClient("https://api.craftmypdf.com/v1/create");
+var request = new RestRequest(Method.POST);
+request.AddHeader("X-API-KEY", "your-api-key");
+request.AddJsonBody(new
+{
+    template_id = "invoice-template-id",
+    data = new
+    {
+        customer = "John Doe",
+        amount = "$1,000",
+        items = invoiceItems
+    }
+});
+
+var response = await client.ExecuteAsync(request);
+// Handle rate limits, network errors, timeouts...
+if (response.IsSuccessful)
+    File.WriteAllBytes("invoice.pdf", response.RawBytes);
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+
+var html = $@"
+<html>
+<body>
+    <h1>Invoice</h1>
+    <p>Customer: John Doe</p>
+    <p>Amount: $1,000</p>
+    {GenerateItemsTable(invoiceItems)}
+</body>
+</html>";
+
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("invoice.pdf");
+// No network, no API key, no rate limits, instant!
+```
+
+### Critical Migration Notes
+
+1. **Remove All HTTP Code**: No RestClient, no API calls, no response handling—IronPDF runs locally.
+
+2. **One-Time License**: Replace per-request `X-API-KEY` headers with single `License.LicenseKey` at app startup.
+
+3. **Template → HTML**: Convert proprietary `{%variable%}` placeholders to C# string interpolation `$"{variable}"`.
+
+4. **Sync by Default**: Remove async/await—IronPDF is synchronous (async methods available if needed).
+
+5. **No Rate Limits**: Remove all retry logic, delays, and rate limit handling—generate unlimited PDFs.
+
+### NuGet Package Migration
+
+```bash
+# Remove HTTP client
+dotnet remove package RestSharp
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All CraftMyPDF References
+
+```bash
+grep -r "api.craftmypdf.com\|X-API-KEY\|template_id" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API endpoint mappings
+- 10 detailed code conversion examples
+- Template placeholder conversion patterns
+- Cloud-to-local architecture changes
+- Performance comparison (15-30x faster)
+- Docker deployment configuration
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: CraftMyPDF → IronPDF](migrate-from-craftmypdf.md)**
 
 

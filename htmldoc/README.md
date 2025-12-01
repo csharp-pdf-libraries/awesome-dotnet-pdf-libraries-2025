@@ -199,22 +199,184 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from HTMLDOC to IronPDF?
 
-HTMLDOC is outdated technology from the early 2000s with minimal modern web standards support and GPL licensing restrictions that can complicate commercial deployments. IronPDF is a modern .NET library with active development, comprehensive HTML5/CSS3 support, and a commercial license suitable for enterprise applications.
+### The HTMLDOC Challenges
 
-**Migrating from HTMLDOC to IronPDF involves:**
+HTMLDOC is legacy technology from the late 1990s with fundamental limitations:
 
-1. **NuGet Package Change**: Install `IronPdf` package
-2. **Namespace Update**: Use `IronPdf` namespace
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **Prehistoric Web Standards**: Built before CSS became integral—no HTML5, CSS3, Flexbox, or Grid
+2. **No JavaScript**: Cannot execute JavaScript, making dynamic content impossible
+3. **GPL License**: Viral license infects incorporating software—problematic for commercial products
+4. **Command-Line Only**: Requires process spawning, temp files, and shell escaping
+5. **No .NET Integration**: Not a library—external executable dependency
+6. **No Async Support**: Synchronous process execution blocks threads
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | HTMLDOC | IronPDF |
+|--------|---------|---------|
+| Architecture | Command-line executable | Native .NET library |
+| Rendering Engine | Custom HTML parser (1990s) | Modern Chromium |
+| HTML/CSS | HTML 3.2, minimal CSS | HTML5, CSS3, Flexbox, Grid |
+| JavaScript | None | Full execution |
+| Integration | Process spawning | Native API |
+| Async Support | No | Full async/await |
+| License | GPL (viral) | Commercial |
+| Deployment | Install binary + PATH | NuGet package |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Key API Mappings (Command-Line → IronPDF)
+
+| HTMLDOC Flag | IronPDF Equivalent | Notes |
+|--------------|-------------------|-------|
+| `--webpage -f output.pdf input.html` | `renderer.RenderHtmlFileAsPdf("input.html").SaveAs("output.pdf")` | Native method |
+| `--size A4` | `RenderingOptions.PaperSize = PdfPaperSize.A4` | Standard sizes |
+| `--landscape` | `RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape` | Orientation |
+| `--top 20mm` | `RenderingOptions.MarginTop = 20` | IronPDF uses mm |
+| `--left 1in` | `RenderingOptions.MarginLeft = 25` | Convert: 1in = 25.4mm |
+| `--header "..."` | `RenderingOptions.HtmlHeader` | Full HTML support |
+| `--footer "..."` | `RenderingOptions.HtmlFooter` | Full HTML support |
+| `$PAGE` | `{page}` | Page number placeholder |
+| `$PAGES` | `{total-pages}` | Total pages placeholder |
+| `$DATE` | `{date}` | Date placeholder |
+| `--encryption` | `pdf.SecuritySettings` | Password protection |
+| `--user-password xxx` | `pdf.SecuritySettings.UserPassword` | User password |
+| `--embedfonts` | Default | Fonts embedded automatically |
+
+### Migration Code Example
+
+**Before (HTMLDOC via Process):**
+```csharp
+using System.Diagnostics;
+using System.IO;
+
+public class HtmlDocService
+{
+    public byte[] GeneratePdf(string html)
+    {
+        string tempHtml = Path.GetTempFileName() + ".html";
+        string tempPdf = Path.GetTempFileName() + ".pdf";
+
+        try
+        {
+            File.WriteAllText(tempHtml, html);
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = "htmldoc",
+                Arguments = $"--webpage --size A4 " +
+                           $"--header \".$TITLE.\" " +
+                           $"--footer \"$DATE..$PAGE of $PAGES\" " +
+                           $"-f \"{tempPdf}\" \"{tempHtml}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using (var p = Process.Start(psi))
+            {
+                p.WaitForExit();
+            }
+
+            return File.ReadAllBytes(tempPdf);
+        }
+        finally
+        {
+            File.Delete(tempHtml);
+            File.Delete(tempPdf);
+        }
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public PdfService()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        _renderer = new ChromePdfRenderer();
+
+        _renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+
+        _renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+        {
+            HtmlFragment = "<div style='text-align:center;'>{html-title}</div>",
+            MaxHeight = 20
+        };
+
+        _renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+        {
+            HtmlFragment = @"<div style='width:100%;'>
+                <span style='float:left;'>{date}</span>
+                <span style='float:right;'>Page {page} of {total-pages}</span>
+            </div>",
+            MaxHeight = 20
+        };
+    }
+
+    public byte[] GeneratePdf(string html)
+    {
+        // No temp files, no process spawning, no cleanup
+        var pdf = _renderer.RenderHtmlAsPdf(html);
+        return pdf.BinaryData;
+    }
+}
+```
+
+### Critical Migration Notes
+
+1. **No Temp Files**: IronPDF works directly with HTML strings—delete all temp file management
+
+2. **Placeholder Syntax**: Update all header/footer placeholders:
+   - `$PAGE` → `{page}`
+   - `$PAGES` → `{total-pages}`
+   - `$DATE` → `{date}`
+   - `$TITLE` → `{html-title}`
+
+3. **Delete Process Code**: Remove all `ProcessStartInfo`, `Process.Start()`, exit code handling
+
+4. **Unit Conversion**: HTMLDOC accepts various units; IronPDF uses millimeters:
+   ```csharp
+   // 1 inch = 25.4mm, 1 point = 0.353mm
+   int mm = (int)(inches * 25.4);
+   ```
+
+5. **Modern CSS Works Now**: Flexbox, Grid, CSS3 all render correctly with IronPDF
+
+6. **GPL License Eliminated**: IronPDF's commercial license allows proprietary software
+
+### Installation
+
+```bash
+# HTMLDOC: Remove executable from system/deployment
+# No NuGet package to remove
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All HTMLDOC References
+
+```bash
+# Find process execution patterns
+grep -r "htmldoc\|HTMLDOC\|ProcessStartInfo" --include="*.cs" .
+grep -r "Process\.Start\|--webpage\|--book" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete command-line flag → IronPDF mapping (40+ flags)
+- 10 detailed code conversion examples
+- Process management elimination patterns
+- Temp file cleanup removal
+- Header/Footer format conversion
+- Parallel processing without process pools
+- Performance comparison data
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: HTMLDOC → IronPDF](migrate-from-htmldoc.md)**
 
 

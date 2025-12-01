@@ -240,25 +240,172 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ---
 
-## How Can I Migrate from HiQPdf C# PDF to IronPDF?
+## How Can I Migrate from HiQPdf to IronPDF?
 
-HiQPdf's "free" version imposes a 3-page limit before adding obtrusive watermarks, making it effectively a trial rather than a viable free option. IronPDF uses a modern Chromium rendering engine that handles contemporary JavaScript frameworks and CSS3 features that HiQPdf's older WebKit engine struggles with.
+### The HiQPdf Challenges
 
-**Migrating from HiQPdf C# PDF to IronPDF involves:**
+HiQPdf has several limitations that drive developers to seek alternatives:
 
-1. **NuGet Package Change**: Remove `HiQPdf`, add `IronPdf`
-2. **Namespace Update**: Replace `HiQPdf` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+1. **3-Page Limit**: "Free" version caps output at 3 pages with intrusive watermarks—essentially a demo
+2. **WebKit Engine**: Older rendering technology struggles with modern JavaScript frameworks
+3. **Fragmented Packages**: Separate packages for different platforms (HiQPdf.Free, HiQPdf)
+4. **Limited .NET Support**: Unclear compatibility with .NET Core/.NET 5+
+5. **Point-Based Units**: Uses points (1/72 inch) while IronPDF uses millimeters
+6. **Proprietary Placeholders**: `{CrtPage}`, `{PageCount}` syntax differs from IronPDF
 
-**Key Benefits of Migrating:**
+### Quick Migration Overview
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Aspect | HiQPdf | IronPDF |
+|--------|--------|---------|
+| Rendering Engine | WebKit (older) | Chromium (modern) |
+| Page Limit | 3 pages (free) | Full documents |
+| Unit System | Points (72/inch) | Millimeters |
+| .NET Core/5+ | Unclear | Full support |
+| Modern JS | Limited | Full Chromium support |
+| NuGet Package | HiQPdf / HiQPdf.Free | IronPdf |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
-**[Complete Migration Guide: HiQPdf C# PDF → IronPDF](migrate-from-hiqpdf.md)**
+### Key API Mappings
+
+| HiQPdf | IronPDF | Notes |
+|--------|---------|-------|
+| `new HtmlToPdf()` | `new ChromePdfRenderer()` | Main converter |
+| `ConvertHtmlToMemory(html, baseUrl)` | `RenderHtmlAsPdf(html, baseUrl)` | Returns PdfDocument |
+| `ConvertUrlToMemory(url)` | `RenderUrlAsPdf(url)` | Returns PdfDocument |
+| `ConvertHtmlToFile(html, baseUrl, path)` | `RenderHtmlAsPdf(html).SaveAs(path)` | Two-step in IronPDF |
+| `Document.Header` | `RenderingOptions.HtmlHeader` | HTML-based headers |
+| `Document.Footer` | `RenderingOptions.HtmlFooter` | HTML-based footers |
+| `Document.Header.Height` | `RenderingOptions.MarginTop` | Adjust margin |
+| `BrowserWidth` | `RenderingOptions.ViewPortWidth` | Viewport width |
+| `TriggerMode.Auto` | Default behavior | No equivalent needed |
+| `TriggerMode.WaitTime` | `RenderingOptions.RenderDelay` | In milliseconds |
+| `TriggerMode.Manual` | `RenderingOptions.WaitFor` | JavaScript-based |
+| `{CrtPage}` | `{page}` | Current page placeholder |
+| `{PageCount}` | `{total-pages}` | Total pages placeholder |
+
+### Migration Code Example
+
+**Before (HiQPdf):**
+```csharp
+using HiQPdf;
+
+public class HiQPdfService
+{
+    public byte[] CreatePdf(string html)
+    {
+        HtmlToPdf converter = new HtmlToPdf();
+
+        // Page setup (points: 1 inch = 72 points)
+        converter.Document.PageSize = PdfPageSize.A4;
+        converter.Document.PageOrientation = PdfPageOrientation.Portrait;
+        converter.Document.Margins = new PdfMargins(72, 72, 72, 72);  // 1 inch
+
+        // Header with page numbers
+        converter.Document.Header.Height = 36;  // 0.5 inch
+        HtmlToPdfVariableElement header = new HtmlToPdfVariableElement(
+            "<div>Page {CrtPage} of {PageCount}</div>", "");
+        converter.Document.Header.Add(header);
+
+        // Wait for JavaScript
+        converter.TriggerMode = ConversionTriggerMode.WaitTime;
+        converter.WaitBeforeConvert = 2;  // 2 seconds
+
+        return converter.ConvertHtmlToMemory(html, null);
+    }
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public PdfService()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        _renderer = new ChromePdfRenderer();
+
+        // Page setup (millimeters)
+        _renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        _renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Portrait;
+        _renderer.RenderingOptions.MarginTop = 25;     // ~1 inch = 25.4mm
+        _renderer.RenderingOptions.MarginBottom = 25;
+        _renderer.RenderingOptions.MarginLeft = 25;
+        _renderer.RenderingOptions.MarginRight = 25;
+
+        // Header with page numbers (note placeholder syntax!)
+        _renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter()
+        {
+            HtmlFragment = "<div>Page {page} of {total-pages}</div>",
+            MaxHeight = 15  // ~0.5 inch = 12.7mm
+        };
+
+        // Wait for JavaScript
+        _renderer.RenderingOptions.RenderDelay = 2000;  // 2000 milliseconds
+    }
+
+    public byte[] CreatePdf(string html)
+    {
+        var pdf = _renderer.RenderHtmlAsPdf(html);
+        return pdf.BinaryData;
+    }
+}
+```
+
+### Critical Migration Notes
+
+1. **Unit Conversion**: HiQPdf uses points (72 per inch), IronPDF uses millimeters (25.4 per inch):
+   ```csharp
+   int millimeters = (int)(hiqpdfPoints * 25.4 / 72);
+   ```
+
+2. **Placeholder Syntax**: Must update all header/footer placeholders:
+   - `{CrtPage}` → `{page}`
+   - `{PageCount}` → `{total-pages}`
+   - `{CrtPageUri}` → `{url}`
+   - `{CrtPageTitle}` → `{html-title}`
+
+3. **TriggerMode Migration**:
+   - `TriggerMode.Auto` → Default (no action needed)
+   - `TriggerMode.WaitTime` → `RenderingOptions.RenderDelay = milliseconds`
+   - `TriggerMode.Manual` → `RenderingOptions.WaitFor.JavaScript("callback")`
+
+4. **No 3-Page Limit**: IronPDF generates complete documents without artificial limits
+
+5. **Header/Footer Height**: HiQPdf `Document.Header.Height` becomes `HtmlHeader.MaxHeight` in IronPDF
+
+### NuGet Package Migration
+
+```bash
+# Remove HiQPdf
+dotnet remove package HiQPdf
+dotnet remove package HiQPdf.Free
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All HiQPdf References
+
+```bash
+# Find all HiQPdf usage
+grep -r "HiQPdf\|HtmlToPdf\|ConvertHtmlToMemory\|CrtPage\|PageCount" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- Complete API mapping (50+ methods and properties)
+- 10 detailed code conversion examples
+- TriggerMode to RenderDelay/WaitFor migration
+- Header/Footer element conversion patterns
+- Unit conversion helpers (points → millimeters)
+- PdfDocument manipulation migration
+- Performance comparison data
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
+**[Complete Migration Guide: HiQPdf → IronPDF](migrate-from-hiqpdf.md)**
 
 
 ## Related Tutorials

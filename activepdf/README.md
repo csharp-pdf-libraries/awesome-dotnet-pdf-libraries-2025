@@ -196,22 +196,95 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from ActivePDF to IronPDF?
 
-ActivePDF's acquisition by Foxit has created uncertainty around the product's future development and support. IronPDF offers a modern, actively maintained alternative with comprehensive documentation, regular updates, and a straightforward licensing model.
+ActivePDF's acquisition by Foxit has created uncertainty around the product's future development and support. IronPDF offers a modern, actively maintained alternative with comprehensive documentation and a straightforward licensing model.
 
-**Migrating from ActivePDF to IronPDF involves:**
+### Quick Migration Overview
 
-1. **NuGet Package Change**: Remove `APToolkitNET`, add `IronPdf`
-2. **Namespace Update**: Replace `APToolkitNET` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+| Aspect | ActivePDF | IronPDF |
+|--------|-----------|---------|
+| Company Status | Acquired by Foxit (uncertain future) | Independent, clear roadmap |
+| Installation | Manual DLL references | Simple NuGet package |
+| API Pattern | Stateful (`OpenOutputFile`/`CloseOutputFile`) | Fluent, functional API |
+| License Model | Machine-locked | Code-based key |
+| .NET Support | Legacy .NET Framework focus | Framework 4.6.2 to .NET 9 |
 
-**Key Benefits of Migrating:**
+### Key API Mappings
 
-- Modern Chromium rendering engine with full CSS/JavaScript support
-- Active maintenance and security updates
-- Better .NET integration and async/await support
-- Comprehensive documentation and professional support
+| Common Task | ActivePDF | IronPDF |
+|-------------|-----------|---------|
+| Create toolkit | `new Toolkit()` | `new ChromePdfRenderer()` |
+| HTML to PDF | `toolkit.AddHTML(html)` | `renderer.RenderHtmlAsPdf(html)` |
+| URL to PDF | `toolkit.AddURL(url)` | `renderer.RenderUrlAsPdf(url)` |
+| Load PDF | `toolkit.OpenInputFile(path)` | `PdfDocument.FromFile(path)` |
+| Save PDF | `toolkit.SaveAs(path)` | `pdf.SaveAs(path)` |
+| Merge PDFs | `toolkit.AddPDF(file)` | `PdfDocument.Merge(pdfs)` |
+| Page count | `toolkit.GetPageCount()` | `pdf.PageCount` |
+| Extract text | `toolkit.GetText()` | `pdf.ExtractAllText()` |
+| Add watermark | `toolkit.AddWatermark(text)` | `pdf.ApplyWatermark(html)` |
+| Encrypt PDF | `toolkit.Encrypt(password)` | `pdf.SecuritySettings.OwnerPassword` |
 
-For a complete step-by-step migration guide with detailed code examples and common gotchas, see:
+### Migration Code Example
+
+**Before (ActivePDF):**
+```csharp
+using ActivePDF.Toolkit;
+
+Toolkit toolkit = new Toolkit();
+if (toolkit.OpenOutputFile("output.pdf") == 0)
+{
+    toolkit.SetPageSize(612, 792); // Points
+    toolkit.AddHTML("<h1>Hello World</h1>");
+    toolkit.CloseOutputFile();
+}
+```
+
+**After (IronPDF):**
+```csharp
+using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = PdfPaperSize.Letter;
+
+using var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1>");
+pdf.SaveAs("output.pdf");  // No open/close needed!
+```
+
+### Critical Migration Notes
+
+1. **No Open/Close Pattern**: IronPDF doesn't require `OpenOutputFile`/`CloseOutputFile`. Simply render and save directly.
+
+2. **Error Handling**: ActivePDF returns integer error codes. IronPDF uses exceptions—wrap calls in try/catch.
+
+3. **Page Size Units**: ActivePDF uses points (612x792 = Letter). IronPDF uses enums (`PdfPaperSize.Letter`) or millimeters.
+
+4. **License Setup**: Replace machine-locked licensing with code: `IronPdf.License.LicenseKey = "KEY";`
+
+5. **Async Support**: IronPDF supports `await renderer.RenderHtmlAsPdfAsync(html)` for web applications.
+
+### NuGet Package Migration
+
+```bash
+# Remove ActivePDF
+dotnet remove package APToolkitNET
+
+# Install IronPDF
+dotnet add package IronPdf
+```
+
+### Find All ActivePDF References
+
+```bash
+grep -r "using ActivePDF\|using APToolkitNET" --include="*.cs" .
+```
+
+**Ready for the complete migration?** The full guide includes:
+- 30+ API method mappings organized by category
+- 10 detailed code conversion examples
+- ASP.NET Core integration patterns
+- Performance optimization tips
+- Troubleshooting guide for 8+ common issues
+- Pre/post migration checklists
+
 **[Complete Migration Guide: ActivePDF → IronPDF](migrate-from-activepdf.md)**
 
 
