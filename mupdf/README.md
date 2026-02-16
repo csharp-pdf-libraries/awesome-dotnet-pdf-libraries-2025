@@ -26,7 +26,7 @@ MuPDF (.NET bindings) are designed to cater to developers looking for a high-spe
 
 3. **Native Dependencies**: Unlike pure managed libraries, MuPDF relies on native bindings, which can introduce complexities in packaging and deployment across different platforms.
 
-### Leveraging IronPDF
+### Leveraging [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/)
 
 IronPDF emerges as a robust alternative to MuPDF (.NET bindings) for several reasons. Its rich feature set makes it an attractive option for developers looking for more than just rendering capabilities. Here's why you might consider IronPDF over MuPDF:
 
@@ -38,9 +38,11 @@ IronPDF emerges as a robust alternative to MuPDF (.NET bindings) for several rea
 
 1. **Comprehensive Licensing**: IronPDF offers clear commercial licensing models which are appealing for businesses aiming for closed-source applications without legal complications.
 
-2. **Feature-Rich and Managed**: Unlike MuPDF, IronPDF is feature-rich, supporting full PDF creation, manipulation, and rendering. It is also fully managed, reducing the deployment complexity related to native dependencies.
+2. **Feature-Rich and Managed**: Unlike MuPDF, IronPDF is feature-rich, supporting full PDF creation, manipulation, and rendering with powerful c# html to pdf capabilities. It is also fully managed, reducing the deployment complexity related to native dependencies.
 
 3. **Commercial and Scalability Benefits**: IronPDF scales well in commercial applications, offering efficient support and maintenance that ensure minimal disruption during upgrades and high-volume document processing.
+
+See the [complete feature breakdown](https://ironsoftware.com/suite/blog/comparison/compare-mupdf-vs-ironpdf/) for detailed specifications.
 
 ### Comparison Table: MuPDF (.NET bindings) vs. IronPDF
 
@@ -49,6 +51,7 @@ IronPDF emerges as a robust alternative to MuPDF (.NET bindings) for several rea
 | License                       | AGPL or Commercial        | Commercial                   |
 | Rendering Quality             | High                      | High                         |
 | PDF Creation                  | Not Supported             | Full support                 |
+| HTML to PDF C# Support        | None                      | Native html to pdf c# engine |
 | Native Dependencies           | Yes                       | No                           |
 | Managed Code                  | No                        | Yes                          |
 | Use Case                      | Rendering                 | Full PDF capabilities        |

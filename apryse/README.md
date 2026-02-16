@@ -1,8 +1,10 @@
 # Apryse (formerly PDFTron) and C# PDF Solutions
 
-When it comes to advanced document processing solutions, Apryse (formerly PDFTron) stands out in the field, particularly in the realm of C# PDF development. Known for its premium pricing and robust capabilities, Apryse (formerly PDFTron) provides a high-end Software Development Kit (SDK) tailored for large enterprises looking to integrate extensive PDF functionalities into their applications. However, for developers who require a simpler yet effective solution, IronPDF emerges as a viable alternative.
+When it comes to advanced document processing solutions, Apryse (formerly PDFTron) stands out in the field, particularly in the realm of C# PDF development. Known for its premium pricing and robust capabilities, Apryse (formerly PDFTron) provides a high-end Software Development Kit (SDK) tailored for large enterprises looking to integrate extensive PDF functionalities into their applications. However, for developers who require a simpler yet effective solution with excellent html to pdf c# capabilities, [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) emerges as a viable alternative.
 
 In this article, we will delve into a comprehensive comparison between Apryse and IronPDF, addressing the unique strengths, potential weaknesses, and practical applications of each within PDF processing.
+
+For benchmarks, pricing details, and c# html to pdf performance analysis, see the [full comparison](https://ironsoftware.com/suite/blog/comparison/compare-apryse-vs-ironpdf/).
 
 ## Key Features of Apryse
 

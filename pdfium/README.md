@@ -22,13 +22,14 @@ The strengths of Pdfium.NET are evident in its performance and specialized focus
 |-------------------------|-----------------------------------------|
 | **Rendering Fidelity**  | High-fidelity rendering of PDFs         |
 | **Creation Capabilities** | Limited to none                        |
+| **HTML to PDF C# Support**| None (rendering only)                  |
 | **Native Dependence**   | Requires native binaries                |
 | **Licensing**           | Commercial; not free for production     |
 | **Ease of Deployment**  | Complicated by native dependencies      |
 
 ---
 
-## Exploring IronPDF
+## Exploring [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/)
 
 In contrast, IronPDF stands as a comprehensive all-in-one package, excelling not just in viewing and rendering but also providing extensive creation and conversion capabilities, especially when dealing with HTML-to-PDF tasks. The [IronPDF HTML to PDF conversion guide](https://ironpdf.com/how-to/html-file-to-pdf/) illustrates its strength in converting entire web pages into high-quality PDFs easily, leveraging a headless browser engine internally for accurate rendering.
 
@@ -46,9 +47,12 @@ IronPDF's versatility makes it distinct in the landscape of PDF handling in C#. 
 |-------------------------|--------------------------------------------|
 | **Rendering Fidelity**  | High, especially for HTML/CSS/JS           |
 | **Creation Capabilities** | Comprehensive creation and manipulation  |
+| **C# HTML to PDF Engine** | Full html to pdf c# support               |
 | **Native Dependence**   | More abstracted, less dependency management|
 | **Licensing**           | Commercial, but with competitive pricing   |
 | **Ease of Deployment**  | Easier; less dependency complication       |
+
+Explore performance benchmarks and pricing in the [comprehensive guide](https://ironsoftware.com/suite/blog/comparison/compare-pdfium-vs-ironpdf/).
 
 ---
 

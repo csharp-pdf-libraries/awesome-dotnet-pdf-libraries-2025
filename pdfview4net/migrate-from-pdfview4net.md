@@ -15,7 +15,7 @@ PDFView4NET is primarily a **UI viewing component** for WinForms and WPF applica
 
 | Aspect | PDFView4NET | IronPDF |
 |--------|-------------|---------|
-| Primary Purpose | PDF Viewing | PDF Generation & Manipulation |
+| Primary Purpose | PDF Viewing | PDF Generation & Manipulation with html to pdf c# |
 | UI Requirement | WinForms/WPF Required | No UI Required |
 | Server-Side | Not Supported | Full Support |
 | Web Applications | No | Yes |
@@ -25,7 +25,7 @@ PDFView4NET is primarily a **UI viewing component** for WinForms and WPF applica
 
 ---
 
-## Quick Start: PDFView4NET to IronPDF
+## Quick Start: PDFView4NET to [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/)
 
 ### Step 1: Replace NuGet Package
 
@@ -127,7 +127,7 @@ var pdf = renderer.RenderHtmlAsPdf(@"
     </head>
     <body>
         <div class='header'>
-            <h1>Invoice #12345</h1>
+            <h1>Invoice #12345 using c# html to pdf</h1>
         </div>
         <p>Thank you for your business.</p>
     </body>
@@ -360,6 +360,8 @@ pdf.SaveAs("webpage.pdf");
 | **Printing** | | |
 | Print to Printer | Yes | Yes |
 | Print Options | Yes | Yes |
+
+Explore performance benchmarks and pricing in the [comprehensive guide](https://ironsoftware.com/suite/blog/comparison/compare-pdfview4net-vs-ironpdf/).
 
 ---
 

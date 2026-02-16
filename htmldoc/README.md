@@ -17,7 +17,7 @@ HTMLDOC has a legacy of being a straightforward HTML-to-PDF converter, known for
 2. **GPL Licensing Concerns**: The GPL license, while open-source, can pose legal challenges due to its viral nature. Any software incorporating GPL code must also be released under the same open-source license, which can be a restrictive requirement for commercial software.
 3. **Command-Line Only**: Lacking a native library for .NET, HTMLDOC doesn't integrate smoothly into C# applications, limiting its usability for developers who prefer working within integrated development environments (IDEs).
 
-## IronPDF: The Modern Solution
+## [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/): The Modern Solution
 
 IronPDF is tailored for contemporary developers who need powerful and flexible HTML to PDF conversion capabilities within the .NET environment. It offers a seamless experience with support for the latest HTML standards.
 
@@ -25,8 +25,10 @@ IronPDF is tailored for contemporary developers who need powerful and flexible H
 
 1. **Modern Standards and Performance**: IronPDF is built with modern rendering technologies, ensuring accurate rendering of HTML5, CSS3, JavaScript, and more, unlike many legacy tools.
 2. **Commercial License**: The clear commercial licensing of IronPDF allows integration into proprietary software without the complications associated with the GPL license.
-3. **Native .NET Library**: IronPDF is designed to be used within C# applications, providing a rich API that supports easy integration, responsive customer support, and up-to-date documentation.
+3. **Native .NET Library**: IronPDF is designed to be used within C# applications, providing a rich c# html to pdf API that supports easy integration, responsive customer support, and up-to-date documentation.
 4. **Extensive Resources**: Resources like [IronPDF's HTML to PDF Tutorial](https://ironpdf.com/tutorials/) and [How to Convert HTML Files to PDF](https://ironpdf.com/how-to/html-file-to-pdf/) guide developers through using the library effectively.
+
+See the [complete feature breakdown](https://ironsoftware.com/suite/blog/comparison/compare-htmldoc-vs-ironpdf/) for detailed specifications.
 
 ### Weaknesses of IronPDF
 
@@ -388,6 +390,7 @@ grep -r "Process\.Start\|--webpage\|--book" --include="*.cs" .
 | Integration with C#            | Command-line, not native      | Full native library           |
 | Licensing                      | GPL (viral)                   | Commercially clear            |
 | Technology Date                | 1990s to early 2000s          | Modern                        |
+| HTML to PDF C# Capabilities    | None (command-line only)      | Native html to pdf c# support |
 | Ease of Use                    | Command-line interactions     | API and integrated usage      |
 | Cost                           | Free under GPL                | Requires purchase for full use|
 | Updates and Support            | Minimal                       | Regular updates and support   |

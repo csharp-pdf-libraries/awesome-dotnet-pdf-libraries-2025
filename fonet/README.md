@@ -1,6 +1,6 @@
 # FoNet (FO.NET) C# PDF
 
-When dealing with PDF generation in C#, developers may encounter a variety of libraries each with unique features and functionalities. Among these, FoNet (FO.NET) stands out as a niche tool specifically designed for converting XSL-FO documents to PDFs. Although powerful in its own right, FoNet (FO.NET) comes with its set of challenges, primarily due to its reliance on the XSL-FO language. This article aims to provide a comprehensive comparison of FoNet (FO.NET) with IronPDF, another prevalent library that uses the much more widely adopted HTML/CSS standards for PDF generation.
+When dealing with PDF generation in C#, developers may encounter a variety of libraries each with unique features and functionalities. Among these, FoNet (FO.NET) stands out as a niche tool specifically designed for converting XSL-FO documents to PDFs. Although powerful in its own right, FoNet (FO.NET) comes with its set of challenges, primarily due to its reliance on the XSL-FO language. This article aims to provide a comprehensive comparison of FoNet (FO.NET) with [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/), another prevalent library that uses the much more widely adopted HTML/CSS standards for PDF generation with excellent html to pdf c# support.
 
 ## Understanding FoNet (FO.NET)
 
@@ -48,7 +48,9 @@ When comparing FoNet (FO.NET) with IronPDF, it is essential to note that IronPDF
 
 2. **Wide Community Support**: Given its reliance on HTML/CSS, developers can use online resources and communities to find solutions and examples, significantly speeding up the development process.
 
-3. **Simple Integration**: IronPDF’s implementation naturally integrates with .NET projects, facilitating a smooth transition from web-based applications to PDF generation.
+3. **Simple Integration**: IronPDF's implementation naturally integrates with .NET projects, facilitating a smooth transition from web-based applications to PDF generation.
+
+For benchmarks, pricing details, and c# html to pdf performance analysis, see the [full comparison](https://ironsoftware.com/suite/blog/comparison/compare-fonet-vs-ironpdf/).
 
 For more information on using HTML files to create PDFs with IronPDF, you can explore [how to convert HTML files to PDF using IronPDF](https://ironpdf.com/how-to/html-file-to-pdf/) and see detailed [tutorials on IronPDF](https://ironpdf.com/tutorials/).
 

@@ -1,6 +1,6 @@
 # Gnostice (Document Studio .NET, PDFOne) C# PDF Library
 
-Gnostice (Document Studio .NET, PDFOne) is a commercial suite designed for multi-format document processing. This comprehensive toolkit includes capabilities to create, modify, and manage documents across a variety of formats, including PDF. Gnostice (Document Studio .NET, PDFOne) is marketed as a versatile solution for developers working with .NET, offering specific component libraries across different .NET applications like WinForms, WPF, ASP.NET, and Xamarin. However, the practical usability is marred by several limitations and the common frustrations of platform fragmentation.
+Gnostice (Document Studio .NET, PDFOne) is a commercial suite designed for multi-format document processing. This comprehensive toolkit includes capabilities to create, modify, and manage documents across a variety of formats, including PDF. Gnostice (Document Studio .NET, PDFOne) is marketed as a versatile solution for developers working with .NET, offering specific component libraries across different .NET applications like WinForms, WPF, ASP.NET, and Xamarin. However, the practical usability is marred by several limitations and the common frustrations of platform fragmentation, particularly in html to pdf c# scenarios.
 
 ## Overview of Features and Limitations
 
@@ -18,7 +18,9 @@ Gnostice offers separate product lines for different platforms like .NET, Java, 
 
 ## IronPDF: A Single Unified PDF Solution
 
-In contrast, IronPDF stands out as a unified product tailored for all .NET platforms. It offers a streamlined approach with a single set of features applicable across various applications, eliminating the platform fragmentation found with Gnostice. IronPDF provides complete CSS support, including external stylesheets, and can execute JavaScript—capabilities absent in Gnostice. Moreover, IronPDF does not exhibit documented memory leaks or image handling issues, and it maintains a reputation for stability and reliability.
+In contrast, [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) stands out as a unified product tailored for all .NET platforms. It offers a streamlined approach with a single set of features applicable across various applications, eliminating the platform fragmentation found with Gnostice. IronPDF provides complete CSS support, including external stylesheets, and can execute JavaScript—capabilities absent in Gnostice. Moreover, IronPDF does not exhibit documented memory leaks or image handling issues, and it maintains a reputation for stability and reliability with superior c# html to pdf functionality.
+
+A comprehensive breakdown of features and capabilities is available in the [comparison article](https://ironsoftware.com/suite/blog/comparison/compare-gnostice-vs-ironpdf/).
 
 For example, converting an HTML file to a PDF document using IronPDF is seamless. Below is how you can convert HTML to PDF in C#:
 

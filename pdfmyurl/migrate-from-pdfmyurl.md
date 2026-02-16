@@ -14,7 +14,7 @@ PDFmyURL is a cloud-based API service that sends your documents to external serv
 6. **Service Availability**: Your application depends on a third-party service being online
 7. **Vendor Lock-in**: API changes can break your integration without notice
 
-### IronPDF Benefits
+### [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) Benefits
 
 IronPDF processes everything locally within your application:
 
@@ -38,9 +38,11 @@ IronPDF processes everything locally within your application:
 | Pricing Model | Monthly subscription ($39+) | Perpetual license available |
 | Rate Limits | Yes (plan-dependent) | None |
 | Data Privacy | Data sent externally | Data stays local |
-| HTML/CSS/JS Support | W3C compliant | Full Chromium engine |
+| HTML/CSS/JS Support | W3C compliant | Full Chromium html to pdf c# engine |
 | Async Pattern | Required (async only) | Sync and async options |
 | PDF Manipulation | Limited | Full suite (merge, split, edit) |
+
+Explore performance benchmarks and pricing in the [comprehensive guide](https://ironsoftware.com/suite/blog/comparison/compare-pdfmyurl-vs-ironpdf/).
 
 ---
 

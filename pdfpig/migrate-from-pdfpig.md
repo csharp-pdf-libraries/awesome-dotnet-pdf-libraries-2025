@@ -16,7 +16,7 @@ PdfPig focuses exclusively on PDF reading:
 6. **No Form Filling**: Cannot programmatically fill PDF forms
 7. **Basic Text Layout**: Limited document creation with manual coordinate positioning only
 
-### Why Choose IronPDF?
+### Why Choose [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/)?
 
 IronPDF provides complete PDF lifecycle management:
 
@@ -36,7 +36,7 @@ IronPDF provides complete PDF lifecycle management:
 | Aspect | PdfPig | IronPDF |
 |--------|--------|---------|
 | Primary Focus | Reading/Extraction | Full PDF lifecycle |
-| PDF Creation | Very limited | Comprehensive |
+| PDF Creation | Very limited | Comprehensive html to pdf c# |
 | HTML to PDF | Not supported | Full Chromium engine |
 | URL to PDF | Not supported | Full support |
 | Text Extraction | Excellent | Excellent |
@@ -49,6 +49,8 @@ IronPDF provides complete PDF lifecycle management:
 | Digital Signatures | Not supported | Full support |
 | License | Apache 2.0 (free) | Commercial |
 | Support | Community | Professional |
+
+For a side-by-side feature analysis, see the [detailed comparison](https://ironsoftware.com/suite/blog/comparison/compare-pdfpig-vs-ironpdf/).
 
 ---
 
@@ -671,7 +673,7 @@ IronPDF provides many capabilities PdfPig cannot offer:
 ### PDF Generation
 
 ```csharp
-// From HTML string
+// From HTML string with c# html to pdf
 var renderer = new ChromePdfRenderer();
 var pdf = renderer.RenderHtmlAsPdf("<h1>Hello</h1>");
 

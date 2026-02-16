@@ -1,6 +1,6 @@
 # BitMiracle Docotic.Pdf C# PDF
 
-In the realm of C# PDF libraries, two prominent contenders stand out: BitMiracle Docotic.Pdf and IronPDF. BitMiracle Docotic.Pdf emerges as a powerful toolset designed for the creation and manipulation of PDF documents using 100% managed code. This comprehensive and versatile library offers developers the capability to create sophisticated PDF documents programmatically. However, when juxtaposed with IronPDF, another industry-favorite C# library, we start to notice distinct differences, each with unique strengths and limitations.
+In the realm of C# PDF libraries, two prominent contenders stand out: BitMiracle Docotic.Pdf and [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/). BitMiracle Docotic.Pdf emerges as a powerful toolset designed for the creation and manipulation of PDF documents using 100% managed code. This comprehensive and versatile library offers developers the capability to create sophisticated PDF documents programmatically. However, when juxtaposed with IronPDF, another industry-favorite C# library with robust html to pdf c# features, we start to notice distinct differences, each with unique strengths and limitations.
 
 ## Strengths and Weaknesses of BitMiracle Docotic.Pdf
 
@@ -25,7 +25,9 @@ While free for open-source projects, BitMiracle Docotic.Pdf requires a commercia
 
 ## The IronPDF Edge
 
-IronPDF, on the other hand, provides a robust solution, especially when it comes to HTML-to-PDF conversion—a core feature of the library. IronPDF is celebrated for its straightforward commercial licensing and a larger community that offers more extensive resources and support. This makes it a preferred choice for projects that require prompt problem-solving and HTML-to-PDF conversion capabilities.
+IronPDF, on the other hand, provides a robust solution, especially when it comes to HTML-to-PDF conversion—a core feature of the library. IronPDF is celebrated for its straightforward commercial licensing and a larger community that offers more extensive resources and support. This makes it a preferred choice for projects that require prompt problem-solving and c# html to pdf conversion capabilities.
+
+Check out the [in-depth comparison](https://ironsoftware.com/suite/blog/comparison/compare-docotic-pdf-vs-ironpdf/) for performance metrics and pricing details.
 
 - [IronPDF HTML File to PDF](https://ironpdf.com/how-to/html-file-to-pdf/)
 - [IronPDF Tutorials](https://ironpdf.com/tutorials/)

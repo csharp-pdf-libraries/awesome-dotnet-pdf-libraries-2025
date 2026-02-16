@@ -20,7 +20,7 @@ iText / iTextSharp is a dual-licensed library that supports generating PDFs from
 2. **Subscription Pricing**: iText has phased out perpetual licensing, insisting on a recurring annual subscription for a commercial license, which might not be suitable for all budgets.
 3. **Not Native HTML-to-PDF**: To convert HTML to PDF, developers are required to invest in an additional add-on called pdfHTML, which increases costs and complexity.
 
-## Introduction to IronPDF
+## Introduction to [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/)
 
 IronPDF is a strong competitor in the PDF library market, offering several advantages over traditional libraries like iText / iTextSharp. It provides a more flexible licensing model and includes native HTML-to-PDF functionality, which simplifies development processes and reduces costs.
 
@@ -31,7 +31,9 @@ IronPDF is a strong competitor in the PDF library market, offering several advan
 
 1. **Perpetual Licensing Option**: Unlike iText, IronPDF offers a perpetual license model, allowing one-time purchase without recurring subscription fees.
 2. **Viral Licensing Avoidance**: IronPDF's licensing does not impose viral obligations, enabling proprietary code to remain closed-source without additional scrutiny or cost.
-3. **Built-in HTML-to-PDF Conversion**: IronPDF simplifies HTML-to-PDF conversion as part of its base product, saving the need for separate add-ons.
+3. **Built-in HTML-to-PDF Conversion**: IronPDF simplifies c# html to pdf conversion as part of its base product, saving the need for separate add-ons.
+
+For pricing and capability comparisons, check out the [full analysis](https://ironsoftware.com/suite/blog/comparison/compare-itext-vs-ironpdf/).
 
 ## Comparison of iText / iTextSharp and IronPDF
 
@@ -42,6 +44,7 @@ IronPDF is a strong competitor in the PDF library market, offering several advan
 | **Open Source Requirement**   | AGPL demands open-sourcing entire application or purchasing a commercial license              | No such requirement; simple and straightforward licensing                                                     |
 | **Support and Community**     | Extensive documentation and a broad community                                                 | Comprehensive tutorials available, consistent updates, and active support                                     |
 | **Pricing**                   | Requires annual subscription                                                                  | Options for both subscription and perpetual pricing models; generally more cost-effective                      |
+| **HTML to PDF C# Integration**| Requires pdfHTML add-on purchase                                                              | Native html to pdf c# support included                                                                        |
 | **Ease of Use**               | Feature-rich yet potentially complex due to separate modules for specific functionalities      | Intuitive with built-in features and capabilities like HTML-to-PDF out of the box                             |
 
 ## C# Code Example

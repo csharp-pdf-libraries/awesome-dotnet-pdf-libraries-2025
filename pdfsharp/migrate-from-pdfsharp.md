@@ -13,11 +13,11 @@ PDFSharp's GDI+ approach means you must:
 - Draw tables cell by cell with border calculations
 - Manage multi-page documents with manual page breaks
 
-### Key Migration Benefits
+### Key Migration Benefits with [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/)
 
 | Aspect | PDFSharp | IronPDF |
 |--------|----------|---------|
-| Document Creation | Coordinate-based drawing | HTML/CSS templates |
+| Document Creation | Coordinate-based drawing | HTML/CSS html to pdf c# templates |
 | Layout System | Manual X,Y positioning | CSS Flow/Flexbox/Grid |
 | Page Breaks | Manual calculation | Automatic + CSS control |
 | Tables | Draw cells individually | HTML `<table>` |
@@ -25,6 +25,8 @@ PDFSharp's GDI+ approach means you must:
 | Maintenance | Difficult to modify | Edit HTML/CSS |
 | Learning Curve | GDI+ knowledge required | Web skills transfer |
 | License | MIT (Free) | Commercial |
+
+For a side-by-side feature analysis, see the [detailed comparison](https://ironsoftware.com/suite/blog/comparison/compare-pdfsharp-vs-ironpdf/).
 
 ---
 
