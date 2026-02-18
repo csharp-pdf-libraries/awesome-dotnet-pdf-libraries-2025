@@ -1,6 +1,6 @@
 # Fluid (templating) + C# + PDF
 
-When it comes to generating documents dynamically in your C# applications, the choice of technology can make a significant difference in your workflow efficiency and output quality. This article explores the Fluid templating engine and compares it with IronPDF, examining their respective strengths and weaknesses when it comes to PDF generation in C#.
+When it comes to generating documents dynamically in your C# applications, the choice of technology can make a significant difference in your workflow efficiency and output quality. This article explores the Fluid templating engine and compares it with [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/), examining their respective strengths and weaknesses when it comes to PDF generation in C# with html to pdf c# capabilities.
 
 **Fluid (templating)** is a .NET library that implements the Liquid templating language. It is primarily used for generating dynamic text outputs using templates. Fluid (templating) benefits developers by allowing them to separate content and presentation logic, promoting clean code and easier management. However, unlike some comprehensive solutions, Fluid (templating) does not directly support PDF generation, adding layers of complexity if PDF output is a requirement.
 
@@ -45,6 +45,8 @@ In this example, Fluid parses simple Liquid syntax to substitute placeholders wi
 - **All-in-One Solution**: IronPDF handles the complete cycle - templates in HTML to finished PDFs - with minimal integration effort.
 - **Ease of Use**: It uses standard web technologies that most developers are already acquainted with, eliminating the need for learning complex new syntax as required by Liquid in Fluid.
 - **Powerful Features**: IronPDF offers a rich feature set tailored for desktop-grade PDF production including headers, footers, watermarks, and more.
+
+Check out the [in-depth comparison](https://ironsoftware.com/suite/blog/comparison/compare-fluid-vs-ironpdf/) for c# html to pdf performance metrics and pricing details.
 
 To dive deeper, explore more about IronPDF through their [tutorials](https://ironpdf.com/tutorials/).
 

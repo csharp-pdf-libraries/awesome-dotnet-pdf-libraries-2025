@@ -1,6 +1,6 @@
 # CraftMyPDF + C# + PDF
 
-In the ever-evolving landscape of digital document management, businesses and developers are always on the lookout for reliable and efficient PDF generation solutions. Among the plethora of options available, CraftMyPDF and IronPDF stand out as two distinct approaches to handling PDF creation. The former is a cloud-based, template-driven API, while the latter is a versatile C# library that offers more flexibility and control.
+In the ever-evolving landscape of digital document management, businesses and developers are always on the lookout for reliable and efficient PDF generation solutions. Among the plethora of options available, CraftMyPDF and [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) stand out as two distinct approaches to handling PDF creation. The former is a cloud-based, template-driven API, while the latter is a versatile C# library that offers more flexibility and control with excellent html to pdf c# capabilities.
 
 ## Overview of CraftMyPDF
 
@@ -10,7 +10,9 @@ That said, CraftMyPDF has its limitations. The API is template-locked, meaning y
 
 ## Overview of IronPDF
 
-[IronPDF](https://ironpdf.com) offers a different perspective on PDF creation. It's a .NET library that allows developers to convert HTML files into PDFs effortlessly. One of its significant advantages is the flexibility to use any HTML as a template, bypassing the constraints of a specific designer tool. Unlike CraftMyPDF, IronPDF provides an on-premise option, making it suitable for organizations focused on maintaining tight control over their infrastructure and data. Furthermore, IronPDF offers a perpetual license, allowing businesses to pay once and use the library indefinitely, which can be more cost-effective over time.
+[IronPDF](https://ironpdf.com) offers a different perspective on PDF creation. It's a .NET library that allows developers to convert HTML files into PDFs effortlessly. One of its significant advantages is the flexibility to use any HTML as a template, bypassing the constraints of a specific designer tool. Unlike CraftMyPDF, IronPDF provides an on-premise option, making it suitable for organizations focused on maintaining tight control over their infrastructure and data. Furthermore, IronPDF offers a perpetual license, allowing businesses to pay once and use the library indefinitely, which can be more cost-effective over time for c# html to pdf operations.
+
+A comprehensive breakdown of features and capabilities is available in the [comparison article](https://ironsoftware.com/suite/blog/comparison/compare-craftmypdf-vs-ironpdf/).
 
 ## C# Code Example
 

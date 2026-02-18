@@ -1,10 +1,12 @@
 # FastReport.NET + C# + PDF
 
-FastReport.NET is a powerful reporting solution built for the .NET ecosystem. It is a commercial product designed to create complex and highly interactive reports from various data sources with the flexibility to output in multiple formats, including PDF. FastReport.NET is notably used by developers who need a robust reporting engine backed by a visual report designer. This tool is optimized for building detailed reports with sophisticated layout control and is particularly beneficial for applications where reporting is a central feature.
+FastReport.NET is a powerful reporting solution built for the .NET ecosystem. It is a commercial product designed to create complex and highly interactive reports from various data sources with the flexibility to output in multiple formats, including PDF. FastReport.NET is notably used by developers who need a robust reporting engine backed by a visual report designer. This tool is optimized for building detailed reports with sophisticated layout control and is particularly beneficial for applications where reporting is a central feature, though it lacks streamlined html to pdf c# conversion.
 
 While FastReport.NET provides a comprehensive suite of tools for generating reports, it does have limitations. It is predominantly focused on report generation and might not be the best fit for scenarios requiring a versatile or general-purpose PDF generation and manipulation solution. Individual users generally need to get comfortable with the FastReport concepts to utilize the tool effectively, and the learning curve can be steep. The dependency on its visual designer for creating complex layouts makes it less flexible for purely programmatic report generation.
 
-In contrast, IronPDF is a general-purpose PDF library that allows users to take advantage of existing HTML content to generate PDFs without needing specialized tools. It integrates seamlessly into C# applications, enabling developers to convert HTML and web content into high-quality PDFs easily. This capability is especially advantageous for developers building applications that need to dynamically render web content as PDFs.
+In contrast, [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) is a general-purpose PDF library that allows users to take advantage of existing HTML content to generate PDFs without needing specialized tools. It integrates seamlessly into C# applications, enabling developers to convert HTML and web content into high-quality PDFs easily. This capability is especially advantageous for developers building applications that need to dynamically render web content as PDFs with robust c# html to pdf functionality.
+
+For detailed benchmarks and feature comparisons, visit the [complete comparison guide](https://ironsoftware.com/suite/blog/comparison/compare-fastreport-vs-ironpdf/).
 
 ## Strengths of FastReport.NET
 

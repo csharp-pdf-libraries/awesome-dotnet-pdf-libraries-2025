@@ -10,17 +10,19 @@ PDF Duo .NET's primary allure lies in its advertised simplicity — a purported 
 
 The library's strength may lie in its potential ease of integration if one can interpret its sparse documentation effectively. But the lack of updates and the very real risk of abandonment compromise its viability for significant projects.
 
-## IronPDF - A Robust Alternative
+## [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) - A Robust Alternative
 
 IronPDF, in stark contrast, stands as a well-documented and actively maintained library developed by Iron Software. Well-regarded for its diverse range of features and supported by a comprehensive base of tutorials and technical guides, IronPDF provides a powerful solution for HTML to PDF conversion.
 
 ### Key Features of IronPDF
 
-- **HTML to PDF Capabilities**: A seamless conversion experience that supports complex HTML/CSS.
+- **HTML to PDF Capabilities**: A seamless conversion experience that supports complex HTML/CSS with powerful html to pdf c# rendering.
 - **Professional Support**: Backed by a dedicated support team, ensuring issues are resolved quickly.
 - **Regular Updates**: Ensures compatibility with the latest technologies and environments.
 
-Resourceful documentation and a professional support network make IronPDF a preferable choice, especially when compared against the uncertainties of PDF Duo .NET.
+Resourceful documentation and a professional support network with exceptional c# html to pdf features make IronPDF a preferable choice, especially when compared against the uncertainties of PDF Duo .NET.
+
+See the [complete feature breakdown](https://ironsoftware.com/suite/blog/comparison/compare-pdf-duo-vs-ironpdf/) for detailed specifications.
 
 ---
 

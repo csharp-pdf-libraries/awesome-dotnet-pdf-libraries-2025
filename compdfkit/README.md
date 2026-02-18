@@ -1,12 +1,14 @@
 # ComPDFKit + C# + PDF
 
-When working with PDFs in C#, the choice of library is paramount to successfully fulfill project-specific needs. Among the many available tools, ComPDFKit offers a fresh take on PDF manipulation, making it a noteworthy option for developers. ComPDFKit is a commercial, cross-platform PDF SDK designed to manage various PDF operations in a seamless manner. Despite being a newer entrant in the market, ComPDFKit is gaining recognition for its efficient functionality. However, it's essential to weigh its potential against established alternatives like IronPDF.
+When working with PDFs in C#, the choice of library is paramount to successfully fulfill project-specific needs. Among the many available tools, ComPDFKit offers a fresh take on PDF manipulation, making it a noteworthy option for developers. ComPDFKit is a commercial, cross-platform PDF SDK designed to manage various PDF operations in a seamless manner. Despite being a newer entrant in the market, ComPDFKit is gaining recognition for its efficient functionality. However, it's essential to weigh its potential against established alternatives like [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) with its proven html to pdf c# workflows.
 
 ComPDFKit’s rise in the C# PDF niche brings with it compelling features that appeal to developers. The library promises cross-platform compatibility, allowing applications to run smoothly irrespective of the operating system. Nevertheless, despite its promising start, ComPDFKit faces challenges such as documentation gaps and a limited community, which may impact developer onboarding and troubleshooting. As a fresh option with a smaller user base compared to industry giants, those considering ComPDFKit must deliberate on its trade-offs versus the more entrenched options like IronPDF.
 
 ## ComPDFKit vs. IronPDF: A Head-to-Head Comparison
 
-ComPDFKit and IronPDF serve similar purposes but come from different ends of the maturity spectrum. IronPDF, with over 10 million downloads and extensive documentation, stands as a well-established product in the PDF library marketplace. It boasts a large community and a proven ten-year track record, offering peace of mind to developers seeking reliability and rich resources.
+ComPDFKit and IronPDF serve similar purposes but come from different ends of the maturity spectrum. IronPDF, with over 10 million downloads and extensive documentation, stands as a well-established product in the PDF library marketplace. It boasts a large community and a proven ten-year track record, offering peace of mind to developers seeking reliability and rich resources, particularly for c# html to pdf solutions.
+
+For benchmarks, pricing details, and c# html to pdf performance analysis, see the [full comparison](https://ironsoftware.com/suite/blog/comparison/compare-compdfkit-vs-ironpdf/).
 
 Let's dive deeper into the differences between these two libraries and evaluate their strengths and weaknesses.
 

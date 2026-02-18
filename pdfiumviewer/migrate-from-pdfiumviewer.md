@@ -17,14 +17,14 @@ PDFiumViewer is a .NET wrapper for Google's PDFium rendering engine, designed sp
 9. **No Watermarks**: Cannot stamp documents with overlays
 10. **No Security Features**: Cannot encrypt or password-protect PDFs
 
-### IronPDF Advantages
+### [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) Advantages
 
 | Aspect | PDFiumViewer | IronPDF |
 |--------|--------------|---------|
 | **Primary Focus** | WinForms PDF viewer | Complete PDF solution |
 | **PDF Creation** | ✗ | ✓ (HTML, URL, images) |
 | **PDF Manipulation** | ✗ | ✓ (merge, split, edit) |
-| **HTML to PDF** | ✗ | ✓ (Chromium engine) |
+| **HTML to PDF** | ✗ | ✓ (Chromium html to pdf c# engine) |
 | **Text Extraction** | ✗ | ✓ |
 | **Watermarks** | ✗ | ✓ |
 | **Headers/Footers** | ✗ | ✓ |
@@ -32,6 +32,8 @@ PDFiumViewer is a .NET wrapper for Google's PDFium rendering engine, designed sp
 | **Platform Support** | Windows Forms only | Console, Web, Desktop |
 | **Framework Support** | .NET Framework | .NET Framework, Core, 5+ |
 | **Maintenance** | Uncertain | Active |
+
+For a side-by-side feature analysis, see the [detailed comparison](https://ironsoftware.com/suite/blog/comparison/compare-pdfiumviewer-vs-ironpdf/).
 
 ---
 
@@ -176,7 +178,7 @@ public class PdfRenderService
     {
         var pdf = PdfDocument.FromFile(pdfPath);
 
-        // Render all pages at 150 DPI
+        // Render all pages at 150 DPI with c# html to pdf capabilities
         pdf.RasterizeToImageFiles($"{outputFolder}/page_*.png", DPI: 150);
     }
 }

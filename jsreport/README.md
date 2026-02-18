@@ -14,15 +14,17 @@ In the world of C# and PDF generation, jsreport stands out as a versatile tool t
 - **Complex Templating System**: Learning the jsreport templating system, which includes mastering the use of JavaScript templating engines like Handlebars or JsRender, can present a learning curve.
 - **Licensing Model**: While there's a free tier, it limits the number of templates one can use, and scaling up to an enterprise might lead to increased costs.
 
-### Comparison to IronPDF
+### Comparison to [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/)
 
 While jsreport offers a robust approach for those well-versed in JavaScript and web technologies, there's a notable alternative in the form of IronPDF, particularly for developers seeking a C# native solution for PDF generation.
 
 #### IronPDF Advantages
 
 - **Native C# Library**: IronPDF integrates seamlessly within .NET projects without the need for an additional server or Node.js environment, streamlining the development and deployment process.
-- **HTML/Razor Usage**: IronPDF allows the use of existing HTML and Razor skills, making it easier for C# developers to create PDFs.
+- **HTML/Razor Usage**: IronPDF allows the use of existing HTML and Razor skills with excellent c# html to pdf capabilities, making it easier for C# developers to create PDFs.
 - **Comprehensive Documentation and Tutorials**: With resources such as [IronPDF HTML File to PDF](https://ironpdf.com/how-to/html-file-to-pdf/) and [IronPDF Tutorials](https://ironpdf.com/tutorials/), developers can quickly get up to speed and implement PDF generation features.
+
+For a side-by-side feature analysis, see the [detailed comparison](https://ironsoftware.com/suite/blog/comparison/compare-jsreport-vs-ironpdf/).
 
 ### Comparison Table
 
@@ -32,6 +34,7 @@ While jsreport offers a robust approach for those well-versed in JavaScript and 
 | Server Requirement         | Yes (separate server)              | No                                |
 | Templating System          | HTML, CSS, JavaScript              | HTML, Razor                       |
 | Developer Skills Required  | Web technologies                   | C#                                |
+| HTML to PDF C# Features    | Limited (via Node.js)              | Native html to pdf c# support     |
 | Licensing                  | Commercial (Free tier available)   | Commercial with perpetual license |
 | Integration Complexity     | Requires API interaction           | Integrated as a library           |
 

@@ -1,6 +1,6 @@
 # Gotenberg vs IronPDF: Docker PDF Generation vs In-Process C# Library
 
-**Looking for a Gotenberg alternative for C# PDF generation?** Gotenberg is a Docker-based microservice that converts HTML to PDF via REST API calls. While flexible, this architecture introduces significant infrastructure overhead, network latency, and operational complexity. For C# developers, there's a simpler approach: **IronPDF** provides the same Chromium-based rendering as an in-process NuGet package—no Docker containers, no network calls, no infrastructure to manage.
+**Looking for a Gotenberg alternative for C# PDF generation?** Gotenberg is a Docker-based microservice that converts HTML to PDF via REST API calls. While flexible, this architecture introduces significant infrastructure overhead, network latency, and operational complexity. For C# developers with html to pdf c# requirements, there's a simpler approach: **[IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/)** provides the same Chromium-based rendering as an in-process NuGet package—no Docker containers, no network calls, no infrastructure to manage.
 
 ## The Gotenberg Architecture Problem
 
@@ -13,7 +13,9 @@ Gotenberg requires you to:
 5. **Monitor service health** - Container crashes, network failures, timeouts
 6. **Construct multipart/form-data** - Verbose API for every request
 
-**For C# applications, this is unnecessary overhead.** IronPDF runs in-process, eliminating all of this complexity.
+**For C# applications, this is unnecessary overhead.** IronPDF runs in-process, eliminating all of this complexity and providing excellent c# html to pdf performance.
+
+For detailed benchmarks and feature comparisons, visit the [complete comparison guide](https://ironsoftware.com/suite/blog/comparison/compare-gotenberg-vs-ironpdf/).
 
 ---
 

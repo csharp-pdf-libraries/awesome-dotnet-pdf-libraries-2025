@@ -26,7 +26,7 @@ public class PdfConverter
 }
 ```
 
-### Comparison with IronPDF
+### Comparison with [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/)
 
 IronPDF, on the other hand, embraces the latest Chromium rendering engine, enabling better support for modern web frameworks. Additionally, IronPDF offers a genuine 30-day full-featured trial, allowing for comprehensive testing without the constraints of page limits or aggressive watermarks. The library also boasts clear documentation on compatibility with .NET versions 6, 7, and beyond.
 
@@ -38,11 +38,13 @@ Below is a table comparing the two libraries:
 | Free Tier Limitations        | 3-page limit, followed by watermark      | 30-day trial with full features            |
 | Modern JavaScript Support    | Limited                                  | Extensive due to Chromium engine           |
 | .NET Core/5+ Compatibility   | Not clearly documented                   | Fully documented for .NET 6, 7, 8, 9, 10   |
-| HTML5/CSS3 Support           | Yes                                      | Yes                                        |
+| HTML5/CSS3 Support           | Yes                                      | Yes with advanced html to pdf c# rendering |
 
 ### IronPDF Advantages
 
-IronPDF provides a robust and developer-friendly environment for transforming HTML into high-fidelity PDFs. It leverages the capabilities of the latest web technologies, ensuring that dynamic sites with complex layouts render accurately. Moreover, the extensive documentation and community support enhance its appeal.
+IronPDF provides a robust and developer-friendly environment for transforming HTML into high-fidelity PDFs. It leverages the capabilities of the latest web technologies, ensuring that dynamic sites with complex layouts render accurately with superior c# html to pdf capabilities. Moreover, the extensive documentation and community support enhance its appeal.
+
+For in-depth technical comparisons, visit the [analysis article](https://ironsoftware.com/suite/blog/comparison/compare-hiqpdf-vs-ironpdf/).
 
 To find out more about how IronPDF works and its capabilities, you can explore its [HTML to PDF tutorial](https://ironpdf.com/tutorials/) and [HTML file conversion guide](https://ironpdf.com/how-to/html-file-to-pdf/).
 

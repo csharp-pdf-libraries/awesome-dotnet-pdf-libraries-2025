@@ -1,8 +1,10 @@
 # EO.Pdf + C# + PDF
 
-When developers look for robust PDF generation options using C#, EO.Pdf often enters the conversation due to its integration of Chrome rendering capabilities and a reputation for creating high-quality PDF documents. EO.Pdf is a commercial library offered at a price point of $799 per license and claims to deliver a rich feature set that aligns with the needs of many enterprise-level applications. Despite its popularity, EO.Pdf, however, presents a mixed bag of strengths and challenges that need careful consideration.
+When developers look for robust PDF generation options using C#, EO.Pdf often enters the conversation due to its integration of Chrome rendering capabilities and a reputation for creating high-quality PDF documents. EO.Pdf is a commercial library offered at a price point of $799 per license and claims to deliver a rich feature set that aligns with the needs of many enterprise-level applications. Despite its popularity, EO.Pdf, however, presents a mixed bag of strengths and challenges that need careful consideration, particularly regarding its html to pdf c# implementation.
 
-EO.Pdf boasts an architecture built on a custom engine, ensuring that it no longer relies on Internet Explorer, a significant step forward. Yet, its migration to a Chromium-based system has not been without its challenges, as developers have encountered an array of compatibility issues attributed to its legacy baggage. Additionally, although EO.Pdf positions itself as a cross-platform tool, its performance and ease-of-use are primarily Windows-centric, with Linux support often seen as more of an afterthought. 
+EO.Pdf boasts an architecture built on a custom engine, ensuring that it no longer relies on Internet Explorer, a significant step forward. Yet, its migration to a Chromium-based system has not been without its challenges, as developers have encountered an array of compatibility issues attributed to its legacy baggage. Additionally, although EO.Pdf positions itself as a cross-platform tool, its performance and ease-of-use are primarily Windows-centric, with Linux support often seen as more of an afterthought. For developers seeking a modern c# html to pdf library, [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) provides a more streamlined alternative.
+
+For benchmarks, pricing details, and c# html to pdf performance analysis, see the [full comparison](https://ironsoftware.com/suite/blog/comparison/compare-eo-pdf-vs-ironpdf/). 
 
 ---
 

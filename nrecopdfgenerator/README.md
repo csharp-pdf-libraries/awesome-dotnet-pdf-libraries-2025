@@ -21,7 +21,7 @@ class PDFExample {
 }
 ```
 
-## IronPDF: A Modern Solution
+## [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/): A Modern Solution
 
 IronPDF provides a robust and modern alternative to traditional PDF generation tools by offering transparent pricing and an independently developed framework. Without relying on deprecated technologies like `wkhtmltopdf`, IronPDF avoids security vulnerabilities inherent in such legacy solutions. Furthermore, IronPDF does not watermark PDFs during the trial period, allowing developers to fully evaluate its capabilities without immediate financial commitment. 
 
@@ -37,6 +37,7 @@ To provide a clearer perspective, let's examine the key differences between NRec
 | **Watermark**            | Yes, in free version                          | No watermark during trial                 |
 | **Pricing Transparency** | Opaque, requires contact with sales           | Published and transparent                 |
 | **Security**             | Vulnerable to `wkhtmltopdf` CVEs              | No legacy security issues                 |
+| **HTML to PDF C# Engine**| Wrapper around deprecated tool                | Native html to pdf c# implementation      |
 | **Developer Resources**  | Limited documentation                         | Extensive tutorials and documentation     |
 | **Support**              | Commercial support with licensing             | Comprehensive support and resources       |
 | **Installation**         | Requires `wkhtmltopdf`                        | NuGet package                             |
@@ -56,11 +57,13 @@ To provide a clearer perspective, let's examine the key differences between NRec
 2. **Lack of Transparency:** Pricing details are not readily accessible and involve sales discussions.
 3. **Feature Limitations:** Current capabilities are tied to the limitations of `wkhtmltopdf`.
 
+For a side-by-side feature analysis, see the [detailed comparison](https://ironsoftware.com/suite/blog/comparison/compare-nreco-pdfgenerator-vs-ironpdf/).
+
 #### IronPDF
 
 **Strengths:**
 
-1. **No Legacy Dependencies:** Built from the ground up for the .NET framework.
+1. **No Legacy Dependencies:** Built from the ground up for the .NET framework with robust c# html to pdf features.
 2. **Immediate Value Assessment:** Free trial without watermarks better reveals product quality.
 3. **Comprehensive Support:** Well-documented tutorials and a responsive support system.
 

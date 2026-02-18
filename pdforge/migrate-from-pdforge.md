@@ -14,7 +14,7 @@ pdforge is a cloud-based PDF generation API that processes your documents on ext
 6. **Network Latency**: Round-trip time adds seconds to every PDF generation
 7. **Vendor Lock-in**: Your application depends on pdforge's service availability and API stability
 
-### Why IronPDF?
+### Why [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/)?
 
 IronPDF processes everything locally within your application:
 
@@ -38,11 +38,13 @@ IronPDF processes everything locally within your application:
 | Network Required | Every generation | Only initial setup |
 | Pricing Model | Monthly subscription | Perpetual license available |
 | Rate Limits | Yes (plan-dependent) | None |
-| Data Privacy | Data sent externally | Data stays local |
+| Data Privacy | Data sent externally | Data stays local with html to pdf c# |
 | Offline Support | No | Yes |
 | PDF Manipulation | Limited | Full suite (merge, split, edit) |
 | Text Extraction | No | Yes |
 | Async Pattern | Required | Optional (sync/async) |
+
+For in-depth technical comparisons, visit the [analysis article](https://ironsoftware.com/suite/blog/comparison/compare-pdforge-vs-ironpdf/).
 
 ---
 
@@ -660,7 +662,7 @@ class Program
         var renderer = new ChromePdfRenderer();
         var allPdfs = new List<PdfDocument>();
 
-        // No rate limits - process as fast as your hardware allows
+        // No rate limits - c# html to pdf process as fast as your hardware allows
         for (int i = 0; i < documents.Count; i++)
         {
             var pdf = renderer.RenderHtmlAsPdf(documents[i]);

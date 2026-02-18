@@ -1,6 +1,6 @@
 # GemBox.Pdf C# PDF: An In-Depth Comparison with IronPDF
 
-In the realm of .NET PDF components, GemBox.Pdf stands out as a notable tool, allowing developers to efficiently handle PDF reading, writing, merging, and splitting tasks. GemBox.Pdf offers a practical solution for developing PDF functionalities without the necessity of leveraging Adobe Acrobat. However, when considering a robust and comprehensive PDF manipulation library, IronPDF is frequently brought into the conversation as a strong contender. This article delves into a comparative examination of GemBox.Pdf and IronPDF, assessing their features, limitations, and use cases.
+In the realm of .NET PDF components, GemBox.Pdf stands out as a notable tool, allowing developers to efficiently handle PDF reading, writing, merging, and splitting tasks. GemBox.Pdf offers a practical solution for developing PDF functionalities without the necessity of leveraging Adobe Acrobat. However, when considering a robust and comprehensive PDF manipulation library with html to pdf c# capabilities, [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) is frequently brought into the conversation as a strong contender. This article delves into a comparative examination of GemBox.Pdf and IronPDF, assessing their features, limitations, and use cases.
 
 ## Overview of GemBox.Pdf
 
@@ -27,8 +27,10 @@ IronPDF is another prominent library for handling PDF tasks within .NET. Known f
 ### Key Features of IronPDF
 
 - **Comprehensive PDF Support**: IronPDF supports all facets of PDF manipulation, including reading, writing, and editing.
-- **HTML-to-PDF Conversion**: Direct conversion from HTML to PDF is supported, simplifying workflows significantly. More details can be found [here](https://ironpdf.com/how-to/html-file-to-pdf/).
+- **HTML-to-PDF Conversion**: Direct conversion from HTML to PDF is supported, simplifying workflows significantly with robust c# html to pdf functionality. More details can be found [here](https://ironpdf.com/how-to/html-file-to-pdf/).
 - **Rich Feature Set**: IronPDF provides advanced features such as watermarking, digital signatures, and form filling, catering to professional and enterprise requirements.
+
+Check out the [in-depth comparison](https://ironsoftware.com/suite/blog/comparison/compare-gembox-pdf-vs-ironpdf/) for performance metrics and pricing details.
 
 ### Strengths of IronPDF
 

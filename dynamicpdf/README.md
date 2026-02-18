@@ -1,6 +1,6 @@
 # DynamicPDF C# PDF
 
-In the realm of PDF generation and manipulation within the .NET ecosystem, two notable contenders stand out: DynamicPDF and IronPDF. DynamicPDF has long been a cornerstone for developers looking to create, read, and manipulate PDF documents. With a rich history, DynamicPDF commands respect for its robust features and extensive capabilities. However, IronPDF offers a comprehensive and modern alternative that combines elegance with functionality, allowing developers to seamlessly integrate PDF handling into their applications.
+In the realm of PDF generation and manipulation within the .NET ecosystem, two notable contenders stand out: DynamicPDF and [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/). DynamicPDF has long been a cornerstone for developers looking to create, read, and manipulate PDF documents. With a rich history, DynamicPDF commands respect for its robust features and extensive capabilities. However, IronPDF offers a comprehensive and modern alternative that combines elegance with functionality, allowing developers to seamlessly integrate PDF handling into their applications with superior html to pdf c# features.
 
 DynamicPDF's suite of tools is renowned for its PDF generation and manipulation prowess. The platform includes multiple products such as the Generator, Merger, and Print Manager, each tailored to specific PDF operations. However, while these components deliver powerful capabilities, they are sold separately—potentially creating a fragmented experience for users navigating multiple licenses and product versions.
 
@@ -24,13 +24,15 @@ Despite these strengths, DynamicPDF comes with certain limitations such as produ
 
 ## IronPDF: The Modern Alternative
 
-IronPDF might just be the alternative developers seek. Known for its all-in-one library approach, IronPDF amalgamates PDF generation, merging, and manipulation within a singular, cohesive package. This eliminates the need for dealing with fragmented products and disparate licenses. 
+IronPDF might just be the alternative developers seek. Known for its all-in-one library approach, IronPDF amalgamates PDF generation, merging, and manipulation within a singular, cohesive package. This eliminates the need for dealing with fragmented products and disparate licenses.
 
 - **Modern .NET Patterns**: Unlike DynamicPDF's potentially outdated codebase, IronPDF embraces modern .NET frameworks and standards, ensuring seamless integration and optimal performance.
 
 - **Simplified Licensing**: A single license encompassing all features reduces complexity and provides an all-inclusive solution for developers.
 
 - **Ease of Use**: With comprehensive tutorials [available online](https://ironpdf.com/tutorials/), including how-to guides for converting HTML to PDF [detailed here](https://ironpdf.com/how-to/html-file-to-pdf/), developers can get IronPDF running in their applications in no time.
+
+Check out the [in-depth comparison](https://ironsoftware.com/suite/blog/comparison/compare-dynamicpdf-vs-ironpdf/) for c# html to pdf performance metrics and pricing details.
 
 Here's a side-by-side comparison of the two libraries: 
 
