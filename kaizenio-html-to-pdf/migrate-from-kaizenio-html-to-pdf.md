@@ -666,6 +666,8 @@ var renderer = new ChromePdfRenderer();
 var pdf = renderer.RenderHtmlAsPdf(html);  // No network call!
 ```
 
+For complete implementation patterns that handle network dependency elimination and privacy enhancements, the [detailed guide](https://ironpdf.com/blog/migration-guides/migrate-from-kaizen-io-to-ironpdf/) includes code examples and architectural considerations.
+
 ### Removing Rate Limit Handling
 
 ```csharp

@@ -54,6 +54,8 @@ SelectPdf markets itself as a robust HTML-to-PDF solution, but has fundamental l
 | **.NET 10** | ❌ Not supported | ✅ Full support |
 | **Free version limit** | 5 pages | Generous trial |
 
+These limitations and the full migration path are examined in the [complete SelectPdf to IronPDF guide](https://ironpdf.com/blog/migration-guides/migrate-from-selectpdf-to-ironpdf/).
+
 ---
 
 ## The Windows-Only Problem

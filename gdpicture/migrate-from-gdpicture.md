@@ -36,6 +36,8 @@ GdPicture.NET (now rebranded as Nutrient) is a comprehensive document imaging SD
 
 8. **Rebranding Confusion**: The recent rebrand to "Nutrient" creates documentation fragmentation between gdpicture.com and nutrient.io.
 
+For step-by-step instructions, refer to the [migration reference](https://ironpdf.com/blog/migration-guides/migrate-from-gdpicture-to-ironpdf/).
+
 ### IronPDF Advantages
 
 | Aspect | GdPicture.NET | IronPDF |

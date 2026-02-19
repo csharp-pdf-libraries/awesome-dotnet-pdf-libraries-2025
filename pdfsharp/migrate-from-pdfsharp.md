@@ -575,6 +575,8 @@ pdf.SaveAs("website.pdf");
 - **PDFSharp:** Open source (MIT license)
 - **IronPDF:** Commercial product; requires license for production use (free trial available)
 
+The [migration walkthrough](https://ironpdf.com/blog/migration-guides/migrate-from-pdfsharp-to-ironpdf/) includes conversion recipes for coordinate-based drawing to HTML/CSS layouts.
+
 ### 7. Drawing Operations
 - **PDFSharp:** Direct graphics operations (`DrawLine`, `DrawRectangle`)
 - **IronPDF:** Use CSS borders, SVG, or HTML5 Canvas for graphics

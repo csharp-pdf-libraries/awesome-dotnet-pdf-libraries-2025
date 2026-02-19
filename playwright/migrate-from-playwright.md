@@ -262,6 +262,8 @@ public void CustomPdf()
 }
 ```
 
+For complete guidance on transitioning from testing framework PDF generation to purpose-built document creation, see the [detailed migration reference](https://ironpdf.com/blog/migration-guides/migrate-from-playwright-to-ironpdf/).
+
 ### Example 4: Headers and Footers
 
 **Before (Playwright) - Limited template syntax:**

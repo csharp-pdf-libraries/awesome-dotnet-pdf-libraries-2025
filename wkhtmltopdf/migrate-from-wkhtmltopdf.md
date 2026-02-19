@@ -1153,6 +1153,8 @@ grep -r "wkhtmltopdf\|WkHtmlToPdf\|DinkToPdf\|Rotativa\|TuesPechkin\|NReco.PdfGe
 4. **Compliance requirements** - Security audits will flag this vulnerability
 5. **Modern web support** - Your PDFs will finally render CSS Grid and Flexbox correctly
 
+Each of these outcomes is demonstrated throughout the [wkhtmltopdf to IronPDF migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-wkhtmltopdf-to-ironpdf/).
+
 ---
 
 ## Additional Resources

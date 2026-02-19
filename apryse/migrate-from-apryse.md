@@ -30,6 +30,8 @@ Apryse (formerly PDFTron) is one of the most expensive PDF SDKs on the market, t
 
 ### Complexity vs. Simplicity
 
+These implementation complexities are addressed in detail within the [migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-apryse-to-ironpdf/).
+
 | Feature | Apryse | IronPDF |
 |---------|--------|---------|
 | **Setup** | Module paths, external binaries | Single NuGet package |

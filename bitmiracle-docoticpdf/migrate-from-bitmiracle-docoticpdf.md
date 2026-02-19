@@ -30,6 +30,8 @@
 
 ### Feature Comparison
 
+More migration strategies and patterns can be found in the [extensive guide](https://ironpdf.com/blog/migration-guides/migrate-from-docotic-pdf-to-ironpdf/).
+
 | Feature | Docotic.Pdf | IronPDF |
 |---------|-------------|---------|
 | Create PDF from scratch | ✅ | ✅ |

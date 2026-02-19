@@ -30,6 +30,8 @@
 
 ### Feature Comparison
 
+The [complete migration reference](https://ironpdf.com/blog/migration-guides/migrate-from-compdfkit-to-ironpdf/) offers deeper insights into these processes.
+
 | Feature | ComPDFKit | IronPDF |
 |---------|-----------|---------|
 | HTML to PDF | Basic/Manual | ✅ Native Chromium |

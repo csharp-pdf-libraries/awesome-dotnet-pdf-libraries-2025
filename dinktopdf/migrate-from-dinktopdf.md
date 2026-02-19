@@ -50,6 +50,8 @@ DinkToPdf wraps wkhtmltopdf, which has **critical unpatched security vulnerabili
 
 ### Feature Comparison
 
+For developers requiring additional migration patterns and real-world implementation examples, the [detailed guide](https://ironpdf.com/blog/migration-guides/migrate-from-dinktopdf-to-ironpdf/) offers extended code samples and troubleshooting techniques.
+
 | Feature | DinkToPdf | IronPDF |
 |---------|-----------|---------|
 | HTML to PDF | ✅ (outdated engine) | ✅ (Chromium) |

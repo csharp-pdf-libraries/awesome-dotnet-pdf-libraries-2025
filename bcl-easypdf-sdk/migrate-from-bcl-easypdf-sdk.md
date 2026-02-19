@@ -42,6 +42,8 @@ Developers frequently encounter these issues:
 
 ### IronPDF Advantages
 
+The [complete migration walkthrough](https://ironpdf.com/blog/migration-guides/migrate-from-bcl-easypdf-sdk-to-ironpdf/) includes troubleshooting steps for common issues.
+
 | Feature | BCL EasyPDF SDK | IronPDF |
 |---------|-----------------|---------|
 | **Platform** | Windows-only | Windows, Linux, macOS, Docker |

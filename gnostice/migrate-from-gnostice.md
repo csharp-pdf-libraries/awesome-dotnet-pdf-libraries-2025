@@ -36,6 +36,8 @@ Gnostice Document Studio .NET and PDFOne have well-documented limitations that a
 
 8. **Coordinate-Based API**: Many operations require manual X/Y positioning rather than modern layout approaches.
 
+The [comprehensive migration documentation with examples](https://ironpdf.com/blog/migration-guides/migrate-from-gnostice-to-ironpdf/) provides detailed coverage.
+
 ### IronPDF Advantages
 
 | Aspect | Gnostice | IronPDF |

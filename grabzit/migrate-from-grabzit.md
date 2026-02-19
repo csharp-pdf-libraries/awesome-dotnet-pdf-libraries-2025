@@ -232,6 +232,8 @@ public class PdfService
 
 ## Code Migration Examples
 
+The [extensive guide](https://ironpdf.com/blog/migration-guides/migrate-from-grabzit-to-ironpdf/) provides comprehensive migration examples covering asynchronous-to-synchronous patterns, callback removal, and code simplification strategies.
+
 ### Example 1: Basic HTML to PDF
 
 **Before (GrabzIt with Callback):**

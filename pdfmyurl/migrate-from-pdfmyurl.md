@@ -42,7 +42,7 @@ IronPDF processes everything locally within your application:
 | Async Pattern | Required (async only) | Sync and async options |
 | PDF Manipulation | Limited | Full suite (merge, split, edit) |
 
-Explore performance benchmarks and pricing in the [comprehensive guide](https://ironsoftware.com/suite/blog/comparison/compare-pdfmyurl-vs-ironpdf/).
+Explore performance benchmarks, cost analysis, and privacy enhancements in the [comprehensive migration documentation](https://ironpdf.com/blog/migration-guides/migrate-from-pdfmyurl-to-ironpdf/).
 
 ---
 

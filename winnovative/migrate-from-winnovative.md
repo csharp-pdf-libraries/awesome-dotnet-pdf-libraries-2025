@@ -46,6 +46,8 @@ class Report { } // Classes: FAIL
 | Updates | Infrequent | Monthly |
 | Price | $750-$1,600 | Competitive |
 
+For a complete walkthrough with working code, the [Winnovative to IronPDF guide](https://ironpdf.com/blog/migration-guides/migrate-from-winnovative-to-ironpdf/) covers every API pattern and common migration scenario.
+
 ---
 
 ## Quick Start: Winnovative to IronPDF in 5 Minutes

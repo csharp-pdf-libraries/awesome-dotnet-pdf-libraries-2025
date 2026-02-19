@@ -33,7 +33,7 @@ PDFiumViewer is a .NET wrapper for Google's PDFium rendering engine, designed sp
 | **Framework Support** | .NET Framework | .NET Framework, Core, 5+ |
 | **Maintenance** | Uncertain | Active |
 
-For a side-by-side feature analysis, see the [detailed comparison](https://ironsoftware.com/suite/blog/comparison/compare-pdfiumviewer-vs-ironpdf/).
+For a side-by-side feature analysis including viewer control alternatives and backend processing strategies, see the [complete guide](https://ironpdf.com/blog/migration-guides/migrate-from-pdfiumviewer-to-ironpdf/).
 
 ---
 

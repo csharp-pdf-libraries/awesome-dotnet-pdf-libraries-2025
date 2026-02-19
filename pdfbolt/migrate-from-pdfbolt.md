@@ -150,6 +150,8 @@ using IronPdf.Rendering;
 
 ## Code Migration Examples
 
+For complete migration workflows including authentication removal and offline deployment strategies, consult the [full migration documentation](https://ironpdf.com/blog/migration-guides/migrate-from-pdfbolt-to-ironpdf/).
+
 ### Example 1: Remove API Key Pattern
 
 **Before (PDFBolt):**

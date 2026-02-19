@@ -42,7 +42,7 @@ Foxit PDF SDK is a powerful enterprise-level library, but it comes with signific
 
 ### Cost-Benefit Analysis
 
-Moving from Foxit SDK to IronPDF offers:
+Moving from Foxit SDK to IronPDF, as outlined in the [comprehensive guide](https://ironpdf.com/blog/migration-guides/migrate-from-foxit-sdk-to-ironpdf/), offers:
 - **Reduced complexity**: Simpler API, less boilerplate
 - **Faster development**: Intuitive methods, less configuration
 - **Modern .NET**: async/await, LINQ compatibility, standard patterns

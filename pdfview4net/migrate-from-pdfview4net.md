@@ -367,6 +367,8 @@ Explore performance benchmarks and pricing in the [comprehensive guide](https://
 
 ## Migration Considerations
 
+These UI-to-server migration challenges are covered in detail within the [comprehensive guide](https://ironpdf.com/blog/migration-guides/migrate-from-pdfview4net-to-ironpdf/), which addresses viewer alternatives and server deployment strategies.
+
 ### PDF Viewing with IronPDF
 
 IronPDF includes a **PDF Viewer component** for desktop applications, so you can maintain viewing functionality after migrating:

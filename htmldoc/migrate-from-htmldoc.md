@@ -51,6 +51,8 @@ HTMLDOC is legacy technology from the late 1990s/early 2000s with fundamental li
 - **Commercial License**: Deploy in proprietary software
 - **Active Support**: Regular updates and security patches
 
+The complete process for each of these improvements is documented in the [step-by-step migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-htmldoc-to-ironpdf/).
+
 ---
 
 ## Before You Start

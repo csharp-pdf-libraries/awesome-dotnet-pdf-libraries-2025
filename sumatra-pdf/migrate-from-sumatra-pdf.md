@@ -598,6 +598,7 @@ foreach (var htmlFile in htmlFiles)
 - [IronPDF Tutorials](https://ironpdf.com/tutorials/)
 - [HTML to PDF Guide](https://ironpdf.com/how-to/html-file-to-pdf/)
 - [IronPDF Examples](https://ironpdf.com/examples/)
+- [Sumatra PDF to IronPDF Transition Guide](https://ironpdf.com/blog/migration-guides/migrate-from-sumatra-pdf-to-ironpdf/)
 
 ---
 

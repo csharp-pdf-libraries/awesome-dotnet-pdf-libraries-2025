@@ -492,6 +492,8 @@ public void FillForm(string pdfPath, string outputPath)
 public int ScaleToDpi(float scale) => (int)(72 * scale);
 ```
 
+The [detailed migration reference](https://ironpdf.com/blog/migration-guides/migrate-from-pdfium-to-ironpdf/) provides DPI conversion tables and rendering quality comparison guidelines.
+
 ---
 
 ## Native Dependency Removal

@@ -29,6 +29,8 @@ Gotenberg is a Docker-based microservice architecture for PDF generation. While 
 7. **Version Management**: Gotenberg images update separately from your application; API changes can break integrations
 8. **Resource Isolation**: Running a separate Chromium instance in a container consumes significant memory
 
+For troubleshooting guidance, see the [detailed walkthrough](https://ironpdf.com/blog/migration-guides/migrate-from-gotenberg-to-ironpdf/).
+
 ### What IronPDF Offers Instead
 
 | Aspect | Gotenberg | IronPDF |

@@ -51,6 +51,8 @@
 
 ### The Security Crisis
 
+These risks, extensively documented in the [comprehensive migration walkthrough](https://ironpdf.com/blog/migration-guides/migrate-from-rotativa-to-ironpdf/), represent critical vulnerabilities that organizations must address immediately.
+
 | Risk | Rotativa | IronPDF |
 |------|----------|---------|
 | **CVE-2022-35583 (SSRF)** | ❌ VULNERABLE | ✅ Protected |

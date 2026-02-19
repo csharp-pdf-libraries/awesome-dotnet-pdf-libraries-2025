@@ -684,6 +684,8 @@ renderer.RenderingOptions.SetCustomPaperSizeInMillimeters(210, 297);
 
 **Stop fighting WebView2. Use a library designed for PDF generation.**
 
+The complete path to a stable, production-ready implementation is detailed in the [WebView2 to IronPDF migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-webview2-to-ironpdf/).
+
 ---
 
 ## Additional Resources

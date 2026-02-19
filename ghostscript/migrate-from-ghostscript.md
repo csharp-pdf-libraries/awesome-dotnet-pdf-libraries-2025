@@ -39,6 +39,8 @@ Ghostscript is a venerable PostScript/PDF interpreter with decades of history, b
 
 9. **Platform-Specific Binaries**: Different DLLs for 32-bit vs 64-bit (`gsdll32.dll` vs `gsdll64.dll`), requiring careful deployment configuration.
 
+More patterns are available in the [full documentation](https://ironpdf.com/blog/migration-guides/migrate-from-ghostscript-to-ironpdf/).
+
 ### IronPDF Advantages
 
 | Aspect | Ghostscript | IronPDF |

@@ -21,6 +21,8 @@ TX Text Control is a document editor component that treats PDF generation as a s
 | UI Components | Bundled (bloat) | PDF-focused |
 | Total 3-Year Cost | $5,750+ | Much lower |
 
+These costs and capabilities are explored in detail in the [comprehensive migration reference](https://ironpdf.com/blog/migration-guides/migrate-from-textcontrol-to-ironpdf/).
+
 ---
 
 ## Quick Start: TX Text Control to IronPDF

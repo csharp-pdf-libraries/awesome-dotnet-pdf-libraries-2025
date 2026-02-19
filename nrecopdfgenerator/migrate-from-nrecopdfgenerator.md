@@ -490,6 +490,8 @@ renderer.RenderingOptions.CssMediaType = PdfCssMediaType.Print;
 
 ## Security Migration: Removing wkhtmltopdf Vulnerabilities
 
+Eliminating wkhtmltopdf resolves critical security issues, which is covered extensively in the [detailed guide](https://ironpdf.com/blog/migration-guides/migrate-from-nreco-pdfgenerator-to-ironpdf/) along with complete CVE documentation and migration best practices.
+
 ### Delete wkhtmltopdf Artifacts
 
 ```bash

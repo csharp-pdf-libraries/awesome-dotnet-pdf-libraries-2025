@@ -37,6 +37,8 @@ var pdf = renderer.RenderHtmlAsPdf("<h1 style='font-size:24px'>Hello World</h1>"
 pdf.SaveAs("output.pdf");
 ```
 
+The full transition from TallPDF and PDFKit to IronPDF—including XML-to-HTML equivalents—is documented in the [complete migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-tall-components-to-ironpdf/).
+
 ---
 
 ## Quick Start: Tall Components to IronPDF

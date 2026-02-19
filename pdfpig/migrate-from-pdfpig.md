@@ -321,6 +321,8 @@ class Program
 }
 ```
 
+The [extensive documentation](https://ironpdf.com/blog/migration-guides/migrate-from-pdfpig-to-ironpdf/) provides additional strategies for converting extraction-focused workflows to full PDF lifecycle operations.
+
 ### Example 4: Metadata Extraction
 
 **Before (PdfPig):**

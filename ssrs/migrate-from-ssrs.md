@@ -23,7 +23,7 @@ For many PDF generation scenarios, SSRS infrastructure is excessive:
 | Create PDFs from data | Windows Server |
 | Simple document generation | Report subscriptions |
 
-IronPDF provides in-process PDF generation without any server infrastructure.
+IronPDF provides in-process PDF generation without any server infrastructure, as demonstrated throughout the [step-by-step migration reference](https://ironpdf.com/blog/migration-guides/migrate-from-ssrs-to-ironpdf/).
 
 ---
 

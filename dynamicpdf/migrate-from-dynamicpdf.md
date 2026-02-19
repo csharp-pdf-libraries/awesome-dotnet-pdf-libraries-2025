@@ -46,6 +46,8 @@ DynamicPDF is sold as **separate products with separate licenses**:
 
 ### Key Migration Benefits
 
+Detailed troubleshooting approaches are outlined in the [full guide](https://ironpdf.com/blog/migration-guides/migrate-from-dynamicpdf-to-ironpdf/).
+
 1. **Single Package**: One NuGet package replaces 3-5 DynamicPDF packages
 2. **Modern Rendering**: Chromium engine vs legacy rendering
 3. **Web Technologies**: Use HTML/CSS instead of coordinate-based positioning

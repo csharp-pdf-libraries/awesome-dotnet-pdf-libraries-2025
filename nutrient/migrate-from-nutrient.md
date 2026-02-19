@@ -21,6 +21,8 @@ Nutrient (formerly PSPDFKit) has evolved from a PDF library into a comprehensive
    - Package names may still use PSPDFKit
    - Migration paths unclear during transition
 
+The [comprehensive migration documentation](https://ironpdf.com/blog/migration-guides/migrate-from-nutrient-to-ironpdf/) provides specific guidance on navigating these platform complexities and simplifying your PDF workflow.
+
 4. **Async-First Complexity**: Everything requires async/await
    - `PdfProcessor.CreateAsync()` for initialization
    - Async operations for simple tasks

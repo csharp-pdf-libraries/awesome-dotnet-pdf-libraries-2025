@@ -50,7 +50,7 @@ FoNet was designed when XSL-FO was expected to become a standard for document fo
 - **< 1% of developers** know XSL-FO
 - Most XSL-FO resources are from 2005-2010
 
-IronPDF lets you use the skills you already have to create professional PDFs.
+The [detailed migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-fonet-to-ironpdf/) expands on these concepts with practical examples. IronPDF lets you use the skills you already have to create professional PDFs.
 
 ---
 

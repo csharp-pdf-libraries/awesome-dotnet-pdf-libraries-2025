@@ -49,6 +49,8 @@ PDF Duo .NET is an obscure, poorly documented library with unclear maintenance s
 | Stability | Unknown | Production-proven |
 | Licensing | Unclear | Transparent |
 
+The [migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-pdf-duo-to-ironpdf/) addresses the specific challenges of migrating from obscure libraries to well-documented solutions.
+
 ---
 
 ## NuGet Package Changes

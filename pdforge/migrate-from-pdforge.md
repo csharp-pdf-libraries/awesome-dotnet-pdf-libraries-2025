@@ -355,6 +355,8 @@ class Program
 }
 ```
 
+For a complete breakdown of API authentication removal strategies and offline deployment patterns, refer to the [step-by-step guide](https://ironpdf.com/blog/migration-guides/migrate-from-pdforge-to-ironpdf/).
+
 ### Example 5: Async Web Application
 
 **Before (pdforge):**

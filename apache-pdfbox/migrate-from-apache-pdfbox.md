@@ -27,7 +27,7 @@ Apache PDFBox is a well-respected Java library, but its unofficial .NET ports pr
 
 **Unofficial Port Status**: PDFBox is fundamentally a Java library. All .NET versions are community-driven ports that lack official support from the Apache project. These ports frequently lag behind Java releases and may miss critical features or security updates.
 
-**Java-First API Design**: The ported API retains Java conventions (`camelCase` methods, `File` objects, explicit `close()` calls) that feel foreign in .NET code. This cognitive overhead affects development velocity and code quality.
+**Java-First API Design**: The ported API retains Java conventions (`camelCase` methods, `File` objects, explicit `close()` calls) that feel foreign in .NET code, a complexity addressed comprehensively in the [step-by-step guide](https://ironpdf.com/blog/migration-guides/migrate-from-apache-pdfbox-to-ironpdf/). This cognitive overhead affects development velocity and code quality.
 
 **No HTML Rendering**: PDFBox is designed for PDF manipulation, not HTML-to-PDF conversion. Creating PDFs requires manual page construction with precise coordinate positioning—a tedious and error-prone process.
 

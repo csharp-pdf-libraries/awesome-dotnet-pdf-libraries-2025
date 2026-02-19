@@ -33,6 +33,8 @@ var html = "<h1>Invoice</h1><p>Customer: Acme Corp</p>";
 var pdf = renderer.RenderHtmlAsPdf(html);
 ```
 
+This paradigm shift from vector drawing to HTML is explored in depth throughout the [VectSharp to IronPDF migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-vectsharp-to-ironpdf/).
+
 ---
 
 ## Quick Start: VectSharp to IronPDF

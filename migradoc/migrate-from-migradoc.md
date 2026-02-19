@@ -1066,6 +1066,8 @@ string html = await engine.CompileRenderAsync("Invoice.cshtml", invoice);
 var pdf = renderer.RenderHtmlAsPdf(html);
 ```
 
+Additional templating strategies and complete invoice examples are covered in the [comprehensive walkthrough](https://ironpdf.com/blog/migration-guides/migrate-from-migradoc-to-ironpdf/), which addresses common document generation patterns.
+
 ### CSS External Stylesheets
 
 ```csharp

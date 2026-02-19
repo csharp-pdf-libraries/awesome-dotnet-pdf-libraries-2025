@@ -1325,6 +1325,7 @@ var renderer = new ChromePdfRenderer();
 - **wkhtmltopdf Status**: https://wkhtmltopdf.org/status.html
 
 ### Related Migration Guides
+- **[Migrate from TuesPechkin to IronPDF](https://ironpdf.com/blog/migration-guides/migrate-from-tuespechkin-to-ironpdf/)** — Comprehensive migration documentation
 - **[wkhtmltopdf Migration](../wkhtmltopdf/migrate-from-wkhtmltopdf.md)** — Parent technology
 - **[DinkToPdf Migration](../dinktopdf/migrate-from-dinktopdf.md)** — Similar wrapper
 - **[Rotativa Migration](../rotativa/migrate-from-rotativa.md)** — ASP.NET wrapper

@@ -47,6 +47,8 @@
 
 ### Key Migration Benefits
 
+For comprehensive coverage, consult the [comprehensive documentation](https://ironpdf.com/blog/migration-guides/migrate-from-eo-pdf-to-ironpdf/).
+
 1. **50% Smaller Footprint**: IronPDF's optimized Chromium packaging
 2. **True Cross-Platform**: Works identically on Windows, Linux, macOS, Docker
 3. **Thread-Safe Configuration**: Instance-based renderer options

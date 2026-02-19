@@ -857,6 +857,7 @@ pdf.SaveAs("dashboard.pdf");
 - [HTML to PDF Guide](https://ironpdf.com/how-to/html-file-to-pdf/)
 - [CSS Styling for PDFs](https://ironpdf.com/how-to/css/)
 - [IronPDF Tutorials](https://ironpdf.com/tutorials/)
+- [XFINIUM.PDF to IronPDF Migration Guide](https://ironpdf.com/blog/migration-guides/migrate-from-xfinium-pdf-to-ironpdf/)
 
 ---
 

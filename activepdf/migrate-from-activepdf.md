@@ -331,6 +331,8 @@ public void MergePdfs(string[] inputFiles, string outputPath)
 }
 ```
 
+The [comprehensive documentation](https://ironpdf.com/blog/migration-guides/migrate-from-activepdf-to-ironpdf/) provides additional merge strategies and handles edge cases like memory optimization.
+
 **After (IronPDF):**
 ```csharp
 using IronPdf;

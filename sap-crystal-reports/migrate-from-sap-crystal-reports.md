@@ -918,6 +918,7 @@ dotnet add package IronPdf
 - [Printing PDFs](https://ironpdf.com/how-to/print-pdf/)
 - [PDF Security](https://ironpdf.com/how-to/pdf-security/)
 - [IronPDF Tutorials](https://ironpdf.com/tutorials/)
+- [SAP Crystal Reports to IronPDF Migration Guide](https://ironpdf.com/blog/migration-guides/migrate-from-sap-crystal-reports-to-ironpdf/)
 
 ---
 

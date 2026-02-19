@@ -309,6 +309,8 @@ merged.Print("Printer");
 | Digital Signatures | NO | Yes |
 | PDF/A | NO | Yes |
 
+The [comprehensive migration reference](https://ironpdf.com/blog/migration-guides/migrate-from-rawprint-to-ironpdf/) provides integration patterns for transitioning from low-level byte transmission to high-level PDF creation and printing workflows.
+
 ---
 
 ## Common Migration Scenarios

@@ -35,6 +35,8 @@ var html = @"
 var pdf = renderer.RenderHtmlAsPdf(html);
 ```
 
+This shift from coordinate-based drawing to HTML/CSS is fully documented in the [ZetPDF to IronPDF migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-zetpdf-to-ironpdf/).
+
 ---
 
 ## Quick Start: ZetPDF to IronPDF

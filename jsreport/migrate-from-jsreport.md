@@ -49,6 +49,8 @@ jsreport introduces complexity that doesn't belong in a pure .NET environment:
 - **Rich PDF Operations**: Full merge, split, watermark, form, and security support
 - **Smaller Footprint**: Single NuGet package, no platform-specific binaries
 
+Each of these benefits is backed by complete, runnable examples in the [comprehensive migration walkthrough](https://ironpdf.com/blog/migration-guides/migrate-from-jsreport-to-ironpdf/).
+
 ---
 
 ## Before You Start

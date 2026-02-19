@@ -34,6 +34,8 @@ GemBox.Pdf is a capable .NET PDF component, but it has significant limitations t
 
 7. **Learning Curve for Design**: Developers must think in coordinates rather than document flow, making simple tasks like "add a paragraph" surprisingly complex.
 
+For best practices, consult the [complete guide](https://ironpdf.com/blog/migration-guides/migrate-from-gembox-pdf-to-ironpdf/).
+
 ### IronPDF Advantages
 
 | Aspect | GemBox.Pdf | IronPDF |

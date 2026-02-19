@@ -1241,4 +1241,4 @@ Migrating from Syncfusion PDF Framework to IronPDF offers:
 
 The migration primarily involves converting coordinate-based graphics to HTML/CSS and updating loading/saving patterns. Most Syncfusion features have direct IronPDF equivalents.
 
-For support, contact IronPDF or consult the [documentation](https://ironpdf.com/docs/).
+For a detailed walkthrough of the migration process, the [Syncfusion to IronPDF guide](https://ironpdf.com/blog/migration-guides/migrate-from-syncfusion-pdf-to-ironpdf/) provides complete code examples for every scenario. For support, contact IronPDF or consult the [documentation](https://ironpdf.com/docs/).

@@ -118,6 +118,8 @@ renderer.RenderingOptions.MarginLeft = 56;
 renderer.RenderingOptions.MarginRight = 56;
 ```
 
+Process elimination patterns and external dependency removal strategies are documented in the [complete migration documentation](https://ironpdf.com/blog/migration-guides/migrate-from-princexml-to-ironpdf/).
+
 ---
 
 ## Complete API Reference

@@ -41,7 +41,7 @@ Fluid is an excellent Liquid-based templating engine, but using it for PDF gener
 
 ### Why IronPDF is Better for PDF Generation
 
-IronPDF provides an **all-in-one solution** that eliminates the need for multiple dependencies:
+IronPDF provides an **all-in-one solution**, as covered in the [complete walkthrough](https://ironpdf.com/blog/migration-guides/migrate-from-fluid-to-ironpdf/), that eliminates the need for multiple dependencies:
 
 - **Direct PDF Output**: No intermediate HTML file management
 - **Chromium Rendering**: Industry-standard rendering engine

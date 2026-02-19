@@ -30,6 +30,8 @@ PDFFilePrint is a command-line utility for printing PDF files. While useful for 
 | **Async Support** | Manual | Built-in |
 | **NuGet Package** | ✗ | ✓ |
 
+Additional process simplification patterns and native API integration examples are available in the [complete walkthrough](https://ironpdf.com/blog/migration-guides/migrate-from-pdffileprint-to-ironpdf/).
+
 ---
 
 ## NuGet Package Changes

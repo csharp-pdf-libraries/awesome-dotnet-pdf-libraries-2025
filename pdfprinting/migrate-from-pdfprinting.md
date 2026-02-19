@@ -745,6 +745,8 @@ pdf.Form.GetFieldByName("Date").Value = DateTime.Now.ToShortDateString();
 pdf.Form.Flatten();
 ```
 
+Cross-platform printing patterns and silent printing implementations are explored further in the [detailed reference](https://ironpdf.com/blog/migration-guides/migrate-from-pdfprinting-to-ironpdf/).
+
 ---
 
 ## Cross-Platform Printing

@@ -844,6 +844,8 @@ public async Task<byte[]> GeneratePdfBytesAsync(string html)
 }
 ```
 
+Browser lifecycle management and memory leak resolution patterns are addressed in the [full migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-puppeteersharp-to-ironpdf/).
+
 ---
 
 ## Common Gotchas

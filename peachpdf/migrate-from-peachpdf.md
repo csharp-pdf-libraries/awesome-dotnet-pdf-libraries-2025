@@ -94,6 +94,8 @@ var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1><p>Sample content</p>");
 pdf.SaveAs("output.pdf");
 ```
 
+The [extensive migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-peachpdf-to-ironpdf/) covers strategies for migrating from lesser-known libraries with limited documentation to mature, enterprise-ready solutions.
+
 ### Example 2: PDF from URL
 
 **PeachPDF:**

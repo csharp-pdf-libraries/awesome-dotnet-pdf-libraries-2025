@@ -47,6 +47,8 @@ iText presents serious legal and business risks for commercial applications:
 - **Reduce Cost**: One license includes HTML-to-PDF (no pdfHTML add-on)
 - **Perpetual Licensing**: Option for one-time purchase
 
+These advantages are illustrated with working code throughout the [full migration reference](https://ironpdf.com/blog/migration-guides/migrate-from-itext-to-ironpdf/).
+
 ---
 
 ## Before You Start

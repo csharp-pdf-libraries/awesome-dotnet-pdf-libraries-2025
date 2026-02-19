@@ -21,7 +21,7 @@ If you're using Telerik just to generate PDFs from data, you're paying for featu
 | Simple reports | Interactive viewer, exports |
 | Server-side PDFs | Desktop controls, charting engine |
 
-IronPDF provides focused PDF generation without the enterprise reporting overhead.
+IronPDF provides focused PDF generation without the enterprise reporting overhead—the full transition is mapped out in the [step-by-step migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-telerik-reporting-to-ironpdf/).
 
 ---
 

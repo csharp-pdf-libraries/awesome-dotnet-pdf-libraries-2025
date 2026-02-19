@@ -125,6 +125,8 @@ IronPdf.License.LicenseKey = "YOUR-IRONPDF-LICENSE-KEY";
 
 ## Core API Mappings
 
+Comprehensive mapping tables and CSS Paged Media conversion strategies are available in the [full migration resource](https://ironpdf.com/blog/migration-guides/migrate-from-pdfreactor-to-ironpdf/).
+
 ### Classes and Objects
 
 | PDFreactor | IronPDF | Notes |

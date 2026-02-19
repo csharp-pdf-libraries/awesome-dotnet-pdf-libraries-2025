@@ -1265,6 +1265,9 @@ renderer.RenderingOptions.SetCustomPaperSizeInInches(8.5, 11);
 
 ## Additional Resources
 
+### Migration Reference
+- **[Telerik Document Processing to IronPDF](https://ironpdf.com/blog/migration-guides/migrate-from-telerik-document-processing-to-ironpdf/)**
+
 ### IronPDF Documentation
 - **Getting Started**: https://ironpdf.com/docs/
 - **API Reference**: https://ironpdf.com/object-reference/api/

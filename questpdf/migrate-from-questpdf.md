@@ -966,6 +966,8 @@ grep -r "QuestPDF\|Document.Create\|\.GeneratePdf" --include="*.cs" .
   ```
   **Why:** IronPDF page settings are more intuitive.
 
+DSL-to-HTML conversion patterns and licensing model comparisons are thoroughly documented in the [extensive migration walkthrough](https://ironpdf.com/blog/migration-guides/migrate-from-questpdf-to-ironpdf/).
+
 ### Testing
 
 - [ ] **Visual comparison of PDF output**

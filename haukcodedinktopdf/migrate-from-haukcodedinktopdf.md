@@ -1458,7 +1458,7 @@ renderer.RenderingOptions.GrayScale = true;
 
 ## Summary
 
-Migrating from Haukcode.DinkToPdf to IronPDF addresses critical security vulnerabilities and provides modern PDF generation capabilities:
+Migrating from Haukcode.DinkToPdf to IronPDF—covered in detail in the [complete migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-haukcode-dinktopdf-to-ironpdf/)—addresses critical security vulnerabilities and provides modern PDF generation capabilities:
 
 1. **Security**: Eliminates CVE-2022-35583 (SSRF) and other wkhtmltopdf vulnerabilities
 2. **Modern Engine**: Uses actively-updated Chromium instead of abandoned Qt WebKit

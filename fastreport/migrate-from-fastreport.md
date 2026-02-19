@@ -39,6 +39,8 @@ FastReport.NET is a powerful reporting tool, but it comes with significant limit
 | PDF Manipulation | Export-focused | Full manipulation (merge, split, security, forms) |
 | Modern .NET | .NET Standard 2.0 | .NET 6/7/8/9+ native |
 
+The [complete documentation](https://ironpdf.com/blog/migration-guides/migrate-from-fastreport-to-ironpdf/) includes troubleshooting steps for common scenarios.
+
 ---
 
 ## Before You Start

@@ -1307,6 +1307,7 @@ pdf.SaveAs(...);
 - **HTML to PDF**: https://ironpdf.com/how-to/html-file-to-pdf/
 
 ### Migration Support
+- **Spire.PDF Migration Guide**: https://ironpdf.com/blog/migration-guides/migrate-from-spire-pdf-to-ironpdf/
 - **IronPDF Support**: https://ironpdf.com/support/
 - **License Information**: https://ironpdf.com/licensing/
 

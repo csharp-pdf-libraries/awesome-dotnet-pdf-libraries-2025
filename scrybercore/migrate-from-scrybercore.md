@@ -552,6 +552,7 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 - [IronPDF Tutorials](https://ironpdf.com/tutorials/)
 - [HTML to PDF Guide](https://ironpdf.com/how-to/html-file-to-pdf/)
 - [Headers and Footers Guide](https://ironpdf.com/how-to/headers-and-footers/)
+- [Scryber.Core to IronPDF Migration Reference](https://ironpdf.com/blog/migration-guides/migrate-from-scryber-core-to-ironpdf/)
 
 ---
 

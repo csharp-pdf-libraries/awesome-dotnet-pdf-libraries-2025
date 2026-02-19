@@ -45,6 +45,8 @@ CraftMyPDF, like many cloud PDF services, introduces fundamental issues that mak
 
 ### Feature Comparison
 
+Additional context and code samples are provided in the [full walkthrough](https://ironpdf.com/blog/migration-guides/migrate-from-craftmypdf-to-ironpdf/).
+
 | Feature | CraftMyPDF | IronPDF |
 |---------|------------|---------|
 | HTML to PDF | Via API templates | ✅ Native |

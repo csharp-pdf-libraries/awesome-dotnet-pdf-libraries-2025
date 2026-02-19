@@ -51,6 +51,8 @@
 
 ### Key Migration Benefits
 
+More information can be found in the [extensive documentation](https://ironpdf.com/blog/migration-guides/migrate-from-expertpdf-to-ironpdf/).
+
 1. **Modern Rendering**: Latest Chromium engine for pixel-perfect output
 2. **All-in-One Package**: PDF generation, merging, security, extraction in one NuGet
 3. **Active Development**: Monthly updates with new features and security patches

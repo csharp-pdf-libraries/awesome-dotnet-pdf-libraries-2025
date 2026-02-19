@@ -1274,6 +1274,7 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 - [IronPDF Tutorials](https://ironpdf.com/tutorials/)
 - [HTML to PDF Guide](https://ironpdf.com/how-to/html-file-to-pdf/)
 - [Headers and Footers Guide](https://ironpdf.com/how-to/headers-and-footers/)
+- [Migrating from HiQPdf to IronPDF](https://ironpdf.com/blog/migration-guides/migrate-from-hiqpdf-to-ironpdf/)
 
 ---
 

@@ -34,6 +34,8 @@ MuPDF is an excellent PDF renderer, but its AGPL license and rendering-only focu
    - Platform-specific bugs
    - Marshalling overhead
 
+These challenges, as detailed in the [full migration reference](https://ironpdf.com/blog/migration-guides/migrate-from-mupdf-to-ironpdf/), demonstrate why many teams transition to fully-managed solutions with comprehensive PDF capabilities.
+
 ### Benefits of IronPDF
 
 | Aspect | MuPDF | IronPDF |

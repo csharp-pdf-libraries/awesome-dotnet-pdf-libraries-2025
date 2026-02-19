@@ -25,7 +25,7 @@ ABCpdf from WebSupergoo has been a capable PDF library for .NET developers, but 
 
 ### The Case for Leaving ABCpdf
 
-**Licensing Complexity**: ABCpdf uses a tiered licensing model that can be confusing to navigate. Pricing starts at $349 but escalates based on features, server deployments, and use cases. Many developers report the licensing maze as a significant administrative burden.
+**Licensing Complexity**: ABCpdf uses a tiered licensing model that can be confusing to navigate, as detailed in the [migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-abcpdf-to-ironpdf/). Pricing starts at $349 but escalates based on features, server deployments, and use cases. Many developers report the licensing maze as a significant administrative burden.
 
 **Windows-First Architecture**: While ABCpdf has added cross-platform support, its historical Windows-centric design occasionally surfaces in workflows. Developers targeting Linux containers or macOS development environments may encounter friction.
 
