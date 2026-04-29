@@ -1,0 +1,563 @@
+<h1>Migrating from Fluid to IronPDF: A .NET Developer's Migration Notes</h1>
+
+<p>Fluid is a Liquid-syntax template engine for .NET — it renders strings from templates and data. What it is not is a PDF generator. Teams building PDF pipelines around Fluid are typically doing something like: render an HTML string via Fluid, then pass that string to a PDF library. If the PDF library they are passing that string to is the problem, this article is for you.</p>
+
+<p>This guide covers migrating the PDF-generation half of a Fluid-based pipeline — replacing whatever is currently converting the Fluid output to PDF with <a href="https://ironpdf.com/">IronPDF</a>. Fluid itself continues to do what it is good at: template rendering. By the end, you will have a working migration scaffold, API mappings for common PDF operations, and four before/after code examples showing Fluid HTML output feeding into IronPDF.</p>
+
+<h2>Why Migrate the PDF Layer?</h2>
+
+<p>Fluid stays in this migration. The trigger is the PDF library feeding off Fluid's output. Here are the reasons teams hit a wall:</p>
+
+<ul>
+<li><strong>CSS fidelity</strong> — Fluid generates the HTML; the downstream PDF library may not render modern CSS. Chromium-based rendering resolves this without changing templates.</li>
+<li><strong>JavaScript in templates</strong> — Fluid-generated HTML may include JS-dependent components (charts, dynamic tables). Most non-Chromium PDF libraries cannot run this JS.</li>
+<li><strong>@font-face and custom fonts</strong> — Font embedding in the PDF depends on the renderer, not the template engine.</li>
+<li><strong>Linux container rendering</strong> — The PDF renderer, not Fluid, is the source of Linux dependency issues.</li>
+<li><strong>Async pipeline</strong> — Fluid's rendering is synchronous or easily awaitable. The PDF layer is often the async bottleneck.</li>
+<li><strong>Output file size</strong> — PDF compression and optimization are renderer responsibilities.</li>
+<li><strong>Watermarking and post-processing</strong> — Adding watermarks, page numbers, or security to the generated PDF requires PDF library features, not template features.</li>
+<li><strong>URL asset loading</strong> — Fluid-generated HTML referencing external CSS/JS requires a PDF renderer that can follow those URLs.</li>
+<li><strong>Print media CSS</strong> — <code>@media print</code> rules in Fluid templates need a renderer that honors them.</li>
+<li><strong>Merge multiple rendered outputs</strong> — If you are merging multiple Fluid-rendered HTML documents into one PDF, the merge API lives in the PDF library.</li>
+</ul>
+
+<h2>How Do Fluid and IronPDF Compare Side by Side?</h2>
+
+<p>It is important to understand that Fluid and <a href="https://ironpdf.com/">IronPDF</a> serve different layers of the pipeline. Fluid handles template rendering; IronPDF handles PDF generation. They complement each other rather than overlap.</p>
+
+<table>
+<tr><th>Aspect</th><th>Fluid (template layer)</th><th>IronPDF (render layer)</th></tr>
+<tr><td>Focus</td><td>Liquid template to string</td><td>HTML/URL to PDF via Chromium</td></tr>
+<tr><td>Pricing</td><td>MIT open source</td><td>Commercial — verify current</td></tr>
+<tr><td>API Style</td><td>Parser/render pattern</td><td>Renderer with options</td></tr>
+<tr><td>Learning Curve</td><td>Low (Liquid syntax)</td><td>Low for HTML-first workflows</td></tr>
+<tr><td>HTML Rendering</td><td>Not applicable — string output only</td><td>Chromium, full CSS/JS</td></tr>
+<tr><td>Page Indexing</td><td>N/A</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Fluid parser is reusable</td><td>ChromePdfRenderer reusable</td></tr>
+<tr><td>Namespace</td><td>Fluid</td><td>IronPdf</td></tr>
+</table>
+
+<h2>What Is the Migration Effort for Each Feature?</h2>
+
+<p>I have mapped out the effort level for the most common features teams need to migrate. The good news is that most of these are low complexity because Fluid itself stays untouched — you are only swapping the downstream PDF call.</p>
+
+<table>
+<tr><th>Feature</th><th>Complexity</th><th>Notes</th></tr>
+<tr><td>HTML string to PDF</td><td>Low</td><td>Replace downstream PDF library call only</td></tr>
+<tr><td>Fluid to HTML to PDF pipeline</td><td>Low</td><td>Fluid stays; only PDF call changes</td></tr>
+<tr><td>CSS rendering fidelity fix</td><td>Low</td><td>Switch to IronPDF; template unchanged</td></tr>
+<tr><td>JS chart rendering</td><td>Low</td><td>New capability; template may already have charts</td></tr>
+<tr><td>Multi-template merge</td><td>Medium</td><td>Render each then merge PDFs</td></tr>
+<tr><td>Watermark on output</td><td>Medium</td><td>Post-generation stamp</td></tr>
+<tr><td>Password protect output</td><td>Low</td><td>Security settings on rendered PDF</td></tr>
+<tr><td>Per-page headers/footers</td><td>Medium</td><td>Move from template to IronPDF HTML header</td></tr>
+<tr><td>Stream output (no disk)</td><td>Low</td><td>pdf.BinaryData or stream</td></tr>
+<tr><td>PDF/A compliance</td><td>Medium</td><td>Verify IronPDF PDF/A options</td></tr>
+</table>
+
+<h2>Which Scenario Fits My Migration?</h2>
+
+<p>Before diving into code, here is a quick decision matrix to help you identify where you fall.</p>
+
+<table>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+<tr><td>Fluid templates work; downstream PDF renderer has CSS issues</td><td>Replace PDF renderer, keep Fluid</td></tr>
+<tr><td>Fluid templates are fine; PDF library cannot render JS</td><td>Replace PDF renderer, keep Fluid</td></tr>
+<tr><td>Need to merge multiple Fluid-rendered PDFs</td><td>Add PdfDocument.Merge() to existing pipeline</td></tr>
+<tr><td>Want watermarks or security on Fluid output</td><td>Add IronPDF post-processing step</td></tr>
+</table>
+
+<h2>How Do I Set Up the Basic Fluid to IronPDF Pipeline?</h2>
+
+<p>The migration is a three-step process. I will walk through each one.</p>
+
+<h3>Step 1: License</h3>
+
+<pre><code>// Fluid: no license needed (MIT)
+// IronPDF: set license before first use
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+// Docs: https://ironpdf.com/how-to/license-keys/
+// Or via environment variable: IRONPDF_LICENSEKEY
+// Or appsettings.json — verify current config options in docs</code></pre>
+
+<h3>Step 2: Namespace Imports</h3>
+
+<pre><code>// Keep Fluid imports
+using Fluid;
+using Fluid.Values;
+
+// Add IronPDF
+using IronPdf;
+// Remove old PDF library import</code></pre>
+
+<h3>Step 3: Basic Pipeline</h3>
+
+<pre><code>// Fluid renders HTML — unchanged
+var parser = new FluidParser();
+if (!parser.TryParse(liquidTemplate, out var template, out var error))
+    throw new Exception($"Template parse error: {error}");
+
+var context = new TemplateContext();
+context.SetValue("name", "Alice");
+string html = await template.RenderAsync(context);
+
+// Before: old PDF library
+// var pdf = OldLibrary.Convert(html); // whatever was here
+
+// After: IronPDF
+var renderer = new ChromePdfRenderer();
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+// Docs: https://ironpdf.com/how-to/html-string-to-pdf/</code></pre>
+
+<h2>How Do the APIs Map Between My Old Library and IronPDF?</h2>
+
+<p>Since Fluid is not a PDF library, the mapping here is between whatever PDF library you were using downstream and <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF</a>. I have organized these by operation type.</p>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr><th>Old PDF Class</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td>Old HTML-to-PDF converter</td><td>ChromePdfRenderer</td><td>Rendering engine</td></tr>
+<tr><td>Old document object</td><td>IronPdf.PdfDocument</td><td>Document object</td></tr>
+<tr><td>Old options/settings</td><td>ChromePdfRenderOptions</td><td>Rendering configuration</td></tr>
+<tr><td>Old security settings</td><td>PdfDocument.SecuritySettings</td><td>Password/permissions</td></tr>
+</table>
+
+<h3>Document Loading</h3>
+
+<table>
+<tr><th>Operation</th><th>Old Library</th><th>IronPDF</th></tr>
+<tr><td>HTML string to PDF</td><td>varies</td><td>renderer.RenderHtmlAsPdf(html)</td></tr>
+<tr><td>URL to PDF</td><td>varies</td><td>renderer.RenderUrlAsPdf(url)</td></tr>
+<tr><td>Load from file</td><td>varies</td><td>PdfDocument.FromFile(path)</td></tr>
+<tr><td>Load from stream</td><td>varies</td><td>PdfDocument.FromStream(stream)</td></tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>Old Library</th><th>IronPDF</th></tr>
+<tr><td>Page count</td><td>varies</td><td>pdf.PageCount</td></tr>
+<tr><td>Get page</td><td>varies</td><td>pdf.Pages[i]</td></tr>
+<tr><td>Remove page</td><td>varies</td><td>pdf.RemovePage(index)</td></tr>
+<tr><td>Paper size</td><td>varies</td><td>RenderingOptions.PaperSize</td></tr>
+</table>
+
+<h3>Merge / Split</h3>
+
+<table>
+<tr><th>Operation</th><th>Old Library</th><th>IronPDF</th></tr>
+<tr><td>Merge two PDFs</td><td>varies</td><td>PdfDocument.Merge(a, b)</td></tr>
+<tr><td>Split by page range</td><td>varies</td><td>pdf.CopyPages(start, end)</td></tr>
+</table>
+
+<h2>What Does the Full Before/After Code Look Like?</h2>
+
+<p>Here are four complete migration examples, each showing the Fluid template rendering staying in place while only the PDF generation call changes.</p>
+
+<h3>Example 1: Fluid HTML to PDF (Core Pipeline)</h3>
+
+<p><strong>Before (Fluid + old PDF library):</strong></p>
+
+<pre><code>using Fluid;
+// using OldPdfLibrary; // your actual library
+
+class Program
+{
+    static async Task Main()
+    {
+        // Fluid template rendering — this part stays
+        string liquidTemplate = @"
+            &lt;html&gt;
+            &lt;body&gt;
+                &lt;h1&gt;Invoice #{{ invoice.number }}&lt;/h1&gt;
+                &lt;p&gt;Customer: {{ invoice.customer }}&lt;/p&gt;
+                &lt;p&gt;Total: {{ invoice.total | currency }}&lt;/p&gt;
+                &lt;table&gt;
+                    {% for item in invoice.items %}
+                    &lt;tr&gt;&lt;td&gt;{{ item.name }}&lt;/td&gt;&lt;td&gt;{{ item.price }}&lt;/td&gt;&lt;/tr&gt;
+                    {% endfor %}
+                &lt;/table&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        var parser = new FluidParser();
+        parser.TryParse(liquidTemplate, out var template, out _);
+
+        var context = new TemplateContext();
+        context.SetValue("invoice", new { number = "INV-001", customer = "Acme Corp",
+            total = 500.00m, items = new[] { new { name = "Widget", price = 500.00m } } });
+
+        string html = await template.RenderAsync(context);
+
+        // Old PDF conversion — replace this part
+        // var pdfBytes = OldLibrary.ConvertHtml(html); // verify your old API
+        // File.WriteAllBytes("invoice.pdf", pdfBytes);
+
+        Console.WriteLine("Generated HTML, PDF conversion was here");
+    }
+}</code></pre>
+
+<p><strong>After (Fluid + IronPDF):</strong></p>
+
+<pre><code>using Fluid;
+using IronPdf;
+
+class Program
+{
+    static async Task Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        // Docs: https://ironpdf.com/how-to/license-keys/
+
+        // Fluid template rendering — unchanged from before
+        string liquidTemplate = @"
+            &lt;html&gt;
+            &lt;body&gt;
+                &lt;h1&gt;Invoice #{{ invoice.number }}&lt;/h1&gt;
+                &lt;p&gt;Customer: {{ invoice.customer }}&lt;/p&gt;
+                &lt;p&gt;Total: {{ invoice.total | currency }}&lt;/p&gt;
+                &lt;table&gt;
+                    {% for item in invoice.items %}
+                    &lt;tr&gt;&lt;td&gt;{{ item.name }}&lt;/td&gt;&lt;td&gt;{{ item.price }}&lt;/td&gt;&lt;/tr&gt;
+                    {% endfor %}
+                &lt;/table&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        var parser = new FluidParser();
+        parser.TryParse(liquidTemplate, out var template, out _);
+
+        var context = new TemplateContext();
+        context.SetValue("invoice", new { number = "INV-001", customer = "Acme Corp" });
+
+        string html = await template.RenderAsync(context);
+
+        // IronPDF renders the HTML output from Fluid
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+        // Docs: https://ironpdf.com/how-to/rendering-options/
+
+        using var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("invoice.pdf");
+    }
+}</code></pre>
+
+<h3>Example 2: Merge Multiple Fluid-Rendered PDFs</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>using Fluid;
+// using OldPdfLibrary;
+
+class MergeSample
+{
+    static async Task Main()
+    {
+        var parser = new FluidParser();
+        var templates = new[] { "template_a.liquid", "template_b.liquid" };
+        var renderedPdfs = new List&lt;byte[]&gt;();
+
+        foreach (var templatePath in templates)
+        {
+            var liquidText = await File.ReadAllTextAsync(templatePath);
+            parser.TryParse(liquidText, out var template, out _);
+
+            var context = new TemplateContext();
+            string html = await template.RenderAsync(context);
+
+            // Old PDF conversion — replace
+            // byte[] pdfBytes = OldLibrary.ConvertHtml(html); // verify
+            // renderedPdfs.Add(pdfBytes);
+        }
+
+        // Old merge — verify old library's merge API
+        // byte[] merged = OldLibrary.Merge(renderedPdfs.ToArray()); // verify
+        // File.WriteAllBytes("merged.pdf", merged);
+    }
+}</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using Fluid;
+using IronPdf;
+
+class MergeSample
+{
+    static async Task Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        var parser = new FluidParser();
+        var renderer = new ChromePdfRenderer(); // reuse across renders
+
+        var pdfs = new List&lt;PdfDocument&gt;();
+
+        foreach (var templatePath in new[] { "template_a.liquid", "template_b.liquid" })
+        {
+            var liquidText = await File.ReadAllTextAsync(templatePath);
+            parser.TryParse(liquidText, out var template, out _);
+
+            var context = new TemplateContext();
+            string html = await template.RenderAsync(context);
+
+            // Note: don't using here — we need these for merge below
+            pdfs.Add(renderer.RenderHtmlAsPdf(html));
+        }
+
+        // Merge all rendered PDFs
+        using var merged = PdfDocument.Merge(pdfs);
+        merged.SaveAs("merged.pdf");
+        // Docs: https://ironpdf.com/how-to/merge-or-split-pdfs/
+
+        // Dispose individual PDFs after merge
+        foreach (var pdf in pdfs) pdf.Dispose();
+    }
+}</code></pre>
+
+<h3>Example 3: Watermark on Fluid Output</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>using Fluid;
+
+class WatermarkSample
+{
+    static async Task Main()
+    {
+        var parser = new FluidParser();
+        parser.TryParse("&lt;html&gt;&lt;body&gt;&lt;h1&gt;{{ title }}&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;", out var template, out _);
+
+        var context = new TemplateContext();
+        context.SetValue("title", "Confidential Report");
+        string html = await template.RenderAsync(context);
+
+        // Old PDF + watermark — verify old library approach
+        // var converter = new OldConverter();
+        // converter.WatermarkText = "CONFIDENTIAL"; // verify
+        // byte[] pdfBytes = converter.Convert(html); // verify
+        // File.WriteAllBytes("watermarked.pdf", pdfBytes);
+    }
+}</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using Fluid;
+using IronPdf;
+using IronPdf.Editing;
+
+class WatermarkSample
+{
+    static async Task Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        var parser = new FluidParser();
+        parser.TryParse("&lt;html&gt;&lt;body&gt;&lt;h1&gt;{{ title }}&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;", out var template, out _);
+
+        var context = new TemplateContext();
+        context.SetValue("title", "Confidential Report");
+        string html = await template.RenderAsync(context);
+
+        // Render via IronPDF
+        var renderer = new ChromePdfRenderer();
+        using var pdf = renderer.RenderHtmlAsPdf(html);
+
+        // Apply watermark as text stamp
+        var stamper = new TextStamper
+        {
+            Text = "CONFIDENTIAL",
+            FontSize = 45,
+            Opacity = 25,
+            Rotation = 45
+        };
+
+        pdf.ApplyStamp(stamper);
+        pdf.SaveAs("watermarked.pdf");
+        // Docs: https://ironpdf.com/how-to/stamp-text-image/
+    }
+}</code></pre>
+
+<h3>Example 4: Password-Protected Fluid Output</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>using Fluid;
+
+class SecuritySample
+{
+    static async Task Main()
+    {
+        var parser = new FluidParser();
+        parser.TryParse("&lt;html&gt;&lt;body&gt;&lt;p&gt;{{ content }}&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;", out var template, out _);
+
+        var context = new TemplateContext();
+        context.SetValue("content", "Sensitive document content");
+        string html = await template.RenderAsync(context);
+
+        // Old PDF + security — verify old library
+        // var converter = new OldConverter();
+        // converter.UserPassword = "user123"; // verify
+        // converter.OwnerPassword = "owner456"; // verify
+        // byte[] pdfBytes = converter.Convert(html); // verify
+        // File.WriteAllBytes("secured.pdf", pdfBytes);
+    }
+}</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using Fluid;
+using IronPdf;
+using IronPdf.Security;
+
+class SecuritySample
+{
+    static async Task Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        var parser = new FluidParser();
+        parser.TryParse("&lt;html&gt;&lt;body&gt;&lt;p&gt;{{ content }}&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;", out var template, out _);
+
+        var context = new TemplateContext();
+        context.SetValue("content", "Sensitive document content");
+        string html = await template.RenderAsync(context);
+
+        var renderer = new ChromePdfRenderer();
+        using var pdf = renderer.RenderHtmlAsPdf(html);
+
+        // Docs: https://ironpdf.com/how-to/pdf-permissions-passwords/
+        pdf.SecuritySettings.UserPassword = "user123";
+        pdf.SecuritySettings.OwnerPassword = "owner456";
+        pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+
+        pdf.SaveAs("secured.pdf");
+    }
+}</code></pre>
+
+<h2>What Are the Critical Things to Watch During Migration?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>The single most important thing to understand: this migration touches only the PDF-generation layer. Fluid's template parsing, the <code>FluidParser</code>, <code>TemplateContext</code>, and <code>template.RenderAsync()</code> calls are entirely unchanged. If you are making changes to those, that is a separate project.</p>
+
+<p>Fluid escapes HTML by default. If your templates contain HTML that you want to render (not display as escaped text), you may need <code>| raw</code> filters in your templates. This behavior does not change with IronPDF — it is a Fluid concern — but it is worth confirming your templates output valid HTML rather than HTML-escaped text.</p>
+
+<pre><code>{# Escaped (default) — shows as text in PDF #}
+{{ html_content }}
+
+{# Unescaped — renders as HTML #}
+{{ html_content | raw }}</code></pre>
+
+<p>If your Fluid templates include relative URLs to CSS, images, or fonts, IronPDF needs to resolve these. Use <code>BaseUrl</code> on the rendering options:</p>
+
+<pre><code>var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.BaseUrl = new Uri("https://your-domain.com/");
+// or for local file: new Uri("file:///path/to/assets/")</code></pre>
+
+<h2>How Should I Handle Async Pipelines and Performance?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Both Fluid and IronPDF support async. Here is the clean pattern for ASP.NET:</p>
+
+<pre><code>// Fully async Fluid to IronPDF pipeline
+public async Task&lt;byte[]&gt; GeneratePdfAsync(string template, object model)
+{
+    // Fluid render (async)
+    var fluidTemplate = _parser.Parse(template);
+    var context = new TemplateContext(model);
+    string html = await fluidTemplate.RenderAsync(context);
+
+    // IronPDF render (async)
+    using var pdf = await _renderer.RenderHtmlAsPdfAsync(html);
+    return pdf.BinaryData;
+    // Async docs: https://ironpdf.com/how-to/async/
+}</code></pre>
+
+<p>For the renderer lifecycle, register it as a singleton in your DI container. The Fluid parser can also be a singleton:</p>
+
+<pre><code>// Register as singleton in DI
+builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;(sp =&gt;
+{
+    IronPdf.License.LicenseKey = sp.GetRequiredService&lt;IConfiguration&gt;()["IronPdf:LicenseKey"];
+    return new ChromePdfRenderer();
+});
+
+// Fluid parser can also be singleton
+builder.Services.AddSingleton&lt;FluidParser&gt;();</code></pre>
+
+<p>For warm-up, use an <code>IHostedService</code> to initialize the Chromium renderer at startup rather than on first request:</p>
+
+<pre><code>// IHostedService warm-up
+public async Task StartAsync(CancellationToken ct)
+{
+    using var _ = await _renderer.RenderHtmlAsPdfAsync("&lt;p&gt;warmup&lt;/p&gt;");
+    _logger.LogInformation("IronPDF renderer initialized");
+}</code></pre>
+
+<h2>How Do I Handle Batch Rendering from Multiple Fluid Templates?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>If generating many PDFs from different Fluid templates (for example, a batch invoice run), parallel rendering is possible. Fluid's parser is thread-safe and <code>ChromePdfRenderer</code> is reusable across threads.</p>
+
+<pre><code>// Parallel batch: Fluid render to IronPDF per item
+var tasks = orders.Select(async order =&gt;
+{
+    var context = new TemplateContext(order);
+    string html = await _template.RenderAsync(context);
+
+    using var pdf = await _renderer.RenderHtmlAsPdfAsync(html);
+    return (order.Id, pdf.BinaryData);
+});
+
+var results = await Task.WhenAll(tasks);</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Do I need to change my Fluid templates at all?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>No. Fluid stays completely untouched in this migration. The <code>FluidParser</code>, <code>TemplateContext</code>, and <code>template.RenderAsync()</code> calls remain the same. You are only replacing the downstream PDF library that consumes the HTML string Fluid produces.</p>
+
+<p>The one thing worth verifying is that your templates are outputting valid HTML. If you are using the <code>| raw</code> filter to pass through HTML content, confirm that behavior is intact by rendering to a browser first.</p>
+
+<h3>What .NET versions does IronPDF support?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF supports .NET Framework 4.6.2+ and .NET Core / .NET 5+. Confirm your .NET target is IronPDF-compatible before starting the migration. Check the <a href="https://ironpdf.com/">IronPDF documentation</a> for the latest compatibility matrix.</p>
+
+<h3>Can I use IronPDF in Linux containers?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. IronPDF runs on Linux and is commonly deployed in Docker containers. The PDF renderer (not Fluid) is the source of any Linux dependency issues, so switching to IronPDF resolves those if your old library had trouble in containerized environments. Test IronPDF Linux dependencies on your deployment container as part of the pre-migration checklist.</p>
+
+<h3>How do I handle relative asset URLs in Fluid templates?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>If your Fluid templates reference relative URLs to CSS, images, or fonts (for example, <code>/assets/report.css</code>), set <code>BaseUrl</code> on the IronPDF rendering options. For local files, use a file URI. For hosted assets, use the domain URL. This tells the Chromium renderer where to resolve those relative paths.</p>
+
+<pre><code>renderer.RenderingOptions.BaseUrl = new Uri("https://your-domain.com/");
+// or for local file: new Uri("file:///path/to/assets/")</code></pre>
+
+<h3>Is ChromePdfRenderer thread-safe for concurrent Fluid pipeline usage?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. <code>ChromePdfRenderer</code> is reusable across threads, just like <code>FluidParser</code>. Register both as singletons in your DI container. For batch operations, you can safely run parallel renders where each task calls <code>template.RenderAsync()</code> followed by <code>renderer.RenderHtmlAsPdfAsync()</code> without thread-safety concerns.</p>
+
+<h2>Conclusion</h2>
+
+<p>The Fluid migration is clean because Fluid and IronPDF do not overlap — Fluid produces HTML strings, IronPDF consumes them. The migration is entirely in the seam between those two operations. If that seam was previously filled by a custom implementation or a library with CSS fidelity issues, the replacement is additive rather than disruptive.</p>
+
+<p>The one area worth extra attention: Fluid's HTML escaping behavior and whether your templates are using <code>| raw</code> correctly. A template that looked fine in a browser may have subtly different behavior in a PDF renderer depending on how HTML content flows through Liquid filters.</p>
+
+<p>To get started, install <a href="https://ironpdf.com/">IronPDF</a> via NuGet, set your license key, and replace your downstream PDF conversion call with <code>renderer.RenderHtmlAsPdf(html)</code>. That single line change is the core of the migration. Everything else — merging, watermarking, security — builds on top of that foundation.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

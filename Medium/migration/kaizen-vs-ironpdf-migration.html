@@ -1,0 +1,504 @@
+<h1>Migrating from Kaizen to IronPDF in C#: The Complete Guide</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>The version pin in your <code>.csproj</code> has been sitting at <code>2.x</code> for eight months. A security advisory came through, the fix landed in <code>3.x</code>, and the upgrade path involves breaking API changes you haven't had time to assess. Meanwhile the rest of the stack has moved to .NET 8 and the old package doesn't play cleanly with the new runtime.</p>
+
+<p>You're not looking for a migration out of enthusiasm &mdash; you're looking for a path forward. I wrote this guide to map the code changes needed to move from Kaizen.io PDF generation to <a href="https://ironpdf.com/">IronPDF</a>. The mapping tables and checklist are useful reference material regardless of which library you end up choosing.</p>
+
+<h2>Why Should I Migrate from Kaizen.io to IronPDF?</h2>
+
+<p>Version pinning and upgrade friction are common triggers, but they're rarely the only one. Here are nine neutral reasons teams evaluate a PDF library switch:</p>
+
+<p><strong>Version lock</strong> &mdash; security or compatibility fixes land in a version that requires breaking API changes. The cost of staying starts to exceed the cost of switching.</p>
+
+<p><strong>Runtime incompatibility</strong> &mdash; older libraries built for .NET Framework or early .NET Core may not work correctly on .NET 6/8 targets.</p>
+
+<p><strong>Maintenance signal</strong> &mdash; slowing commit cadence, unanswered GitHub issues, or no roadmap communication.</p>
+
+<p><strong>NuGet package deprecation</strong> &mdash; if the package is marked deprecated or abandoned on NuGet, your supply chain tooling will start flagging it.</p>
+
+<p><strong>Deployment constraints</strong> &mdash; libraries with native binary dependencies become friction in Docker, Azure, or CI/CD environments as those environments evolve.</p>
+
+<p><strong>HTML/CSS fidelity</strong> &mdash; if the rendering engine doesn't keep pace with CSS standards, templates start to drift visually.</p>
+
+<p><strong>Missing features</strong> &mdash; PDF/A compliance, digital signatures, merge/split, or watermarking absent from the current library.</p>
+
+<p><strong>API verbosity</strong> &mdash; accumulated boilerplate from a library that wasn't designed for your primary use case.</p>
+
+<p><strong>Commercial support requirements</strong> &mdash; teams needing SLA-backed support may need a library with an enterprise support tier.</p>
+
+<h2>How Do Kaizen.io and IronPDF Compare Feature by Feature?</h2>
+
+<table>
+<tr><th>Aspect</th><th>Kaizen.io</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>Verify &mdash; document/PDF tooling</td><td>HTML-to-PDF + full PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Verify at kaizen.io</td><td>Commercial &mdash; verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>Verify &mdash; library vs HTTP client</td><td>In-process .NET library</td></tr>
+<tr><td>Learning Curve</td><td>Verify</td><td>Medium</td></tr>
+<tr><td>HTML Rendering</td><td>Verify rendering engine</td><td>Chromium-based</td></tr>
+<tr><td>Page Indexing</td><td>Verify</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify</td><td>Renderer instance reuse &mdash; see async docs</td></tr>
+<tr><td>Namespace</td><td>Verify</td><td><code>IronPdf</code></td></tr>
+</table>
+
+<h2>How Hard Is Each Feature to Migrate?</h2>
+
+<table>
+<tr><th>Feature</th><th>Kaizen.io Approach</th><th>Effort to Migrate</th></tr>
+<tr><td>HTML string to PDF</td><td>Verify</td><td>Low (if supported)</td></tr>
+<tr><td>URL to PDF</td><td>Verify</td><td>Low</td></tr>
+<tr><td>HTML file to PDF</td><td>Verify</td><td>Low</td></tr>
+<tr><td>Merge PDFs</td><td>Verify</td><td>Low (native in IronPDF)</td></tr>
+<tr><td>Watermark</td><td>Verify</td><td>Low</td></tr>
+<tr><td>Password protection</td><td>Verify</td><td>Low</td></tr>
+<tr><td>Custom margins</td><td>Verify</td><td>Low</td></tr>
+<tr><td>Headers / footers</td><td>Verify</td><td>Medium</td></tr>
+<tr><td>Async rendering</td><td>Verify</td><td>Medium</td></tr>
+<tr><td>Digital signatures</td><td>Verify</td><td>Medium &mdash; verify IronPDF signing API</td></tr>
+<tr><td>PDF/A compliance</td><td>Verify</td><td>Low in IronPDF if needed</td></tr>
+</table>
+
+<h2>When Does It Make Sense to Migrate?</h2>
+
+<table>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+<tr><td>Version upgrade path blocked, .NET 8 required</td><td>Evaluate in-process alternatives; IronPDF or open-source options</td></tr>
+<tr><td>Open source requirement</td><td>IronPDF is commercial; evaluate PuppeteerSharp, wkhtmltopdf wrappers</td></tr>
+<tr><td>Core use case is HTML-to-PDF only, no manipulation</td><td>Both may work &mdash; verify Kaizen.io's HTML fidelity against your templates</td></tr>
+<tr><td>Need merge, watermark, encryption in one library</td><td>IronPDF consolidates these; avoids adding secondary libraries</td></tr>
+</table>
+
+<h2>How Do I Set Up My Codebase for Migration?</h2>
+
+<p>Before writing any migration code, I recommend taking a full inventory of Kaizen.io features in active use. You will need .NET 6+ target framework and NuGet access or an offline package cache.</p>
+
+<h3>Find Kaizen.io references in your codebase</h3>
+
+<pre><code># Find all files referencing Kaizen &mdash; adjust namespace/class names after verifying docs
+rg -l "Kaizen\|kaizen" --type cs -i
+
+# Find using statements
+rg "using Kaizen" --type cs -n
+
+# Find class instantiation &mdash; replace KaizenClient with actual class name
+rg "KaizenClient\|KaizenPdf\|KaizenRenderer" --type cs -n
+
+# Find NuGet package references in project files
+grep -r -i "kaizen" **/*.csproj *.csproj 2&gt;/dev/null</code></pre>
+
+<h3>Remove Kaizen.io, install IronPDF</h3>
+
+<pre><code># Remove Kaizen package &mdash; verify exact package name on NuGet first
+dotnet remove package Kaizen.Pdf   # replace with actual package name
+
+# Install IronPDF
+dotnet add package IronPdf
+
+# Restore
+dotnet restore</code></pre>
+
+<p>On Windows PowerShell via Package Manager Console: <code>Install-Package IronPdf</code> and <code>Uninstall-Package Kaizen.Pdf</code> (replace with actual package name).</p>
+
+<h2>How Do I Migrate License Configuration and Namespaces?</h2>
+
+<h3>Before (Kaizen.io &mdash; verify license initialization in docs)</h3>
+
+<pre><code>// Kaizen.io license setup &mdash; verify exact method and class names in official docs
+// Pattern below is illustrative; do not use without verification
+using Kaizen.Pdf; // verify namespace
+
+// Verify whether Kaizen requires license initialization and how
+// KaizenLicense.SetKey("YOUR_KEY"); // hypothetical &mdash; verify before use</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+
+// Set once at application startup
+IronPdf.License.LicenseKey = "YOUR_IRONPDF_LICENSE_KEY";
+// License guide: https://ironpdf.com/how-to/license-keys/</code></pre>
+
+<p><strong>Answer:</strong> IronPDF uses a single static property for license configuration. Set <code>IronPdf.License.LicenseKey</code> once at application startup, and you are done. No separate license class or initialization method to call.</p>
+
+<p>For namespace imports, replace Kaizen.io namespaces with the IronPDF equivalents:</p>
+
+<h3>Before (Kaizen.io namespaces)</h3>
+
+<pre><code>// Verify actual namespaces from Kaizen.io documentation
+using Kaizen.Pdf;        // verify
+using Kaizen.Pdf.Options; // verify &mdash; may not exist</code></pre>
+
+<h3>After (IronPDF namespaces)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;  // for ChromePdfRenderOptions
+using IronPdf.Editing;    // for stamping/watermark
+using IronPdf.Security;   // for passwords</code></pre>
+
+<h2>How Do I Migrate Basic HTML-to-PDF Conversion?</h2>
+
+<h3>Before (Kaizen.io &mdash; verify all names against docs)</h3>
+
+<pre><code>using System;
+using System.IO;
+// using Kaizen.Pdf; // uncomment and verify namespace
+
+class HtmlToPdfExample
+{
+    static void Main()
+    {
+        // VERIFY: All class names, method signatures, and option properties
+        // below are placeholders. Do not ship without consulting Kaizen.io docs.
+
+        // Step 1: Instantiate converter &mdash; verify class name
+        // var converter = new KaizenConverter(); // hypothetical
+
+        // Step 2: Configure options &mdash; verify option class and properties
+        // var options = new KaizenOptions
+        // {
+        //     PaperSize = "A4",              // verify property name and value type
+        //     MarginTop = "10mm",            // verify
+        //     MarginBottom = "10mm",         // verify
+        // };
+
+        // Step 3: Convert &mdash; verify method signature
+        // byte[] pdfBytes = converter.HtmlToPdf(
+        //     "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
+        //     options
+        // );
+
+        // Step 4: Save output
+        // File.WriteAllBytes("invoice.pdf", pdfBytes);
+        Console.WriteLine("Replace placeholder code with actual Kaizen.io API");
+    }
+}</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 10;
+renderer.RenderingOptions.MarginBottom = 10;
+
+var pdf = renderer.RenderHtmlAsPdf(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #1234&lt;/h1&gt;&lt;p&gt;Amount: $500&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+pdf.SaveAs("invoice.pdf");
+// Full guide: https://ironpdf.com/how-to/html-string-to-pdf/</code></pre>
+
+<p><strong>Answer:</strong> The key change is replacing Kaizen.io's converter class (verify actual name) with IronPDF's <code>ChromePdfRenderer</code>. Configure paper size and margins through <code>RenderingOptions</code>, then call <code>RenderHtmlAsPdf()</code>. The Chromium-based rendering engine gives you modern CSS support out of the box.</p>
+
+<p>Note that IronPDF returns a <code>PdfDocument</code> object rather than <code>byte[]</code>. If your code expected raw bytes from Kaizen.io, update call sites accordingly.</p>
+
+<h2>How Do I Migrate PDF Merging?</h2>
+
+<h3>Before (Kaizen.io &mdash; verify merge support)</h3>
+
+<pre><code>using System;
+using System.IO;
+// If Kaizen.io doesn't support merge natively, teams typically add PdfSharp or similar
+
+// PdfSharp pattern (common workaround &mdash; verify if applicable):
+// using PdfSharp.Pdf;
+// using PdfSharp.Pdf.IO;
+
+class MergePdfsExample
+{
+    static void Main()
+    {
+        // VERIFY: Does Kaizen.io support PDF merge natively?
+        // If yes &mdash; use their API (verify class/method names)
+        // If no &mdash; a secondary library is typically added
+
+        // Common PdfSharp workaround pattern:
+        // using var output = new PdfDocument();
+        // foreach (var path in new[] { "part1.pdf", "part2.pdf" })
+        // {
+        //     using var input = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        //     foreach (PdfPage page in input.Pages)
+        //         output.AddPage(page);
+        // }
+        // output.Save("merged.pdf");
+
+        Console.WriteLine("Verify Kaizen.io merge API or secondary library before implementing");
+    }
+}</code></pre>
+
+<h3>After (IronPDF native merge)</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf1 = PdfDocument.FromFile("part1.pdf");
+var pdf2 = PdfDocument.FromFile("part2.pdf");
+var merged = PdfDocument.Merge(pdf1, pdf2);
+merged.SaveAs("merged.pdf");
+// Guide: https://ironpdf.com/how-to/merge-or-split-pdfs/</code></pre>
+
+<p><strong>Answer:</strong> IronPDF's <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge API</a> takes any number of <code>PdfDocument</code> objects and combines them in one call. No intermediate file writes, no secondary libraries. Load each PDF with <code>PdfDocument.FromFile()</code>, merge with <code>PdfDocument.Merge()</code>, and save.</p>
+
+<p>If you were using PdfSharp or a similar library purely for merge operations alongside Kaizen.io, you can remove that secondary dependency entirely.</p>
+
+<h2>How Do I Migrate Watermarking?</h2>
+
+<h3>Before (Kaizen.io &mdash; verify watermark support)</h3>
+
+<pre><code>using System;
+using System.IO;
+// using iTextSharp.text;        // common secondary library
+// using iTextSharp.text.pdf;
+
+class WatermarkExample
+{
+    static void Main()
+    {
+        // VERIFY: Does Kaizen.io support watermarking natively?
+        // If not, iTextSharp PdfStamper pattern is common:
+
+        // using var reader = new PdfReader("input.pdf");
+        // using var fs = new FileStream("watermarked.pdf", FileMode.Create);
+        // using var stamper = new PdfStamper(reader, fs);
+        // var font = BaseFont.CreateFont(BaseFont.HELVETICA_BOLD, BaseFont.CP1252, false);
+        // var cb = stamper.GetOverContent(1);
+        // cb.BeginText();
+        // cb.SetFontAndSize(font, 50);
+        // cb.SetColorFill(new BaseColor(200, 200, 200));
+        // cb.ShowTextAligned(Element.ALIGN_CENTER, "DRAFT", 300, 400, 45);
+        // cb.EndText();
+
+        Console.WriteLine("Verify Kaizen.io watermark API before implementing");
+    }
+}</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("input.pdf");
+var stamper = new TextStamper
+{
+    Text = "DRAFT",
+    FontColor = IronSoftware.Drawing.Color.LightGray,
+    FontSize = 50,
+    Opacity = 40,
+    Rotation = 45,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center
+};
+pdf.ApplyStamp(stamper);
+pdf.SaveAs("watermarked.pdf");
+// Guide: https://ironpdf.com/how-to/custom-watermark/</code></pre>
+
+<p><strong>Answer:</strong> IronPDF uses a <code>TextStamper</code> model instead of a watermark-specific API. You configure the stamp text, font size, opacity, rotation, and alignment as properties, then apply it with <code>ApplyStamp()</code>. This gives you more control over positioning than most watermark-only APIs. If you were using iTextSharp solely for watermarking alongside Kaizen.io, you can remove that dependency.</p>
+
+<h2>How Do I Migrate Password Protection?</h2>
+
+<h3>Before (Kaizen.io &mdash; verify security support)</h3>
+
+<pre><code>using System;
+using System.IO;
+// using iTextSharp.text.pdf; // common secondary library if not native
+
+class SecurityExample
+{
+    static void Main()
+    {
+        // VERIFY: Does Kaizen.io support PDF encryption natively?
+        // If not, iTextSharp pattern is typical:
+
+        // byte[] userPass = System.Text.Encoding.ASCII.GetBytes("userpass");
+        // byte[] ownerPass = System.Text.Encoding.ASCII.GetBytes("ownerpass");
+        // using var reader = new PdfReader("input.pdf");
+        // using var fs = new FileStream("secured.pdf", FileMode.Create);
+        // using var stamper = new PdfStamper(reader, fs, '\0', false);
+        // stamper.SetEncryption(userPass, ownerPass,
+        //     PdfWriter.ALLOW_PRINTING, PdfWriter.ENCRYPTION_AES_128);
+
+        Console.WriteLine("Verify Kaizen.io security API before implementing");
+    }
+}</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Security;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("input.pdf");
+pdf.SecuritySettings.UserPassword = "userpass";
+pdf.SecuritySettings.OwnerPassword = "ownerpass";
+pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+pdf.SecuritySettings.AllowUserPrinting = PdfPrintSecurity.FullPrintRights;
+pdf.SaveAs("secured.pdf");
+// Guide: https://ironpdf.com/how-to/pdf-permissions-passwords/</code></pre>
+
+<p><strong>Answer:</strong> IronPDF handles security through the <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">SecuritySettings</a> property on <code>PdfDocument</code>. Set <code>UserPassword</code>, <code>OwnerPassword</code>, and granular permissions like <code>AllowUserPrinting</code> directly as properties. No separate security class to instantiate, no byte array encoding for passwords.</p>
+
+<h2>What Are the Key API Mappings I Need to Know?</h2>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<tr><th>Kaizen.io</th><th>IronPDF</th><th>Notes</th></tr>
+<tr><td><code>Kaizen.Pdf</code></td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td>Options namespace</td><td><code>IronPdf.Rendering</code></td><td>Render configuration</td></tr>
+<tr><td>N/A</td><td><code>IronPdf.Editing</code></td><td>Manipulation &mdash; stamp, annotate</td></tr>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr><th>Kaizen.io Class</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td>Converter class</td><td><code>ChromePdfRenderer</code></td><td>PDF generation entry point</td></tr>
+<tr><td>Options/settings class</td><td><code>ChromePdfRenderOptions</code></td><td>Render configuration</td></tr>
+<tr><td>Document class</td><td><code>PdfDocument</code></td><td>Represents a loaded/rendered PDF</td></tr>
+<tr><td>N/A</td><td><code>PdfDocument</code> static methods</td><td>Merge, split, load from file</td></tr>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<tr><th>Operation</th><th>Kaizen.io</th><th>IronPDF</th></tr>
+<tr><td>HTML string</td><td>Verify method name</td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td>URL</td><td>Verify method name</td><td><code>renderer.RenderUrlAsPdf(url)</code></td></tr>
+<tr><td>HTML file</td><td>Verify method name</td><td><code>renderer.RenderHtmlFileAsPdf(path)</code></td></tr>
+<tr><td>Existing PDF</td><td>Verify method name</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>Kaizen.io</th><th>IronPDF</th></tr>
+<tr><td>Page count</td><td>Verify</td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Paper size</td><td>Verify</td><td><code>ChromePdfRenderOptions.PaperSize</code></td></tr>
+<tr><td>Margins</td><td>Verify</td><td><code>ChromePdfRenderOptions.Margin*</code></td></tr>
+<tr><td>Orientation</td><td>Verify</td><td><code>ChromePdfRenderOptions.PaperOrientation</code></td></tr>
+</table>
+
+<h3>Merge/Split Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>Kaizen.io</th><th>IronPDF</th></tr>
+<tr><td>Merge</td><td>Verify</td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
+<tr><td>Split</td><td>Verify</td><td><code>pdf.CopyPages(startIndex, endIndex)</code></td></tr>
+</table>
+
+<h2>What Critical Migration Notes Should I Watch For?</h2>
+
+<h3>Page indexing</h3>
+
+<p>IronPDF uses 0-based page indexing. Verify Kaizen.io's page indexing convention in its documentation, then audit all page index references in your code:</p>
+
+<pre><code>// IronPDF: 0-based
+var firstPage = pdf.Pages[0]; // first page
+var lastPage  = pdf.Pages[pdf.PageCount - 1]; // last page</code></pre>
+
+<p><strong>Answer:</strong> This is the most common silent bug in PDF library migrations &mdash; it won't throw, it will just operate on the wrong page. Audit every page index reference after switching.</p>
+
+<h3>Output model difference</h3>
+
+<p>Many PDF libraries return <code>byte[]</code> from conversion. IronPDF returns a <code>PdfDocument</code> object. Update call sites that expect raw bytes:</p>
+
+<pre><code>// If your code expected byte[] from Kaizen.io:
+// byte[] pdfBytes = converter.Convert(html); // old pattern
+
+// IronPDF returns PdfDocument &mdash; save or stream as needed:
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+
+// Or to MemoryStream:
+// https://ironpdf.com/how-to/pdf-memory-stream/
+using var ms = new MemoryStream();
+pdf.Stream.CopyTo(ms);
+byte[] pdfBytes = ms.ToArray();</code></pre>
+
+<h3>Error handling</h3>
+
+<p>IronPDF throws exceptions on failure. If Kaizen.io returned status codes or null on error, update your error handling:</p>
+
+<pre><code>try
+{
+    var pdf = renderer.RenderHtmlAsPdf(html);
+    pdf.SaveAs("output.pdf");
+}
+catch (IronPdf.Exceptions.IronPdfException ex)
+{
+    // Log render failure
+    Console.Error.WriteLine($"Render failed: {ex.Message}");
+}</code></pre>
+
+<h2>How Should I Handle Performance After Migration?</h2>
+
+<h3>Renderer reuse</h3>
+
+<pre><code>// Instantiate once, reuse for batch work
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+foreach (var html in templates)
+{
+    using var pdf = renderer.RenderHtmlAsPdf(html);
+    pdf.SaveAs($"output_{Guid.NewGuid()}.pdf");
+}</code></pre>
+
+<h3>Concurrent rendering</h3>
+
+<pre><code>// Separate renderer per thread &mdash; don't share across concurrent operations
+Parallel.ForEach(htmlBatch, html =&gt;
+{
+    var renderer = new ChromePdfRenderer();
+    using var pdf = renderer.RenderHtmlAsPdf(html);
+    pdf.SaveAs($"{Guid.NewGuid()}.pdf");
+});
+// Parallel examples: https://ironpdf.com/examples/parallel/</code></pre>
+
+<h3>Disposal</h3>
+
+<pre><code>// PdfDocument implements IDisposable
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+// Auto-disposed at end of block</code></pre>
+
+<p><strong>Answer:</strong> Chromium-based renderers have a startup cost. In serverless or per-request scaling scenarios, the first render will be slower &mdash; pre-warm if latency is critical. System fonts must be present on the render server, so verify font availability in Docker images. Profile under production-representative load before sizing containers.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I run IronPDF and Kaizen.io side by side during migration?</h3>
+
+<p><strong>Answer:</strong> Yes, and I strongly recommend it. Install IronPDF via NuGet alongside your existing Kaizen.io references. Run both libraries generating the same PDF, then compare outputs visually before removing Kaizen.io. This lets you catch rendering differences early and validate your migration incrementally.</p>
+
+<h3>What is the minimum .NET version required for IronPDF?</h3>
+
+<p><strong>Answer:</strong> IronPDF requires .NET 6+ target framework. If your project is still on .NET Framework or early .NET Core, you will need to upgrade your target framework before migrating. Verify IronPDF's current .NET target framework compatibility in their documentation.</p>
+
+<h3>Does IronPDF handle merge, watermark, and encryption without secondary libraries?</h3>
+
+<p><strong>Answer:</strong> Yes. IronPDF consolidates merge, watermark, and encryption into a single library. If you were using secondary libraries like PdfSharp for merging or iTextSharp for watermarking alongside Kaizen.io, you can remove those dependencies entirely after migration. This reduces your dependency surface and simplifies maintenance.</p>
+
+<h3>How do I handle the byte[] to PdfDocument output model change?</h3>
+
+<p><strong>Answer:</strong> Many PDF libraries return <code>byte[]</code> from conversion. IronPDF returns a <code>PdfDocument</code> object instead. If your code passes raw bytes to downstream systems, use <code>pdf.BinaryData</code> or copy <code>pdf.Stream</code> to a <code>MemoryStream</code>. Update all call sites that expect raw bytes &mdash; this is a common migration oversight.</p>
+
+<h3>What happens to page indexing after migration?</h3>
+
+<p><strong>Answer:</strong> IronPDF uses 0-based page indexing. Verify Kaizen.io's page indexing convention in its documentation. If Kaizen.io uses 1-based indexing, every page index reference in your code needs adjustment. This is the most common silent bug in PDF library migrations &mdash; it won't throw an exception, it will just operate on the wrong page.</p>
+
+<h3>How should I structure testing after migration?</h3>
+
+<p><strong>Answer:</strong> Render each HTML template and visually compare output. Verify page counts match expected values for multi-page documents. Test merge with representative document sets, test watermark on single-page and multi-page documents, and test password protection with correct and incorrect credentials. Run async and concurrent rendering at expected peak load, and regression test all PDF-generating endpoints.</p>
+
+<h2>What Is the Bottom Line on This Migration?</h2>
+
+<p>The variability in this migration depends almost entirely on how much of Kaizen.io's API surface your code touches and whether there's a secondary library doing the manipulation work. Single-concern codebases that only do HTML-to-PDF migrate in a few hours. Codebases where manipulation features are scattered across multiple libraries take longer to consolidate.</p>
+
+<p>I recommend starting with the codebase search commands above to inventory your Kaizen.io usage, running IronPDF in parallel for visual comparison, and then cutting over one feature at a time. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF getting started guide</a> is the fastest way to validate the basic conversion path before committing to a full migration.</p>

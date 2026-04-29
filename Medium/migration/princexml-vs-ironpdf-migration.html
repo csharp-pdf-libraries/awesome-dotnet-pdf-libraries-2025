@@ -1,0 +1,757 @@
+<h1>Migrating from PrinceXML to IronPDF: No Fuss, No Fluff</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Consider Migrating from PrinceXML?</h2>
+
+<p>The deployment works perfectly in the on-premises environment and breaks as soon as you try to containerize it. PrinceXML is a native binary &mdash; it is not a .NET library, it is an executable that you shell out to or call via an HTTP API. In a Docker context, that means either bundling the binary in your image (licensing implications, Linux ABI compatibility, container size) or running PrinceXML as a sidecar service (orchestration complexity, network hop on every render, single point of failure). Neither option is frictionless.</p>
+
+<p>Here are the conditions I see most often when teams evaluate alternatives:</p>
+
+<p><strong>Docker/container deployment</strong> &mdash; PrinceXML is a native binary; Docker images require bundling the binary or running a sidecar process.</p>
+
+<p><strong>Cloud platform restrictions</strong> &mdash; serverless environments (Azure Functions Consumption, AWS Lambda) often cannot execute arbitrary native binaries.</p>
+
+<p><strong>Licensing per server</strong> &mdash; PrinceXML's per-server license model requires tracking and paying per deployment node; horizontal scaling has direct cost implications.</p>
+
+<p><strong>Process invocation overhead</strong> &mdash; shelling out to PrinceXML via <code>Process.Start()</code> per document adds process spawn latency and error-handling complexity.</p>
+
+<p><strong>Sidecar service management</strong> &mdash; running PrinceXML as an HTTP service introduces health checks, failover, and inter-service error handling.</p>
+
+<p><strong>CSS Paged Media specificity</strong> &mdash; PrinceXML's strict CSS Paged Media compliance is ideal for print-typographic work but requires specific HTML preparation for web-derived content.</p>
+
+<p><strong>Missing manipulation features</strong> &mdash; PrinceXML generates PDFs but does not provide merge, split, watermark, or security APIs out of the box.</p>
+
+<p><strong>Binary version management</strong> &mdash; updating PrinceXML requires updating binaries in every environment, which is different from a NuGet version bump.</p>
+
+<p><strong>Linux ABI compatibility</strong> &mdash; verify that the PrinceXML binary for your Linux distribution is available for your container base image.</p>
+
+<p><strong>Concurrent request throughput</strong> &mdash; a single PrinceXML process handles one render at a time; concurrency requires multiple processes or a queuing wrapper.</p>
+
+<h3>Comparison Table</h3>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>PrinceXML</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>CSS Paged Media HTML/XML-to-PDF</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Per-server commercial license &mdash; verify at princexml.com</td><td>Commercial license &mdash; verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>Native binary / HTTP API / process invocation</td><td>Native .NET library; no external process</td></tr>
+<tr><td>Learning Curve</td><td>Medium; CSS Paged Media concepts required for complex output</td><td>Low for .NET developers</td></tr>
+<tr><td>HTML Rendering</td><td>CSS Paged Media W3C compliant</td><td>Chromium-based</td></tr>
+<tr><td>Page Indexing</td><td>N/A &mdash; output only</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Process-level isolation; one render per process</td><td>Verify IronPDF concurrent instance guidance</td></tr>
+<tr><td>Namespace</td><td>PrinceXML .NET wrapper namespace</td><td><code>IronPdf</code></td></tr>
+</tbody>
+</table>
+
+<h2>What Does the Migration Effort Actually Look Like?</h2>
+
+<p>I want to give you a realistic picture of the effort involved. Here is a feature-by-feature breakdown so you can estimate the work before writing a single line of code.</p>
+
+<h3>Effort by Feature</h3>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>PrinceXML Approach</th><th>IronPDF Equivalent</th><th>Complexity</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string to PDF</td><td>Via file / stdin / HTTP API</td><td><code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code></td><td>Low</td></tr>
+<tr><td>URL to PDF</td><td><code>prince https://...</code> or HTTP API</td><td><code>ChromePdfRenderer.RenderUrlAsPdfAsync()</code></td><td>Low</td></tr>
+<tr><td>Save to file</td><td><code>--output</code> flag / file write</td><td><code>pdf.SaveAs(path)</code></td><td>Low</td></tr>
+<tr><td>Save to bytes</td><td>stdout / HTTP response body</td><td><code>pdf.BinaryData</code></td><td>Low</td></tr>
+<tr><td>Custom page size</td><td>CSS <code>@page { size: A4; }</code></td><td><code>RenderingOptions.PaperSize</code></td><td>Low</td></tr>
+<tr><td>Headers/footers</td><td>CSS Paged Media <code>@page</code> running elements</td><td><code>RenderingOptions.HtmlHeader/Footer</code></td><td>Medium</td></tr>
+<tr><td>CSS Paged Media features</td><td>Native &mdash; full spec</td><td>Chromium subset of CSS print spec</td><td>High</td></tr>
+<tr><td>Merge PDFs</td><td>Not native &mdash; secondary library required</td><td><code>PdfDocument.Merge()</code></td><td>Medium</td></tr>
+<tr><td>Watermark</td><td>Not native</td><td><code>TextStamper</code> / <code>ImageStamper</code></td><td>Medium</td></tr>
+<tr><td>Password protection</td><td>Via <code>--encrypt</code> flag</td><td><code>pdf.SecuritySettings</code></td><td>Medium</td></tr>
+<tr><td>Concurrent rendering</td><td>Multiple processes</td><td><code>Task.WhenAll</code> + async render methods</td><td>Medium</td></tr>
+</tbody>
+</table>
+
+<h2>How Do You Decide Whether to Migrate?</h2>
+
+<p>Not every team should migrate. Here is a decision matrix to help you figure out where you fall.</p>
+
+<table>
+<thead>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>Print-exact typographic output (books, legal, complex footnotes)</td><td>PrinceXML may be better suited &mdash; evaluate CSS Paged Media needs carefully</td></tr>
+<tr><td>Docker/cloud deployment required</td><td>Switch &mdash; eliminates native binary dependency</td></tr>
+<tr><td>Web-derived HTML reports and dashboards</td><td>Switch &mdash; Chromium rendering matches browser output</td></tr>
+<tr><td>Horizontal scaling with per-server licensing concern</td><td>Switch &mdash; IronPDF's NuGet model is container-friendly</td></tr>
+</tbody>
+</table>
+
+<h2>How Do You Set Up IronPDF and Replace PrinceXML?</h2>
+
+<p>I will walk you through the core migration in three steps. First, find your existing PrinceXML references, then swap the packages, and finally update your basic conversion code.</p>
+
+<h3>Finding PrinceXML References in Your Codebase</h3>
+
+<pre><code># Find PrinceXML invocation patterns
+rg -l "Prince\|princexml\|prince\.exe\|PrinceXML" --type cs
+rg "Prince\|princexml" --type cs -n
+
+# Find Process.Start calls that might invoke Prince
+rg "Process\.Start.*prince\|StartInfo.*prince" --type cs -n
+
+# Find prince in Docker files and CI
+grep -r "prince\|princexml" Dockerfile* docker-compose.yml .github/**/*.yml 2&gt;/dev/null
+
+# Find project references
+grep -r "Prince\|PrinceXML" *.csproj **/*.csproj 2&gt;/dev/null
+</code></pre>
+
+<h3>Uninstall PrinceXML and Install IronPDF</h3>
+
+<pre><code># Remove PrinceXML .NET wrapper (verify package name at NuGet)
+dotnet remove package Prince  # verify exact package name
+
+# Install IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+</code></pre>
+
+<p>Also remove PrinceXML from Docker images:</p>
+
+<pre><code># Remove:
+# RUN apt-get install -y prince
+# COPY prince-license.dat /etc/prince/license/
+# RUN chmod ...
+
+# IronPDF: no native binary install step needed
+</code></pre>
+
+<h3>Step 1 &mdash; License Configuration</h3>
+
+<pre><code>using IronPdf;
+
+// https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY")
+    ?? throw new InvalidOperationException("IRONPDF_LICENSE_KEY not set");
+</code></pre>
+
+<h3>Step 2 &mdash; Namespace Swap</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>// Verify actual PrinceXML .NET wrapper namespace
+using PrinceXML;      // illustrative — verify at princexml.com
+using System.Diagnostics;  // for Process.Start() approach
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+</code></pre>
+
+<h3>Step 3 &mdash; Basic Conversion</h3>
+
+<p><strong>Before (PrinceXML via Process.Start &mdash; common pattern):</strong></p>
+
+<pre><code>using System;
+using System.Diagnostics;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var htmlPath = Path.GetTempFileName() + ".html";
+        var pdfPath = "output.pdf";
+
+        File.WriteAllText(htmlPath,
+            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "prince",  // must be on PATH; varies by install
+            Arguments = $"\"{htmlPath}\" -o \"{pdfPath}\"",
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+
+        using var process = Process.Start(psi)!;
+        var errors = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+
+        if (process.ExitCode != 0)
+            throw new Exception($"Prince failed: {errors}");
+
+        Console.WriteLine("Saved output.pdf");
+        File.Delete(htmlPath);
+    }
+}
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+// No native binary required — renders locally via .NET
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+pdf.SaveAs("output.pdf");
+
+Console.WriteLine($"Saved output.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h2>How Do the Code Comparisons Look for Common Features?</h2>
+
+<p>Here are four complete before/after migrations covering the features teams use most: HTML-to-PDF, merge, watermark, and password protection.</p>
+
+<h3>HTML to PDF</h3>
+
+<p><strong>Before (PrinceXML via Process.Start):</strong></p>
+
+<pre><code>using System;
+using System.Diagnostics;
+using System.IO;
+using System.Threading.Tasks;
+
+class HtmlToPdfBefore
+{
+    static async Task Main()
+    {
+        var html = @"
+            &lt;html&gt;
+            &lt;head&gt;
+            &lt;style&gt;
+                @page { size: A4; margin: 2cm; }
+                body { font-family: 'Arial', sans-serif; }
+                table { width: 100%; border-collapse: collapse; }
+                td, th { border: 1px solid #ccc; padding: 6px; }
+            &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+                &lt;h1&gt;Quarterly Report Q3 2024&lt;/h1&gt;
+                &lt;table&gt;
+                    &lt;tr&gt;&lt;th&gt;Region&lt;/th&gt;&lt;th&gt;Revenue&lt;/th&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;APAC&lt;/td&gt;&lt;td&gt;$2.4M&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        var tmpHtml = Path.GetTempFileName() + ".html";
+        await File.WriteAllTextAsync(tmpHtml, html);
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "prince",
+            Arguments = $"\"{tmpHtml}\" -o report.pdf",
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+
+        using var process = Process.Start(psi)!;
+        var err = await process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+
+        if (process.ExitCode != 0) throw new Exception($"Prince error: {err}");
+
+        File.Delete(tmpHtml);
+        Console.WriteLine("Saved report.pdf");
+    }
+}
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var html = @"
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        @page { size: A4; margin: 2cm; }
+        body { font-family: Arial, sans-serif; }
+        table { width: 100%; border-collapse: collapse; }
+        td, th { border: 1px solid #ccc; padding: 6px; }
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Quarterly Report Q3 2024&lt;/h1&gt;
+        &lt;table&gt;
+            &lt;tr&gt;&lt;th&gt;Region&lt;/th&gt;&lt;th&gt;Revenue&lt;/th&gt;&lt;/tr&gt;
+            &lt;tr&gt;&lt;td&gt;APAC&lt;/td&gt;&lt;td&gt;$2.4M&lt;/td&gt;&lt;/tr&gt;
+        &lt;/table&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("report.pdf");
+
+Console.WriteLine($"Saved report.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h3>Merge PDFs</h3>
+
+<p><strong>Before (PrinceXML &mdash; no native merge; common pattern):</strong></p>
+
+<pre><code>using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Threading.Tasks;
+
+class MergeBefore
+{
+    static async Task Main()
+    {
+        // PrinceXML can concatenate inputs on CLI (verify current options):
+        // prince section1.html section2.html -o merged.pdf
+        // But for dynamically generated PDFs, teams typically generate each
+        // and then use a secondary library to merge the PDF files.
+
+        var htmlSections = new[]
+        {
+            ("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 1: Overview&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;", "sec1.pdf"),
+            ("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 2: Detail&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;", "sec2.pdf"),
+        };
+
+        foreach (var (html, outFile) in htmlSections)
+        {
+            var tmpHtml = Path.GetTempFileName() + ".html";
+            await File.WriteAllTextAsync(tmpHtml, html);
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = "prince",
+                Arguments = $"\"{tmpHtml}\" -o \"{outFile}\"",
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            using var p = Process.Start(psi)!;
+            await p.WaitForExitAsync();
+            File.Delete(tmpHtml);
+        }
+
+        // Now merge sec1.pdf + sec2.pdf using secondary library
+        Console.WriteLine("PrinceXML merge requires secondary library for programmatic use");
+    }
+}
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+
+// Render concurrently
+var t1 = renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 1&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+var t2 = renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 2&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+var results = await Task.WhenAll(t1, t2);
+
+// https://ironpdf.com/how-to/merge-or-split-pdfs/
+var merged = PdfDocument.Merge(results[0], results[1]);
+merged.SaveAs("merged-report.pdf");
+
+Console.WriteLine($"Merged: {merged.PageCount} pages");
+</code></pre>
+
+<h3>Watermark</h3>
+
+<p><strong>Before (PrinceXML &mdash; CSS Paged Media approach or secondary library):</strong></p>
+
+<pre><code>using System;
+// PrinceXML: watermark via CSS @page or secondary post-process library
+
+class WatermarkBefore
+{
+    static void Main()
+    {
+        // Option A: CSS Paged Media watermark — works in PrinceXML
+        var html = @"
+            &lt;html&gt;
+            &lt;head&gt;
+            &lt;style&gt;
+                @page {
+                    background: url('watermark.png') center/contain no-repeat;
+                    /* OR use generated content with opacity */
+                }
+                body { font-family: Arial; }
+            &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;&lt;h1&gt;Confidential Report&lt;/h1&gt;&lt;/body&gt;
+            &lt;/html&gt;";
+
+        // Pass to prince CLI or HTTP API
+        // Verify exact PrinceXML CSS watermark syntax at princexml.com/doc/
+        Console.WriteLine("PrinceXML CSS @page watermark — verify syntax in their docs");
+    }
+}
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Confidential Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// https://ironpdf.com/how-to/custom-watermark/
+var watermark = new TextStamper
+{
+    Text = "CONFIDENTIAL",
+    FontColor = IronPdf.Imaging.Color.Red,
+    Opacity = 0.15,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs("confidential.pdf");
+Console.WriteLine("Watermark applied");
+</code></pre>
+
+<h3>Password Protection</h3>
+
+<p><strong>Before (PrinceXML <code>--encrypt</code> option &mdash; verify current flag names):</strong></p>
+
+<pre><code>using System;
+using System.Diagnostics;
+using System.IO;
+using System.Threading.Tasks;
+
+class PasswordBefore
+{
+    static async Task Main()
+    {
+        var tmpHtml = Path.GetTempFileName() + ".html";
+        await File.WriteAllTextAsync(tmpHtml, "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Protected&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+
+        // VERIFY: PrinceXML encryption CLI flags — check current documentation
+        // at princexml.com/doc-refs/ for exact flag names
+        var psi = new ProcessStartInfo
+        {
+            FileName = "prince",
+            // Flags are illustrative — verify at princexml.com documentation
+            Arguments = $"\"{tmpHtml}\" -o protected.pdf --encrypt" +
+                        " --user-password=open123 --owner-password=admin456",
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+
+        using var process = Process.Start(psi)!;
+        await process.WaitForExitAsync();
+        File.Delete(tmpHtml);
+        Console.WriteLine("Verify Prince --encrypt flag names in current documentation");
+    }
+}
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Protected Document&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// https://ironpdf.com/how-to/pdf-permissions-passwords/
+pdf.SecuritySettings.UserPassword = "open123";
+pdf.SecuritySettings.OwnerPassword = "admin456";
+
+pdf.SaveAs("protected.pdf");
+Console.WriteLine("Saved protected.pdf");
+</code></pre>
+
+<h2>What Are the Complete API Mappings Between PrinceXML and IronPDF?</h2>
+
+<p>Here are the full mapping tables so you can look up any PrinceXML concept and find its IronPDF equivalent.</p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<thead>
+<tr><th>PrinceXML</th><th>IronPDF</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>PrinceXML.*</code> / <code>System.Diagnostics</code></td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td>CLI flags / HTTP params</td><td><code>IronPdf.Rendering.ChromePdfRenderOptions</code></td><td>Rendering configuration</td></tr>
+<tr><td>N/A</td><td><code>IronPdf.Editing</code></td><td>Watermark / stamp</td></tr>
+</tbody>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<thead>
+<tr><th>PrinceXML Concept</th><th>IronPDF Class</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>prince</code> CLI / HTTP API / wrapper class</td><td><code>ChromePdfRenderer</code></td><td>No external process required</td></tr>
+<tr><td>CLI <code>--output</code> / HTTP response</td><td><code>PdfDocument</code></td><td>PDF object with manipulation methods</td></tr>
+<tr><td>CLI flags / config</td><td><code>ChromePdfRenderOptions</code></td><td>Page size, margins, print options</td></tr>
+<tr><td>N/A</td><td><code>PdfDocument.Merge()</code></td><td>Local merge of multiple PDFs</td></tr>
+</tbody>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>PrinceXML</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML file</td><td><code>prince input.html -o output.pdf</code></td><td><code>renderer.RenderHtmlFileAsPdfAsync(path)</code></td></tr>
+<tr><td>HTML string</td><td>Temp file + <code>prince</code> / HTTP POST</td><td><code>renderer.RenderHtmlAsPdfAsync(html)</code></td></tr>
+<tr><td>URL</td><td><code>prince https://...</code></td><td><code>renderer.RenderUrlAsPdfAsync(url)</code></td></tr>
+<tr><td>Load existing PDF</td><td>N/A</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+</tbody>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>PrinceXML</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Page count</td><td>N/A &mdash; output only</td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Remove page</td><td>N/A</td><td><code>pdf.RemovePage(index)</code> &mdash; verify</td></tr>
+<tr><td>Extract text</td><td>N/A</td><td><code>pdf.ExtractAllText()</code></td></tr>
+<tr><td>Rotate</td><td>N/A</td><td>Verify in IronPDF docs</td></tr>
+</tbody>
+</table>
+
+<h3>Merge / Split Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>PrinceXML</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Merge</td><td>Not native &mdash; requires secondary library</td><td><code>PdfDocument.Merge(doc1, doc2)</code></td></tr>
+<tr><td>Split</td><td>Not native</td><td><a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Guide</a></td></tr>
+</tbody>
+</table>
+
+<h2>What Critical Issues Should You Watch for During Migration?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>There are three areas that catch teams off guard. I will cover each one.</p>
+
+<h3>CSS Paged Media Gap</h3>
+
+<p>PrinceXML implements W3C CSS Paged Media closely. If your templates use <code>running()</code>, <code>string()</code>, <code>@footnote</code>, named page flows, or Prince-specific extensions (<code>-prince-*</code> properties), those will not transfer to IronPDF's Chromium renderer.</p>
+
+<p>Before migrating, audit your CSS:</p>
+
+<pre><code># Find Prince-specific CSS properties
+rg "\-prince\-\|@footnote\|running(\|@page.*string(" --type css
+rg "\-prince\-\|@footnote\|running(" --type html
+</code></pre>
+
+<p>For headers/footers, migrate from CSS Paged Media <code>@page</code> running elements to IronPDF's <code>HtmlHeader/Footer</code> API:</p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering.Abstractions;
+
+var renderer = new ChromePdfRenderer();
+
+// https://ironpdf.com/how-to/headers-and-footers/
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    HtmlFragment = "&lt;div style='font-size:10px; text-align:right'&gt;{page} of {total-pages}&lt;/div&gt;",
+};
+
+// Replace: @page { @top-right { content: counter(page); } }
+</code></pre>
+
+<h3>Process Exit Code Handling</h3>
+
+<p>PrinceXML via <code>Process.Start()</code> returns exit codes; your existing code likely checks <code>process.ExitCode</code>. Replace with try/catch for IronPDF exceptions:</p>
+
+<pre><code>// Remove this pattern:
+// if (process.ExitCode != 0) throw new Exception($"Prince error: {stderr}");
+
+// Replace with:
+try
+{
+    var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+    pdf.SaveAs(outputPath);
+}
+catch (IronPdf.Exceptions.IronPdfException ex)
+{
+    Console.Error.WriteLine($"Render failed: {ex.Message}");
+    throw;
+}
+</code></pre>
+
+<h3>Temp File Cleanup</h3>
+
+<p>PrinceXML Process.Start() workflows often write HTML to temp files. With IronPDF, you pass HTML strings directly &mdash; remove the temp file write/delete pattern.</p>
+
+<pre><code># Find temp file patterns to remove
+rg "GetTempFileName\|GetTempPath\|\.html.*temp\|temp.*\.html" --type cs -n
+</code></pre>
+
+<h3>Docker Image Update</h3>
+
+<pre><code># Remove Prince installation:
+# RUN apt-get install -y wget
+# RUN wget https://www.princexml.com/download/prince_XX.X_linux.tar.gz
+# RUN tar xf prince_*.tar.gz &amp;&amp; cd prince_* &amp;&amp; ./install.sh
+# COPY prince-license.dat /usr/lib/prince/license/
+
+# IronPDF: only NuGet restore needed — no native binary install
+COPY . .
+RUN dotnet restore
+RUN dotnet publish -c Release -o out
+</code></pre>
+
+<h2>How Does Concurrent Rendering Compare?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>With PrinceXML, a single process handles one render at a time. Concurrency requires multiple processes or a queuing wrapper. With IronPDF, you use <code>Task.WhenAll</code> and async render methods in-process.</p>
+
+<h3>Concurrent Throughput Benchmark Structure</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.Diagnostics;
+using System.Linq;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+// Prince: concurrent renders require multiple processes (no shared state)
+// IronPDF: multiple async renders via Task.WhenAll
+// https://ironpdf.com/examples/parallel/
+
+async Task&lt;double&gt; BenchmarkConcurrency(int concurrency)
+{
+    var htmlJobs = Enumerable.Range(1, concurrency)
+        .Select(i =&gt; $"&lt;html&gt;&lt;body&gt;&lt;h1&gt;Document {i}&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;")
+        .ToArray();
+
+    var sw = Stopwatch.StartNew();
+    var tasks = htmlJobs.Select(async html =&gt;
+    {
+        var renderer = new ChromePdfRenderer();
+        using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+        return pdf.PageCount;
+    });
+
+    await Task.WhenAll(tasks);
+    sw.Stop();
+    Console.WriteLine($"Concurrency {concurrency}: {sw.Elapsed.TotalMilliseconds:F0}ms total");
+    return sw.Elapsed.TotalMilliseconds;
+}
+
+await BenchmarkConcurrency(5);
+await BenchmarkConcurrency(10);
+await BenchmarkConcurrency(20);
+// See: https://ironpdf.com/how-to/async/
+</code></pre>
+
+<h3>Renderer Warm-Up</h3>
+
+<pre><code>using IronPdf;
+
+// First render includes Chromium initialization overhead
+// Warm up during application startup for consistent request latency
+var renderer = new ChromePdfRenderer();
+using var _ = await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;warmup&lt;/body&gt;&lt;/html&gt;");
+// Renderer is now ready for production traffic
+</code></pre>
+
+<h3>Memory Management</h3>
+
+<pre><code>using IronPdf;
+using System.IO;
+
+var renderer = new ChromePdfRenderer();
+
+// Always use 'using' on PdfDocument
+using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+
+// MemoryStream pattern for in-memory processing
+// https://ironpdf.com/how-to/async/
+var bytes = pdf.BinaryData;
+// pdf disposed at end of 'using' block
+</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I use IronPDF as a drop-in replacement for PrinceXML?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>For basic HTML-to-PDF rendering, yes &mdash; the migration is straightforward. Replace your <code>Process.Start("prince")</code> calls with <code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code> and you are running. The temp file pattern goes away entirely since IronPDF accepts HTML strings directly.</p>
+
+<p>The exception is CSS Paged Media. If your templates rely on <code>running()</code>, <code>@footnote</code>, named page flows, or <code>-prince-*</code> extensions, those features need rewriting. Run the CSS audit commands above before estimating effort.</p>
+
+<h3>How does IronPDF handle features that PrinceXML does not provide natively?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>PrinceXML focuses on rendering. Merge, split, watermark, and password protection require secondary libraries or CLI flags. IronPDF provides all of these through <code>PdfDocument.Merge()</code>, <code>TextStamper</code>/<code>ImageStamper</code>, and <code>pdf.SecuritySettings</code> &mdash; no extra dependencies.</p>
+
+<p>This means you can remove whatever secondary PDF library you bolted on for post-processing. One NuGet package handles the full pipeline from <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML-to-PDF rendering</a> through to <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge/split</a> and <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">encryption</a>.</p>
+
+<h3>What happens to my Docker deployment pipeline?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>It gets simpler. Remove the PrinceXML binary download, the <code>tar</code> extraction, the <code>install.sh</code> step, and the license file copy from your Dockerfile. IronPDF ships as a NuGet package, so <code>dotnet restore</code> handles everything. No native binary install, no sidecar service, no license file management in the image.</p>
+
+<p>If you were running PrinceXML as a sidecar service, you also remove that container from your orchestration config &mdash; eliminating health checks, failover logic, and the network hop on every render.</p>
+
+<h3>How does concurrent rendering differ between PrinceXML and IronPDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>PrinceXML handles one render per process. To render concurrently, you spawn multiple <code>prince</code> processes or queue requests to an HTTP sidecar. IronPDF renders in-process using async methods &mdash; you call <code>Task.WhenAll</code> with multiple <code>RenderHtmlAsPdfAsync()</code> tasks. No process management, no queuing wrapper.</p>
+
+<p>Warm up the renderer during application startup to absorb the first-render Chromium initialization cost. After that, concurrent requests run without process spawn overhead. See the <a href="https://ironpdf.com/how-to/async/">async rendering guide</a> for patterns.</p>
+
+<h3>What is the biggest risk in this migration?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>CSS Paged Media feature parity. PrinceXML implements the W3C CSS Paged Media specification closely. If your templates use advanced features like <code>running()</code> elements, <code>string()</code> functions, <code>@footnote</code>, or <code>-prince-*</code> properties, those will not work in IronPDF's Chromium renderer and need rewriting.</p>
+
+<p>If your CSS audit comes back clean &mdash; basic <code>@page</code> sizing, standard print properties only &mdash; this migration is low-risk. If it surfaces Prince-specific properties, those sections need rewriting before the migration produces comparable output.</p>
+
+<h2>Conclusion</h2>
+
+<p>The clearest operational win in this migration is the Dockerfile simplification &mdash; removing a native binary install, license file management, and sidecar service orchestration. The biggest technical risk is CSS Paged Media feature parity, and the CSS audit is the first thing to run before writing any migration code.</p>
+
+<p>If the CSS audit comes back clean (basic <code>@page</code> sizing, standard print properties only), this migration is low-risk. If it surfaces <code>running()</code> elements, footnotes, or <code>-prince-*</code> properties, those sections need rewriting before the migration is comparable output.</p>
+
+<p>For the full API reference and additional examples, start with the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML-to-PDF guide</a> and the <a href="https://ironpdf.com/how-to/license-keys/">license key setup</a>.</p>

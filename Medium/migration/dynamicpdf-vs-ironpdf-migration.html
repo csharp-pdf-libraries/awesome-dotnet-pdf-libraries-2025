@@ -1,0 +1,503 @@
+<h1>Migrating from DynamicPDF to IronPDF: A Working Migration in an Afternoon</h1>
+
+<p>If your DynamicPDF project is generating PDFs from HTML and the output looks like it was rendered in 2009, you're not alone. DynamicPDF's HTML rendering pipeline was never its primary strength -- it was built around a programmatic/layout API. Teams that started with invoice templates and then got feature-creep'd into "render this React-generated HTML report" often hit a wall.</p>
+
+<p>I've seen this pattern dozens of times. This article gives you a structured migration path to IronPDF, with real API mappings, four complete before/after code samples, and a copy-pasteable migration scaffolding you can use today.</p>
+
+<h2>Why Should You Migrate from DynamicPDF to IronPDF?</h2>
+
+<p>Teams typically reach for a different library when one or more of these triggers accumulates:</p>
+
+<p><strong>HTML fidelity.</strong> DynamicPDF renders HTML as a layout region, not a full browser engine. Complex CSS (flexbox, grid, custom fonts, SVG) may degrade or be ignored.</p>
+
+<p><strong>CSS @media print support.</strong> Headless-browser renderers honor print stylesheets; layout-API renderers often don't.</p>
+
+<p><strong>JavaScript execution.</strong> If your templates use JS (charting libraries, dynamic tables), DynamicPDF won't run it. IronPDF uses Chromium internally and waits for JS execution.</p>
+
+<p><strong>Linux/container deployment.</strong> Some DynamicPDF versions require GDI+ shims. Verify their current Linux native-deps story for your environment.</p>
+
+<p><strong>API verbosity.</strong> DynamicPDF's programmatic API is expressive but verbose for simple "render this URL to PDF" tasks.</p>
+
+<p><strong>Async support.</strong> IronPDF has documented <a href="https://ironpdf.com/how-to/async/">async/parallel patterns</a> -- check whether your version of DynamicPDF exposes async rendering.</p>
+
+<p><strong>Maintenance cadence.</strong> If you're on an older CoreSuite version, check whether your .NET target (e.g., net8.0) is fully supported.</p>
+
+<p><strong>Thread safety.</strong> For high-concurrency servers, verify the DynamicPDF <code>Document</code> class thread-safety guarantees in their docs.</p>
+
+<p><strong>PDF/A and compliance.</strong> DynamicPDF has PDF/A support; IronPDF also has <a href="https://ironpdf.com/how-to/pdfa/">PDF/A generation</a> -- compare feature parity for your compliance requirements.</p>
+
+<h2>How Do DynamicPDF and IronPDF Compare Side by Side?</h2>
+
+<p><strong>Answer:</strong> The fundamental difference is architectural. DynamicPDF is built around a programmatic layout API, while IronPDF renders via an embedded Chromium engine. Here's the full comparison.</p>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>DynamicPDF</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>Programmatic layout API</td><td>HTML/URL to PDF via Chromium</td></tr>
+<tr><td>Pricing</td><td>Commercial, per-developer -- verify</td><td>Commercial, per-developer -- verify</td></tr>
+<tr><td>API Style</td><td>Builder/layout pattern</td><td>Fluent + simple static methods</td></tr>
+<tr><td>Learning Curve</td><td>Medium -- layout model requires learning</td><td>Low for HTML-first workflows</td></tr>
+<tr><td>HTML Rendering</td><td>Basic HTML regions (no full browser engine)</td><td>Chromium-based, full CSS/JS support</td></tr>
+<tr><td>Page Indexing</td><td>0-based</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify in current docs</td><td>ChromePdfRenderer is reusable; docs confirm</td></tr>
+<tr><td>Namespace</td><td>ceTe.DynamicPDF</td><td>IronPdf</td></tr>
+</tbody>
+</table>
+
+<h2>What Does the Migration Effort Look Like Feature by Feature?</h2>
+
+<p><strong>Answer:</strong> It depends heavily on whether your codebase is HTML-heavy or layout-heavy. Here's the effort breakdown by feature, followed by a decision matrix to help you determine the right approach.</p>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>Complexity</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string to PDF</td><td>Low</td><td>Direct 1:1 if you were using HtmlArea</td></tr>
+<tr><td>URL to PDF</td><td>Low</td><td>DynamicPDF doesn't do this natively; net new</td></tr>
+<tr><td>Programmatic page layout</td><td>High</td><td>No equivalent in IronPDF; keep DynamicPDF or move to HTML templates</td></tr>
+<tr><td>Text extraction</td><td>Medium</td><td>Different API shape; verify extraction capabilities</td></tr>
+<tr><td>Merge documents</td><td>Low</td><td>Both support merge; API names differ</td></tr>
+<tr><td>Split documents</td><td>Low</td><td>Similar complexity</td></tr>
+<tr><td>Watermark / stamp</td><td>Medium</td><td>DynamicPDF uses label/image placement; IronPDF has stamp API</td></tr>
+<tr><td>Password protection</td><td>Low</td><td>Both expose encrypt/password APIs</td></tr>
+<tr><td>Digital signatures</td><td>Medium-High</td><td>Verify feature parity in both libraries</td></tr>
+<tr><td>PDF/A compliance</td><td>Medium</td><td>Both claim support; verify output conformance with validator</td></tr>
+<tr><td>JavaScript-rendered HTML</td><td>N/A to Low</td><td>DynamicPDF doesn't support this; new capability in IronPDF</td></tr>
+</tbody>
+</table>
+
+<h3>Decision Matrix</h3>
+
+<table>
+<thead>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>All PDF generation is programmatic layout (no HTML input)</td><td>Stay on DynamicPDF -- IronPDF won't simplify this</td></tr>
+<tr><td>Mixed: some programmatic layout + some HTML rendering</td><td>Partial migration or wrapper abstraction</td></tr>
+<tr><td>Primarily HTML/CSS/URL rendering</td><td>IronPDF is a natural fit; migrate</td></tr>
+<tr><td>High-volume headless server with Linux containers</td><td>Verify both libraries' Linux support before deciding</td></tr>
+</tbody>
+</table>
+
+<h2>How Do I Prepare My Codebase Before Migrating?</h2>
+
+<p><strong>Answer:</strong> Start by inventorying every DynamicPDF reference, then swap NuGet packages, and set your license key. Here's the full pre-migration workflow.</p>
+
+<h3>Find DynamicPDF References</h3>
+
+<pre><code># Find all files referencing DynamicPDF namespaces
+rg "ceTe\.DynamicPDF" --type cs -l
+
+# Find specific Document/Page usages
+rg "new Document\(\)|new Page\(" --type cs
+
+# Find HtmlArea usages -- these are your HTML migration targets
+rg "HtmlArea" --type cs
+</code></pre>
+
+<h3>Uninstall and Install</h3>
+
+<pre><code># Remove DynamicPDF
+dotnet remove package DynamicPDF.CoreSuite
+
+# Install IronPDF
+dotnet add package IronPdf
+
+# Verify
+dotnet list package
+</code></pre>
+
+<p>Set your <a href="https://ironpdf.com/how-to/license-keys/">license key</a> before running:</p>
+
+<pre><code>IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+// Or via environment variable: IRONPDF_LICENSEKEY
+// Or in appsettings.json
+</code></pre>
+
+<h2>What Does a Quick Start Migration Look Like in Three Steps?</h2>
+
+<p><strong>Answer:</strong> The core migration is license, namespaces, and render call. Each step is a mechanical replacement.</p>
+
+<h3>Step 1: License</h3>
+
+<pre><code>// Before (DynamicPDF)
+// ceTe.DynamicPDF.License.SetLicenseKey("YOUR-KEY");
+
+// After (IronPDF)
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+</code></pre>
+
+<h3>Step 2: Namespace Imports</h3>
+
+<pre><code>// Before
+using ceTe.DynamicPDF;
+using ceTe.DynamicPDF.PageElements;
+using ceTe.DynamicPDF.PageElements.Html;
+
+// After
+using IronPdf;
+</code></pre>
+
+<h3>Step 3: Basic HTML to PDF Conversion</h3>
+
+<pre><code>// Before (DynamicPDF HtmlArea approach)
+// var doc = new Document();
+// var page = new Page(PageSize.Letter);
+// var html = new HtmlArea("&lt;h1&gt;Hello&lt;/h1&gt;", 0, 0, 612, 792);
+// page.Elements.Add(html);
+// doc.Pages.Add(page);
+// doc.Draw("output.pdf");
+
+// After (IronPDF)
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Hello&lt;/h1&gt;");
+pdf.SaveAs("output.pdf");
+</code></pre>
+
+<h2>How Do DynamicPDF APIs Map to IronPDF APIs?</h2>
+
+<p><strong>Answer:</strong> I've built out the full mapping tables below covering namespaces, core classes, document loading, page operations, and merge/split. Keep these handy during your migration.</p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<thead>
+<tr><th>DynamicPDF</th><th>IronPDF</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>ceTe.DynamicPDF</td><td>IronPdf</td><td>Core namespace</td></tr>
+<tr><td>ceTe.DynamicPDF.PageElements</td><td>IronPdf (integrated)</td><td>No separate elements namespace</td></tr>
+<tr><td>ceTe.DynamicPDF.PageElements.Html</td><td>IronPdf</td><td>HtmlArea becomes ChromePdfRenderer</td></tr>
+</tbody>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<thead>
+<tr><th>DynamicPDF Class</th><th>IronPDF Class</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>Document</td><td>PdfDocument</td><td>The PDF document object</td></tr>
+<tr><td>Page</td><td>PdfDocument (pages collection)</td><td>Pages are accessed via document</td></tr>
+<tr><td>HtmlArea</td><td>ChromePdfRenderer</td><td>HTML rendering engine</td></tr>
+<tr><td>MergeDocument</td><td>PdfDocument.Merge()</td><td>Merge helper</td></tr>
+</tbody>
+</table>
+
+<h3>Document Loading</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>DynamicPDF</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Load from file</td><td>new Document(path)</td><td>PdfDocument.FromFile(path)</td></tr>
+<tr><td>Load from bytes</td><td>Verify in docs</td><td>PdfDocument.FromBytes(bytes)</td></tr>
+<tr><td>Load from stream</td><td>Verify in docs</td><td>PdfDocument.FromStream(stream)</td></tr>
+<tr><td>Render HTML string</td><td>HtmlArea + Document</td><td>renderer.RenderHtmlAsPdf(html)</td></tr>
+</tbody>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>DynamicPDF</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Page count</td><td>doc.Pages.Count</td><td>pdf.PageCount</td></tr>
+<tr><td>Get page</td><td>doc.Pages[i]</td><td>pdf.Pages[i]</td></tr>
+<tr><td>Add page</td><td>doc.Pages.Add(page)</td><td>See docs</td></tr>
+<tr><td>Remove page</td><td>Verify in docs</td><td>pdf.RemovePage(index)</td></tr>
+</tbody>
+</table>
+
+<h3>Merge and Split</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>DynamicPDF</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Merge two PDFs</td><td>MergeDocument.Merge(a, b)</td><td>PdfDocument.Merge(a, b)</td></tr>
+<tr><td>Split at page</td><td>Verify in docs</td><td>pdf.CopyPages(0, n)</td></tr>
+</tbody>
+</table>
+
+<h2>What Do Complete Before/After Code Migrations Look Like?</h2>
+
+<p><strong>Answer:</strong> Below are four real migration examples covering the most common DynamicPDF workloads: HTML to PDF, merging, watermarking, and password protection.</p>
+
+<h3>1. HTML to PDF</h3>
+
+<p><strong>Before (DynamicPDF):</strong></p>
+
+<pre><code>using ceTe.DynamicPDF;
+using ceTe.DynamicPDF.PageElements.Html;
+
+class Program
+{
+    static void Main()
+    {
+        string html = "&lt;h1&gt;Quarterly Report&lt;/h1&gt;&lt;p&gt;Data as of Q4.&lt;/p&gt;";
+
+        var doc = new Document();
+        var page = new Page(PageSize.Letter);
+
+        var area = new HtmlArea(html, 0, 0, 612, 792);
+        page.Elements.Add(area);
+
+        doc.Pages.Add(page);
+        doc.Draw("report.pdf");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        string html = "&lt;h1&gt;Quarterly Report&lt;/h1&gt;&lt;p&gt;Data as of Q4.&lt;/p&gt;";
+
+        var renderer = new ChromePdfRenderer();
+
+        using var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("report.pdf");
+    }
+}
+</code></pre>
+
+<h3>2. Merge PDFs</h3>
+
+<p><strong>Before (DynamicPDF):</strong></p>
+
+<pre><code>using ceTe.DynamicPDF;
+using System.IO;
+
+class MergeSample
+{
+    static void Main()
+    {
+        string pathA = "doc_a.pdf";
+        string pathB = "doc_b.pdf";
+        string output = "merged.pdf";
+
+        var docA = new Document(pathA);
+        var docB = new Document(pathB);
+        docA.Draw(output);
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+class MergeSample
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        using var docA = PdfDocument.FromFile("doc_a.pdf");
+        using var docB = PdfDocument.FromFile("doc_b.pdf");
+
+        using var merged = PdfDocument.Merge(docA, docB);
+        merged.SaveAs("merged.pdf");
+    }
+}
+</code></pre>
+
+<h3>3. Watermark</h3>
+
+<p><strong>Before (DynamicPDF):</strong></p>
+
+<pre><code>using ceTe.DynamicPDF;
+using ceTe.DynamicPDF.PageElements;
+
+class WatermarkSample
+{
+    static void Main()
+    {
+        var doc = new Document("input.pdf");
+
+        foreach (var page in doc.Pages)
+        {
+            // Label or image overlay
+            // var label = new Label("CONFIDENTIAL", 200, 400, 200, 50);
+            // label.Angle = 45;
+            // page.Elements.Add(label);
+        }
+
+        doc.Draw("watermarked.pdf");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+class WatermarkSample
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        using var pdf = PdfDocument.FromFile("input.pdf");
+
+        var stamper = new TextStamper
+        {
+            Text = "CONFIDENTIAL",
+            FontSize = 40,
+            Opacity = 50,
+            Rotation = 45
+        };
+
+        pdf.ApplyStamp(stamper);
+        pdf.SaveAs("watermarked.pdf");
+    }
+}
+</code></pre>
+
+<h3>4. Password Protection</h3>
+
+<p><strong>Before (DynamicPDF):</strong></p>
+
+<pre><code>using ceTe.DynamicPDF;
+
+class SecuritySample
+{
+    static void Main()
+    {
+        var doc = new Document("input.pdf");
+
+        // var security = new Security();
+        // security.UserPassword = "user123";
+        // security.OwnerPassword = "owner456";
+        // doc.Security = security;
+
+        doc.Draw("secured.pdf");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Security;
+
+class SecuritySample
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        using var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.SecuritySettings.UserPassword = "user123";
+        pdf.SecuritySettings.OwnerPassword = "owner456";
+        pdf.SecuritySettings.AllowUserPrinting = IronPdf.Security.PdfPrintSecurity.FullPrintRights;
+
+        pdf.SaveAs("secured.pdf");
+    }
+}
+</code></pre>
+
+<h2>What Are the Critical Migration Gotchas I Should Know About?</h2>
+
+<p><strong>Answer:</strong> There are four sharp edges that will bite you if you're not watching for them. I've seen each of these cause bugs in real migrations.</p>
+
+<p><strong>Page Indexing.</strong> Both DynamicPDF and IronPDF use 0-based page indexing, but verify this in your specific DynamicPDF version. An off-by-one error here will silently affect the wrong pages.</p>
+
+<p><strong>Draw vs SaveAs.</strong> DynamicPDF uses <code>doc.Draw(path)</code> or <code>doc.Draw(stream)</code> as its output method. IronPDF uses <code>pdf.SaveAs(path)</code> or <code>pdf.Stream</code> / <code>pdf.BinaryData</code> for stream output. This is a mechanical find-replace, but watch for spots where you're passing the draw output to another method -- the IronPDF equivalent returns a byte array or <code>MemoryStream</code> directly from the render call.</p>
+
+<p><strong>Status Codes vs Exceptions.</strong> DynamicPDF may return status codes or use event-based error reporting in some versions. IronPDF throws exceptions on failure. If you have try/catch blocks keyed to DynamicPDF status codes, rework them as standard .NET exception handling.</p>
+
+<p><strong>HtmlArea Positioning.</strong> DynamicPDF's <code>HtmlArea</code> takes explicit x, y, width, height positioning. IronPDF's renderer fills the entire page by default and uses <a href="https://ironpdf.com/how-to/rendering-options/">RenderingOptions</a> for margins and paper size. If you were using <code>HtmlArea</code> for partial-page HTML rendering, there's no direct equivalent in IronPDF -- you'd need to pre-compose the HTML to represent the full page, or use IronPDF's stamp/overlay API to layer content.</p>
+
+<h2>How Should I Handle Performance When Migrating to IronPDF?</h2>
+
+<p><strong>Answer:</strong> The biggest performance win is renderer reuse, and the biggest pitfall is cold start. Here are the patterns I recommend.</p>
+
+<p><strong>Renderer Reuse.</strong> <code>ChromePdfRenderer</code> is designed to be reused. Instantiate once, use many times. Avoid newing it per request in a server context.</p>
+
+<pre><code>public class PdfService
+{
+    private static readonly ChromePdfRenderer _renderer = new ChromePdfRenderer();
+
+    public byte[] GeneratePdf(string html)
+    {
+        using var pdf = _renderer.RenderHtmlAsPdf(html);
+        return pdf.BinaryData;
+    }
+}
+</code></pre>
+
+<p><strong>Disposal.</strong> <code>PdfDocument</code> implements <code>IDisposable</code>. Use <code>using</code> consistently, especially in loops or server workloads. For <a href="https://ironpdf.com/examples/parallel/">parallel rendering patterns</a>, see the IronPDF parallel docs.</p>
+
+<p><strong>Async.</strong> IronPDF exposes async render methods. For high-throughput servers, prefer <code>await renderer.RenderHtmlAsPdfAsync(html)</code> over the synchronous form. See the <a href="https://ironpdf.com/how-to/async/">async docs</a>.</p>
+
+<p><strong>Cold Start.</strong> IronPDF's first render is slower than subsequent ones because of Chromium initialization. Warm up the renderer at application startup if latency matters. DynamicPDF's layout engine has a lighter startup profile; factor this into your p50/p99 analysis.</p>
+
+<h3>Benchmark Aspects Worth Measuring</h3>
+
+<table>
+<thead>
+<tr><th>Test</th><th>What to Measure</th><th>Tooling</th></tr>
+</thead>
+<tbody>
+<tr><td>Simple HTML to PDF throughput</td><td>Renders/second, p95 latency</td><td>BenchmarkDotNet</td></tr>
+<tr><td>Memory usage per render</td><td>Peak MB, GC pressure</td><td>dotMemory or dotnet-counters</td></tr>
+<tr><td>Complex CSS fidelity</td><td>Visual diff of output</td><td>Playwright screenshot comparison</td></tr>
+<tr><td>Parallel render scaling</td><td>Renders/sec at N threads</td><td>Custom load test</td></tr>
+<tr><td>Cold start time</td><td>First-render latency (Chromium init)</td><td>Stopwatch around first call</td></tr>
+</tbody>
+</table>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I run DynamicPDF and IronPDF side by side during migration?</h3>
+
+<p><strong>Answer:</strong> Yes. Both libraries use distinct namespaces (<code>ceTe.DynamicPDF</code> vs <code>IronPdf</code>), so they can coexist in the same project. This is the recommended approach for a gradual migration -- migrate one rendering path at a time, validate the output, and remove DynamicPDF references only after the new code is verified in production.</p>
+
+<h3>What happens to my programmatic layout code that uses TextArea, ImageArea, and Column?</h3>
+
+<p><strong>Answer:</strong> This is the sharpest edge in the migration. IronPDF does not have a programmatic layout API equivalent to DynamicPDF's. If your codebase is full of <code>TextArea</code>, <code>ImageArea</code>, and <code>Column</code> layout logic, you're not migrating a library -- you're migrating a rendering architecture. That work belongs in HTML/CSS templates. For <code>HtmlArea</code>-heavy codebases, the migration is mechanical and the payoff is immediate.</p>
+
+<h3>Does IronPDF support the same output method as DynamicPDF's Draw?</h3>
+
+<p><strong>Answer:</strong> DynamicPDF uses <code>doc.Draw(path)</code> for file output and <code>doc.Draw(stream)</code> for stream output. IronPDF uses <code>pdf.SaveAs(path)</code> for files, and exposes <code>pdf.Stream</code> and <code>pdf.BinaryData</code> for stream and byte array output respectively. This is a straightforward find-replace, but check any code that chains the draw output into another method call.</p>
+
+<h3>How does IronPDF handle JavaScript in HTML templates compared to DynamicPDF?</h3>
+
+<p><strong>Answer:</strong> DynamicPDF does not execute JavaScript in HTML content. IronPDF uses an embedded Chromium engine that fully executes JavaScript before rendering, which means charting libraries, dynamic tables, and any other JS-dependent content will render correctly. This is often one of the primary reasons teams migrate.</p>
+
+<h3>What should my post-migration testing checklist look like?</h3>
+
+<p><strong>Answer:</strong> At minimum: visual regression test all PDF outputs using screenshot diffs, test with your most complex HTML/CSS template, verify password-protected output with an actual PDF reader (not just code), confirm merge output page counts equal the sum of inputs, test watermark opacity and rotation, run at least 10 parallel renders under concurrent load, and validate PDF/A compliance with a conformance validator if required.</p>
+
+<h2>What Is the Bottom Line on Migrating from DynamicPDF to IronPDF?</h2>
+
+<p>The sharpest edge in a DynamicPDF to IronPDF migration is the programmatic layout code. If your codebase is full of <code>TextArea</code>, <code>ImageArea</code>, and <code>Column</code> layout logic, you're not migrating a library -- you're migrating a rendering architecture. That work belongs in HTML templates, not in a swap of <code>using</code> statements. Plan accordingly.</p>
+
+<p>For <code>HtmlArea</code>-heavy codebases, the migration is mechanical and the payoff is immediate -- full CSS/JS rendering with far less boilerplate. You get Chromium-quality output, proper JavaScript execution, and a simpler API surface. The four code examples above cover the most common patterns, and the API mapping tables should handle the rest.</p>
+
+<p>I'd recommend starting with a single rendering path, running both libraries side by side, and expanding from there. The effort table and decision matrix above will help you scope the work realistically before you commit.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

@@ -1,0 +1,632 @@
+<h1>Migrating from Aspose.PDF to IronPDF: A .NET Developer's Migration Notes</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>The migration story rarely starts with a decision meeting. It starts with a build pipeline failing at 2 AM, or a sprint retrospective where someone says "the PDF rendering is wrong again on Linux," or a licensing renewal email that lands in the wrong inbox at the wrong budget quarter. Teams don't abandon libraries they chose deliberately — they eventually reach a point where the cost of staying exceeds the cost of switching.</p>
+
+<p>This article walks through what a migration from Aspose.PDF to <a href="https://ironpdf.com/">IronPDF</a> actually looks like in C# code. You'll leave with working before/after snippets, a full API mapping table, and a printable migration checklist. The migration patterns, grep commands, and checklist apply to any PDF library transition.</p>
+
+<h2>Why Should I Migrate from Aspose.PDF to IronPDF?</h2>
+
+<p>Both Aspose.PDF and IronPDF are serious libraries with active maintenance. This isn't about one being broken — it's about the specific friction teams run into depending on their use case and deployment context. Here are the neutral migration triggers teams commonly cite:</p>
+
+<p><strong>HTML rendering fidelity.</strong> Aspose.PDF uses a proprietary HTML renderer, not a browser engine. Teams running complex CSS (Flexbox, Grid, custom fonts, <code>@page</code> rules) often encounter layout drift that requires workarounds. IronPDF uses an embedded Chromium renderer.</p>
+
+<p><strong>Linux/container deployment complexity.</strong> Aspose.PDF on Linux requires additional configuration. IronPDF also requires native dependencies on Linux; neither is zero-effort, but the dependency surface differs.</p>
+
+<p><strong>API verbosity.</strong> Aspose.PDF's document construction API is granular and explicit. That's a feature if you need fine-grained control, a friction point if you're mostly converting HTML to PDF.</p>
+
+<p><strong>License model changes.</strong> Both vendors have updated licensing in recent years. If your renewal timing is off, it creates a forcing function.</p>
+
+<p><strong>Namespace sprawl.</strong> Aspose.PDF has many sub-namespaces. Teams with large codebases find <code>using</code> statements accumulate quickly.</p>
+
+<p><strong>async/await surface.</strong> Async PDF generation in Aspose requires some care around how operations are structured. Verify current async support in Aspose docs.</p>
+
+<p><strong>NuGet package size.</strong> Aspose.PDF is a large package. In size-constrained environments (Lambda, small containers) this matters.</p>
+
+<p><strong>Team familiarity.</strong> A new hire familiar with Chromium-based rendering tools has a shorter ramp on IronPDF's mental model.</p>
+
+<p><strong>PDF/A and compliance workflows.</strong> Both support PDF/A; the specific versions and validation behavior differ. Test against your target compliance profile.</p>
+
+<p><strong>Support response patterns.</strong> Teams with strict SLA requirements on library support evaluate vendor responsiveness differently.</p>
+
+<h2>How Do the Two Libraries Compare Feature by Feature?</h2>
+
+<table>
+<tr><th>Aspect</th><th>Aspose.PDF</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>Parse, render, edit, forms, reporting</td><td>HTML-to-PDF, edit, merge, security</td></tr>
+<tr><td>Pricing</td><td>Per-developer or site license</td><td>Per-developer or royalty-free</td></tr>
+<tr><td>API Style</td><td>Explicit document object model</td><td>High-level renderer + document model</td></tr>
+<tr><td>Learning Curve</td><td>Steep for HTML; gradual for doc construction</td><td>Gradual for HTML; steeper for low-level ops</td></tr>
+<tr><td>HTML Rendering</td><td>Proprietary renderer</td><td>Chromium-based</td></tr>
+<tr><td>Page Indexing</td><td>0-based</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Per-document instance; verify concurrent use patterns</td><td>Renderer is reusable; verify thread safety docs</td></tr>
+<tr><td>Namespace</td><td><code>Aspose.Pdf</code></td><td><code>IronPdf</code></td></tr>
+</table>
+
+<h2>How Much Effort Does Each Feature Require to Migrate?</h2>
+
+<table>
+<tr><th>Feature</th><th>Effort</th><th>Notes</th></tr>
+<tr><td>HTML string to PDF</td><td>Low</td><td>Direct API swap; test CSS output</td></tr>
+<tr><td>HTML file to PDF</td><td>Low</td><td>Path handling differs slightly</td></tr>
+<tr><td>Merge PDFs</td><td>Low</td><td>Both have single-call merge</td></tr>
+<tr><td>Split PDFs</td><td>Medium</td><td>Page selection API differs</td></tr>
+<tr><td>Watermark (text)</td><td>Medium</td><td>Stamping model differs</td></tr>
+<tr><td>Watermark (image)</td><td>Medium</td><td>Coordinate system verify</td></tr>
+<tr><td>Password protection</td><td>Low</td><td>Both support owner/user passwords</td></tr>
+<tr><td>Form field manipulation</td><td>High</td><td>Aspose forms API is richer; verify IronPDF coverage</td></tr>
+<tr><td>PDF/A compliance</td><td>Medium-High</td><td>Test output against your validator</td></tr>
+<tr><td>Digital signatures</td><td>High</td><td>Verify current IronPDF signing API</td></tr>
+<tr><td>Text extraction</td><td>Medium</td><td>Both support; output formatting may differ</td></tr>
+</table>
+
+<h2>Which Scenarios Favor IronPDF Over Aspose.PDF?</h2>
+
+<table>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+<tr><td>Primarily HTML-to-PDF, modern CSS, containerized</td><td>IronPDF likely reduces CSS workarounds</td></tr>
+<tr><td>Heavy programmatic doc construction (tables, graphs)</td><td>Evaluate both; Aspose's doc model is mature</td></tr>
+<tr><td>Strict PDF/A-2b or PDF/A-3 compliance required</td><td>Test both against your validator before committing</td></tr>
+<tr><td>Mixed team, some devs unfamiliar with PDF APIs</td><td>IronPDF's surface is smaller to learn for common tasks</td></tr>
+</table>
+
+<h2>What Do I Need Before Starting the Migration?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>You'll need .NET 6, 7, or 8 (IronPDF supports these; verify .NET Framework support for your version), NuGet access or an offline package feed, an <a href="https://ironpdf.com/how-to/license-keys/">IronPDF license key</a> (trial available), and a test suite or manual test cases covering your current PDF outputs.</p>
+
+<p>First, find all Aspose.PDF references in your codebase:</p>
+
+<h3>Finding Aspose References</h3>
+
+<pre><code># Find all using statements
+rg "using Aspose" --type cs -l
+
+# Find all Aspose type references
+rg "Aspose\.Pdf" --type cs
+
+# Find all Document instantiations (Aspose pattern)
+rg "new Document\(" --type cs
+
+# Find license-setting calls
+rg "Aspose.*License" --type cs
+</code></pre>
+
+<p>Then remove Aspose and install IronPDF:</p>
+
+<h3>Package Swap</h3>
+
+<pre><code># Remove Aspose.PDF
+dotnet remove package Aspose.PDF
+
+# Install IronPDF
+dotnet add package IronPdf
+
+# Restore
+dotnet restore
+</code></pre>
+
+<p>PowerShell (Package Manager Console): <code>Uninstall-Package Aspose.PDF</code> then <code>Install-Package IronPdf</code>.</p>
+
+<h2>How Do I Migrate License Configuration and Namespaces?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>License setup is the first thing to change. Aspose uses a file-based license; IronPDF uses a string key.</p>
+
+<h3>License Configuration — Before (Aspose)</h3>
+
+<pre><code>using Aspose.Pdf;
+
+// Aspose license is set via a file or stream
+var license = new License();
+license.SetLicense("Aspose.PDF.lic"); // path to your license file
+</code></pre>
+
+<h3>License Configuration — After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+
+// Set license key before any IronPDF calls
+// See: https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+</code></pre>
+
+<p>Then simplify namespace imports. Aspose.PDF spreads across multiple namespaces; IronPDF consolidates most operations under one.</p>
+
+<h3>Namespace Imports — Before</h3>
+
+<pre><code>using Aspose.Pdf;
+using Aspose.Pdf.Text;
+using Aspose.Pdf.Facades;
+</code></pre>
+
+<h3>Namespace Imports — After</h3>
+
+<pre><code>using IronPdf;
+</code></pre>
+
+<p>Most common operations live in the root <code>IronPdf</code> namespace.</p>
+
+<h2>How Do I Convert HTML to PDF After Migrating?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>This is the most common operation and the easiest to migrate. Aspose uses <code>HtmlLoadOptions</code> with a proprietary renderer; IronPDF uses <code>ChromePdfRenderer</code> backed by Chromium — so CSS, Flexbox, custom fonts all work as they do in a browser.</p>
+
+<h3>Basic HTML to PDF — Before (Aspose)</h3>
+
+<pre><code>using Aspose.Pdf;
+
+// Aspose HTML load options (verify current API)
+var options = new HtmlLoadOptions();
+using var doc = new Document("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;", options);
+doc.Save("output.pdf");
+</code></pre>
+
+<h3>Basic HTML to PDF — After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+using var pdf = renderer.RenderHtmlAsPdf("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+pdf.SaveAs("output.pdf");
+</code></pre>
+
+<p>See the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF docs</a> for rendering options.</p>
+
+<h2>How Do I Map Aspose.PDF Classes and Methods to IronPDF?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Here are the full API mapping tables I use when migrating projects. Keep these open during the migration — they'll save you a lot of doc-searching.</p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<tr><th>Aspose.PDF</th><th>IronPDF</th><th>Notes</th></tr>
+<tr><td><code>Aspose.Pdf</code></td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td><code>Aspose.Pdf.Text</code></td><td><code>IronPdf</code></td><td>Text ops on same PdfDocument</td></tr>
+<tr><td><code>Aspose.Pdf.Facades</code></td><td><code>IronPdf</code></td><td>Facades pattern not used in IronPDF</td></tr>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr><th>Aspose.PDF Class</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td><code>Document</code></td><td><code>PdfDocument</code></td><td>Represents a loaded/generated PDF</td></tr>
+<tr><td><code>HtmlLoadOptions</code></td><td><code>ChromePdfRenderOptions</code></td><td>Controls HTML rendering behavior</td></tr>
+<tr><td><code>Page</code></td><td><code>PdfPage</code></td><td>Single page reference</td></tr>
+<tr><td><code>License</code></td><td><code>IronPdf.License</code></td><td>Static license configuration</td></tr>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<tr><th>Operation</th><th>Aspose.PDF</th><th>IronPDF</th></tr>
+<tr><td>Load from file</td><td><code>new Document("file.pdf")</code></td><td><code>PdfDocument.FromFile("file.pdf")</code></td></tr>
+<tr><td>Load from stream</td><td><code>new Document(stream)</code></td><td><code>PdfDocument.FromStream(stream)</code></td></tr>
+<tr><td>HTML string</td><td><code>new Document(html, new HtmlLoadOptions())</code></td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td>HTML file</td><td><code>new Document(htmlPath, new HtmlLoadOptions())</code></td><td><code>renderer.RenderHtmlFileAsPdf(path)</code></td></tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>Aspose.PDF</th><th>IronPDF</th></tr>
+<tr><td>Page count</td><td><code>doc.Pages.Count</code></td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Get page</td><td><code>doc.Pages[1]</code> (1-based)</td><td><code>pdf.Pages[0]</code> (0-based)</td></tr>
+<tr><td>Delete page</td><td><code>doc.Pages.Delete(1)</code></td><td><code>pdf.RemovePage(0)</code></td></tr>
+<tr><td>Rotate page</td><td><code>page.Rotate = Rotation.on90</code></td><td>See IronPDF rendering options docs</td></tr>
+</table>
+
+<h3>Merge/Split Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>Aspose.PDF</th><th>IronPDF</th></tr>
+<tr><td>Merge PDFs</td><td><code>Document.Concatenate(file1, file2, output)</code></td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
+<tr><td>Extract pages</td><td>Page copy via loop</td><td><code>pdf.CopyPages(...)</code></td></tr>
+</table>
+
+<h2>What Do the Full Before/After Code Migrations Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>I've prepared four complete before/after migrations covering the most common operations. Each one is a full working program you can drop into a console project.</p>
+
+<h3>HTML to PDF — Before (Aspose.PDF)</h3>
+
+<pre><code>using System;
+using Aspose.Pdf;
+
+class Program
+{
+    static void Main()
+    {
+        // Set license before any Aspose call
+        var license = new License();
+        license.SetLicense("Aspose.PDF.lic");
+
+        // Aspose uses HtmlLoadOptions to control rendering
+        // Note: proprietary renderer — complex CSS may not match browser output
+        var options = new HtmlLoadOptions
+        {
+            // BasePath needed if HTML references external assets
+            BasePath = "https://example.com/"
+        };
+
+        string html = @"&lt;html&gt;
+            &lt;body style='font-family:Arial'&gt;
+                &lt;h1 style='color:#2563EB'&gt;Invoice #1042&lt;/h1&gt;
+                &lt;p&gt;Due: 2025-12-01&lt;/p&gt;
+            &lt;/body&gt;
+        &lt;/html&gt;";
+
+        // Aspose loads HTML as if it were a file via stream
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(html);
+        using var stream = new System.IO.MemoryStream(bytes);
+        using var doc = new Document(stream, options);
+        doc.Save("invoice.pdf");
+
+        Console.WriteLine("Saved invoice.pdf");
+    }
+}
+</code></pre>
+
+<h3>HTML to PDF — After (IronPDF)</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        // License setup — https://ironpdf.com/how-to/license-keys/
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        var renderer = new ChromePdfRenderer();
+
+        // Chromium renders HTML — CSS, Flexbox, custom fonts work as in browser
+        string html = @"&lt;html&gt;
+            &lt;body style='font-family:Arial'&gt;
+                &lt;h1 style='color:#2563EB'&gt;Invoice #1042&lt;/h1&gt;
+                &lt;p&gt;Due: 2025-12-01&lt;/p&gt;
+            &lt;/body&gt;
+        &lt;/html&gt;";
+
+        using var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("invoice.pdf");
+        Console.WriteLine("Saved invoice.pdf");
+    }
+}
+</code></pre>
+
+<h3>Merge PDFs — Before (Aspose.PDF)</h3>
+
+<pre><code>using System;
+using Aspose.Pdf;
+using Aspose.Pdf.Facades;
+
+class Program
+{
+    static void Main()
+    {
+        var license = new License();
+        license.SetLicense("Aspose.PDF.lic");
+
+        // PdfFileEditor is used for merge operations in Aspose.Pdf.Facades
+        var editor = new PdfFileEditor();
+
+        string[] inputFiles = { "part1.pdf", "part2.pdf", "part3.pdf" };
+        string outputFile = "merged.pdf";
+
+        // Concatenate writes directly to disk
+        bool success = editor.Concatenate(inputFiles, outputFile);
+
+        if (!success)
+            Console.WriteLine("Merge failed — check Aspose logs");
+        else
+            Console.WriteLine("Merged to merged.pdf");
+    }
+}
+</code></pre>
+
+<h3>Merge PDFs — After (IronPDF)</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        // Load each PDF — https://ironpdf.com/how-to/merge-or-split-pdfs/
+        var pdf1 = PdfDocument.FromFile("part1.pdf");
+        var pdf2 = PdfDocument.FromFile("part2.pdf");
+        var pdf3 = PdfDocument.FromFile("part3.pdf");
+
+        // Static merge returns a new PdfDocument
+        using var merged = PdfDocument.Merge(pdf1, pdf2, pdf3);
+        merged.SaveAs("merged.pdf");
+        Console.WriteLine("Merged to merged.pdf");
+    }
+}
+</code></pre>
+
+<h3>Watermark — Before (Aspose.PDF)</h3>
+
+<pre><code>using System;
+using Aspose.Pdf;
+using Aspose.Pdf.Text;
+
+class Program
+{
+    static void Main()
+    {
+        var license = new License();
+        license.SetLicense("Aspose.PDF.lic");
+
+        using var doc = new Document("input.pdf");
+
+        // Aspose stamps each page individually via TextStamp
+        var stamp = new TextStamp("CONFIDENTIAL")
+        {
+            Opacity = 0.4,
+            RotateAngle = 45,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextState = new TextState
+            {
+                FontSize = 48,
+                ForegroundColor = Color.Red
+            }
+        };
+
+        // Apply to every page (Aspose pages are 1-based)
+        foreach (Page page in doc.Pages)
+            page.AddStamp(stamp);
+
+        doc.Save("watermarked.pdf");
+        Console.WriteLine("Watermarked output saved");
+    }
+}
+</code></pre>
+
+<h3>Watermark — After (IronPDF)</h3>
+
+<pre><code>using System;
+using IronPdf;
+using IronPdf.Editing;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        using var pdf = PdfDocument.FromFile("input.pdf");
+
+        // TextStamper — https://ironpdf.com/how-to/stamp-text-image/
+        var stamper = new TextStamper
+        {
+            Text = "CONFIDENTIAL",
+            FontSize = 48,
+            Opacity = 40,
+            Rotation = 45,
+            VerticalAlignment = VerticalAlignment.Middle,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+
+        pdf.ApplyStamp(stamper);
+        pdf.SaveAs("watermarked.pdf");
+        Console.WriteLine("Watermarked output saved");
+    }
+}
+</code></pre>
+
+<h3>Password Protection — Before (Aspose.PDF)</h3>
+
+<pre><code>using System;
+using Aspose.Pdf;
+using Aspose.Pdf.Facades;
+
+class Program
+{
+    static void Main()
+    {
+        var license = new License();
+        license.SetLicense("Aspose.PDF.lic");
+
+        // PdfFileSecurity handles encryption in Aspose.Pdf.Facades
+        var security = new PdfFileSecurity();
+        security.BindPdf("input.pdf");
+
+        // DocumentPrivilege controls permissions
+        var privilege = DocumentPrivilege.AllowAll;
+        privilege.Printing = PrintingPermissions.PrintingQuality;
+
+        // EncryptFile: userPassword, ownerPassword, privileges, keySize
+        security.EncryptFile("user123", "owner456", privilege, KeySize.x128);
+        security.Save("protected.pdf");
+        Console.WriteLine("Encrypted to protected.pdf");
+    }
+}
+</code></pre>
+
+<h3>Password Protection — After (IronPDF)</h3>
+
+<pre><code>using System;
+using IronPdf;
+using IronPdf.Security;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        // https://ironpdf.com/how-to/pdf-permissions-passwords/
+        using var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.SecuritySettings.UserPassword = "user123";
+        pdf.SecuritySettings.OwnerPassword = "owner456";
+
+        // Set permissions
+        pdf.SecuritySettings.AllowUserPrinting = IronPdf.Security.PdfPrintSecurity.FullPrintRights;
+
+        pdf.SaveAs("protected.pdf");
+        Console.WriteLine("Encrypted to protected.pdf");
+    }
+}
+</code></pre>
+
+<h2>What Critical Gotchas Should I Watch for During Migration?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p><strong>Page indexing.</strong> Aspose.PDF pages are 1-based — <code>doc.Pages[1]</code> is the first page. IronPDF pages are 0-based — <code>pdf.Pages[0]</code> is the first page. This is the most common off-by-one bug in migrations. Audit every page-index reference.</p>
+
+<pre><code>// Aspose (1-based)
+var firstPage = doc.Pages[1];  // correct
+var firstPage = doc.Pages[0];  // throws or returns null
+
+// IronPDF (0-based — verify in current docs)
+var firstPage = pdf.Pages[0];  // correct
+</code></pre>
+
+<p><strong>Exception model.</strong> Aspose.PDF returns status codes or throws <code>PdfException</code>. IronPDF throws typed exceptions. Wrap your PDF calls during migration and log the exception type before wiring up production error handling.</p>
+
+<pre><code>try
+{
+    using var pdf = PdfDocument.FromFile("input.pdf");
+}
+catch (IronPdf.Exceptions.IronPdfNativeException ex)
+{
+    // Native renderer error
+    Console.WriteLine($"Render error: {ex.Message}");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"General error: {ex.Message}");
+}
+</code></pre>
+
+<p><strong>Unit conversion.</strong> Aspose.PDF uses points (1 inch = 72 points) for coordinates and dimensions by default. IronPDF uses millimeters in some APIs and points in others — check the specific API. Margin settings especially differ.</p>
+
+<pre><code>// IronPDF margin example (verify units in current docs)
+var options = new ChromePdfRenderOptions
+{
+    MarginTop = 25,    // verify: mm or points?
+    MarginBottom = 25
+};
+</code></pre>
+
+<h2>How Do I Optimize Performance After Migrating?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>The <code>ChromePdfRenderer</code> instance in IronPDF wraps a Chromium process. Creating one per request is expensive. Reuse it:</p>
+
+<pre><code>// Shared at class/service level — not per-request
+private static readonly ChromePdfRenderer _renderer = new ChromePdfRenderer();
+
+public PdfDocument RenderInvoice(string html)
+{
+    return _renderer.RenderHtmlAsPdf(html);
+}
+</code></pre>
+
+<p>See <a href="https://ironpdf.com/examples/parallel/">parallel rendering examples</a> for concurrent workloads.</p>
+
+<p><code>PdfDocument</code> implements <code>IDisposable</code>. Always dispose or use <code>using</code>:</p>
+
+<pre><code>// Correct
+using var pdf = PdfDocument.FromFile("input.pdf");
+// pdf is disposed at end of block
+
+// Avoid — holds native resources
+var pdf = PdfDocument.FromFile("input.pdf");
+// never disposed
+</code></pre>
+
+<p>Watch for these edge cases: large HTML pages with lazy-loaded images need JavaScript to settle (use <code>RenderOptions.WaitFor</code> or delay settings), fonts on Linux may look wrong if the system font set is incomplete (install <code>fontconfig</code> and common fonts in your Docker image), and Aspose's renderer and IronPDF's Chromium process have different memory profiles — load-test before assuming parity.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I migrate incrementally, or do I need to swap everything at once?</h3>
+
+<p>You can migrate incrementally. Both NuGet packages can coexist in the same solution temporarily. I recommend migrating one operation at a time — start with HTML-to-PDF conversion, then merge/split, then watermarking, then security — validating output at each step before moving to the next.</p>
+
+<h3>Will my CSS render the same way in IronPDF as it does in a browser?</h3>
+
+<p>Yes. IronPDF uses an embedded Chromium engine, so your HTML and CSS render exactly as they would in Google Chrome. This is one of the primary reasons teams migrate from Aspose.PDF, which uses a proprietary HTML parser that doesn't support modern CSS features like Flexbox and Grid reliably.</p>
+
+<h3>What's the most common bug teams hit during this migration?</h3>
+
+<p>Page indexing off-by-one errors. Aspose.PDF uses 1-based page indexing (<code>doc.Pages[1]</code> is the first page), while IronPDF uses 0-based indexing (<code>pdf.Pages[0]</code>). Every page-index reference in your codebase needs to be audited and decremented by one.</p>
+
+<h3>Does IronPDF support PDF/A compliance like Aspose.PDF does?</h3>
+
+<p>Both libraries support PDF/A, but the specific versions and validation behavior differ. Before committing to the migration, test both libraries against your specific compliance validator with representative documents. This is especially important for PDF/A-2b and PDF/A-3 workflows.</p>
+
+<h3>How does IronPDF licensing compare to Aspose.PDF licensing?</h3>
+
+<p>Aspose.PDF uses file-based licensing (<code>License.SetLicense("file.lic")</code>), while IronPDF uses a simple string key (<code>IronPdf.License.LicenseKey = "KEY"</code>). IronPDF offers per-developer or royalty-free licensing. A trial key is available at the <a href="https://ironpdf.com/how-to/license-keys/">license setup docs</a>.</p>
+
+<h2>What Does the Full Migration Checklist Look Like?</h2>
+
+<p><strong>Pre-Migration:</strong></p>
+<ul>
+<li>Inventory all files using <code>Aspose.Pdf</code> namespaces (<code>rg "using Aspose" --type cs -l</code>)</li>
+<li>Capture baseline PDF outputs (screenshots or hash) for visual regression</li>
+<li>Document the Aspose.PDF version currently in use</li>
+<li>Identify any <code>Aspose.Pdf.Facades</code> usage (more involved to migrate)</li>
+<li>Check for PDF/A compliance requirements and test validator</li>
+<li>Review license keys and environments (dev, staging, prod)</li>
+<li>Identify async/concurrent rendering patterns in current code</li>
+<li>Confirm Linux/container system dependencies for IronPDF</li>
+</ul>
+
+<p><strong>Code Migration:</strong></p>
+<ul>
+<li>Replace <code>Aspose.PDF</code> NuGet with <code>IronPdf</code></li>
+<li>Replace <code>License.SetLicense(file)</code> with <code>IronPdf.License.LicenseKey = "..."</code></li>
+<li>Replace <code>using Aspose.Pdf</code> with <code>using IronPdf</code></li>
+<li>Replace <code>new Document(html, new HtmlLoadOptions())</code> with <code>renderer.RenderHtmlAsPdf(html)</code></li>
+<li>Replace <code>doc.Pages[n]</code> (1-based) with <code>pdf.Pages[n-1]</code> (0-based)</li>
+<li>Replace <code>PdfFileEditor.Concatenate()</code> with <code>PdfDocument.Merge()</code></li>
+<li>Replace <code>TextStamp</code> stamping loop with <code>pdf.ApplyStamp(stamper)</code></li>
+<li>Replace <code>PdfFileSecurity.EncryptFile()</code> with <code>SecuritySettings</code> properties</li>
+<li>Replace all <code>doc.Save(path)</code> with <code>pdf.SaveAs(path)</code></li>
+<li>Review and update any <code>catch (PdfException)</code> to IronPDF exception types</li>
+</ul>
+
+<p><strong>Testing:</strong></p>
+<ul>
+<li>Visual comparison of HTML-to-PDF output (fonts, layout, colors)</li>
+<li>Test with complex CSS: Flexbox, Grid, <code>@page</code> rules</li>
+<li>Verify watermark position on multi-page documents</li>
+<li>Confirm merged PDFs have correct page count and order</li>
+<li>Verify password protection opens with correct credentials</li>
+<li>Test on target deployment OS (Windows and Linux if applicable)</li>
+<li>Confirm no page-indexing off-by-one regressions</li>
+</ul>
+
+<p><strong>Post-Migration:</strong></p>
+<ul>
+<li>Remove Aspose.PDF NuGet and license files from repo</li>
+<li>Update CI/CD to install IronPDF system deps (Linux)</li>
+<li>Update internal documentation and runbooks</li>
+<li>Archive Aspose license files (for audit trail, not active use)</li>
+</ul>
+
+<h2>Conclusion</h2>
+
+<p>Migration between two actively-maintained PDF libraries is rarely a weekend project, but it's also not a multi-month ordeal for most codebases. The hardest parts are usually complex form fields, PDF/A compliance validation, and visual regression testing on CSS-heavy HTML. The checklist above won't catch every edge case in your specific codebase, but it'll surface 90% of the issues before they reach staging.</p>
+
+<p>If you're ready to start, grab an <a href="https://ironpdf.com/how-to/license-keys/">IronPDF trial license</a>, swap one conversion at a time, and validate output at each step. The API mapping tables in this article should make the code changes straightforward — the real work is in testing.</p>

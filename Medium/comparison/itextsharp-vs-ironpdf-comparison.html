@@ -1,0 +1,595 @@
+<h1>iTextSharp vs IronPDF: The .NET Developer's Decision Guide for 2025</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>If you're still running iTextSharp in production and wondering whether it's time to move on, this guide lays out the facts. I've built IronPDF from the ground up, so I'm biased — but every claim here is grounded in what the libraries actually do, with code you can run yourself.</p>
+
+<h2>What Is iTextSharp?</h2>
+
+<p>iTextSharp is a .NET port of the iText Java library that was widely used for programmatic PDF generation from roughly 2009 through 2016. It takes a low-level, coordinate-based approach to PDF construction — you specify exact X/Y coordinates for text, images, and shapes. This gives precise control but requires deep PDF spec knowledge and produces verbose code.</p>
+
+<p>HTML rendering requires the separate XMLWorker package, which parses HTML/CSS but has limited support for modern standards — no Flexbox, Grid, or advanced CSS3. Teams often hit friction around thread safety (PdfWriter isn't thread-safe by default), 1-based page indexing (easy to introduce off-by-one errors), and fragmented documentation spread across Stack Overflow since official support ended.</p>
+
+<p>iTextSharp 5.x reached end-of-life and transitioned to maintenance mode. The GitHub repository is marked <code>[DEPRECATED]</code> with the note "only security fixes will be added." The last release (5.5.13.3, February 2024) backported security patches — no new features since 5.5.11. iText 7 (the successor, now at version 9) is a different library with breaking API changes and dual AGPL/commercial licensing.</p>
+
+<h2>What Are the Key Limitations of iTextSharp?</h2>
+
+<h3>Product Status</h3>
+
+<p>iTextSharp is officially deprecated and receives only security patches — no bug fixes, no feature development. The GitHub repository redirects teams to iText 7, which is a different product with incompatible APIs and commercial licensing requirements. Teams on iTextSharp 5.x are on a sunset path with no upgrade route that preserves existing code.</p>
+
+<h3>Missing Capabilities</h3>
+
+<p>Native HTML rendering requires the separate <code>itextsharp.xmlworker</code> package, which supports basic HTML 4 and CSS 2.1 but lacks modern standards. No Flexbox, CSS Grid, viewport units, or JavaScript execution — complex web layouts require manual PDF reconstruction. No built-in async methods for I/O operations. No URL-to-PDF conversion without custom HTTP client code.</p>
+
+<h3>Technical Issues</h3>
+
+<p>Thread safety requires manual synchronization — <code>PdfWriter</code> and <code>PdfStamper</code> aren't thread-safe by default, leading to corruption in concurrent environments. 1-based page indexing differs from C# conventions (0-based arrays/lists), causing off-by-one bugs. Error handling uses return codes in some APIs and exceptions in others — no consistent pattern.</p>
+
+<h3>Architecture Problems</h3>
+
+<p>Coordinate-based layout requires calculating pixel positions manually, making dynamic content brittle. Changing font size or adding a paragraph means recalculating positions downstream. HTML/CSS workflows require converting designs to procedural PDF construction code. Separate packages for PDF/A, XFA forms, and extras create dependency management complexity.</p>
+
+<h3>Support Status</h3>
+
+<p>No official support for iTextSharp 5.x — commercial support applies only to iText 7/9. Community support exists on Stack Overflow but answers reference the deprecated API. Documentation is scattered: official docs redirect to iText 7, tutorials are outdated, and migration guides assume you're moving to iText 7.</p>
+
+<h2>What Is IronPDF and How Does It Differ?</h2>
+
+<p><a href="https://ironsoftware.com/csharp/pdf/">IronPDF</a> takes a web-first approach: it uses a Chromium rendering engine to convert HTML/CSS/JavaScript directly to PDF, treating PDF generation as "print to PDF from a browser." This means your HTML templates render pixel-perfect without manual coordinate calculations. The library handles document structure, pagination, and resource loading automatically.</p>
+
+<p>Installation is a single NuGet package (<code>IronPdf</code>) with no external dependencies — Chromium is bundled and managed internally. The core workflow is: create a <code>ChromePdfRenderer</code>, call <code>RenderHtmlAsPdf()</code> with your HTML string/file/URL, and save the resulting <code>PdfDocument</code>. All operations use 0-based page indexing (standard C# convention) and throw exceptions on errors.</p>
+
+<h2>How Does HTML-to-PDF Conversion Compare?</h2>
+
+<h3>iTextSharp — HTML to PDF</h3>
+
+<pre><code>// Install packages:
+// Install-Package iTextSharp
+// Install-Package itextsharp.xmlworker
+
+using System;
+using System.IO;
+using System.Text;
+using iTextSharp.text;
+using iTextSharp.text.pdf;
+using iTextSharp.tool.xml;
+
+public class HtmlToPdfConverter
+{
+    public void ConvertHtmlToPdf()
+    {
+        var htmlContent = @&quot;
+            &lt;html&gt;
+            &lt;head&gt;
+                &lt;style&gt;
+                    body { font-family: Arial; margin: 20px; }
+                    h1 { color: #2c3e50; font-size: 24px; }
+                    .invoice-table { width: 100%; border-collapse: collapse; }
+                    .invoice-table th { background-color: #3498db; color: white; }
+                &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+                &lt;h1&gt;Invoice #2026-001&lt;/h1&gt;
+                &lt;table class='invoice-table'&gt;
+                    &lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Amount&lt;/th&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;Consulting&lt;/td&gt;&lt;td&gt;$5,000&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;&quot;;
+
+        using (var stream = new FileStream(&quot;invoice.pdf&quot;, FileMode.Create))
+        {
+            var document = new Document(PageSize.A4, 50, 50, 25, 25);
+            var writer = PdfWriter.GetInstance(document, stream);
+            document.Open();
+
+            try
+            {
+                using (var htmlStream = new MemoryStream(Encoding.UTF8.GetBytes(htmlContent)))
+                {
+                    XMLWorkerHelper.GetInstance().ParseXHtml(writer, document, htmlStream);
+                }
+            }
+            finally
+            {
+                document.Close();
+                writer.Close();
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>The XMLWorker approach requires a separate package, supports only CSS 2.1 (partial), needs manual resource management with explicit <code>document.Open()</code> and <code>document.Close()</code>, and has no JavaScript execution. That's 8+ lines of setup before actual HTML parsing begins.</p>
+
+<h3>IronPDF — HTML to PDF</h3>
+
+<pre><code>// Install package:
+// Install-Package IronPdf
+
+using IronPdf;
+
+public class HtmlToPdfConverter
+{
+    public void ConvertHtmlToPdf()
+    {
+        var htmlContent = @&quot;
+            &lt;html&gt;
+            &lt;head&gt;
+                &lt;style&gt;
+                    body { font-family: Arial; margin: 20px; }
+                    h1 { color: #2c3e50; font-size: 24px; }
+                    .invoice-table { width: 100%; border-collapse: collapse; }
+                    .invoice-table th { background-color: #3498db; color: white; }
+                &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+                &lt;h1&gt;Invoice #2026-001&lt;/h1&gt;
+                &lt;table class='invoice-table'&gt;
+                    &lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Amount&lt;/th&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;Consulting&lt;/td&gt;&lt;td&gt;$5,000&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;&quot;;
+
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs(&quot;invoice.pdf&quot;);
+    }
+}
+</code></pre>
+
+<p>IronPDF's Chrome rendering engine handles modern CSS automatically — full CSS3, JavaScript, Flexbox, Grid, media queries. Three lines of actual logic. For advanced rendering options like custom headers, footers, and paper sizes, see the <a href="https://ironsoftware.com/suite/blog/using-ironsuite/html-to-pdf-ironpdf-tutorial/">HTML to PDF documentation</a>.</p>
+
+<h2>How Does PDF Merging Compare?</h2>
+
+<h3>iTextSharp — Merge PDFs</h3>
+
+<pre><code>// Install-Package iTextSharp
+
+using System;
+using System.IO;
+using iTextSharp.text;
+using iTextSharp.text.pdf;
+
+public class PdfMerger
+{
+    public void MergePdfs()
+    {
+        var outputFile = &quot;merged.pdf&quot;;
+        var inputFiles = new[] { &quot;report1.pdf&quot;, &quot;report2.pdf&quot;, &quot;report3.pdf&quot; };
+
+        using (var stream = new FileStream(outputFile, FileMode.Create))
+        {
+            var document = new Document();
+            var copy = new PdfCopy(document, stream);
+            document.Open();
+
+            try
+            {
+                foreach (var inputFile in inputFiles)
+                {
+                    var reader = new PdfReader(inputFile);
+
+                    try
+                    {
+                        for (int i = 1; i &lt;= reader.NumberOfPages; i++)
+                        {
+                            var importedPage = copy.GetImportedPage(reader, i);
+                            copy.AddPage(importedPage);
+                        }
+
+                        copy.FreeReader(reader);
+                    }
+                    finally
+                    {
+                        reader.Close();
+                    }
+                }
+            }
+            finally
+            {
+                document.Close();
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>No single-call merge method — you must loop through files and pages manually. Uses 1-based page indexing, requires multiple nested using/try-finally blocks, and each file is processed sequentially with manual state tracking.</p>
+
+<h3>IronPDF — Merge PDFs</h3>
+
+<pre><code>// Install-Package IronPdf
+
+using IronPdf;
+
+public class PdfMerger
+{
+    public void MergePdfs()
+    {
+        var pdf1 = PdfDocument.FromFile(&quot;report1.pdf&quot;);
+        var pdf2 = PdfDocument.FromFile(&quot;report2.pdf&quot;);
+        var pdf3 = PdfDocument.FromFile(&quot;report3.pdf&quot;);
+
+        var merged = PdfDocument.Merge(pdf1, pdf2, pdf3);
+        merged.SaveAs(&quot;merged.pdf&quot;);
+    }
+}
+</code></pre>
+
+<p>That's the entire merge operation — load, merge, save. For splitting PDFs and advanced merge scenarios, see the <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split documentation</a>.</p>
+
+<h2>How Does Watermarking Compare?</h2>
+
+<h3>iTextSharp — Apply Watermark</h3>
+
+<pre><code>// Install-Package iTextSharp
+
+using System;
+using System.IO;
+using iTextSharp.text;
+using iTextSharp.text.pdf;
+
+public class PdfWatermarker
+{
+    public void AddWatermark()
+    {
+        var inputFile = &quot;original.pdf&quot;;
+        var outputFile = &quot;watermarked.pdf&quot;;
+
+        using (var reader = new PdfReader(inputFile))
+        using (var stream = new FileStream(outputFile, FileMode.Create))
+        {
+            var stamper = new PdfStamper(reader, stream);
+
+            try
+            {
+                var baseFont = BaseFont.CreateFont(
+                    BaseFont.HELVETICA_BOLD,
+                    BaseFont.CP1252,
+                    BaseFont.NOT_EMBEDDED
+                );
+
+                for (int i = 1; i &lt;= reader.NumberOfPages; i++)
+                {
+                    var contentByte = stamper.GetOverContent(i);
+
+                    var pageSize = reader.GetPageSizeWithRotation(i);
+                    var centerX = pageSize.Width / 2;
+                    var centerY = pageSize.Height / 2;
+
+                    var gstate = new PdfGState { FillOpacity = 0.3f };
+                    contentByte.SetGState(gstate);
+
+                    contentByte.BeginText();
+                    contentByte.SetColorFill(BaseColor.RED);
+                    contentByte.SetFontAndSize(baseFont, 48);
+                    contentByte.ShowTextAligned(
+                        Element.ALIGN_CENTER,
+                        &quot;CONFIDENTIAL&quot;,
+                        centerX, centerY, 45
+                    );
+                    contentByte.EndText();
+                }
+            }
+            finally
+            {
+                stamper.Close();
+                reader.Close();
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>Manual positioning required for every page. You must calculate center coordinates for each page size, create font objects, manage transparency through <code>PdfGState</code>, and iterate page-by-page. That's roughly 30 lines of watermark logic.</p>
+
+<h3>IronPDF — Apply Watermark</h3>
+
+<pre><code>// Install-Package IronPdf
+
+using IronPdf;
+using IronPdf.Editing;
+
+public class PdfWatermarker
+{
+    public void AddWatermark()
+    {
+        var pdf = PdfDocument.FromFile(&quot;original.pdf&quot;);
+
+        var watermarkHtml = @&quot;
+            &lt;div style='
+                color: red;
+                font-size: 48px;
+                font-weight: bold;
+                opacity: 0.3;
+                text-align: center;'&gt;
+                CONFIDENTIAL
+            &lt;/div&gt;&quot;;
+
+        pdf.ApplyWatermark(watermarkHtml, 45, VerticalAlignment.Middle, HorizontalAlignment.Center);
+        pdf.SaveAs(&quot;watermarked.pdf&quot;);
+    }
+}
+</code></pre>
+
+<p>IronPDF's watermarking accepts HTML with CSS styling, eliminating manual coordinate calculations entirely. For image watermarks and advanced positioning, see the <a href="https://ironsoftware.com/customers/white-papers/stamp-watermark-hr/">watermarking guide</a>.</p>
+
+<h2>How Does Password Protection Compare?</h2>
+
+<h3>iTextSharp — Encrypt PDF</h3>
+
+<pre><code>// Install-Package iTextSharp
+
+using System;
+using System.IO;
+using iTextSharp.text.pdf;
+
+public class PdfSecurer
+{
+    public void ProtectPdf()
+    {
+        var inputFile = &quot;original.pdf&quot;;
+        var outputFile = &quot;protected.pdf&quot;;
+        var userPassword = &quot;user123&quot;;
+        var ownerPassword = &quot;owner456&quot;;
+
+        using (var reader = new PdfReader(inputFile))
+        using (var stream = new FileStream(outputFile, FileMode.Create))
+        {
+            var stamper = new PdfStamper(reader, stream);
+
+            try
+            {
+                stamper.SetEncryption(
+                    PdfWriter.STRENGTH128BITS,
+                    userPassword,
+                    ownerPassword,
+                    PdfWriter.ALLOW_PRINTING | PdfWriter.ALLOW_COPY
+                );
+            }
+            finally
+            {
+                stamper.Close();
+                reader.Close();
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>Permissions use bitwise <code>|</code> operator with integer constants — no typed enums, unclear semantics between flags like <code>ALLOW_DEGRADED_PRINTING</code> vs <code>ALLOW_PRINTING</code>, and version-specific behavior depending on encryption strength.</p>
+
+<h3>IronPDF — Encrypt PDF</h3>
+
+<pre><code>// Install-Package IronPdf
+
+using IronPdf;
+
+public class PdfSecurer
+{
+    public void ProtectPdf()
+    {
+        var pdf = PdfDocument.FromFile(&quot;original.pdf&quot;);
+
+        pdf.Password = &quot;user123&quot;;
+        pdf.OwnerPassword = &quot;owner456&quot;;
+
+        pdf.SecuritySettings.AllowUserCopyPasteContent = true;
+        pdf.SecuritySettings.AllowUserPrinting = PdfPrintSecurity.FullPrintRights;
+        pdf.SecuritySettings.AllowUserFormData = false;
+        pdf.SecuritySettings.AllowUserAnnotations = false;
+        pdf.SecuritySettings.AllowUserAccessibilityExtractContent = true;
+
+        pdf.SaveAs(&quot;protected.pdf&quot;);
+    }
+}
+</code></pre>
+
+<p>Explicit boolean properties and typed enums for permissions — no bitwise flag confusion. Each setting is self-documenting.</p>
+
+<h2>What Does the Full Feature Comparison Look Like?</h2>
+
+<h3>Status and Support</h3>
+
+<table>
+<tr><th>Feature</th><th>iTextSharp 5.x</th><th>IronPDF</th></tr>
+<tr><td>Product Status</td><td>EOL (security patches only)</td><td>Active development</td></tr>
+<tr><td>Last Feature Update</td><td>2016</td><td>Ongoing</td></tr>
+<tr><td>Official Support</td><td>None (deprecated)</td><td>Commercial available</td></tr>
+<tr><td>Community Support</td><td>Limited (Stack Overflow)</td><td>Active forums + docs</td></tr>
+<tr><td>Documentation</td><td>Outdated (redirects to iText 7)</td><td>Current + maintained</td></tr>
+<tr><td>Future Roadmap</td><td>None</td><td>Public roadmap</td></tr>
+<tr><td>Security Patches</td><td>Critical CVEs only</td><td>Regular updates</td></tr>
+<tr><td>License Model</td><td>AGPL or commercial</td><td>Commercial with trial</td></tr>
+</table>
+
+<h3>Content Creation</h3>
+
+<table>
+<tr><th>Feature</th><th>iTextSharp 5.x</th><th>IronPDF</th></tr>
+<tr><td>HTML to PDF</td><td>Limited (XMLWorker)</td><td>Full Chromium engine</td></tr>
+<tr><td>CSS Support</td><td>CSS 2.1 (partial)</td><td>CSS3 (full)</td></tr>
+<tr><td>JavaScript Execution</td><td>No</td><td>Yes</td></tr>
+<tr><td>Responsive Design</td><td>No</td><td>Yes (media queries)</td></tr>
+<tr><td>Modern Layout</td><td>No Flexbox/Grid</td><td>Full Flexbox/Grid</td></tr>
+<tr><td>Web Fonts</td><td>Manual embedding</td><td>Automatic (@font-face)</td></tr>
+<tr><td>SVG Rendering</td><td>Limited</td><td>Full SVG support</td></tr>
+<tr><td>URL to PDF</td><td>Custom implementation</td><td>Built-in method</td></tr>
+<tr><td>Async Methods</td><td>No</td><td>Yes (RenderHtmlAsPdfAsync)</td></tr>
+</table>
+
+<h3>PDF Operations</h3>
+
+<table>
+<tr><th>Feature</th><th>iTextSharp 5.x</th><th>IronPDF</th></tr>
+<tr><td>Merge PDFs</td><td>Manual iteration</td><td>PdfDocument.Merge()</td></tr>
+<tr><td>Split PDFs</td><td>Manual page extraction</td><td>CopyPages() / CopyPage()</td></tr>
+<tr><td>Page Indexing</td><td>1-based</td><td>0-based (C# standard)</td></tr>
+<tr><td>Rotate Pages</td><td>PdfDictionary manipulation</td><td>RotatePage(index, angle)</td></tr>
+<tr><td>Extract Pages</td><td>PdfCopy + loop</td><td>CopyPages(start, end)</td></tr>
+<tr><td>Delete Pages</td><td>SelectPages()</td><td>RemovePage(index)</td></tr>
+<tr><td>Page Count</td><td>NumberOfPages</td><td>PageCount property</td></tr>
+<tr><td>Text Extraction</td><td>PdfTextExtractor</td><td>ExtractAllText()</td></tr>
+</table>
+
+<h3>Security and Encryption</h3>
+
+<table>
+<tr><th>Feature</th><th>iTextSharp 5.x</th><th>IronPDF</th></tr>
+<tr><td>Password Protection</td><td>Yes (bitwise flags)</td><td>Yes (explicit properties)</td></tr>
+<tr><td>Permissions</td><td>Bitwise constants</td><td>Typed enums/booleans</td></tr>
+<tr><td>Encryption Strength</td><td>40/128-bit</td><td>128/256-bit (AES)</td></tr>
+<tr><td>Digital Signatures</td><td>Manual cert handling</td><td>Simplified API</td></tr>
+<tr><td>PDF/A Support</td><td>Separate package required</td><td>Built-in</td></tr>
+<tr><td>Metadata Control</td><td>Manual XMP</td><td>Property setters</td></tr>
+</table>
+
+<h3>Known Issues</h3>
+
+<table>
+<tr><th>Issue Type</th><th>iTextSharp 5.x</th><th>IronPDF</th></tr>
+<tr><td>Thread Safety</td><td>Not thread-safe by default</td><td>Built-in async support</td></tr>
+<tr><td>Memory Leaks</td><td>Reported with improper disposal</td><td>Managed automatically</td></tr>
+<tr><td>HTML Rendering Bugs</td><td>CSS layout issues (documented)</td><td>Rare (browser engine)</td></tr>
+<tr><td>Unicode Support</td><td>Encoding issues reported</td><td>Full Unicode via Chrome</td></tr>
+<tr><td>Large File Handling</td><td>Memory pressure</td><td>Streaming support</td></tr>
+</table>
+
+<h3>Development Experience</h3>
+
+<table>
+<tr><th>Feature</th><th>iTextSharp 5.x</th><th>IronPDF</th></tr>
+<tr><td>API Style</td><td>Coordinate-based</td><td>HTML/CSS-based</td></tr>
+<tr><td>Learning Curve</td><td>Steep (PDF spec knowledge)</td><td>Moderate (web skills)</td></tr>
+<tr><td>Code Verbosity</td><td>High (20-40 lines typical)</td><td>Low (5-15 lines)</td></tr>
+<tr><td>Error Handling</td><td>Mixed (codes + exceptions)</td><td>Consistent exceptions</td></tr>
+<tr><td>Installation</td><td>4-5 NuGet packages</td><td>Single package</td></tr>
+<tr><td>Dependencies</td><td>BouncyCastle, XMLWorker</td><td>None (bundled Chromium)</td></tr>
+<tr><td>.NET Support</td><td>.NET Framework 2.0-4.8</td><td>.NET Framework 4.6.2+, .NET 6/7/8/9/10</td></tr>
+<tr><td>Cross-Platform</td><td>Windows only</td><td>Windows + Linux + Docker</td></tr>
+</table>
+
+<h2>What Are the Known iTextSharp Bugs I Should Watch For?</h2>
+
+<p>These are commonly reported issues found in Stack Overflow discussions and GitHub issues. Verify against your specific version and use case.</p>
+
+<p><strong>CSS Table Rendering:</strong> XMLWorker mishandles <code>border-collapse</code>, <code>padding</code>, and nested tables — borders overlap or disappear.</p>
+
+<p><strong>Unicode Character Corruption:</strong> Non-ASCII characters (Arabic, Chinese, emoji) render as boxes or question marks without manual font embedding and encoding configuration.</p>
+
+<p><strong>Memory Growth in Loops:</strong> Creating PDFs in tight loops without explicit <code>reader.Close()</code> and <code>document.Dispose()</code> can cause memory to balloon until GC runs.</p>
+
+<p><strong>Thread Contention:</strong> Simultaneous <code>PdfWriter</code> instances on different threads can corrupt output files or throw <code>IOException</code> exceptions.</p>
+
+<p><strong>1-Based Indexing Errors:</strong> Developers used to 0-based C# collections frequently introduce off-by-one bugs when iterating pages.</p>
+
+<h2>When Should I Consider Migrating from iTextSharp?</h2>
+
+<p><strong>Product discontinuation</strong> creates a hard ceiling for technical evolution. With iTextSharp frozen since 2016, there's no path to support modern .NET features introduced in C# 8-14 or .NET 6-10 improvements. Teams building new features face the choice: build workarounds in legacy code or migrate to an active library.</p>
+
+<p><strong>No support</strong> means unresolved bugs stay unresolved forever. If you hit a CSS rendering edge case in XMLWorker or a threading issue in PdfStamper, your options are Stack Overflow or source code surgery. For regulated industries where vendor support documentation is part of compliance, this becomes a hard blocker.</p>
+
+<p><strong>Missing features</strong> compound over time. When your UX team designs a dashboard with CSS Grid and you're stuck manually calculating coordinates, the gap between "design in Figma" and "output in PDF" widens. HTML email templates can't be reused for PDF reports. JavaScript-powered charts require server-side rendering workarounds.</p>
+
+<p><strong>Legacy architecture</strong> creates deployment friction. iTextSharp's .NET Framework roots limit container strategies (Windows-only images, larger attack surface) and complicate CI/CD pipelines. As teams standardize on .NET 8+ and Linux containers, running iTextSharp requires dual-targeting or separate build configurations.</p>
+
+<h2>How Does Installation Differ?</h2>
+
+<h3>iTextSharp Installation</h3>
+
+<pre><code># Core package
+dotnet add package iTextSharp --version 5.5.13.3
+
+# Required for HTML rendering
+dotnet add package itextsharp.xmlworker --version 5.5.13.3
+
+# Optional packages for specific features
+dotnet add package itextsharp.pdfa  # PDF/A compliance
+dotnet add package itextsharp.xtra  # Additional features
+</code></pre>
+
+<pre><code>// Typical namespace imports (8+ lines)
+using iTextSharp.text;
+using iTextSharp.text.pdf;
+using iTextSharp.text.html;
+using iTextSharp.text.html.simpleparser;
+using iTextSharp.tool.xml;
+using iTextSharp.tool.xml.html;
+using iTextSharp.tool.xml.parser;
+using iTextSharp.tool.xml.pipeline;
+</code></pre>
+
+<h3>IronPDF Installation</h3>
+
+<pre><code># Single package install
+dotnet add package IronPdf
+</code></pre>
+
+<pre><code>// Minimal imports (1-2 lines)
+using IronPdf;
+using IronPdf.Rendering; // Optional for advanced rendering options
+</code></pre>
+
+<p>For framework-specific extensions (ASP.NET Core, Azure Functions), check the <a href="https://ironsoftware.com/suite/blog/using-ironsuite/csharp-create-pdf-ironpdf-tutorial/">official documentation</a> for current package names.</p>
+
+<h2>What Does the API Mapping Look Like?</h2>
+
+<table>
+<tr><th>iTextSharp Class/Method</th><th>IronPDF Equivalent</th></tr>
+<tr><td>Document</td><td>PdfDocument</td></tr>
+<tr><td>PdfWriter.GetInstance()</td><td>ChromePdfRenderer()</td></tr>
+<tr><td>PdfReader(filename)</td><td>PdfDocument.FromFile(filename)</td></tr>
+<tr><td>PdfReader(stream)</td><td>PdfDocument.FromStream(stream)</td></tr>
+<tr><td>HTMLWorker.ParseToList()</td><td>ChromePdfRenderer.RenderHtmlAsPdf()</td></tr>
+<tr><td>XMLWorkerHelper.ParseXHtml()</td><td>ChromePdfRenderer.RenderHtmlAsPdf()</td></tr>
+<tr><td>PdfCopy + manual loop</td><td>PdfDocument.Merge()</td></tr>
+<tr><td>PdfStamper.GetOverContent()</td><td>PdfDocument.ApplyWatermark()</td></tr>
+<tr><td>PdfStamper.SetEncryption()</td><td>PdfDocument.SecuritySettings.*</td></tr>
+<tr><td>reader.NumberOfPages</td><td>pdf.PageCount</td></tr>
+<tr><td>reader.GetPageN(1) (1-based)</td><td>pdf.CopyPage(0) (0-based)</td></tr>
+<tr><td>BaseFont.CreateFont()</td><td>Not needed — CSS handles fonts</td></tr>
+<tr><td>document.Open() / Close()</td><td>Automatic — use using statement</td></tr>
+<tr><td>Custom HTTP for URLs</td><td>ChromePdfRenderer.RenderUrlAsPdf(url)</td></tr>
+<tr><td>Manual page size calculation</td><td>ChromePdfRenderOptions.PaperSize</td></tr>
+</table>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Is iTextSharp still safe to use in production?</h3>
+
+<p><strong>Answer:</strong> iTextSharp 5.x still functions and receives critical security patches (the last was February 2024 for CVE-2025-8916). However, no bug fixes or feature development are happening. For stable, unchanging workloads it can continue running, but any new development against it accumulates technical debt with no vendor support path.</p>
+
+<h3>Can I migrate iTextSharp code to IronPDF incrementally?</h3>
+
+<p><strong>Answer:</strong> Yes. The two libraries can coexist in the same project since they use different namespaces. You can migrate feature-by-feature — start with new PDF generation code using IronPDF while keeping existing iTextSharp code running. The API mapping table above shows the direct equivalents for each operation.</p>
+
+<h3>Does IronPDF support .NET Framework or only .NET Core?</h3>
+
+<p><strong>Answer:</strong> IronPDF supports .NET Framework 4.6.2 and above, plus .NET 6, 7, 8, 9, and 10. It also runs cross-platform on Windows, Linux, and Docker. iTextSharp is limited to .NET Framework 2.0-4.8 and Windows only.</p>
+
+<h3>How does HTML rendering quality compare between the two?</h3>
+
+<p><strong>Answer:</strong> iTextSharp's XMLWorker supports basic HTML 4 and CSS 2.1 — no Flexbox, Grid, viewport units, or JavaScript. IronPDF uses a full Chromium engine, so anything that renders in Chrome renders in IronPDF. This includes CSS3, JavaScript execution, responsive design with media queries, web fonts via @font-face, and full SVG support.</p>
+
+<h3>What about licensing differences?</h3>
+
+<p><strong>Answer:</strong> iTextSharp 5.x uses the AGPL license, which requires you to release your source code if you distribute the software — or purchase a commercial license from iText. IronPDF uses a commercial license with a free trial available. There is no open-source obligation with IronPDF.</p>
+
+<h3>Is IronPDF thread-safe for concurrent PDF generation?</h3>
+
+<p><strong>Answer:</strong> IronPDF has built-in async support with methods like <code>RenderHtmlAsPdfAsync</code>, and its architecture handles concurrent operations. iTextSharp's <code>PdfWriter</code> and <code>PdfStamper</code> are not thread-safe by default, requiring manual synchronization to avoid file corruption in concurrent environments.</p>
+
+<h3>How do I handle the 1-based vs 0-based page indexing difference?</h3>
+
+<p><strong>Answer:</strong> iTextSharp uses 1-based page indexing (<code>for (int i = 1; i &lt;= NumberOfPages; i++)</code>), which differs from standard C# conventions. IronPDF uses 0-based indexing consistent with C# arrays and lists. When migrating, subtract 1 from all page index references. This is a common source of off-by-one bugs during migration.</p>
+
+<h2>Decision Framework: Should You Migrate?</h2>
+
+<p><strong>Stay with iTextSharp if:</strong> Your codebase is stable and unchanging, you have no new PDF features planned, you're committed to .NET Framework on Windows, you're comfortable with AGPL obligations or have a commercial license, and you accept no vendor support for unresolved bugs.</p>
+
+<p><strong>Migrate to IronPDF if:</strong> You need modern HTML/CSS rendering without manual PDF reconstruction, you're targeting .NET 6+ with Linux or Docker deployment, you're hitting documented bugs with no vendor to escalate to, compliance requirements demand active vendor support, or your team's PDF generation code is growing in complexity.</p>
+
+<p>The core question is straightforward: iTextSharp is a deprecated library frozen in 2016 with no future roadmap. <a href="https://ironsoftware.com/csharp/pdf/">IronPDF</a> is actively developed with a Chromium engine that handles modern web standards. Migration becomes mandatory when the cost of maintaining workarounds for iTextSharp's limitations exceeds the cost of switching.</p>

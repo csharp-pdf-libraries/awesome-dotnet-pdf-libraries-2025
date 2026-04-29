@@ -1,0 +1,726 @@
+<h1>Migrating from Rotativa to IronPDF: What Breaks, What Doesn't</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Consider Migrating from Rotativa?</h2>
+
+<p>The rendered PDF looks like a printout from the 2000s web. The fonts differ from the design, the table columns are slightly off, and that gradient you spent an hour on is just gone. Rotativa wraps wkhtmltopdf, which uses an older WebKit rendering engine. Your designs are built on modern CSS &mdash; flexbox, custom properties, Grid &mdash; and wkhtmltopdf does not fully support any of them.</p>
+
+<p>Here are the conditions I see teams cite most often when evaluating Rotativa replacements.</p>
+
+<p><strong>wkhtmltopdf CSS fidelity.</strong> The older WebKit engine does not support modern CSS features like flex, grid, or CSS custom properties. Many <code>@media print</code> features are also missing.</p>
+
+<p><strong>Binary deployment complexity.</strong> wkhtmltopdf must be present and executable on the server. Path configuration, permissions, and binary availability vary per environment.</p>
+
+<p><strong>Docker image complexity.</strong> The wkhtmltopdf binary and its dependencies (<code>libXrender</code>, <code>libXext</code>, <code>libx11</code>, <code>libfontconfig</code>, etc.) add to Docker image size and configuration overhead.</p>
+
+<p><strong>Action result coupling.</strong> Rotativa is tightly coupled to ASP.NET MVC action results. Using it outside a controller &mdash; in a background service, queue consumer, or similar &mdash; requires workarounds.</p>
+
+<p><strong>Maintenance uncertainty.</strong> Rotativa.AspNetCore's active maintenance status varies. You should verify current commit frequency before committing to it long term.</p>
+
+<p><strong>Missing PDF manipulation.</strong> Rotativa generates PDFs via wkhtmltopdf but does not support merge, split, watermark, or security operations.</p>
+
+<p><strong>No programmatic rendering.</strong> Rotativa is designed for controller actions. Rendering from a service class requires creating a fake HTTP context.</p>
+
+<p><strong>JavaScript rendering limitations.</strong> wkhtmltopdf's JavaScript support is partial. Dynamic content from modern frameworks may not render correctly.</p>
+
+<h2>How Do Rotativa and IronPDF Compare?</h2>
+
+<p>Before diving into code, here is how the two libraries line up across key dimensions.</p>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>Rotativa (AspNetCore)</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>ASP.NET MVC PDF via Razor views</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Open source &mdash; verify license</td><td>Commercial license &mdash; verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>MVC action result (<code>ViewAsPdf</code>)</td><td>Library API &mdash; no controller required</td></tr>
+<tr><td>Learning Curve</td><td>Low for MVC devs; integrated into action results</td><td>Low for .NET devs; usable anywhere in the stack</td></tr>
+<tr><td>HTML Rendering</td><td>wkhtmltopdf (WebKit-based)</td><td>Embedded Chromium</td></tr>
+<tr><td>Page Indexing</td><td>N/A &mdash; generation only</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>One wkhtmltopdf process per render</td><td>Verify IronPDF concurrent instance guidance</td></tr>
+<tr><td>Namespace</td><td><code>Rotativa.AspNetCore</code></td><td><code>IronPdf</code></td></tr>
+</tbody>
+</table>
+
+<h2>What Does the Migration Effort Actually Look Like?</h2>
+
+<p>I want to give you a realistic picture of the effort involved. Here is a feature-by-feature breakdown so you can scope the work before writing any code.</p>
+
+<h3>Effort by Feature</h3>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>Rotativa Approach</th><th>IronPDF Equivalent</th><th>Complexity</th></tr>
+</thead>
+<tbody>
+<tr><td>View to PDF (from controller)</td><td><code>return new ViewAsPdf("ViewName", model)</code></td><td>Render view to HTML string + <code>RenderHtmlAsPdfAsync()</code></td><td>Medium</td></tr>
+<tr><td>Partial view to PDF</td><td><code>PartialViewAsPdf</code></td><td>Render partial to HTML string + renderer</td><td>Medium</td></tr>
+<tr><td>URL to PDF</td><td><code>UrlAsPdf(url)</code></td><td><code>RenderUrlAsPdfAsync(url)</code></td><td>Low</td></tr>
+<tr><td>HTML string to PDF</td><td>Not a primary feature</td><td><code>RenderHtmlAsPdfAsync(html)</code></td><td>Low</td></tr>
+<tr><td>Custom page size</td><td><code>CustomSwitches</code> flag or property</td><td><code>RenderingOptions.PaperSize</code></td><td>Low</td></tr>
+<tr><td>Custom margins</td><td><code>CustomSwitches</code></td><td><code>RenderingOptions.Margin*</code></td><td>Low</td></tr>
+<tr><td>Headers/footers</td><td><code>CustomSwitches</code> (wkhtmltopdf flags)</td><td><code>RenderingOptions.HtmlHeader/Footer</code></td><td>Medium</td></tr>
+<tr><td>Password protection</td><td>Via <code>CustomSwitches --password</code></td><td><code>pdf.SecuritySettings</code></td><td>Medium</td></tr>
+<tr><td>Merge PDFs</td><td>Not supported</td><td><code>PdfDocument.Merge()</code></td><td>Medium</td></tr>
+<tr><td>Watermark</td><td>Not supported</td><td><code>TextStamper</code> / <code>ImageStamper</code></td><td>Medium</td></tr>
+<tr><td>Non-controller usage</td><td>Requires fake context or workaround</td><td>Direct API &mdash; works anywhere</td><td>Low</td></tr>
+<tr><td>wkhtmltopdf binary management</td><td>Required</td><td>N/A &mdash; Chromium bundled in NuGet</td><td>Low (remove)</td></tr>
+</tbody>
+</table>
+
+<h3>Decision Matrix</h3>
+
+<table>
+<thead>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>Modern CSS (flex, grid, CSS variables) in templates</td><td>Switch &mdash; Chromium renders current CSS; wkhtmltopdf does not</td></tr>
+<tr><td>PDF generation needed outside controller actions</td><td>Switch &mdash; IronPDF works anywhere; Rotativa is controller-bound</td></tr>
+<tr><td>Docker/Linux deployment with binary management issues</td><td>Switch &mdash; eliminates wkhtmltopdf binary complexity</td></tr>
+<tr><td>Simple HTML tables from Razor views with no CSS concerns</td><td>Rotativa may be acceptable; evaluate based on CSS needs</td></tr>
+</tbody>
+</table>
+
+<h2>How Do You Set Up IronPDF and Replace Rotativa?</h2>
+
+<p>I will walk you through the core migration in three steps. First, audit your existing Rotativa references, then swap the packages, and finally update your code.</p>
+
+<h3>Finding Rotativa References in Your Codebase</h3>
+
+<pre><code># Find Rotativa action results
+rg -l "ViewAsPdf\|PartialViewAsPdf\|UrlAsPdf\|Rotativa" --type cs
+rg "ViewAsPdf\|UrlAsPdf\|Rotativa\.AspNetCore" --type cs -n
+
+# Find wkhtmltopdf binary references in project
+find . -name "wkhtmltopdf*" -o -name "wkhtmltoimage*" 2&gt;/dev/null
+
+# Find wkhtmltopdf in Dockerfiles and CI
+grep -r "wkhtmltopdf\|libXrender\|libXext" Dockerfile* .github/**/*.yml 2&gt;/dev/null
+
+# Find Rotativa config in startup
+rg "RotativaConfiguration\|Rotativa" --type cs -n
+</code></pre>
+
+<h3>Removing Rotativa and Installing IronPDF</h3>
+
+<pre><code># Remove Rotativa.AspNetCore
+dotnet remove package Rotativa.AspNetCore
+
+# Install IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+</code></pre>
+
+<p>You should also remove wkhtmltopdf binaries from your project and Docker configuration. IronPDF ships its own Chromium binaries via NuGet, so there is no external binary to manage.</p>
+
+<pre><code># Remove wkhtmltopdf from wwwroot or Tools folder in project
+rm -f wwwroot/Rotativa/wkhtmltopdf
+rm -rf ./Rotativa/  # if folder exists
+
+# Clean up Docker wkhtmltopdf installation:
+# RUN apt-get install -y wkhtmltopdf  &lt;- remove this
+# COPY Rotativa/wkhtmltopdf ...       &lt;- remove this
+</code></pre>
+
+<h3>Step 1: License Configuration</h3>
+
+<p><strong>Before (Rotativa):</strong></p>
+
+<pre><code>// Program.cs or Startup.cs:
+Rotativa.AspNetCore.RotativaConfiguration.Setup(env.WebRootPath, "Rotativa");
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+// Add to Program.cs or Startup.cs
+// https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY")
+    ?? throw new InvalidOperationException("IRONPDF_LICENSE_KEY not set");
+</code></pre>
+
+<h3>Step 2: Namespace Swap</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>using Rotativa.AspNetCore;
+using Rotativa.AspNetCore.Options;
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+</code></pre>
+
+<h3>Step 3: Basic Controller Conversion</h3>
+
+<p><strong>Before (Rotativa action result):</strong></p>
+
+<pre><code>using Microsoft.AspNetCore.Mvc;
+using Rotativa.AspNetCore;
+
+[HttpGet("invoice/{id}")]
+public IActionResult GetInvoicePdf(int id)
+{
+    var model = _invoiceService.GetById(id);
+    return new ViewAsPdf("Invoice", model)
+    {
+        FileName = $"invoice-{id}.pdf",
+        PageSize = Size.A4,
+    };
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using Microsoft.AspNetCore.Mvc;
+
+[HttpGet("invoice/{id}")]
+public async Task&lt;IActionResult&gt; GetInvoicePdf(int id)
+{
+    var model = _invoiceService.GetById(id);
+
+    // Render Razor view to HTML string first
+    var html = await _viewRenderer.RenderToStringAsync("Invoice", model);
+
+    // Then render to PDF
+    IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+    var renderer = new ChromePdfRenderer();
+    renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+    using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+    return File(pdf.BinaryData, "application/pdf", $"invoice-{id}.pdf");
+    // https://ironpdf.com/how-to/html-string-to-pdf/
+}
+</code></pre>
+
+<p>The <code>_viewRenderer.RenderToStringAsync()</code> call requires a Razor view renderer service. See the next section for a complete implementation.</p>
+
+<h2>How Do You Render Razor Views to HTML Strings?</h2>
+
+<p>Rotativa's key value was rendering Razor views directly to PDF without a separate HTML step. When migrating, you need to render Razor views to HTML strings first. This is a well-known ASP.NET Core pattern and the most significant code addition in the migration.</p>
+
+<h3>RazorViewRenderer Service Implementation</h3>
+
+<pre><code>using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Microsoft.AspNetCore.Mvc.Razor;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.AspNetCore.Mvc.ViewEngines;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
+using System;
+using System.IO;
+using System.Threading.Tasks;
+
+public class RazorViewRenderer
+{
+    private readonly IRazorViewEngine _viewEngine;
+    private readonly ITempDataProvider _tempDataProvider;
+    private readonly IServiceProvider _serviceProvider;
+
+    public RazorViewRenderer(
+        IRazorViewEngine viewEngine,
+        ITempDataProvider tempDataProvider,
+        IServiceProvider serviceProvider)
+    {
+        _viewEngine = viewEngine;
+        _tempDataProvider = tempDataProvider;
+        _serviceProvider = serviceProvider;
+    }
+
+    public async Task&lt;string&gt; RenderToStringAsync&lt;TModel&gt;(string viewName, TModel model)
+    {
+        var httpContext = new DefaultHttpContext { RequestServices = _serviceProvider };
+        var actionContext = new ActionContext(httpContext, new RouteData(), new ActionDescriptor());
+
+        using var sw = new StringWriter();
+
+        var viewResult = _viewEngine.FindView(actionContext, viewName, false);
+        if (!viewResult.Success)
+            throw new InvalidOperationException($"View '{viewName}' not found.");
+
+        var viewDictionary = new ViewDataDictionary&lt;TModel&gt;(
+            new EmptyModelMetadataProvider(),
+            new ModelStateDictionary())
+        {
+            Model = model
+        };
+
+        var viewContext = new ViewContext(
+            actionContext,
+            viewResult.View,
+            viewDictionary,
+            new TempDataDictionary(actionContext.HttpContext, _tempDataProvider),
+            sw,
+            new HtmlHelperOptions()
+        );
+
+        await viewResult.View.RenderAsync(viewContext);
+        return sw.ToString();
+    }
+}
+</code></pre>
+
+<p>Register it in your DI container:</p>
+
+<pre><code>// Program.cs
+builder.Services.AddScoped&lt;RazorViewRenderer&gt;();
+</code></pre>
+
+<p>Once registered, inject <code>RazorViewRenderer</code> into any controller that needs PDF rendering. The pattern is well-established in the ASP.NET Core community and reusable across all controllers.</p>
+
+<h2>What Do the Four Core Migrations Look Like in Code?</h2>
+
+<p>Here are complete before/after examples for the four core operations you are most likely to encounter.</p>
+
+<h3>1. View to PDF (from Controller)</h3>
+
+<p><strong>Before (Rotativa):</strong></p>
+
+<pre><code>using Microsoft.AspNetCore.Mvc;
+using Rotativa.AspNetCore;
+using Rotativa.AspNetCore.Options;
+using System;
+
+[ApiController]
+[Route("reports")]
+public class ReportController : ControllerBase
+{
+    [HttpGet("quarterly/{year}/{quarter}")]
+    public IActionResult GetQuarterlyReport(int year, int quarter)
+    {
+        var reportData = new ReportViewModel
+        {
+            Year = year,
+            Quarter = quarter,
+            Revenue = 12400000,
+            Growth = 8.2,
+        };
+
+        return new ViewAsPdf("QuarterlyReport", reportData)
+        {
+            FileName = $"report-q{quarter}-{year}.pdf",
+            PageSize = Size.A4,
+            PageMargins = { Top = 20, Bottom = 20, Left = 25, Right = 25 },
+        };
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+using Microsoft.AspNetCore.Mvc;
+using System;
+using System.Threading.Tasks;
+
+[ApiController]
+[Route("reports")]
+public class ReportController : ControllerBase
+{
+    private readonly RazorViewRenderer _viewRenderer;
+
+    public ReportController(RazorViewRenderer viewRenderer)
+        =&gt; _viewRenderer = viewRenderer;
+
+    [HttpGet("quarterly/{year}/{quarter}")]
+    public async Task&lt;IActionResult&gt; GetQuarterlyReport(int year, int quarter)
+    {
+        var reportData = new ReportViewModel
+        {
+            Year = year,
+            Quarter = quarter,
+            Revenue = 12400000,
+            Growth = 8.2,
+        };
+
+        // Step 1: Render Razor view to HTML
+        var html = await _viewRenderer.RenderToStringAsync("QuarterlyReport", reportData);
+
+        // Step 2: Render HTML to PDF
+        // https://ironpdf.com/how-to/html-string-to-pdf/
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        renderer.RenderingOptions.MarginTop = 20;
+        renderer.RenderingOptions.MarginBottom = 20;
+        renderer.RenderingOptions.MarginLeft = 25;
+        renderer.RenderingOptions.MarginRight = 25;
+
+        using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+        return File(pdf.BinaryData, "application/pdf", $"report-q{quarter}-{year}.pdf");
+    }
+}
+</code></pre>
+
+<h3>2. Merge PDFs</h3>
+
+<p><strong>Before (Rotativa &mdash; not supported):</strong></p>
+
+<pre><code>using Microsoft.AspNetCore.Mvc;
+using Rotativa.AspNetCore;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading.Tasks;
+
+class MergeBefore
+{
+    // Rotativa has no merge feature.
+    // Teams typically generate each section's PDF separately
+    // and use a secondary library to merge.
+
+    static async Task MergeReports()
+    {
+        // PSEUDO-CODE - Rotativa doesn't have a programmatic API outside controller context
+        // var page1 = new ViewAsPdf(...).BuildFile(...); // not directly supported
+        // var page2 = new ViewAsPdf(...).BuildFile(...);
+        // var merged = SomePdfLib.Merge(page1, page2);
+        // File.WriteAllBytes("merged.pdf", merged);
+
+        Console.WriteLine("Merge requires secondary library - Rotativa doesn't support it");
+        await Task.CompletedTask;
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+
+// Generate sections concurrently
+var results = await Task.WhenAll(
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Q1: Overview&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"),
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Q2: Detail&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;")
+);
+
+// https://ironpdf.com/how-to/merge-or-split-pdfs/
+var merged = PdfDocument.Merge(results[0], results[1]);
+merged.SaveAs("annual-report.pdf");
+
+Console.WriteLine($"Merged annual report: {merged.PageCount} pages");
+</code></pre>
+
+<h3>3. Watermark</h3>
+
+<p><strong>Before (Rotativa &mdash; CSS injection only):</strong></p>
+
+<pre><code>using Microsoft.AspNetCore.Mvc;
+using Rotativa.AspNetCore;
+using System;
+
+class WatermarkBefore
+{
+    // Rotativa has no watermark API - CSS must be injected into the Razor view
+
+    // In the Razor view (.cshtml):
+    // &lt;style&gt;
+    //   body::after {
+    //     content: 'DRAFT';
+    //     position: fixed; top:50%; left:50%;
+    //     transform: translate(-50%,-50%) rotate(-45deg);
+    //     font-size: 100px; opacity: 0.1; color: #999;
+    //   }
+    // &lt;/style&gt;
+
+    // The ViewAsPdf result then includes the watermark via CSS
+    // Rendering fidelity depends on wkhtmltopdf's CSS support
+    static void Main() =&gt;
+        Console.WriteLine("Rotativa watermark is CSS-only; wkhtmltopdf CSS support is limited");
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Draft Report&lt;/h1&gt;&lt;p&gt;Content...&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// Post-render programmatic watermark - applied uniformly across all pages
+// https://ironpdf.com/how-to/custom-watermark/
+var watermark = new TextStamper
+{
+    Text = "DRAFT",
+    FontColor = IronPdf.Imaging.Color.Gray,
+    Opacity = 0.15,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs("draft-report.pdf");
+</code></pre>
+
+<h3>4. Password Protection</h3>
+
+<p><strong>Before (Rotativa &mdash; <code>CustomSwitches</code> for wkhtmltopdf flags):</strong></p>
+
+<pre><code>using Microsoft.AspNetCore.Mvc;
+using Rotativa.AspNetCore;
+using System;
+
+class PasswordBefore
+{
+    static IActionResult GetProtectedReport()
+    {
+        // wkhtmltopdf has --password flags for opening encrypted PDFs
+        // but generating a password-protected PDF requires --encrypt-level, etc.
+        // VERIFY: exact CustomSwitches flags for your wkhtmltopdf version
+
+        return new ViewAsPdf("ConfidentialReport", new { })
+        {
+            // CustomSwitches flags are wkhtmltopdf CLI flags - verify at wkhtmltopdf.org
+            CustomSwitches = "--encrypt-level 128bit --owner-password admin456 --user-password open123",
+        };
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Confidential Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// https://ironpdf.com/how-to/pdf-permissions-passwords/
+pdf.SecuritySettings.UserPassword = "open123";
+pdf.SecuritySettings.OwnerPassword = "admin456";
+
+pdf.SaveAs("confidential-report.pdf");
+</code></pre>
+
+<h2>How Do You Map Rotativa APIs to IronPDF?</h2>
+
+<p>Here are the full API mapping tables you will need during migration. I recommend keeping these open while you work through each file.</p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<thead>
+<tr><th>Rotativa</th><th>IronPDF</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Rotativa.AspNetCore</code></td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td><code>Rotativa.AspNetCore.Options</code></td><td><code>IronPdf.Rendering</code></td><td>Rendering options</td></tr>
+<tr><td>N/A</td><td><code>IronPdf.Editing</code></td><td>Watermark / stamp</td></tr>
+</tbody>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<thead>
+<tr><th>Rotativa Class</th><th>IronPDF Class</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>ViewAsPdf</code></td><td><code>ChromePdfRenderer</code> + <code>RazorViewRenderer</code></td><td>Render Razor view to HTML string then to PDF</td></tr>
+<tr><td><code>UrlAsPdf</code></td><td><code>ChromePdfRenderer.RenderUrlAsPdfAsync()</code></td><td>Render URL to PDF</td></tr>
+<tr><td><code>ContentAsPdf</code></td><td><code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code></td><td>Render HTML string to PDF</td></tr>
+<tr><td>N/A</td><td><code>PdfDocument</code></td><td>PDF object with manipulation methods</td></tr>
+</tbody>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>Rotativa</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Razor view</td><td><code>new ViewAsPdf("View", model)</code></td><td><code>RenderToStringAsync()</code> + <code>RenderHtmlAsPdfAsync()</code></td></tr>
+<tr><td>URL</td><td><code>new UrlAsPdf("https://...")</code></td><td><code>renderer.RenderUrlAsPdfAsync(url)</code></td></tr>
+<tr><td>HTML string</td><td><code>new ContentAsPdf(html)</code></td><td><code>renderer.RenderHtmlAsPdfAsync(html)</code></td></tr>
+<tr><td>Existing PDF</td><td>N/A</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+</tbody>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>Rotativa</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Page count</td><td>N/A</td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Remove page</td><td>N/A</td><td><code>pdf.RemovePage(index)</code> &mdash; verify</td></tr>
+<tr><td>Extract text</td><td>N/A</td><td><code>pdf.ExtractAllText()</code></td></tr>
+<tr><td>Rotate</td><td>N/A</td><td>Verify in IronPDF docs</td></tr>
+</tbody>
+</table>
+
+<h3>Merge / Split Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>Rotativa</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Merge</td><td>Not supported</td><td><code>PdfDocument.Merge(doc1, doc2)</code></td></tr>
+<tr><td>Split</td><td>Not supported</td><td><a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Guide</a></td></tr>
+</tbody>
+</table>
+
+<h3>CustomSwitches Migration</h3>
+
+<p>Rotativa's <code>CustomSwitches</code> property accepted raw wkhtmltopdf CLI flags. These do not transfer directly. Here is how to map them to IronPDF <code>RenderingOptions</code> properties.</p>
+
+<table>
+<thead>
+<tr><th>wkhtmltopdf CustomSwitch</th><th>IronPDF Equivalent</th></tr>
+</thead>
+<tbody>
+<tr><td><code>--page-size A4</code></td><td><code>RenderingOptions.PaperSize = PdfPaperSize.A4</code></td></tr>
+<tr><td><code>--margin-top 20</code></td><td><code>RenderingOptions.MarginTop = 20</code></td></tr>
+<tr><td><code>--orientation Landscape</code></td><td><code>RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape</code> &mdash; verify</td></tr>
+<tr><td><code>--header-html file.html</code></td><td><code>RenderingOptions.HtmlHeader</code></td></tr>
+<tr><td><code>--footer-center [page]</code></td><td><code>RenderingOptions.HtmlFooter</code> with <code>{page}</code> token</td></tr>
+<tr><td><code>--javascript-delay 1000</code></td><td><code>RenderingOptions.WaitFor.JavaScript(1000)</code> &mdash; verify</td></tr>
+<tr><td><code>--no-background</code></td><td>Remove &mdash; Chromium renders backgrounds by default</td></tr>
+</tbody>
+</table>
+
+<h2>What About Performance and Background Rendering?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>One of the biggest wins in migrating from Rotativa is that IronPDF is not tied to the HTTP request lifecycle. You can render PDFs in background services, queue consumers, or anywhere else in your application.</p>
+
+<h3>Renderer Reuse</h3>
+
+<p>Do not instantiate <code>ChromePdfRenderer</code> per controller instantiation. Register it in DI or use a singleton pattern.</p>
+
+<pre><code>// Register renderer in DI (verify thread-safety in IronPDF docs first)
+builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;();
+
+// Or register a factory
+builder.Services.AddScoped&lt;IChromePdfRenderer&gt;(_ =&gt; new ChromePdfRenderer());
+</code></pre>
+
+<h3>Background Service Pattern</h3>
+
+<pre><code>using IronPdf;
+using Microsoft.Extensions.Hosting;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+public class PdfGenerationWorker : BackgroundService
+{
+    private readonly IPdfJobQueue _queue;
+
+    public PdfGenerationWorker(IPdfJobQueue queue) =&gt; _queue = queue;
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        var renderer = new ChromePdfRenderer();
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var job = await _queue.DequeueAsync(stoppingToken);
+            if (job is null) continue;
+
+            try
+            {
+                using var pdf = await renderer.RenderHtmlAsPdfAsync(job.Html);
+                pdf.SaveAs(job.OutputPath);
+            }
+            catch (Exception ex)
+            {
+                // Log and continue - don't crash the worker
+                Console.Error.WriteLine($"PDF job failed: {ex.Message}");
+            }
+        }
+    }
+}
+</code></pre>
+
+<h3>Parallel Rendering</h3>
+
+<pre><code>using IronPdf;
+using System.Linq;
+using System.Threading.Tasks;
+
+// If rendering multiple views in a single request:
+var htmlSections = await Task.WhenAll(
+    viewRenderer.RenderToStringAsync("Section1", model1),
+    viewRenderer.RenderToStringAsync("Section2", model2)
+);
+
+var renderer = new ChromePdfRenderer();
+var pdfs = await Task.WhenAll(
+    htmlSections.Select(html =&gt; renderer.RenderHtmlAsPdfAsync(html))
+);
+
+var merged = PdfDocument.Merge(pdfs);
+// See: https://ironpdf.com/how-to/async/
+</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Do I need to change my Razor views when migrating?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Your Razor views themselves do not need to change. The migration adds a <code>RazorViewRenderer</code> service that renders your existing views to HTML strings, which IronPDF then converts to PDF. In fact, you may be able to remove CSS workarounds you added specifically for wkhtmltopdf's limited rendering &mdash; modern flex layouts, CSS Grid, and custom properties all become usable with Chromium rendering.</p>
+
+<p>Audit your views for comments or styles that mention wkhtmltopdf. Those workarounds are likely candidates for cleanup.</p>
+
+<h3>What is the most significant code change in this migration?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>The <code>RazorViewRenderer</code> service is the most significant code addition. Rotativa handled Razor-to-HTML conversion internally. After migration, you need this service to bridge Razor views to IronPDF. Once registered in DI, it is reusable across all controllers and follows a well-established ASP.NET Core pattern.</p>
+
+<p>The actual conversion at each call site is straightforward: replace <code>return new ViewAsPdf(...)</code> with two lines &mdash; render the view to HTML, then render the HTML to PDF.</p>
+
+<h3>Can I use IronPDF outside of controller actions?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes, and this is one of the key advantages. Rotativa was tightly coupled to ASP.NET MVC action results. Using it in a background service or queue consumer required creating a fake HTTP context. IronPDF's <code>ChromePdfRenderer</code> is a standalone library API that works anywhere in your .NET application &mdash; controllers, background services, console apps, or queue consumers. See the background service pattern example above.</p>
+
+<h3>How do I handle CustomSwitches flags that have no direct IronPDF equivalent?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Most common <code>CustomSwitches</code> flags map to <code>RenderingOptions</code> properties (page size, margins, orientation, headers/footers). For flags like <code>--no-background</code>, simply remove them &mdash; Chromium renders backgrounds by default. For any flag without a clear mapping, consult the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF rendering options documentation</a> or test the behavior directly, as Chromium's defaults often make the flag unnecessary.</p>
+
+<h3>Does IronPDF use 0-based or 1-based page indexing?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF uses 0-based page indexing. Rotativa does not expose page manipulation at all, so this only applies to new IronPDF manipulation code you write (removing pages, extracting text from specific pages, etc.). If you are adding merge or split operations that were previously handled by a secondary library, verify whether that library used 0-based or 1-based indexing and adjust accordingly.</p>
+
+<h2>Conclusion</h2>
+
+<p>The CSS fidelity gap is typically the clearest immediate win in this migration. CSS that was carefully limited to wkhtmltopdf's capabilities can be opened up &mdash; modern flex layouts, CSS Grid, and custom properties all become usable. Templates that required extensive <code>.cshtml</code> workarounds become simpler.</p>
+
+<p>The main new code in the migration is the <code>RazorViewRenderer</code> service, which replaces what Rotativa handled internally. It is reusable across all controllers once registered in DI, and the pattern is well-established in the ASP.NET Core community.</p>
+
+<p>For the complete API reference and additional rendering options, visit the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF HTML to PDF guide</a>. You can get a trial license key at <a href="https://ironpdf.com/how-to/license-keys/">the license configuration page</a>, and explore merge/split operations at the <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split guide</a>.</p>

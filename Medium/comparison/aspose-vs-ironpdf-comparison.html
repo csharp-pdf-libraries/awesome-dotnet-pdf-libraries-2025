@@ -1,0 +1,720 @@
+<h1>Aspose.PDF vs IronPDF: Solving Common .NET PDF Pain Points</h1>
+
+<p>When a team encounters "System.ArgumentException: Font 'Segoe UI' is not installed" in production after three months of flawless development, the troubleshooting begins. The application uses Aspose.PDF to generate invoices from HTML templates. It works perfectly on Windows developer machines but crashes on Linux servers. After a day of debugging, they discover Aspose.PDF relies on GDI+ for font rendering&mdash;something that behaves differently between Windows and Linux. The fix requires installing specific Linux font packages and libgdiplus, then discovering some fonts render differently anyway. Two days later, they're debugging why CSS Flexbox layouts collapse in the PDF output despite rendering correctly in browsers.</p>
+
+<p>This troubleshooting pattern emerges frequently with Aspose.PDF: the library handles fundamental PDF operations excellently, but HTML rendering reveals its origins as a PDF manipulation toolkit where web content support was added later rather than being foundational.</p>
+
+<p>I've worked through these exact scenarios with .NET teams, and in this article I'll walk through the specific pain points, show you the code, and help you decide which library fits your workflow.</p>
+
+<h2>What Is Aspose.PDF?</h2>
+
+<p><strong>Answer:</strong> Aspose.PDF is an active PDF manipulation library with consistent monthly releases (v26.1 February 2026). It provides extensive PDF editing, merging, splitting, and extraction capabilities. HTML-to-PDF is one of its input formats, but the library was built as a PDF manipulation toolkit first, with HTML support added later. This surfaces in the API design: HtmlLoadOptions configuration is separate from Document construction, making common operations require multiple steps. There is no built-in Chromium or WebKit engine&mdash;it uses a custom HTML parser that limits modern web support.</p>
+
+<h2>What Is IronPDF?</h2>
+
+<p><strong>Answer:</strong> <a href="https://ironpdf.com/tutorials/html-to-pdf/">IronPDF</a> centers on one workflow: converting modern web content to PDF using a Chromium rendering engine. Where Aspose.PDF provides extensive PDF manipulation with HTML as an input format, IronPDF inverts this&mdash;HTML rendering is core, with PDF operations built on top. The architecture makes a specific trade-off: teams lose some low-level PDF manipulation capabilities but gain guaranteed browser-identical rendering.</p>
+
+<p>The <a href="https://ironpdf.com/object-reference/api/IronPdf.ChromePdfRenderer.html">ChromePdfRenderer</a> class produces PDFs that match Chrome browser output exactly. If content displays correctly in Chrome, it will render accurately in IronPDF&mdash;including CSS Grid, modern JavaScript frameworks, and web fonts. This predictability typically reduces debugging time for teams working primarily with HTML-to-PDF workflows.</p>
+
+<h2>Problem 1: How Do You Handle Basic HTML String Rendering?</h2>
+
+<p>Let's start with the most fundamental operation: turning an HTML string into a PDF. This is where the architectural differences between the two libraries show up immediately.</p>
+
+<h3>Aspose.PDF &mdash; Basic HTML String Rendering</h3>
+
+<pre><code>using System;
+using Aspose.Pdf;
+using Aspose.Pdf.Text;
+
+namespace AsposePdfHtmlExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            try
+            {
+                // Create document
+                Document document = new Document();
+
+                // Add page
+                Page page = document.Pages.Add();
+
+                // HTML string - limited CSS support
+                string htmlContent = @&quot;
+                    &lt;html&gt;
+                    &lt;head&gt;
+                        &lt;style&gt;
+                            body { font-family: Arial; margin: 20px; }
+                            h1 { color: #333; }
+                        &lt;/style&gt;
+                    &lt;/head&gt;
+                    &lt;body&gt;
+                        &lt;h1&gt;Hello from Aspose.PDF&lt;/h1&gt;
+                        &lt;p&gt;Sample content with &lt;strong&gt;formatting&lt;/strong&gt;.&lt;/p&gt;
+                    &lt;/body&gt;
+                    &lt;/html&gt;&quot;;
+
+                // Create HtmlFragment
+                // Note: This approach has limitations with complex HTML
+                HtmlFragment htmlFragment = new HtmlFragment(htmlContent);
+
+                // Add to page
+                page.Paragraphs.Add(htmlFragment);
+
+                // Save document
+                document.Save(&quot;output.pdf&quot;);
+
+                Console.WriteLine(&quot;PDF created successfully&quot;);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($&quot;Error: {ex.Message}&quot;);
+                // Common errors:
+                // - Font not found (Windows fonts on Linux)
+                // - CSS parsing failure (modern CSS3 features)
+                // - Image loading timeout (external URLs)
+            }
+        }
+    }
+}</code></pre>
+
+<p>Here are the troubleshooting observations from typical implementations:</p>
+
+<ul>
+<li>CSS parsing errors throw exceptions rather than degrading gracefully&mdash;requires defensive coding</li>
+<li>Font rendering differs between Windows (GDI+) and Linux (libgdiplus)&mdash;&quot;Arial&quot; may not exist on Linux</li>
+<li>Complex CSS selectors (nth-child, attribute selectors) often ignored silently</li>
+<li>Flexbox and Grid layouts collapse or render as block elements</li>
+<li>External images from URLs timeout frequently without retry&mdash;prefer base64 embedding</li>
+<li>HTML5 semantic elements (article, section, aside) treated as generic divs&mdash;no special handling</li>
+</ul>
+
+<h3>IronPDF &mdash; Basic HTML String Rendering</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+namespace IronPdfHtmlExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var renderer = new ChromePdfRenderer();
+
+            string htmlContent = @&quot;
+                &lt;html&gt;
+                &lt;head&gt;
+                    &lt;style&gt;
+                        body { font-family: Arial; margin: 20px; }
+                        h1 { color: #333; }
+                    &lt;/style&gt;
+                &lt;/head&gt;
+                &lt;body&gt;
+                    &lt;h1&gt;Hello from IronPDF&lt;/h1&gt;
+                    &lt;p&gt;Sample content with &lt;strong&gt;formatting&lt;/strong&gt;.&lt;/p&gt;
+                &lt;/body&gt;
+                &lt;/html&gt;&quot;;
+
+            var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+            pdf.SaveAs(&quot;output.pdf&quot;);
+        }
+    }
+}</code></pre>
+
+<p>Chromium rendering ensures consistent output across platforms. For HTML string rendering details, see the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a>.</p>
+
+<h2>Problem 2: How Do You Load HTML Documents with External Resources?</h2>
+
+<p><strong>Answer:</strong> This is where the pain really starts. Loading an HTML file that references external CSS, images, and fonts sounds straightforward&mdash;until it isn't.</p>
+
+<h3>Aspose.PDF &mdash; HTML Document with HtmlLoadOptions</h3>
+
+<pre><code>using System;
+using System.IO;
+using Aspose.Pdf;
+
+namespace AsposePdfLoadExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            try
+            {
+                // HtmlLoadOptions for loading HTML documents
+                HtmlLoadOptions htmlOptions = new HtmlLoadOptions();
+
+                // Base URL for relative resources
+                // Behavior with file:// vs http:// unclear from docs
+                htmlOptions.BasePath = @&quot;C:\project\assets\&quot;;
+
+                // Page size configuration
+                htmlOptions.PageInfo = new PageInfo
+                {
+                    Width = 612, // Points (8.5 inches)
+                    Height = 792, // Points (11 inches)
+                    Margin = new MarginInfo(36, 36, 36, 36) // Points
+                };
+
+                // Create HTML file
+                string htmlFile = &quot;template.html&quot;;
+                string htmlContent = @&quot;
+                    &lt;html&gt;
+                    &lt;head&gt;
+                        &lt;link rel='stylesheet' href='styles/main.css'&gt;
+                    &lt;/head&gt;
+                    &lt;body&gt;
+                        &lt;img src='images/logo.png'&gt;
+                        &lt;h1&gt;HTML Document&lt;/h1&gt;
+                    &lt;/body&gt;
+                    &lt;/html&gt;&quot;;
+
+                File.WriteAllText(htmlFile, htmlContent);
+
+                // Load HTML as document
+                // External CSS and images may fail to load without troubleshooting
+                Document document = new Document(htmlFile, htmlOptions);
+
+                // Save as PDF
+                document.Save(&quot;output.pdf&quot;);
+
+                Console.WriteLine(&quot;PDF generated successfully&quot;);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($&quot;Error: {ex.Message}&quot;);
+                Console.WriteLine(&quot;Common issues:&quot;);
+                Console.WriteLine(&quot;- BasePath not resolving correctly&quot;);
+                Console.WriteLine(&quot;- External CSS file not loading&quot;);
+                Console.WriteLine(&quot;- Image format not supported&quot;);
+                Console.WriteLine(&quot;- Font not installed on system&quot;);
+            }
+        }
+    }
+}</code></pre>
+
+<p>Here are the troubleshooting observations:</p>
+
+<ul>
+<li>BasePath behavior inconsistent&mdash;sometimes requires trailing slash, sometimes doesn't</li>
+<li>External CSS files often fail to load silently&mdash;no clear error message</li>
+<li>Relative image paths (../images/) frequently fail&mdash;absolute paths more reliable</li>
+<li>Web fonts from Google Fonts or similar CDNs don't load&mdash;system fonts only</li>
+<li>CSS @import statements ignored&mdash;all styles must be in linked files or inline</li>
+<li>HTTPS URLs for resources may fail certificate validation without extra configuration</li>
+</ul>
+
+<h3>IronPDF &mdash; HTML Document Rendering</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+namespace IronPdfFileExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var renderer = new ChromePdfRenderer();
+
+            // Render HTML file—automatically resolves relative paths
+            var pdf = renderer.RenderHtmlFileAsPdf(&quot;template.html&quot;);
+            pdf.SaveAs(&quot;output.pdf&quot;);
+        }
+    }
+}</code></pre>
+
+<p>IronPDF automatically handles external CSS, images, and web fonts. For file rendering details, see the <a href="https://ironpdf.com/how-to/html-file-to-pdf/">HTML file to PDF documentation</a>.</p>
+
+<h2>Problem 3: How Do You Add Headers, Footers, and Handle Complex CSS Layouts?</h2>
+
+<p>Headers and footers sound simple, but this is another area where the architectural differences between the two libraries become painfully obvious.</p>
+
+<h3>Aspose.PDF &mdash; Adding Headers and Footers</h3>
+
+<pre><code>using System;
+using Aspose.Pdf;
+using Aspose.Pdf.Text;
+
+namespace AsposePdfHeaderExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            try
+            {
+                Document document = new Document();
+                Page page = document.Pages.Add();
+
+                // Add content
+                HtmlFragment content = new HtmlFragment(&quot;&lt;h1&gt;Page Content&lt;/h1&gt;&quot;);
+                page.Paragraphs.Add(content);
+
+                // Create header
+                TextStamp headerStamp = new TextStamp(&quot;Company Report&quot;);
+                headerStamp.TopMargin = 10;
+                headerStamp.HorizontalAlignment = HorizontalAlignment.Center;
+                headerStamp.VerticalAlignment = VerticalAlignment.Top;
+
+                // Style header text
+                // Note: Limited styling options compared to HTML/CSS
+                headerStamp.TextState.FontSize = 14;
+                headerStamp.TextState.FontStyle = FontStyles.Bold;
+                headerStamp.TextState.ForegroundColor = Aspose.Pdf.Color.FromRgb(System.Drawing.Color.Navy);
+
+                // Add header to page
+                page.AddStamp(headerStamp);
+
+                // Create footer with page number
+                TextStamp footerStamp = new TextStamp(&quot;Page $p of $P&quot;);
+                footerStamp.BottomMargin = 10;
+                footerStamp.HorizontalAlignment = HorizontalAlignment.Center;
+                footerStamp.VerticalAlignment = VerticalAlignment.Bottom;
+
+                // Add footer to page
+                page.AddStamp(footerStamp);
+
+                // Save
+                document.Save(&quot;with_headers.pdf&quot;);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($&quot;Error: {ex.Message}&quot;);
+            }
+        }
+    }
+}</code></pre>
+
+<p>Here are the troubleshooting observations:</p>
+
+<ul>
+<li>Headers/footers use TextStamp API&mdash;no HTML/CSS support for styling</li>
+<li>Page numbering uses special syntax ($p, $P) that's different from standard templating</li>
+<li>Applying stamps to all pages requires iteration&mdash;no global header/footer configuration</li>
+<li>Image stamps for logos require separate ImageStamp class&mdash;can't mix text and images easily</li>
+<li>Dynamic content (dates, metadata) requires manual string formatting</li>
+<li>Alignment and positioning in points rather than standard CSS units</li>
+</ul>
+
+<h3>IronPDF &mdash; Adding Headers and Footers</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+namespace IronPdfHeaderExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var renderer = new ChromePdfRenderer();
+
+            // Configure header/footer using HTML
+            renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+            {
+                HtmlFragment = &quot;&lt;div style='text-align:center; font-size:12px;'&gt;Company Report&lt;/div&gt;&quot;
+            };
+
+            renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+            {
+                HtmlFragment = &quot;&lt;div style='text-align:center; font-size:10px;'&gt;Page {page} of {total-pages}&lt;/div&gt;&quot;
+            };
+
+            var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;h1&gt;Page Content&lt;/h1&gt;&quot;);
+            pdf.SaveAs(&quot;with_headers.pdf&quot;);
+        }
+    }
+}</code></pre>
+
+<p>Headers and footers support full HTML/CSS. For advanced header/footer scenarios, see the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a>.</p>
+
+<h2>What About Complex CSS Layouts Like Grid and Flexbox?</h2>
+
+<p>This is where the custom HTML parser versus Chromium engine distinction hits hardest. Here is the same layout rendered through both libraries.</p>
+
+<h3>Aspose.PDF &mdash; Complex CSS and Layout</h3>
+
+<pre><code>using System;
+using Aspose.Pdf;
+using Aspose.Pdf.Text;
+
+namespace AsposePdfComplexExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            try
+            {
+                Document document = new Document();
+                Page page = document.Pages.Add();
+
+                // Complex HTML with modern CSS
+                string htmlContent = @&quot;
+                    &lt;html&gt;
+                    &lt;head&gt;
+                        &lt;style&gt;
+                            .container {
+                                display: grid;
+                                grid-template-columns: 1fr 1fr;
+                                gap: 20px;
+                            }
+                            .card {
+                                border: 1px solid #ddd;
+                                border-radius: 8px;
+                                padding: 15px;
+                                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                            }
+                            .flex-row {
+                                display: flex;
+                                justify-content: space-between;
+                                align-items: center;
+                            }
+                        &lt;/style&gt;
+                    &lt;/head&gt;
+                    &lt;body&gt;
+                        &lt;div class='container'&gt;
+                            &lt;div class='card'&gt;
+                                &lt;h2&gt;Card 1&lt;/h2&gt;
+                                &lt;p&gt;Content here&lt;/p&gt;
+                            &lt;/div&gt;
+                            &lt;div class='card'&gt;
+                                &lt;h2&gt;Card 2&lt;/h2&gt;
+                                &lt;p&gt;Content here&lt;/p&gt;
+                            &lt;/div&gt;
+                        &lt;/div&gt;
+                        &lt;div class='flex-row'&gt;
+                            &lt;span&gt;Left&lt;/span&gt;
+                            &lt;span&gt;Right&lt;/span&gt;
+                        &lt;/div&gt;
+                    &lt;/body&gt;
+                    &lt;/html&gt;&quot;;
+
+                HtmlFragment fragment = new HtmlFragment(htmlContent);
+                page.Paragraphs.Add(fragment);
+
+                document.Save(&quot;complex.pdf&quot;);
+
+                Console.WriteLine(&quot;PDF created - check output for rendering issues&quot;);
+                Console.WriteLine(&quot;Expected issues:&quot;);
+                Console.WriteLine(&quot;- Grid layout likely collapsed to single column&quot;);
+                Console.WriteLine(&quot;- Flexbox may not work (items stacked vertically)&quot;);
+                Console.WriteLine(&quot;- Border-radius probably ignored&quot;);
+                Console.WriteLine(&quot;- Box-shadow unsupported&quot;);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($&quot;Error: {ex.Message}&quot;);
+                Console.WriteLine(&quot;CSS parsing likely failed on modern properties&quot;);
+            }
+        }
+    }
+}</code></pre>
+
+<p>The troubleshooting observations here are significant:</p>
+
+<ul>
+<li>CSS Grid completely unsupported&mdash;falls back to block layout</li>
+<li>Flexbox support minimal&mdash;display:flex often ignored</li>
+<li>Border-radius, box-shadow, and other CSS3 visual effects not rendered</li>
+<li>CSS transforms (rotate, scale, translate) not supported</li>
+<li>Pseudo-elements (::before, ::after) ignored</li>
+<li>CSS variables (--custom-property) unsupported</li>
+<li>Media queries for responsive design unreliable</li>
+</ul>
+
+<h3>IronPDF &mdash; Complex CSS and Layout</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+namespace IronPdfComplexExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var renderer = new ChromePdfRenderer();
+
+            string htmlContent = @&quot;
+                &lt;html&gt;
+                &lt;head&gt;
+                    &lt;style&gt;
+                        .container {
+                            display: grid;
+                            grid-template-columns: 1fr 1fr;
+                            gap: 20px;
+                        }
+                        .card {
+                            border: 1px solid #ddd;
+                            border-radius: 8px;
+                            padding: 15px;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                        }
+                        .flex-row {
+                            display: flex;
+                            justify-content: space-between;
+                        }
+                    &lt;/style&gt;
+                &lt;/head&gt;
+                &lt;body&gt;
+                    &lt;div class='container'&gt;
+                        &lt;div class='card'&gt;&lt;h2&gt;Card 1&lt;/h2&gt;&lt;/div&gt;
+                        &lt;div class='card'&gt;&lt;h2&gt;Card 2&lt;/h2&gt;&lt;/div&gt;
+                    &lt;/div&gt;
+                    &lt;div class='flex-row'&gt;
+                        &lt;span&gt;Left&lt;/span&gt;
+                        &lt;span&gt;Right&lt;/span&gt;
+                    &lt;/div&gt;
+                &lt;/body&gt;
+                &lt;/html&gt;&quot;;
+
+            var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+            pdf.SaveAs(&quot;complex.pdf&quot;);
+        }
+    }
+}</code></pre>
+
+<p>Chromium handles all CSS3 features identically to Chrome browser. For rendering modern CSS layouts, see the <a href="https://ironpdf.com/object-reference/api/IronPdf.ChromePdfRenderer.html">ChromePdfRenderer documentation</a>.</p>
+
+<h2>How Do the Two Libraries Compare Feature by Feature?</h2>
+
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Feature</th>
+<th>Aspose.PDF</th>
+<th>IronPDF</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Status</strong></td>
+<td>Active Development</td>
+<td>Yes (monthly)</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td></td>
+<td>Product Focus</td>
+<td>PDF manipulation</td>
+<td>HTML-to-PDF</td>
+</tr>
+<tr>
+<td></td>
+<td>HTML Rendering</td>
+<td>Custom parser</td>
+<td>Chromium</td>
+</tr>
+<tr>
+<td><strong>Support</strong></td>
+<td>Commercial Support</td>
+<td>Included</td>
+<td>Included</td>
+</tr>
+<tr>
+<td></td>
+<td>Community Forum</td>
+<td>Mixed quality</td>
+<td>Active</td>
+</tr>
+<tr>
+<td></td>
+<td>Documentation</td>
+<td>Extensive PDF, limited HTML</td>
+<td>Focused HTML</td>
+</tr>
+<tr>
+<td></td>
+<td>Code Examples</td>
+<td>PDF-centric</td>
+<td>HTML-centric</td>
+</tr>
+<tr>
+<td><strong>Content Creation</strong></td>
+<td>HTML5 Support</td>
+<td>Partial</td>
+<td>Full</td>
+</tr>
+<tr>
+<td></td>
+<td>CSS3 Support</td>
+<td>Limited</td>
+<td>Complete</td>
+</tr>
+<tr>
+<td></td>
+<td>JavaScript</td>
+<td>Minimal</td>
+<td>Full V8</td>
+</tr>
+<tr>
+<td></td>
+<td>Modern Frameworks</td>
+<td>Not supported</td>
+<td>Excellent</td>
+</tr>
+<tr>
+<td></td>
+<td>Responsive Design</td>
+<td>Unreliable</td>
+<td>Native</td>
+</tr>
+<tr>
+<td></td>
+<td>Web Fonts</td>
+<td>Manual/limited</td>
+<td>Automatic</td>
+</tr>
+<tr>
+<td></td>
+<td>SVG</td>
+<td>Partial</td>
+<td>Full</td>
+</tr>
+<tr>
+<td><strong>PDF Operations</strong></td>
+<td>HTML to PDF</td>
+<td>HtmlFragment/HtmlLoadOptions</td>
+<td>Native</td>
+</tr>
+<tr>
+<td></td>
+<td>URL to PDF</td>
+<td>Not direct</td>
+<td>Native</td>
+</tr>
+<tr>
+<td></td>
+<td>Text Extraction</td>
+<td>Excellent</td>
+<td>Good</td>
+</tr>
+<tr>
+<td></td>
+<td>Form Filling</td>
+<td>Excellent</td>
+<td>Good</td>
+</tr>
+<tr>
+<td></td>
+<td>Digital Signatures</td>
+<td>Excellent</td>
+<td>Good</td>
+</tr>
+<tr>
+<td></td>
+<td>PDF Editing</td>
+<td>Excellent</td>
+<td>Limited</td>
+</tr>
+<tr>
+<td><strong>Security</strong></td>
+<td>HTTPS Support</td>
+<td>Basic</td>
+<td>Full</td>
+</tr>
+<tr>
+<td></td>
+<td>Authentication</td>
+<td>Manual</td>
+<td>Built-in</td>
+</tr>
+<tr>
+<td></td>
+<td>Certificate Issues</td>
+<td>Workarounds needed</td>
+<td>Automatic</td>
+</tr>
+<tr>
+<td><strong>Known Issues</strong></td>
+<td>Cross-platform Fonts</td>
+<td>GDI+/libgdiplus issues</td>
+<td>Consistent</td>
+</tr>
+<tr>
+<td></td>
+<td>CSS Parsing</td>
+<td>Frequent failures</td>
+<td>Robust</td>
+</tr>
+<tr>
+<td></td>
+<td>Image Loading</td>
+<td>Timeouts common</td>
+<td>Reliable</td>
+</tr>
+<tr>
+<td></td>
+<td>Memory Usage</td>
+<td>High for large HTML</td>
+<td>Optimized</td>
+</tr>
+<tr>
+<td></td>
+<td>External Stylesheets</td>
+<td>Often fail</td>
+<td>Reliable</td>
+</tr>
+<tr>
+<td><strong>Development</strong></td>
+<td>Learning Curve</td>
+<td>Moderate-Steep</td>
+<td>Shallow</td>
+</tr>
+<tr>
+<td></td>
+<td>API Clarity</td>
+<td>Complex for HTML</td>
+<td>Clear</td>
+</tr>
+<tr>
+<td></td>
+<td>Error Messages</td>
+<td>Often cryptic</td>
+<td>Detailed</td>
+</tr>
+<tr>
+<td></td>
+<td>Debugging</td>
+<td>Difficult for HTML</td>
+<td>Standard</td>
+</tr>
+</tbody>
+</table>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Why does my Aspose.PDF output look different on Linux than on Windows?</h3>
+
+<p>Aspose.PDF relies on GDI+ on Windows and libgdiplus on Linux for font rendering. Font names like "Arial" may not exist on Linux. You need to install libgdiplus and Microsoft fonts (ttf-mscorefonts-installer), and even then some fonts render differently. IronPDF's Chromium engine handles fonts consistently across platforms without additional system dependencies.</p>
+
+<h3>Can Aspose.PDF render CSS Grid and Flexbox layouts?</h3>
+
+<p>No. Aspose.PDF uses a custom HTML parser, not a browser engine. CSS Grid is completely unsupported and falls back to block layout. Flexbox support is minimal&mdash;display:flex is often ignored. If your templates rely on modern CSS layout modes, you need to redesign with tables or floats for Aspose.PDF, or use a Chromium-based library like IronPDF that supports all CSS3 features.</p>
+
+<h3>What is the installation difference between Aspose.PDF and IronPDF?</h3>
+
+<p>IronPDF requires only a NuGet package: <code>dotnet add package IronPdf</code>. Aspose.PDF requires the NuGet package plus additional Linux setup: installing libgdiplus and ttf-mscorefonts-installer for cross-platform font rendering. This extra setup step is a common source of deployment issues.</p>
+
+<h3>Which library is better for PDF manipulation tasks like text extraction and form filling?</h3>
+
+<p>Aspose.PDF excels at PDF manipulation. Its text extraction, form filling, digital signature, and PDF editing features are comprehensive and rated excellent. If your workflow centers on editing, merging, splitting, or extracting content from existing PDFs, Aspose.PDF is the stronger choice for those specific operations.</p>
+
+<h3>When should I migrate from Aspose.PDF to IronPDF?</h3>
+
+<p>Migration becomes necessary when HTML rendering quality becomes a bottleneck. If you're spending significant time troubleshooting CSS parsing errors, debugging font rendering differences between Windows and Linux, or restructuring modern CSS layouts to work with Aspose.PDF's limited CSS support, the tool may not match your workflow. Production issues related to external stylesheet loading, web font failures, or inconsistent rendering across environments typically trigger evaluation of alternatives.</p>
+
+<h2>When Should You Use Which?</h2>
+
+<p>Aspose.PDF provides excellent PDF manipulation capabilities when your workflow centers on editing, merging, splitting, or extracting content from existing PDFs. The library's text extraction, form filling, and digital signature features are comprehensive. Teams needing these capabilities alongside occasional HTML input may find Aspose.PDF suitable.</p>
+
+<p>IronPDF's Chromium engine eliminates CSS compatibility guessing and cross-platform font troubleshooting. If your primary workflow is HTML-to-PDF rather than PDF manipulation, this architecture reduces debugging time. The <a href="https://ironpdf.com/object-reference/api/IronPdf.ChromePdfRenderer.html">ChromePdfRenderer</a> class produces consistent output matching Chrome browser rendering across all platforms.</p>
+
+<p>For comprehensive examples, review the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a>, and see the <a href="https://ironpdf.com/object-reference/api/IronPdf.ChromePdfRenderer.html">ChromePdfRenderer API reference</a> for configuration options.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

@@ -1,0 +1,512 @@
+<h1>Migrating from Gnostice to IronPDF: Solving Common Migration Pain Points</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Migrate from Gnostice PDFOne to IronPDF?</h2>
+
+<p>Some migrations are smooth. Others surface subtle issues only after the first full test run. This guide focuses on the second kind — the edge cases, the "why does this work differently" moments, and the places where a PDFOne-to-IronPDF migration is most likely to hit friction.</p>
+
+<p>If you're migrating from Gnostice PDFOne to <a href="https://ironpdf.com/">IronPDF</a>, the baseline operations (HTML to PDF, merge, watermark, passwords) are all achievable. The troubleshooting comes from differences in API model, page indexing, error surfacing, and rendering approach.</p>
+
+<p>The most common triggers for a PDFOne migration include maintenance and lifecycle uncertainty around the library's release cadence, HTML rendering limitations since PDFOne is not primarily an HTML-to-PDF renderer, .NET version support gaps with modern frameworks like .NET 6/7/8/9, smaller community ecosystems meaning fewer StackOverflow answers, API verbosity requiring more boilerplate per operation, and a Chromium fidelity gap when modern HTML report templates use CSS Grid or Flexbox.</p>
+
+<h2>What Does the Feature Comparison Look Like?</h2>
+
+<table>
+  <tr>
+    <th>Aspect</th>
+    <th>Gnostice PDFOne .NET</th>
+    <th>IronPDF</th>
+  </tr>
+  <tr>
+    <td>Focus</td>
+    <td>PDF creation, editing, forms, text extraction</td>
+    <td>HTML-to-PDF rendering + document manipulation</td>
+  </tr>
+  <tr>
+    <td>Pricing</td>
+    <td>Commercial license</td>
+    <td>Commercial license</td>
+  </tr>
+  <tr>
+    <td>API Style</td>
+    <td>Object-oriented, document model</td>
+    <td>Fluent, renderer-centric</td>
+  </tr>
+  <tr>
+    <td>Learning Curve</td>
+    <td>Medium</td>
+    <td>Medium</td>
+  </tr>
+  <tr>
+    <td>HTML Rendering</td>
+    <td>Limited</td>
+    <td>Primary capability (Chromium-based)</td>
+  </tr>
+  <tr>
+    <td>Page Indexing</td>
+    <td>0-based</td>
+    <td>0-based</td>
+  </tr>
+  <tr>
+    <td>Thread Safety</td>
+    <td>Verify in current PDFOne docs</td>
+    <td>Renderer-per-thread recommended</td>
+  </tr>
+  <tr>
+    <td>Namespace</td>
+    <td><code>Gnostice.PDFOne</code></td>
+    <td><code>IronPdf</code></td>
+  </tr>
+</table>
+
+<h2>How Much Effort Does Each Feature Migration Require?</h2>
+
+<table>
+  <tr>
+    <th>Feature</th>
+    <th>Effort</th>
+    <th>Notes</th>
+  </tr>
+  <tr>
+    <td>HTML to PDF</td>
+    <td>Low (IronPDF)</td>
+    <td>New capability if PDFOne couldn't do this well</td>
+  </tr>
+  <tr>
+    <td>Load existing PDF</td>
+    <td>Low</td>
+    <td>Both support file/stream loading</td>
+  </tr>
+  <tr>
+    <td>PDF merge</td>
+    <td>Low</td>
+    <td>Both support</td>
+  </tr>
+  <tr>
+    <td>PDF split</td>
+    <td>Medium</td>
+    <td>API shape differs</td>
+  </tr>
+  <tr>
+    <td>Text extraction</td>
+    <td>Medium</td>
+    <td>Both support; API differs</td>
+  </tr>
+  <tr>
+    <td>Form filling</td>
+    <td>Medium-High</td>
+    <td>Verify IronPDF form field support for your use case</td>
+  </tr>
+  <tr>
+    <td>Annotations</td>
+    <td>Medium-High</td>
+    <td>Annotation model differs</td>
+  </tr>
+  <tr>
+    <td>Watermarking</td>
+    <td>Low</td>
+    <td>Both support stamping</td>
+  </tr>
+  <tr>
+    <td>Password protection</td>
+    <td>Low</td>
+    <td>Straightforward mapping</td>
+  </tr>
+  <tr>
+    <td>Digital signatures</td>
+    <td>High</td>
+    <td>Verify IronPDF signing support</td>
+  </tr>
+</table>
+
+<h2>Problem 1: How Do I Handle Rendering Differences on HTML Templates?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>After migration, your HTML-to-PDF output may look different — fonts, spacing, or layout may not match what PDFOne produced. This happens because PDFOne and IronPDF use different rendering engines. Any non-Chromium renderer will handle CSS differently than a browser.</p>
+
+<h3>Adjusting IronPDF Rendering Options for CSS Fidelity</h3>
+
+<pre><code>var renderer = new ChromePdfRenderer();
+
+// If fonts are wrong: ensure fonts are embedded in HTML/CSS
+// &lt;link href="https://fonts.googleapis.com/..." rel="stylesheet"&gt; in HTML
+// or base64-embed fonts
+
+// If layout is wrong: check CSS — Chromium is stricter about valid CSS
+renderer.RenderingOptions.CssMediaType = IronPdf.Rendering.PdfCssMediaType.Print;
+
+// Wait for JS/CSS to load if external resources
+renderer.RenderingOptions.WaitFor.RenderDelay(200); // ms, if needed
+</code></pre>
+
+<p>I find that most layout issues come down to CSS validity. Chromium is stricter than non-browser renderers, so templates that rendered "close enough" in PDFOne may need minor CSS fixes. Embed your fonts directly in the HTML or via CSS, and set the media type to Print if your templates were designed for print output.</p>
+
+<h2>Problem 2: How Do I Fix Page Index Off-By-One Errors?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Wrong pages getting extracted or page operations targeting the wrong page is one of the most common post-migration bugs. Some older PDF libraries use 1-based page indexing. IronPDF uses 0-based. A direct port of page number values introduces off-by-one errors.</p>
+
+<h3>Verifying Page Indexing After Migration</h3>
+
+<pre><code>// Before (PDFOne — verify indexing):
+// var page = doc.GetPage(1); // first page? verify
+
+// After (IronPDF — 0-based):
+var page = pdf.Pages[0]; // index 0 = first page
+</code></pre>
+
+<h3>Unit Test to Catch Off-By-One Errors</h3>
+
+<pre><code>[Fact]
+public void FirstPage_IsIndexZero()
+{
+    using var pdf = PdfDocument.FromFile("test.pdf");
+    Assert.True(pdf.PageCount &gt; 0);
+
+    var first = pdf.Pages[0];
+    // Verify width/height matches known first-page dimensions
+    Assert.True(first.Width &gt; 0);
+}
+</code></pre>
+
+<p>I always recommend writing an explicit unit test for this during migration. It takes two minutes and saves hours of debugging when page extraction silently targets the wrong page in production.</p>
+
+<h2>Problem 3: How Do I Handle Exception and Error Surfacing Differences?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>PDFOne may surface errors differently — return codes, checked exceptions, or silent failures. IronPDF uses standard .NET exceptions. If your existing error handling relied on return codes or specific PDFOne exception types for control flow, that code needs auditing.</p>
+
+<h3>Explicit Exception Handling for IronPDF</h3>
+
+<pre><code>try
+{
+    using var pdf = PdfDocument.FromFile("potentially-corrupt.pdf");
+    Console.WriteLine($"Loaded {pdf.PageCount} pages");
+}
+catch (IronPdf.Exceptions.PdfException ex)
+{
+    Console.Error.WriteLine($"PDF format error: {ex.Message}");
+}
+catch (System.IO.FileNotFoundException ex)
+{
+    Console.Error.WriteLine($"File not found: {ex.Message}");
+}
+catch (UnauthorizedAccessException ex)
+{
+    Console.Error.WriteLine($"Permission denied: {ex.Message}");
+}
+</code></pre>
+
+<p>For password-protected PDFs, pass the password directly to the load method. See the <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">IronPDF password protection guide</a> for the full API.</p>
+
+<h3>Loading a Password-Protected PDF</h3>
+
+<pre><code>try
+{
+    using var pdf = PdfDocument.FromFile("protected.pdf", "userpassword");
+    Console.WriteLine($"Opened: {pdf.PageCount} pages");
+}
+catch (IronPdf.Exceptions.PdfException)
+{
+    Console.Error.WriteLine("Incorrect password or corrupted file");
+}
+</code></pre>
+
+<h2>What Does the Full Namespace and Class Mapping Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+  <tr>
+    <th>PDFOne Namespace</th>
+    <th>IronPDF Namespace</th>
+    <th>Purpose</th>
+  </tr>
+  <tr>
+    <td><code>Gnostice.PDFOne</code></td>
+    <td><code>IronPdf</code></td>
+    <td>Core types</td>
+  </tr>
+  <tr>
+    <td><code>Gnostice.PDFOne.Security</code></td>
+    <td><code>IronPdf.Security</code></td>
+    <td>Document security</td>
+  </tr>
+  <tr>
+    <td><code>Gnostice.PDFOne.Annotations</code></td>
+    <td><code>IronPdf.Editing</code></td>
+    <td>Annotations/stamps</td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <th>PDFOne Class</th>
+    <th>IronPDF Class</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>PDFDocument</code></td>
+    <td><code>PdfDocument</code></td>
+    <td>Main document object</td>
+  </tr>
+  <tr>
+    <td>HTML converter</td>
+    <td><code>ChromePdfRenderer</code></td>
+    <td>HTML-to-PDF</td>
+  </tr>
+  <tr>
+    <td>Page class</td>
+    <td><code>PdfDocument.Pages[n]</code></td>
+    <td>Page access</td>
+  </tr>
+  <tr>
+    <td>Security class</td>
+    <td><code>PdfDocument.SecuritySettings</code></td>
+    <td>Encryption</td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <th>Operation</th>
+    <th>PDFOne</th>
+    <th>IronPDF</th>
+  </tr>
+  <tr>
+    <td>Load from file</td>
+    <td><code>doc.Load("file.pdf")</code></td>
+    <td><code>PdfDocument.FromFile(path)</code></td>
+  </tr>
+  <tr>
+    <td>Load from bytes</td>
+    <td>verify in docs</td>
+    <td><code>PdfDocument.FromBytes(bytes)</code></td>
+  </tr>
+  <tr>
+    <td>Load from stream</td>
+    <td>verify in docs</td>
+    <td><code>PdfDocument.FromStream(stream)</code></td>
+  </tr>
+  <tr>
+    <td>Render from HTML</td>
+    <td>verify</td>
+    <td><code>renderer.RenderHtmlAsPdf(html)</code></td>
+  </tr>
+  <tr>
+    <td>Page count</td>
+    <td><code>doc.GetPageCount()</code></td>
+    <td><code>pdf.PageCount</code></td>
+  </tr>
+  <tr>
+    <td>Get page</td>
+    <td><code>doc.GetPage(index)</code></td>
+    <td><code>pdf.Pages[index]</code></td>
+  </tr>
+  <tr>
+    <td>Merge</td>
+    <td>verify in docs</td>
+    <td><code>PdfDocument.Merge(doc1, doc2)</code></td>
+  </tr>
+  <tr>
+    <td>Extract pages</td>
+    <td>verify in docs</td>
+    <td><code>pdf.CopyPages(indices)</code></td>
+  </tr>
+</table>
+
+<h2>How Do I Migrate Complete Before/After Code Examples?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Here are four complete migration examples covering the most common operations. Each shows the PDFOne approach alongside the IronPDF replacement.</p>
+
+<h3>HTML to PDF Migration</h3>
+
+<pre><code>// Before (PDFOne — pseudo-code):
+// using Gnostice.PDFOne;
+// var converter = new PDFOneHTMLConverter(); // verify class name
+// converter.ConvertHTML(html, "output.pdf");  // verify
+
+// After (IronPDF):
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+string html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;p&gt;Generated content.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;";
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+Console.WriteLine($"Created: {pdf.PageCount} page(s)");
+</code></pre>
+
+<h3>Merge PDFs Migration</h3>
+
+<pre><code>// Before (PDFOne — pseudo-code):
+// var doc1 = new PDFDocument();
+// doc1.Load("file1.pdf");
+// var doc2 = new PDFDocument();
+// doc2.Load("file2.pdf");
+// doc1.AppendDocument(doc2); // verify method name
+// doc1.Save("merged.pdf");
+
+// After (IronPDF):
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_KEY";
+
+using var doc1 = PdfDocument.FromFile("file1.pdf");
+using var doc2 = PdfDocument.FromFile("file2.pdf");
+
+using var merged = PdfDocument.Merge(doc1, doc2);
+merged.SaveAs("merged.pdf");
+Console.WriteLine($"Merged: {merged.PageCount} pages");
+</code></pre>
+
+<p>Note that IronPDF's <code>Merge</code> appends documents left-to-right in argument order. If your PDFOne code had a different ordering convention, swap the arguments. See the <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">IronPDF merge and split guide</a> for more details.</p>
+
+<h3>Watermark Migration</h3>
+
+<pre><code>// Before (PDFOne — pseudo-code):
+// var doc = new PDFDocument();
+// doc.Load("input.pdf");
+// // Add text element per page — verify watermark API
+
+// After (IronPDF):
+using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = "YOUR_KEY";
+
+using var pdf = PdfDocument.FromFile("input.pdf");
+
+var stamp = new TextStamper
+{
+    Text                = "DRAFT",
+    FontSize            = 40,
+    Opacity             = 0.3,
+    Rotation            = -45,
+    VerticalAlignment   = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center
+};
+
+pdf.ApplyStamp(stamp);
+pdf.SaveAs("watermarked.pdf");
+</code></pre>
+
+<p>IronPDF uses enum-based alignment and a 0.0 to 1.0 opacity scale. If your PDFOne watermarks used coordinate-based positioning, you will need to translate those to IronPDF's alignment model. See the <a href="https://ironpdf.com/how-to/stamp-text-image/">IronPDF stamping guide</a> for the full API.</p>
+
+<h3>Password Protection Migration</h3>
+
+<pre><code>// Before (PDFOne — pseudo-code):
+// var doc = new PDFDocument();
+// doc.Load("input.pdf");
+// doc.SetPassword(userPwd: "user123", ownerPwd: "owner456"); // verify
+// doc.SetPermissions(PDFPermissions.Print); // verify
+
+// After (IronPDF):
+using IronPdf;
+using IronPdf.Security;
+
+IronPdf.License.LicenseKey = "YOUR_KEY";
+
+using var pdf = PdfDocument.FromFile("input.pdf");
+
+pdf.SecuritySettings.UserPassword  = "user123";
+pdf.SecuritySettings.OwnerPassword = "owner456";
+pdf.SecuritySettings.AllowUserPrinting         = PdfPrintSecurity.FullPrintRights;
+pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+
+pdf.SaveAs("protected.pdf");
+</code></pre>
+
+<h2>FAQ</h2>
+
+<h2>Do I Need to Change My Page Indexing When Migrating?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF uses 0-based page indexing, where <code>pdf.Pages[0]</code> is the first page. Verify what convention your PDFOne code uses. If your PDFOne code used 1-based indexing (e.g., <code>doc.GetPage(1)</code> for the first page), subtract 1 from every page index value during migration.</p>
+
+<p>I recommend writing a simple unit test that loads a known PDF and checks that <code>pdf.Pages[0]</code> returns the expected first page dimensions. This catches off-by-one bugs before they reach production.</p>
+
+<h2>How Do I Handle Memory Management Differences?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p><code>PdfDocument</code> and <code>ChromePdfRenderer</code> hold unmanaged resources. Missing <code>using</code> blocks or explicit <code>Dispose()</code> calls cause memory leaks under sustained load. Always wrap <code>PdfDocument</code> instances in <code>using</code> statements, and in loops, dispose per iteration.</p>
+
+<pre><code>// In loops: dispose per-iteration
+foreach (var path in filePaths)
+{
+    using var doc = PdfDocument.FromFile(path);
+    int pages = doc.PageCount;
+    // doc disposed at end of each iteration
+}
+</code></pre>
+
+<p>You can also reuse a single <code>ChromePdfRenderer</code> instance across multiple operations on the same thread to avoid repeated initialization overhead.</p>
+
+<h2>Can I Use IronPDF Asynchronously in Web Contexts?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. IronPDF supports async rendering, which is important for ASP.NET or other web-hosted workloads where blocking a thread pool thread is costly.</p>
+
+<pre><code>var renderer = new ChromePdfRenderer();
+using var pdf = await renderer.RenderHtmlAsPdfAsync(htmlContent);
+await File.WriteAllBytesAsync(outputPath, pdf.BinaryData);
+</code></pre>
+
+<p>This is a capability that PDFOne may not have offered in the same form. If your existing code was synchronous, consider adopting async patterns during the migration rather than doing a second pass later.</p>
+
+<h2>What Is the Thread Safety Model in IronPDF?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Use one <code>ChromePdfRenderer</code> per thread. <code>PdfDocument</code> instances should not be shared across threads. If your PDFOne code used a single shared document instance across concurrent operations, you will need to restructure that code during migration.</p>
+
+<p>For batch processing, each thread or task should create its own renderer and document instances. This is a common source of subtle bugs when migrating from libraries with different threading models.</p>
+
+<h2>How Do I Find and Replace All PDFOne References in My Codebase?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Start by scanning your codebase for all Gnostice references before writing any new code.</p>
+
+<pre><code># Find Gnostice namespace imports
+rg "using Gnostice" --type cs
+
+# Find PDFOne type references
+rg "Gnostice\.|PDFOne" --type cs -l
+
+# Find NuGet references
+rg -i "gnostice\|pdfone" **/*.csproj
+</code></pre>
+
+<p>Then swap the packages:</p>
+
+<pre><code># Remove PDFOne package (verify exact package name)
+dotnet remove package GnosticePDFOneNet  # verify package name
+
+# Add IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+</code></pre>
+
+<p>Replace <code>using Gnostice.PDFOne</code> with <code>using IronPdf</code>, <code>using IronPdf.Rendering</code>, <code>using IronPdf.Editing</code>, and <code>using IronPdf.Security</code> as needed. Then set <code>IronPdf.License.LicenseKey</code> at application startup. See the <a href="https://ironpdf.com/how-to/license-keys/">IronPDF license key guide</a> for activation details.</p>
+
+<h2>When Should You Migrate from Gnostice PDFOne to IronPDF?</h2>
+
+<p>PDFOne migrations tend to surface issues in three places: rendering differences (especially if your templates rely on CSS3 features), page indexing (if PDFOne used 1-based in your code), and error handling (if you relied on return codes for control flow).</p>
+
+<p>If your primary workload is HTML-to-PDF rendering, the migration is well-scoped and IronPDF's Chromium-based renderer will give you browser-grade CSS fidelity that PDFOne cannot match. If your workload is mostly PDF manipulation — merge, split, watermark, passwords — the migration is straightforward but less transformative.</p>
+
+<p>If you are migrating primarily because of maintenance uncertainty around PDFOne's release cadence, prioritize scoping the migration over feature completeness. Migrate the operations you actually use, validate them with the troubleshooting checklist above, and leave edge cases for a second pass once the core workflow is stable.</p>

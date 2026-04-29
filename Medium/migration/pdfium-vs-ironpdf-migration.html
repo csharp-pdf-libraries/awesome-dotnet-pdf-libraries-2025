@@ -1,0 +1,675 @@
+<h1>Migrating from Pdfium to IronPDF in C#: The Complete Guide</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should I Migrate from Pdfium to IronPDF?</h2>
+
+<p>The GitHub repository you depend on has 847 open issues and the last commit touching actual rendering logic is from 2021. The .NET wrapper around Pdfium has been in "works well enough" territory for years, but you are about to add HTML-to-PDF generation to a service that currently only renders existing PDFs to images, and the wrapper's issue backlog has six unresolved reports about HTML rendering behaviour. That is when it is time to assess alternatives rather than discover those issues in production.</p>
+
+<p>I have seen nine reasons teams make this transition:</p>
+
+<p>1. <strong>HTML-to-PDF gap</strong> &mdash; Pdfium renders PDFs, it does not convert HTML to PDF. Teams that need both add a second tool. Migration consolidates this.</p>
+
+<p>2. <strong>Wrapper maintenance signal</strong> &mdash; community .NET wrappers for Pdfium vary in quality. Slow issue resolution and infrequent updates are common.</p>
+
+<p>3. <strong>Native binary management</strong> &mdash; architecture-specific <code>pdfium.dll</code> / <code>libpdfium.so</code> must be sourced, bundled, and updated separately from your .NET packages.</p>
+
+<p>4. <strong>P/Invoke fragility</strong> &mdash; native interop breaks across .NET runtime upgrades, OS updates, and architecture changes in non-obvious ways.</p>
+
+<p>5. <strong>AGPL-adjacent licensing</strong> &mdash; some Pdfium builds have licensing considerations; verify the specific build you are using.</p>
+
+<p>6. <strong>ARM64 deployment</strong> &mdash; ARM64 Pdfium binaries must be sourced separately.</p>
+
+<p>7. <strong>Feature gaps</strong> &mdash; watermark, encrypt, merge operations may require additional code beyond your Pdfium wrapper.</p>
+
+<p>8. <strong>Thread safety</strong> &mdash; Pdfium has documented thread-safety constraints that vary by operation; verify for your wrapper.</p>
+
+<p>9. <strong>Docker complexity</strong> &mdash; native binary distribution in multi-arch Docker builds adds maintenance overhead.</p>
+
+<h2>How Do Pdfium and IronPDF Compare Feature by Feature?</h2>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>Pdfium (.NET wrapper)</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>PDF rendering + parsing</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Varies by wrapper</td><td>Commercial &mdash; verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>P/Invoke wrapper &mdash; varies</td><td>In-process .NET library</td></tr>
+<tr><td>Learning Curve</td><td>High (wrapper-dependent)</td><td>Medium</td></tr>
+<tr><td>HTML Rendering</td><td>Not native</td><td>Chromium-based</td></tr>
+<tr><td>Page Indexing</td><td>0-based</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Pdfium constraints</td><td>Renderer instance reuse</td></tr>
+<tr><td>Namespace</td><td>Varies by wrapper</td><td><code>IronPdf</code></td></tr>
+</tbody>
+</table>
+
+<h2>How Much Effort Does Each Feature Take to Migrate?</h2>
+
+<p>Not every feature migrates at the same cost. Here is my honest assessment of the effort involved for each capability you might be using today.</p>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>Pdfium Approach</th><th>Effort to Migrate</th></tr>
+</thead>
+<tbody>
+<tr><td>Render PDF page to image</td><td>Pdfium native strength</td><td>High &mdash; IronPDF focus differs</td></tr>
+<tr><td>Text extraction</td><td>Pdfium native</td><td>Medium &mdash; verify IronPDF extraction</td></tr>
+<tr><td>HTML to PDF</td><td>Not native</td><td>Low (native in IronPDF)</td></tr>
+<tr><td>Open/parse existing PDF</td><td>Pdfium native</td><td>Low</td></tr>
+<tr><td>Merge PDFs</td><td>Wrapper-dependent</td><td>Low (native in IronPDF)</td></tr>
+<tr><td>Watermark</td><td>Wrapper-dependent</td><td>Low</td></tr>
+<tr><td>Password protection</td><td>Pdfium supports</td><td>Low</td></tr>
+<tr><td>Page count / metadata</td><td>Via wrapper</td><td>Low</td></tr>
+<tr><td>Native binary management</td><td>Required</td><td>Eliminated</td></tr>
+<tr><td>ARM64 deployment</td><td>Manual binary sourcing</td><td>Simplified</td></tr>
+<tr><td>Thread-safe concurrent use</td><td>Constrained</td><td>Explicit per-thread pattern</td></tr>
+</tbody>
+</table>
+
+<p>And here is a decision matrix to help you decide whether this migration is right for your specific scenario.</p>
+
+<table>
+<thead>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>Primary use: render PDF pages to images</td><td>Pdfium is well-suited; IronPDF has different strengths</td></tr>
+<tr><td>Need HTML-to-PDF + PDF rendering</td><td>IronPDF covers HTML-to-PDF; image rendering is different</td></tr>
+<tr><td>Native binary management is primary pain</td><td>IronPDF via NuGet eliminates this</td></tr>
+<tr><td>Open source constraint</td><td>Pdfium (FOSS); IronPDF is commercial</td></tr>
+</tbody>
+</table>
+
+<h2>How Do I Set Up My Project for the Migration?</h2>
+
+<p>Before touching any code, you need to find every Pdfium reference in your codebase. Here is how I recommend doing that.</p>
+
+<h3>Find Pdfium References</h3>
+
+<pre><code># Find the wrapper package -- check .csproj first
+grep -r -i "pdfium\|fpdf" **/*.csproj *.csproj 2&gt;/dev/null
+
+# Find all usage in C# files
+rg -l "Pdfium\|PdfiumViewer\|FpdfBitmap\|FPDF" --type cs -i
+
+# Find P/Invoke declarations if using direct interop
+rg "DllImport.*pdfium\|extern.*fpdf" --type cs -n -i
+
+# Find native binary references
+find . -name "*.dll" | grep -i pdfium
+find . -name "*.so"  | grep -i pdfium
+</code></pre>
+
+<h3>Remove Pdfium and Install IronPDF</h3>
+
+<pre><code># Remove wrapper -- verify exact package name
+dotnet remove package PDFium.Net.SDK  # or your specific wrapper
+
+# Install IronPDF
+dotnet add package IronPdf
+dotnet restore
+</code></pre>
+
+<h2>How Do I Migrate License Configuration and Namespaces?</h2>
+
+<h3>Step 1: License Configuration</h3>
+
+<p><strong>Before (Pdfium wrapper):</strong></p>
+
+<pre><code>// Pdfium open-source: no in-process license key
+// Some commercial wrappers (PDFium.Net.SDK) require license init -- verify
+// using Pdfium; // verify namespace for your wrapper
+
+// Common wrapper initialization pattern:
+// PdfLibrary.Init(); // hypothetical -- verify your wrapper's startup call
+</code></pre>
+
+<p><strong>After (<a href="https://ironpdf.com">IronPDF</a>):</strong></p>
+
+<pre><code>using IronPdf;
+
+// Set once at application startup
+IronPdf.License.LicenseKey = "YOUR_IRONPDF_LICENSE_KEY";
+// License guide: https://ironpdf.com/how-to/license-keys/
+</code></pre>
+
+<h3>Step 2: Namespace Imports</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>// Varies significantly by wrapper -- verify your package
+// using Pdfium;        // one common namespace
+// using PdfiumSharp;   // another
+// using System.Runtime.InteropServices; // for P/Invoke direct
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+using IronPdf.Editing;
+using IronPdf.Security;
+</code></pre>
+
+<h3>Step 3: Basic PDF Operation</h3>
+
+<p><strong>Before (Pdfium &mdash; open and read existing PDF):</strong></p>
+
+<pre><code>// Pdfium wrappers vary significantly -- this shows a representative pattern
+// Verify all class and method names against your specific wrapper
+
+// using Pdfium; // verify
+
+class BasicPdfiumExample
+{
+    static void Main()
+    {
+        // Representative Pdfium wrapper pattern (verify your specific API):
+        // PdfLibrary.Init();    // wrapper startup -- verify
+        // using var doc = PdfDocument.Load("input.pdf"); // verify class name
+        // int pageCount = doc.PageCount;                 // verify property
+        // var page = doc.GetPage(0);                     // verify method
+        // // Render page to bitmap:
+        // var bitmap = page.Render(width: 1240, height: 1754); // verify
+        // bitmap.Save("page1.png");                            // verify
+        // page.Dispose();
+
+        Console.WriteLine("Verify your specific Pdfium wrapper API");
+    }
+}
+</code></pre>
+
+<p><strong>After (<a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF</a>):</strong></p>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+// HTML to PDF (Pdfium doesn't do this natively):
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Hello World&lt;/h1&gt;");
+pdf.SaveAs("output.pdf");
+// Guide: https://ironpdf.com/how-to/html-string-to-pdf/
+
+// Open existing PDF:
+// var existing = PdfDocument.FromFile("input.pdf");
+// Text extraction: var text = existing.ExtractAllText();
+// Guide: https://ironpdf.com/how-to/extract-text-and-images/
+</code></pre>
+
+<h2>How Do Pdfium APIs Map to IronPDF APIs?</h2>
+
+<p>Here are the complete mapping tables I put together covering namespaces, core classes, document loading, page operations, and merge/split.</p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<thead>
+<tr><th>Pdfium Wrapper</th><th>IronPDF</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>Wrapper-specific</td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td>Wrapper-specific</td><td><code>IronPdf.Rendering</code></td><td>Render options</td></tr>
+<tr><td>N/A</td><td><code>IronPdf.Editing</code></td><td>Stamp, annotate</td></tr>
+</tbody>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<thead>
+<tr><th>Pdfium Wrapper Class</th><th>IronPDF Class</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>Document class</td><td><code>PdfDocument</code></td><td>PDF document</td></tr>
+<tr><td>Page class</td><td><code>pdf.Pages[n]</code></td><td>Page access</td></tr>
+<tr><td>N/A</td><td><code>ChromePdfRenderer</code></td><td>HTML-to-PDF renderer</td></tr>
+<tr><td>Bitmap/image class</td><td>N/A</td><td>IronPDF doesn't render to bitmap</td></tr>
+</tbody>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>Pdfium</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Open existing PDF</td><td>Load method</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+<tr><td>Open from bytes</td><td>Bytes constructor</td><td><code>PdfDocument.FromStream(stream)</code></td></tr>
+<tr><td>HTML to PDF</td><td>Not native</td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td>URL to PDF</td><td>Not native</td><td><code>renderer.RenderUrlAsPdf(url)</code></td></tr>
+</tbody>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>Pdfium</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Page count</td><td><code>doc.PageCount</code></td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Access page</td><td><code>doc.GetPage(n)</code></td><td><code>pdf.Pages[n]</code> (0-based)</td></tr>
+<tr><td>Extract text</td><td>Text extraction</td><td><code>pdf.ExtractAllText()</code></td></tr>
+<tr><td>Render to image</td><td><code>page.Render()</code></td><td>Not primary IronPDF feature</td></tr>
+</tbody>
+</table>
+
+<h3>Merge/Split Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>Pdfium</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Merge</td><td>Wrapper-dependent</td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
+<tr><td>Split</td><td>Wrapper-dependent</td><td><code>pdf.CopyPages(startIndex, endIndex)</code></td></tr>
+</tbody>
+</table>
+
+<h2>How Do I Convert HTML to PDF After Migrating?</h2>
+
+<p>This is the most common reason teams migrate. Pdfium cannot convert HTML to PDF, so teams typically add a secondary tool like wkhtmltopdf. IronPDF eliminates that extra dependency entirely.</p>
+
+<h3>HTML to PDF &mdash; Before (Pdfium with Secondary Tool)</h3>
+
+<pre><code>using System;
+using System.Diagnostics;
+using System.IO;
+
+class HtmlToPdfWithSecondTool
+{
+    static void Main()
+    {
+        // Pdfium cannot convert HTML to PDF -- teams add a second tool
+        // wkhtmltopdf subprocess is a common addition alongside Pdfium
+
+        string html     = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #1234&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
+        string tempHtml = Path.GetTempFileName() + ".html";
+        string tempPdf  = Path.GetTempFileName() + ".pdf";
+
+        File.WriteAllText(tempHtml, html);
+
+        var psi = new ProcessStartInfo("wkhtmltopdf", $"\"{tempHtml}\" \"{tempPdf}\"")
+        {
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        using var proc = Process.Start(psi)!;
+        proc.WaitForExit(30_000);
+
+        if (proc.ExitCode != 0)
+            throw new Exception($"wkhtmltopdf failed: {proc.StandardError.ReadToEnd()}");
+
+        byte[] pdfBytes = File.ReadAllBytes(tempPdf);
+        File.Delete(tempHtml);
+        File.Delete(tempPdf);
+        // Use pdfBytes...
+        Console.WriteLine("Generated PDF via secondary tool");
+    }
+}
+</code></pre>
+
+<h3>HTML to PDF &mdash; After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #1234&lt;/h1&gt;&lt;p&gt;Amount: $500&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+pdf.SaveAs("invoice.pdf");
+// Guide: https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h2>How Do I Migrate PDF Merge Operations?</h2>
+
+<h3>Merge PDFs &mdash; Before (Pdfium / PdfSharp Fallback)</h3>
+
+<pre><code>// Pdfium can merge PDFs at the C library level
+// Wrapper support varies -- verify your specific library
+
+// If not supported, PdfSharp pattern:
+using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
+using System;
+
+class MergeExample
+{
+    static void Main()
+    {
+        using var output = new PdfDocument();
+        foreach (string path in new[] { "part1.pdf", "part2.pdf" })
+        {
+            using var input = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+            foreach (PdfPage page in input.Pages)
+                output.AddPage(page);
+        }
+        output.Save("merged.pdf");
+        Console.WriteLine("Merged.");
+    }
+}
+</code></pre>
+
+<h3>Merge PDFs &mdash; After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var merged = PdfDocument.Merge(
+    PdfDocument.FromFile("part1.pdf"),
+    PdfDocument.FromFile("part2.pdf")
+);
+merged.SaveAs("merged.pdf");
+// Guide: https://ironpdf.com/how-to/merge-or-split-pdfs/
+</code></pre>
+
+<h2>How Do I Add Watermarks After Migrating?</h2>
+
+<h3>Watermark &mdash; Before (Pdfium with iTextSharp)</h3>
+
+<pre><code>using iTextSharp.text;
+using iTextSharp.text.pdf;
+using System.IO;
+using System;
+
+class WatermarkExample
+{
+    static void Main()
+    {
+        // Pdfium doesn't expose high-level watermark API
+        // Secondary library (iTextSharp) is common:
+        using var reader  = new PdfReader("input.pdf");
+        using var fs      = new FileStream("watermarked.pdf", FileMode.Create);
+        using var stamper = new PdfStamper(reader, fs);
+
+        var font = BaseFont.CreateFont(BaseFont.HELVETICA_BOLD, BaseFont.CP1252, false);
+        for (int page = 1; page &lt;= reader.NumberOfPages; page++)
+        {
+            var cb = stamper.GetOverContent(page);
+            cb.BeginText();
+            cb.SetFontAndSize(font, 60);
+            cb.SetColorFill(new BaseColor(180, 180, 180));
+            cb.ShowTextAligned(Element.ALIGN_CENTER, "CONFIDENTIAL", 300, 420, 45);
+            cb.EndText();
+        }
+        Console.WriteLine("Watermarked.");
+    }
+}
+</code></pre>
+
+<h3>Watermark &mdash; After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("input.pdf");
+var stamper = new TextStamper
+{
+    Text = "CONFIDENTIAL",
+    FontColor = IronSoftware.Drawing.Color.LightGray,
+    FontSize = 60,
+    Opacity = 30,
+    Rotation = 45,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center
+};
+pdf.ApplyStamp(stamper);
+pdf.SaveAs("watermarked.pdf");
+// Guide: https://ironpdf.com/how-to/custom-watermark/
+</code></pre>
+
+<h2>How Do I Migrate Password Protection?</h2>
+
+<h3>Password Protection &mdash; Before (Pdfium with iTextSharp)</h3>
+
+<pre><code>using iTextSharp.text.pdf;
+using System.IO;
+using System.Text;
+
+class SecurityExample
+{
+    static void Main()
+    {
+        // Verify your Pdfium wrapper's encryption support
+        // If not available -- secondary library (iTextSharp) pattern:
+        byte[] userPass  = Encoding.ASCII.GetBytes("readonly");
+        byte[] ownerPass = Encoding.ASCII.GetBytes("admin");
+
+        using var reader  = new PdfReader("input.pdf");
+        using var fs      = new FileStream("secured.pdf", FileMode.Create);
+        using var stamper = new PdfStamper(reader, fs, '\0', false);
+        stamper.SetEncryption(
+            userPass, ownerPass,
+            PdfWriter.ALLOW_PRINTING,
+            PdfWriter.ENCRYPTION_AES_128
+        );
+    }
+}
+</code></pre>
+
+<h3>Password Protection &mdash; After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Security;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("input.pdf");
+pdf.SecuritySettings.UserPassword  = "readonly";
+pdf.SecuritySettings.OwnerPassword = "admin";
+pdf.SecuritySettings.AllowUserPrinting = PdfPrintSecurity.FullPrintRights;
+pdf.SaveAs("secured.pdf");
+// Guide: https://ironpdf.com/how-to/pdf-permissions-passwords/
+</code></pre>
+
+<h2>What Are the Critical Migration Notes I Should Know?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Pdfium's primary strength &mdash; rendering PDF pages to bitmap images &mdash; is not IronPDF's primary feature. If your codebase relies heavily on this, consider a partial migration: keep Pdfium for image rendering while moving HTML-to-PDF and manipulation to IronPDF.</p>
+
+<p>Both Pdfium (at the C level) and IronPDF use 0-based page indexing. Wrapper APIs may vary, so verify your wrapper's convention. In IronPDF, page access is straightforward:</p>
+
+<pre><code>// IronPDF: 0-based throughout
+var firstPage = pdf.Pages[0];
+var lastPage  = pdf.Pages[pdf.PageCount - 1];
+</code></pre>
+
+<p>If text extraction is a key feature, compare IronPDF's output against Pdfium's on your actual document corpus before committing:</p>
+
+<pre><code>var pdf = PdfDocument.FromFile("document.pdf");
+
+// Full document text
+string allText = pdf.ExtractAllText();
+
+// Per-page
+foreach (var page in pdf.Pages)
+    Console.WriteLine($"Page {page.PageIndex}: {page.Text.Length} chars");
+
+// Guide: https://ironpdf.com/how-to/extract-text-and-images/
+</code></pre>
+
+<h2>How Should I Handle Performance and Benchmarking?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>The numbers that matter are yours, not anyone else's. I always recommend running the benchmark scaffold below against your actual HTML templates and PDF workloads before making a capacity decision.</p>
+
+<h3>Benchmark Scaffold</h3>
+
+<pre><code>using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Threading.Tasks;
+using IronPdf;
+
+class PdfBenchmark
+{
+    // Replace html with your actual production template content
+    static readonly string TestHtml = System.IO.File.Exists("test_template.html")
+        ? System.IO.File.ReadAllText("test_template.html")
+        : "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Test Document&lt;/h1&gt;&lt;p&gt;Paragraph content for benchmark.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;";
+
+    static void Main(string[] args)
+    {
+        IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+        const int warmupRounds = 5;
+        const int timedRounds  = 50;
+
+        var renderer = new ChromePdfRenderer();
+
+        // Warm up -- don't time cold-start
+        Console.WriteLine("Warming up...");
+        for (int i = 0; i &lt; warmupRounds; i++)
+        {
+            using var warmup = renderer.RenderHtmlAsPdf(TestHtml);
+        }
+
+        // Timed single-threaded renders
+        var times = new List&lt;long&gt;();
+        var sw    = new Stopwatch();
+
+        Console.WriteLine($"Running {timedRounds} renders...");
+        for (int i = 0; i &lt; timedRounds; i++)
+        {
+            sw.Restart();
+            using var pdf = renderer.RenderHtmlAsPdf(TestHtml);
+            sw.Stop();
+            times.Add(sw.ElapsedMilliseconds);
+        }
+
+        times.Sort();
+        Console.WriteLine($"\n--- Single-threaded results ({timedRounds} renders) ---");
+        Console.WriteLine($"Median:  {times[timedRounds / 2]}ms");
+        Console.WriteLine($"P95:     {times[(int)(timedRounds * 0.95)]}ms");
+        Console.WriteLine($"P99:     {times[(int)(timedRounds * 0.99)]}ms");
+        Console.WriteLine($"Min:     {times[0]}ms");
+        Console.WriteLine($"Max:     {times[timedRounds - 1]}ms");
+        Console.WriteLine($"Average: {Average(times):F1}ms");
+    }
+
+    static double Average(List&lt;long&gt; list)
+    {
+        long sum = 0;
+        foreach (var v in list) sum += v;
+        return (double)sum / list.Count;
+    }
+}
+</code></pre>
+
+<h3>What Metrics Should I Collect?</h3>
+
+<table>
+<thead>
+<tr><th>Metric</th><th>Why</th><th>How</th></tr>
+</thead>
+<tbody>
+<tr><td>Median render time</td><td>Typical-case latency</td><td>Stopwatch, 50+ iterations</td></tr>
+<tr><td>P95 render time</td><td>Tail latency for SLAs</td><td>Sort + index</td></tr>
+<tr><td>Memory per render</td><td>Container sizing</td><td>GC.GetTotalMemory before/after</td></tr>
+<tr><td>Concurrent throughput</td><td>Scaling capacity</td><td>WhenAll with SemaphoreSlim</td></tr>
+<tr><td>Output file size</td><td>Storage cost</td><td><code>new FileInfo(path).Length</code></td></tr>
+<tr><td>Cold start time</td><td>Serverless / first-request</td><td>Time first render separately</td></tr>
+<tr><td>CSS fidelity</td><td>Visual accuracy</td><td>Side-by-side visual review</td></tr>
+</tbody>
+</table>
+
+<h3>Renderer Reuse for Batch Operations</h3>
+
+<pre><code>var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+foreach (var html in batchTemplates)
+{
+    using var pdf = renderer.RenderHtmlAsPdf(html);
+    pdf.SaveAs($"output_{Guid.NewGuid()}.pdf");
+}
+</code></pre>
+
+<h3>Async Parallel Rendering</h3>
+
+<pre><code>// Separate renderer per task
+await Task.WhenAll(
+    htmlItems.Select(async html =&gt;
+    {
+        var renderer = new ChromePdfRenderer();
+        using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+        await pdf.SaveAsAsync($"{Guid.NewGuid()}.pdf");
+    })
+);
+// Parallel guide: https://ironpdf.com/examples/parallel/
+</code></pre>
+
+<h3>Memory Profiling Pattern</h3>
+
+<pre><code>long memBefore = GC.GetTotalMemory(forceFullCollection: true);
+
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+
+long memAfter = GC.GetTotalMemory(forceFullCollection: false);
+Console.WriteLine($"Memory delta: {(memAfter - memBefore) / 1024:N0} KB");
+</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I keep Pdfium for PDF-to-image rendering alongside IronPDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. Pdfium's primary strength is rendering PDF pages to bitmap images, and that is not IronPDF's primary feature. Many teams run a partial migration, keeping Pdfium for image rendering while using IronPDF for HTML-to-PDF generation and PDF manipulation.</p>
+
+<p>If you want to evaluate alternatives to Pdfium for the image rendering portion, consider docnet (an open source Pdfium wrapper) or commercial PDF-to-image libraries.</p>
+
+<h3>Do I need to manage native binaries with IronPDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>No. One of the biggest pain points with Pdfium is managing architecture-specific native binaries &mdash; <code>pdfium.dll</code> on Windows, <code>libpdfium.so</code> on Linux &mdash; that must be sourced, bundled, and updated separately. IronPDF ships as a NuGet package, so native binary management is eliminated.</p>
+
+<p>After migration, clean up residual Pdfium binaries and remove any COPY/ADD references to them in your Dockerfiles.</p>
+
+<h3>What .NET versions does IronPDF support?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF targets .NET 6+. Before starting the migration, verify your project's target framework is compatible. Check the <a href="https://ironpdf.com">IronPDF documentation</a> for the latest supported framework list.</p>
+
+<h3>Is IronPDF thread-safe for concurrent rendering?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF uses an explicit per-thread pattern. For concurrent rendering, create one <code>ChromePdfRenderer</code> per task and use a <code>SemaphoreSlim</code> to bound concurrency. The concurrent benchmark scaffold in the performance section above demonstrates this pattern.</p>
+
+<p>Pdfium, by contrast, has documented thread-safety constraints that vary by operation and wrapper implementation.</p>
+
+<h3>How does page indexing compare between Pdfium and IronPDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Both Pdfium (at the C level) and IronPDF use 0-based page indexing. However, Pdfium wrapper APIs may vary in their convention, so verify your specific wrapper. In IronPDF, access pages with <code>pdf.Pages[0]</code> for the first page and <code>pdf.Pages[pdf.PageCount - 1]</code> for the last.</p>
+
+<h3>What if text extraction results differ between Pdfium and IronPDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>If text extraction is a key feature in your application, I strongly recommend comparing IronPDF's output against Pdfium's on your actual document corpus before committing to the migration. Run both libraries against a representative set of PDFs and compare the extracted text for completeness and accuracy.</p>
+
+<p>IronPDF provides both full-document extraction via <code>pdf.ExtractAllText()</code> and per-page extraction through the <code>page.Text</code> property. See the <a href="https://ironpdf.com/how-to/extract-text-and-images/">text extraction guide</a> for details.</p>
+
+<h2>Conclusion</h2>
+
+<p>Pdfium's strength is PDF-to-image rendering. If that is your primary use case, this migration may be a partial one &mdash; keeping Pdfium for image rendering while moving HTML-to-PDF to IronPDF. The benchmark scaffold helps you understand whether the consolidated approach fits your performance requirements before you commit.</p>
+
+<p>For teams that need HTML-to-PDF generation, PDF merging, watermarking, and password protection, IronPDF consolidates what previously required Pdfium plus one or two secondary libraries into a single NuGet package. The migration itself is straightforward for most operations, with the notable exception of PDF-to-image rendering where Pdfium remains strong.</p>
+
+<p>I recommend starting with the three-step quick start &mdash; license configuration, namespace imports, and a basic PDF operation &mdash; then working through the API mapping tables to convert each feature systematically. Run the benchmark scaffold with your actual production templates before and after to validate performance in your environment.</p>

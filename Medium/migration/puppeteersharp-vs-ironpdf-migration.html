@@ -1,0 +1,756 @@
+<h1>Migrating from PuppeteerSharp to IronPDF in C#: The Complete Guide</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Migrate from PuppeteerSharp to IronPDF?</h2>
+
+<p>The version pin is a known problem. You're on PuppeteerSharp 10.x because 11.x changed the PDF API in a way that broke your pipeline, and the upgrade path requires touching code in places you'd rather not. Or you're on a newer version but Chrome's Puppeteer dependency keeps updating underneath you and some render subtlety shifts between browser versions. Either way, you're managing browser binaries in a PDF generation workflow, which is overhead you didn't sign up for.</p>
+
+<p>I've seen teams migrating from PuppeteerSharp to a dedicated PDF library when they hit these conditions:</p>
+
+<p><strong>Browser binary download in CI/Docker</strong> &mdash; <code>BrowserFetcher.DownloadAsync()</code> or <code>RevisionInfo</code> downloads add hundreds of MB to CI step time and Docker cache misses.</p>
+
+<p><strong>Version pinning friction</strong> &mdash; PuppeteerSharp tracks Chrome releases; pinning a Chromium revision for render stability creates drift between the browser and the wrapper.</p>
+
+<p><strong>Browser lifecycle management</strong> &mdash; <code>IBrowser</code>, <code>IPage</code>, <code>BrowserLaunchOptions</code> are full browser automation objects; they're overhead for a PDF generation task.</p>
+
+<p><strong>API churn between major versions</strong> &mdash; PuppeteerSharp has had breaking changes between major releases (e.g., LaunchOptions vs BrowserTypeLaunchOptions patterns changed). Each upgrade requires code changes.</p>
+
+<p><strong>Missing PDF manipulation features</strong> &mdash; <code>Page.PdfAsync()</code> returns bytes; there's no PuppeteerSharp API for merge, split, watermark, security, or text extraction.</p>
+
+<p><strong>Async browser context overhead</strong> &mdash; every render requires creating and disposing a browser/page/context, which is significant overhead for single-document generation.</p>
+
+<p><strong>Resource leaks under error conditions</strong> &mdash; if <code>PdfAsync()</code> throws, ensuring the <code>IBrowser</code> and <code>IPage</code> are properly disposed requires careful <code>await using</code> / try-finally patterns.</p>
+
+<p><strong>Temp file management</strong> &mdash; some patterns require writing HTML to a temp file and navigating to <code>file://</code> to avoid content encoding issues.</p>
+
+<p><strong>Docker image complexity</strong> &mdash; caching the Chromium download directory in Docker layers adds container configuration complexity.</p>
+
+<p><strong>Feature parity gap</strong> &mdash; PDF headers/footers, security, watermark, and page manipulation all need secondary libraries.</p>
+
+<h2>How Do PuppeteerSharp and IronPDF Compare?</h2>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>PuppeteerSharp</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>Browser automation; PDF is secondary</td><td>PDF generation and manipulation</td></tr>
+<tr><td>Pricing</td><td>MIT license &mdash; verify production terms</td><td>Commercial license &mdash; verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>Browser automation objects (<code>IBrowser</code>, <code>IPage</code>)</td><td>PDF-focused C# objects; no browser lifecycle</td></tr>
+<tr><td>Learning Curve</td><td>High for PDF-only use</td><td>Low for .NET devs; focused PDF API</td></tr>
+<tr><td>HTML Rendering</td><td>Downloaded Chromium binary</td><td>Embedded Chromium</td></tr>
+<tr><td>Page Indexing</td><td>N/A &mdash; output only</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Browser context isolation required</td><td>Verify IronPDF concurrent instance guidance</td></tr>
+<tr><td>Namespace</td><td><code>PuppeteerSharp</code></td><td><code>IronPdf</code></td></tr>
+</tbody>
+</table>
+
+<h2>What Does the Migration Effort Look Like?</h2>
+
+<p>I put together this effort table so you can scope the work before writing any code. Most operations map one-to-one and fall into the low-complexity bucket.</p>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>PuppeteerSharp</th><th>IronPDF Equivalent</th><th>Complexity</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string to PDF</td><td><code>SetContentAsync()</code> + <code>PdfAsync()</code></td><td><code>RenderHtmlAsPdfAsync()</code></td><td>Low</td></tr>
+<tr><td>URL to PDF</td><td><code>GoToAsync()</code> + <code>PdfAsync()</code></td><td><code>RenderUrlAsPdfAsync()</code></td><td>Low</td></tr>
+<tr><td>Save to file</td><td><code>File.WriteAllBytesAsync()</code></td><td><code>pdf.SaveAs()</code></td><td>Low</td></tr>
+<tr><td>Save to MemoryStream</td><td>Wrap byte array</td><td><code>pdf.Stream</code></td><td>Low</td></tr>
+<tr><td>Custom page size</td><td><code>PdfOptions.Format</code></td><td><code>RenderingOptions.PaperSize</code></td><td>Low</td></tr>
+<tr><td>Custom margins</td><td><code>PdfOptions.MarginOptions</code></td><td><code>RenderingOptions.Margin*</code></td><td>Low</td></tr>
+<tr><td>Headers/footers</td><td><code>PdfOptions.HeaderTemplate</code> / <code>FooterTemplate</code></td><td><code>RenderingOptions.HtmlHeader/Footer</code></td><td>Medium</td></tr>
+<tr><td>Browser lifecycle removal</td><td>Multiple objects + <code>await using</code></td><td>No equivalent needed</td><td>Low (remove)</td></tr>
+<tr><td>Merge PDFs</td><td>Not supported</td><td><code>PdfDocument.Merge()</code></td><td>Medium</td></tr>
+<tr><td>Watermark</td><td>Not supported</td><td><code>TextStamper</code> / <code>ImageStamper</code></td><td>Medium</td></tr>
+<tr><td>Password protection</td><td>Not supported</td><td><code>pdf.SecuritySettings</code></td><td>Medium</td></tr>
+<tr><td>Browser download step</td><td><code>BrowserFetcher.DownloadAsync()</code></td><td>N/A &mdash; bundled</td><td>Low (remove)</td></tr>
+</tbody>
+</table>
+
+<h3>Decision Matrix</h3>
+
+<table>
+<thead>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>PDF generation only, no browser automation</td><td>Switch &mdash; eliminates browser lifecycle and download overhead</td></tr>
+<tr><td>E2E testing + PDF generation in same codebase</td><td>Keep PuppeteerSharp for tests; add IronPDF for generation</td></tr>
+<tr><td>CI/CD where Chromium download is a bottleneck</td><td>Switch &mdash; IronPDF bundles Chromium; no download step</td></tr>
+<tr><td>Version pinning is causing ongoing maintenance overhead</td><td>Switch &mdash; IronPDF versioning is independent of Chrome releases</td></tr>
+</tbody>
+</table>
+
+<h2>How Do You Set Up the Migration?</h2>
+
+<p>You'll need .NET 6/7/8/9 and an <a href="https://ironpdf.com/how-to/license-keys/">IronPDF license key</a>.</p>
+
+<h3>Find All PuppeteerSharp References</h3>
+
+<pre><code># Find PDF-specific PuppeteerSharp usage
+rg -l "PdfAsync\|PdfOptions\|IBrowser\|IPage\|BrowserFetcher" --type cs
+rg "PdfAsync\|PdfOptions\|GoToAsync\|SetContentAsync" --type cs -n
+
+# Find browser launch and download patterns
+rg "LaunchAsync\|BrowserFetcher\|DownloadAsync\|FetchAsync" --type cs -n
+
+# Find Chromium cache directory references in CI/Docker
+grep -r "\.local-chromium\|chromium-pack\|BrowserFetcher\|PUPPETEER_PRODUCT" \
+  Dockerfile .github/**/*.yml 2&gt;/dev/null
+
+# Check project files
+grep -r "PuppeteerSharp" *.csproj **/*.csproj 2&gt;/dev/null
+</code></pre>
+
+<h3>Uninstall / Install</h3>
+
+<pre><code># Remove PuppeteerSharp
+dotnet remove package PuppeteerSharp
+
+# Install IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+</code></pre>
+
+<p>Remove the browser download step from Dockerfile and CI:</p>
+
+<pre><code># Remove these patterns from CI config:
+# - run: dotnet run --project ./BrowserDownloader
+# - name: Cache Puppeteer Chromium
+#   uses: actions/cache@v3
+#   with:
+#     path: ~/.local-chromium
+</code></pre>
+
+<h2>What Does the Quick Start Migration Look Like?</h2>
+
+<h3>Step 1 &mdash; License Configuration</h3>
+
+<pre><code>using IronPdf;
+
+// https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY")
+    ?? throw new InvalidOperationException("IRONPDF_LICENSE_KEY not set");
+</code></pre>
+
+<h3>Step 2 &mdash; Namespace Swap</h3>
+
+<p>Before:</p>
+
+<pre><code>using PuppeteerSharp;
+using PuppeteerSharp.Media;
+using System.Threading.Tasks;
+</code></pre>
+
+<p>After:</p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+</code></pre>
+
+<h3>Step 3 &mdash; Basic Conversion</h3>
+
+<p>Before:</p>
+
+<pre><code>using PuppeteerSharp;
+using PuppeteerSharp.Media;
+using System.Threading.Tasks;
+using System.IO;
+
+class Program
+{
+    static async Task Main()
+    {
+        // Download Chromium on first use (or pre-downloaded)
+        var fetcher = new BrowserFetcher();
+        await fetcher.DownloadAsync();
+
+        using var browser = await Puppeteer.LaunchAsync(new LaunchOptions { Headless = true });
+        await using var page = await browser.NewPageAsync();
+
+        await page.SetContentAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+        var bytes = await page.PdfAsync(new PdfOptions { Format = PaperFormat.A4 });
+        await File.WriteAllBytesAsync("output.pdf", bytes);
+        Console.WriteLine("Saved output.pdf");
+    }
+}
+</code></pre>
+
+<p>After:</p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+// No browser download, no browser lifecycle management
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+pdf.SaveAs("output.pdf");
+
+Console.WriteLine($"Saved output.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h2>How Do the APIs Map Between PuppeteerSharp and IronPDF?</h2>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<thead>
+<tr><th>PuppeteerSharp</th><th>IronPDF</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>PuppeteerSharp</code></td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td><code>PuppeteerSharp.Media</code></td><td><code>IronPdf.Rendering</code></td><td>Paper size, margin types</td></tr>
+<tr><td>N/A</td><td><code>IronPdf.Editing</code></td><td>Watermark / stamp operations</td></tr>
+</tbody>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<thead>
+<tr><th>PuppeteerSharp Class</th><th>IronPDF Class</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BrowserFetcher</code></td><td>N/A &mdash; removed</td><td>Browser download step eliminated</td></tr>
+<tr><td><code>IBrowser</code> + <code>IPage</code></td><td><code>ChromePdfRenderer</code></td><td>Replace multi-object lifecycle with single renderer</td></tr>
+<tr><td><code>PdfOptions</code></td><td><code>ChromePdfRenderOptions</code></td><td>Page size, margins, headers, print background</td></tr>
+<tr><td>N/A</td><td><code>PdfDocument</code></td><td>PDF object returned by renderer</td></tr>
+</tbody>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>PuppeteerSharp</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string</td><td><code>page.SetContentAsync(html)</code> + <code>PdfAsync()</code></td><td><code>renderer.RenderHtmlAsPdfAsync(html)</code></td></tr>
+<tr><td>URL</td><td><code>page.GoToAsync(url)</code> + <code>PdfAsync()</code></td><td><code>renderer.RenderUrlAsPdfAsync(url)</code></td></tr>
+<tr><td>HTML file</td><td><code>page.GoToAsync("file:///...")</code> + <code>PdfAsync()</code></td><td><code>renderer.RenderHtmlFileAsPdfAsync(path)</code></td></tr>
+<tr><td>Load existing PDF</td><td>N/A</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+</tbody>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>PuppeteerSharp</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Page count</td><td>N/A &mdash; output only</td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Remove page</td><td>N/A</td><td><code>pdf.RemovePage(index)</code> &mdash; verify</td></tr>
+<tr><td>Extract text</td><td>N/A</td><td><code>pdf.ExtractAllText()</code></td></tr>
+<tr><td>Rotate</td><td>N/A</td><td>Verify in IronPDF docs</td></tr>
+</tbody>
+</table>
+
+<h3>Merge / Split Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>PuppeteerSharp</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Merge</td><td>Not supported</td><td><code>PdfDocument.Merge(doc1, doc2)</code></td></tr>
+<tr><td>Split</td><td>Not supported</td><td><a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Guide</a></td></tr>
+</tbody>
+</table>
+
+<h2>What Do the Complete Before/After Code Migrations Look Like?</h2>
+
+<h3>1. HTML String to PDF</h3>
+
+<p>Before (PuppeteerSharp):</p>
+
+<pre><code>using PuppeteerSharp;
+using PuppeteerSharp.Media;
+using System;
+using System.IO;
+using System.Threading.Tasks;
+
+class HtmlToPdfBefore
+{
+    static async Task Main()
+    {
+        var fetcher = new BrowserFetcher();
+        await fetcher.DownloadAsync();
+
+        using var browser = await Puppeteer.LaunchAsync(new LaunchOptions
+        {
+            Headless = true,
+            Args = new[] { "--no-sandbox", "--disable-dev-shm-usage" }
+        });
+
+        await using var page = await browser.NewPageAsync();
+
+        var html = @"
+            &lt;html&gt;
+            &lt;head&gt;
+            &lt;style&gt;
+                body { font-family: Arial, sans-serif; padding: 40px; }
+                .total { font-weight: bold; border-top: 2px solid #333; }
+            &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+                &lt;h1&gt;Invoice #3001&lt;/h1&gt;
+                &lt;p&gt;Client: Acme Corp&lt;/p&gt;
+                &lt;div class='total'&gt;Total Due: $4,500.00&lt;/div&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        await page.SetContentAsync(html);
+        var pdfBytes = await page.PdfAsync(new PdfOptions
+        {
+            Format = PaperFormat.A4,
+            PrintBackground = true,
+            MarginOptions = new MarginOptions { Top = "40px", Bottom = "40px" }
+        });
+
+        await File.WriteAllBytesAsync("invoice.pdf", pdfBytes);
+        Console.WriteLine($"Saved invoice.pdf ({pdfBytes.Length} bytes)");
+    }
+}
+</code></pre>
+
+<p>After (IronPDF):</p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var html = @"
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        body { font-family: Arial, sans-serif; padding: 40px; }
+        .total { font-weight: bold; border-top: 2px solid #333; }
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Invoice #3001&lt;/h1&gt;
+        &lt;p&gt;Client: Acme Corp&lt;/p&gt;
+        &lt;div class='total'&gt;Total Due: $4,500.00&lt;/div&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 40;
+renderer.RenderingOptions.MarginBottom = 40;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("invoice.pdf");
+
+Console.WriteLine($"Saved invoice.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h3>2. Merge PDFs</h3>
+
+<p>Before (PuppeteerSharp &mdash; no native merge):</p>
+
+<pre><code>using PuppeteerSharp;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading.Tasks;
+
+class MergeBefore
+{
+    static async Task Main()
+    {
+        var fetcher = new BrowserFetcher();
+        await fetcher.DownloadAsync();
+        using var browser = await Puppeteer.LaunchAsync(new LaunchOptions { Headless = true });
+
+        var sections = new[]
+        {
+            ("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Chapter 1: Introduction&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;", "ch1.pdf"),
+            ("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Chapter 2: Analysis&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;", "ch2.pdf"),
+        };
+
+        foreach (var (html, filename) in sections)
+        {
+            await using var page = await browser.NewPageAsync();
+            await page.SetContentAsync(html);
+            var bytes = await page.PdfAsync();
+            await File.WriteAllBytesAsync(filename, bytes);
+        }
+
+        // PuppeteerSharp has no merge API -- requires another library
+        // e.g., PDFsharp, iTextSharp, etc.
+        Console.WriteLine("Merge requires a secondary library -- not built into PuppeteerSharp");
+    }
+}
+</code></pre>
+
+<p>After (IronPDF):</p>
+
+<pre><code>using IronPdf;
+using System;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+
+// Render concurrently
+var results = await Task.WhenAll(
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Chapter 1: Introduction&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"),
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Chapter 2: Analysis&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;")
+);
+
+// https://ironpdf.com/how-to/merge-or-split-pdfs/
+var merged = PdfDocument.Merge(results[0], results[1]);
+merged.SaveAs("document.pdf");
+
+Console.WriteLine($"Merged document: {merged.PageCount} pages");
+</code></pre>
+
+<h3>3. Watermark</h3>
+
+<p>Before (PuppeteerSharp &mdash; CSS injection only; no stamp API):</p>
+
+<pre><code>using PuppeteerSharp;
+using System;
+using System.IO;
+using System.Threading.Tasks;
+
+class WatermarkBefore
+{
+    static async Task Main()
+    {
+        var fetcher = new BrowserFetcher();
+        await fetcher.DownloadAsync();
+        using var browser = await Puppeteer.LaunchAsync(new LaunchOptions { Headless = true });
+        await using var page = await browser.NewPageAsync();
+
+        // No watermark API in PuppeteerSharp -- CSS injection required
+        // CSS watermark rendering varies by template; this is a workaround
+        var html = @"
+            &lt;html&gt;
+            &lt;head&gt;
+            &lt;style&gt;
+                body::before {
+                    content: 'INTERNAL';
+                    position: fixed;
+                    top: 50%; left: 50%;
+                    transform: translate(-50%, -50%) rotate(-45deg);
+                    font-size: 100px;
+                    color: rgba(200, 200, 200, 0.3);
+                    z-index: 9999;
+                    pointer-events: none;
+                }
+            &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;&lt;h1&gt;Internal Document&lt;/h1&gt;&lt;p&gt;Sensitive content.&lt;/p&gt;&lt;/body&gt;
+            &lt;/html&gt;";
+
+        await page.SetContentAsync(html);
+        var bytes = await page.PdfAsync(new PdfOptions { PrintBackground = true });
+        await File.WriteAllBytesAsync("internal.pdf", bytes);
+        Console.WriteLine("CSS watermark applied -- fidelity depends on HTML template");
+    }
+}
+</code></pre>
+
+<p>After (IronPDF):</p>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Internal Document&lt;/h1&gt;&lt;p&gt;Sensitive content.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// Post-render watermark -- applied consistently regardless of HTML content
+// https://ironpdf.com/how-to/custom-watermark/
+var watermark = new TextStamper
+{
+    Text = "INTERNAL",
+    FontColor = IronPdf.Imaging.Color.Gray,
+    Opacity = 0.2,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs("internal.pdf");
+Console.WriteLine("Watermark applied");
+</code></pre>
+
+<h3>4. Password Protection</h3>
+
+<p>Before (PuppeteerSharp &mdash; no security API):</p>
+
+<pre><code>using PuppeteerSharp;
+using System;
+using System.IO;
+using System.Threading.Tasks;
+
+class PasswordBefore
+{
+    static async Task Main()
+    {
+        var fetcher = new BrowserFetcher();
+        await fetcher.DownloadAsync();
+        using var browser = await Puppeteer.LaunchAsync(new LaunchOptions { Headless = true });
+        await using var page = await browser.NewPageAsync();
+
+        await page.SetContentAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Secured Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+
+        // PuppeteerSharp PdfAsync() has no password/encryption options
+        var bytes = await page.PdfAsync();
+
+        // Post-process with another library required -- adds a dependency
+        // Pseudo-code: bytes = SomePdfLib.SetPassword(bytes, "open123");
+
+        await File.WriteAllBytesAsync("report.pdf", bytes);
+        Console.WriteLine("Password protection requires a secondary library with PuppeteerSharp");
+    }
+}
+</code></pre>
+
+<p>After (IronPDF):</p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Secured Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// https://ironpdf.com/how-to/pdf-permissions-passwords/
+pdf.SecuritySettings.UserPassword = "open123";
+pdf.SecuritySettings.OwnerPassword = "admin456";
+
+pdf.SaveAs("secured-report.pdf");
+Console.WriteLine("Saved secured-report.pdf");
+</code></pre>
+
+<h2>What Are the Critical Migration Notes?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Browser Download Step Removal</h3>
+
+<p>The most impactful infrastructure change is removing the Chromium download step. In PuppeteerSharp, this typically appears as:</p>
+
+<pre><code>// Remove this pattern -- IronPDF bundles Chromium
+var fetcher = new BrowserFetcher();
+await fetcher.DownloadAsync();
+// Or: await new BrowserFetcher().DownloadAsync(BrowserFetcher.DefaultChromiumRevision);
+</code></pre>
+
+<p>Find and remove all occurrences:</p>
+
+<pre><code>rg "BrowserFetcher\|DownloadAsync.*chromium\|FetchAsync" --type cs -n
+</code></pre>
+
+<h3>LaunchOptions.Args to Rendering Options</h3>
+
+<p>PuppeteerSharp <code>LaunchOptions.Args</code> often included <code>--no-sandbox</code> and <code>--disable-dev-shm-usage</code> for Docker compatibility. IronPDF handles sandbox configuration internally for supported environments. Verify current IronPDF sandbox settings in their documentation if you encounter issues in containerized environments.</p>
+
+<h3>PdfOptions.HeaderTemplate Migration</h3>
+
+<p>PuppeteerSharp supports <code>HeaderTemplate</code> and <code>FooterTemplate</code> in <code>PdfOptions</code> as HTML strings. IronPDF uses <code>RenderingOptions.HtmlHeader</code> and <code>HtmlFooter</code>:</p>
+
+<pre><code>// PuppeteerSharp:
+// new PdfOptions {
+//   DisplayHeaderFooter = true,
+//   HeaderTemplate = "&lt;div style='font-size:9px; text-align:right'&gt;&lt;span class='pageNumber'&gt;&lt;/span&gt;&lt;/div&gt;",
+//   FooterTemplate = "&lt;div style='font-size:9px; text-align:center'&gt;&lt;span class='title'&gt;&lt;/span&gt;&lt;/div&gt;",
+// }
+
+// IronPDF equivalent:
+// https://ironpdf.com/how-to/headers-and-footers/
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    // Verify HtmlHeaderFooter class and placeholder tokens in current IronPDF docs
+    HtmlFragment = "&lt;div style='font-size:9px; text-align:right'&gt;{page}&lt;/div&gt;",
+};
+</code></pre>
+
+<h3>Margin Unit Conversion</h3>
+
+<p>PuppeteerSharp <code>MarginOptions</code> uses CSS string values (<code>"40px"</code>, <code>"1cm"</code>, <code>"0.5in"</code>). IronPDF <code>RenderingOptions.Margin*</code> properties use numeric values. Verify the unit convention in current IronPDF documentation:</p>
+
+<pre><code>// PuppeteerSharp: MarginOptions { Top = "1cm", Bottom = "1cm" }
+// IronPDF: verify unit meaning of numeric margin values
+renderer.RenderingOptions.MarginTop = 10;    // verify: is this mm, px, or points?
+// See: https://ironpdf.com/how-to/custom-margins/
+</code></pre>
+
+<h3>Page Indexing</h3>
+
+<p>PuppeteerSharp's <code>PdfAsync()</code> produces output-only PDFs with no page manipulation. If you add IronPDF page operations, use 0-based indexing.</p>
+
+<h2>What About Performance Considerations?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Eliminating Browser Download Overhead</h3>
+
+<p>In CI environments, PuppeteerSharp's browser download adds time on cache misses. IronPDF's Chromium is bundled in the NuGet package &mdash; it's part of the <code>dotnet restore</code> step, not a separate download.</p>
+
+<h3>Browser Startup vs In-Process Rendering</h3>
+
+<p>Each PuppeteerSharp render requires launching or reusing a browser process. IronPDF renders in-process. For sustained workloads, the difference is meaningful &mdash; benchmark for your specific load pattern.</p>
+
+<pre><code>using IronPdf;
+using System;
+using System.Diagnostics;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+// Warm up to avoid cold-start skewing measurements
+var renderer = new ChromePdfRenderer();
+using var _ = await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;warmup&lt;/body&gt;&lt;/html&gt;");
+
+// Benchmark
+var times = new List&lt;double&gt;();
+for (int i = 0; i &lt; 20; i++)
+{
+    var sw = Stopwatch.StartNew();
+    using var pdf = await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Benchmark&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+    sw.Stop();
+    times.Add(sw.Elapsed.TotalMilliseconds);
+}
+
+times.Sort();
+Console.WriteLine($"Avg: {times.Average():F1}ms | P95: {times[(int)(times.Count * 0.95)]:F1}ms");
+Console.WriteLine("Compare against PuppeteerSharp render time in your environment");
+</code></pre>
+
+<h3>Parallel Rendering</h3>
+
+<pre><code>using IronPdf;
+using System.Linq;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var htmlJobs = Enumerable.Range(1, 8)
+    .Select(i =&gt; $"&lt;html&gt;&lt;body&gt;&lt;h1&gt;Document {i}&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;")
+    .ToArray();
+
+var pdfs = await Task.WhenAll(htmlJobs.Select(async html =&gt;
+{
+    var r = new ChromePdfRenderer();
+    return await r.RenderHtmlAsPdfAsync(html);
+}));
+
+Console.WriteLine($"Rendered {pdfs.Length} PDFs in parallel");
+foreach (var pdf in pdfs) pdf.Dispose();
+</code></pre>
+
+<h3>Disposal Pattern</h3>
+
+<pre><code>using IronPdf;
+using System.IO;
+
+// PuppeteerSharp required 'await using' on IBrowser and IPage
+// IronPDF: use standard 'using' on PdfDocument
+using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+
+// MemoryStream pattern
+using var ms = new MemoryStream();
+pdf.Stream.CopyTo(ms);
+return ms.ToArray();
+// pdf disposed here
+</code></pre>
+
+<h2>What Does the Full Migration Checklist Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Pre-Migration</h3>
+
+<p>Identify all PuppeteerSharp PDF calls. Separate PDF generation code from browser automation / scraping code. Identify secondary libraries used for merge, security, or watermark. Find <code>BrowserFetcher</code> calls to remove. Find CI/Docker caching steps for Chromium to remove. Document current render times for comparison benchmarking. Obtain an IronPDF license key. Verify IronPDF .NET version compatibility.</p>
+
+<h3>Code Migration</h3>
+
+<p>Install IronPDF (<code>dotnet add package IronPdf</code>). Remove <code>PuppeteerSharp</code> package reference. Add license key at application startup. Remove <code>BrowserFetcher.DownloadAsync()</code> calls. Replace <code>Puppeteer.LaunchAsync()</code> + <code>browser.NewPageAsync()</code> with <code>ChromePdfRenderer</code>. Replace <code>page.SetContentAsync()</code> + <code>PdfAsync()</code> with <code>RenderHtmlAsPdfAsync()</code>. Replace <code>page.GoToAsync()</code> + <code>PdfAsync()</code> with <code>RenderUrlAsPdfAsync()</code>. Convert <code>PdfOptions.Format</code> / <code>PaperFormat.*</code> to <code>RenderingOptions.PaperSize</code>. Convert <code>MarginOptions</code> CSS strings to <code>RenderingOptions.Margin*</code> numeric values. Migrate <code>HeaderTemplate</code> / <code>FooterTemplate</code> to <code>RenderingOptions.HtmlHeader/Footer</code>.</p>
+
+<h3>Testing</h3>
+
+<p>Render each HTML template and compare visual output. Verify <code>PrintBackground</code> behavior &mdash; IronPDF renders backgrounds by default. Verify margins &mdash; check unit conversion from CSS strings to IronPDF numeric values. Test headers and footers render on all pages. Test merge output page count and order. Test password-protected PDFs open correctly. Verify Docker build succeeds without Chromium download step. Benchmark render time vs PuppeteerSharp baseline.</p>
+
+<h3>Post-Migration</h3>
+
+<p>Remove <code>PuppeteerSharp</code> NuGet package. Remove Chromium cache directories from <code>.gitignore</code> and Docker <code>.dockerignore</code>. Update CI config &mdash; remove Chromium download/cache steps. Remove secondary PDF manipulation libraries consolidated into IronPDF.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I use PuppeteerSharp and IronPDF side by side during migration?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. Both packages can coexist in the same project. This is especially useful if your codebase uses PuppeteerSharp for both E2E testing and PDF generation. Keep PuppeteerSharp for browser automation tests and migrate only the PDF generation code to IronPDF.</p>
+
+<p>The decision matrix above recommends this approach for teams with mixed usage.</p>
+
+<h3>What happens to my BrowserFetcher and Chromium download code?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Delete it. IronPDF bundles Chromium in the NuGet package, so there is no separate browser download step. Remove <code>BrowserFetcher.DownloadAsync()</code> calls from your code, and remove Chromium caching steps from your CI/Docker configuration.</p>
+
+<p>This is the most impactful infrastructure change in the migration &mdash; it eliminates hundreds of MB of CI download time and Docker cache complexity.</p>
+
+<h3>How do I convert PuppeteerSharp margin CSS strings to IronPDF numeric values?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>PuppeteerSharp <code>MarginOptions</code> accepts CSS string values like <code>"40px"</code>, <code>"1cm"</code>, or <code>"0.5in"</code>. IronPDF <code>RenderingOptions.Margin*</code> properties take numeric values. Verify the unit convention (pixels, mm, or points) in the current <a href="https://ironpdf.com/how-to/custom-margins/">IronPDF margins documentation</a>. This is one of the edge cases most likely to cause test failures, so compare visual output carefully.</p>
+
+<h3>Does IronPDF support PuppeteerSharp's HeaderTemplate and FooterTemplate?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF uses <code>RenderingOptions.HtmlHeader</code> and <code>RenderingOptions.HtmlFooter</code> with the <code>HtmlHeaderFooter</code> class. The placeholder tokens differ &mdash; PuppeteerSharp uses <code>&lt;span class='pageNumber'&gt;&lt;/span&gt;</code> while IronPDF uses <code>{page}</code>. Verify the exact placeholder tokens in the current <a href="https://ironpdf.com/how-to/headers-and-footers/">IronPDF headers and footers documentation</a>.</p>
+
+<h3>What about features PuppeteerSharp doesn't support, like merge and watermark?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>PuppeteerSharp has no native APIs for merge, split, watermark, password protection, or text extraction. These require secondary libraries like PDFsharp or iTextSharp. IronPDF includes all of these as built-in features: <code>PdfDocument.Merge()</code> for merging, <code>TextStamper</code> / <code>ImageStamper</code> for watermarks, and <code>pdf.SecuritySettings</code> for password protection.</p>
+
+<p>This means you can remove those secondary PDF manipulation dependencies after migrating.</p>
+
+<h3>How does IronPDF handle Docker and CI environments differently from PuppeteerSharp?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>PuppeteerSharp requires downloading Chromium separately, caching <code>.local-chromium</code> in Docker layers, and often passing <code>--no-sandbox</code> and <code>--disable-dev-shm-usage</code> via <code>LaunchOptions.Args</code>. IronPDF bundles Chromium in the NuGet package and manages sandbox configuration internally. This eliminates the Chromium download step from CI pipelines and simplifies Docker image configuration.</p>
+
+<h2>Conclusion</h2>
+
+<p>The version pinning problem that may have started this evaluation is resolved structurally: IronPDF's version is independent of Chrome release cadence. The browser lifecycle code deletion is the most satisfying part of this migration &mdash; <code>BrowserFetcher</code>, <code>LaunchAsync</code>, <code>NewPageAsync</code>, <code>await using</code> blocks &mdash; all of that goes away.</p>
+
+<p>The edge cases most likely to cause test failures: margin unit conversion (CSS string to numeric), header/footer template token differences, and any HTML that relied on specific Chromium revision behavior.</p>
+
+<p>If you're ready to get started, grab a <a href="https://ironpdf.com/how-to/license-keys/">trial license key</a> and work through the quick start migration above. For the full API reference, visit the <a href="https://ironpdf.com/">IronPDF documentation</a>.</p>

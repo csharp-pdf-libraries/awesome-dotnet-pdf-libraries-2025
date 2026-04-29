@@ -1,0 +1,728 @@
+<h1>Migrating from Apache PDFBox to IronPDF in C#: The Complete Guide</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>The pull request sat open for three weeks. Someone had added a seven-line method to merge two PDFs -- except it was seven lines of Java wrapping Apache PDFBox, running inside a microservice that the rest of the .NET monolith called over HTTP. The service existed solely because, years ago, nobody could find a .NET PDF library that handled merge without a commercial license. PDFBox was free. PDFBox was Java. So somebody spun up a JVM sidecar, and now every invoice merge takes a network hop, a serialization round-trip, and a deployment that requires both <code>dotnet publish</code> and <code>mvn package</code>.</p>
+
+<p>If that sounds familiar -- or if you are running PDFBox via IKVM, a Kotlin interop layer, or a Lambda function that your .NET team cannot debug -- this guide is for you.</p>
+
+<p>Apache PDFBox is a solid open-source Java library. The migration question is not about quality. It is about whether maintaining a Java dependency in a .NET ecosystem costs more than it saves. This guide covers the shift to <a href="https://ironpdf.com">IronPDF</a>, but eighty percent of the framework -- dependency auditing, API mapping, testing patterns -- applies to any .NET-native PDF library.</p>
+
+<h2>Why Should I Migrate from Apache PDFBox to IronPDF?</h2>
+
+<p>PDFBox is one of the most widely deployed PDF libraries in the world. Here is why .NET teams specifically move away from it:</p>
+
+<p><strong>Language boundary.</strong> PDFBox is Java. Your application is .NET. Every integration requires a bridge: a microservice, IKVM transpilation, a CLI wrapper, or a serverless function. Each bridge has latency, deployment overhead, and debugging friction.</p>
+
+<p><strong>No HTML-to-PDF.</strong> PDFBox does not convert HTML. If you need HTML rendering, you are pairing PDFBox with another tool -- adding a second dependency in a second language.</p>
+
+<p><strong>JVM deployment overhead.</strong> Running PDFBox means running a JVM. In Docker, that is an additional base image layer. In CI, it is an additional SDK. In production, it is an additional runtime to patch.</p>
+
+<p><strong>IKVM compatibility gaps.</strong> Teams using IKVM to run PDFBox inside .NET hit compatibility issues with newer PDFBox versions, Bouncy Castle updates, and Java 11+ features that IKVM does not fully support.</p>
+
+<p><strong>API verbosity for common operations.</strong> PDFBox's API mirrors the PDF specification, which makes it powerful but verbose. Merging two PDFs requires loading both documents, creating a <code>PDFMergerUtility</code>, adding sources, and calling <code>mergeDocuments(MemoryUsageSetting)</code>.</p>
+
+<p><strong>Memory management in Java.</strong> PDFBox documents hold native resources and must be explicitly closed. In a Java-to-.NET bridge, the garbage collection semantics differ, increasing the risk of resource leaks.</p>
+
+<p><strong>Text extraction ordering.</strong> PDFBox extracts text in the order it appears in the PDF content stream, which is not necessarily visual order. Sorting requires explicit configuration -- a common source of bugs for teams unfamiliar with PDF internals.</p>
+
+<p><strong>No async support.</strong> PDFBox's API is synchronous. In an async .NET pipeline, blocking on JVM calls ties up thread pool threads.</p>
+
+<p><strong>Font handling across platforms.</strong> PDFBox uses Java's font infrastructure. Font availability and rendering may differ between the JVM on your dev machine and the JVM in your production Linux container.</p>
+
+<p><strong>Two ecosystems to maintain.</strong> Maven for PDFBox, NuGet for everything else. Two package managers, two dependency trees, two vulnerability scanners.</p>
+
+<h2>How Do Apache PDFBox and IronPDF Compare?</h2>
+
+<table>
+<tr>
+<th>Aspect</th>
+<th>Apache PDFBox (Java)</th>
+<th>IronPDF (.NET)</th>
+</tr>
+<tr>
+<td><strong>Focus</strong></td>
+<td>PDF manipulation, text extraction, form filling</td>
+<td>HTML-first PDF generation + manipulation</td>
+</tr>
+<tr>
+<td><strong>Pricing</strong></td>
+<td>Free, Apache License v2.0</td>
+<td>Per-developer, perpetual licenses available</td>
+</tr>
+<tr>
+<td><strong>API Style</strong></td>
+<td>Java objects mirroring PDF spec (PDDocument, PDPage)</td>
+<td>C# fluent API, HTML-to-PDF, property-based</td>
+</tr>
+<tr>
+<td><strong>Learning Curve</strong></td>
+<td>Moderate -- Java + PDF internals knowledge needed</td>
+<td>Low -- HTML/CSS developers productive quickly</td>
+</tr>
+<tr>
+<td><strong>HTML Rendering</strong></td>
+<td>None</td>
+<td>Built-in Chrome rendering engine</td>
+</tr>
+<tr>
+<td><strong>Page Indexing</strong></td>
+<td>0-based</td>
+<td>0-based</td>
+</tr>
+<tr>
+<td><strong>Thread Safety</strong></td>
+<td>PDDocument not thread-safe</td>
+<td>ChromePdfRenderer stateless, safe to share</td>
+</tr>
+<tr>
+<td><strong>Namespace</strong></td>
+<td>org.apache.pdfbox.* (Java)</td>
+<td>IronPdf</td>
+</tr>
+</table>
+
+<h2>How Much Effort Does Each Feature Require to Migrate?</h2>
+
+<table>
+<tr>
+<th>Feature</th>
+<th>Complexity</th>
+<th>Notes</th>
+</tr>
+<tr>
+<td>HTML to PDF</td>
+<td>Low</td>
+<td>PDFBox can't do this; IronPDF is purpose-built for it</td>
+</tr>
+<tr>
+<td>Text extraction</td>
+<td>Medium</td>
+<td>Both extract text; API shape and sort behavior differ</td>
+</tr>
+<tr>
+<td>Merge</td>
+<td>Low</td>
+<td>Both offer merge; IronPDF is a one-liner</td>
+</tr>
+<tr>
+<td>Split / extract pages</td>
+<td>Low</td>
+<td>Different API, same concept</td>
+</tr>
+<tr>
+<td>Watermark</td>
+<td>Medium</td>
+<td>PDFBox uses PDPageContentStream drawing; IronPDF uses HTML overlay</td>
+</tr>
+<tr>
+<td>Password / encryption</td>
+<td>Medium</td>
+<td>PDFBox uses AccessPermission + StandardProtectionPolicy; IronPDF uses SecuritySettings</td>
+</tr>
+<tr>
+<td>Form filling (AcroForms)</td>
+<td>Medium</td>
+<td>Both support AcroForms with different API surfaces</td>
+</tr>
+<tr>
+<td>Digital signatures</td>
+<td>Medium-High</td>
+<td>Different libraries and API patterns</td>
+</tr>
+<tr>
+<td>PDF/A validation</td>
+<td>High / N/A</td>
+<td>PDFBox has Preflight subproject for PDF/A validation; IronPDF supports PDF/A export -- verify validation</td>
+</tr>
+<tr>
+<td>Image extraction</td>
+<td>Medium</td>
+<td>Both support image extraction with different APIs</td>
+</tr>
+<tr>
+<td>PDF rendering to image</td>
+<td>Medium</td>
+<td>PDFBox renders pages to BufferedImage; verify IronPDF rasterization</td>
+</tr>
+</table>
+
+<h2>What Does the Quick Start Migration Look Like?</h2>
+
+<p>I will walk you through three steps: license configuration, namespace imports, and basic PDF creation.</p>
+
+<h3>Step 1: License Configuration</h3>
+
+<p>PDFBox is Apache-licensed, so there is no license key. But you need a JVM, Maven, and a Java project structure. IronPDF requires a single license key line -- and no JVM at all.</p>
+
+<h3>PDFBox License Setup (Java)</h3>
+
+<pre><code>// PDFBox is Apache-licensed — no license key required
+// But you need a JVM, Maven, and a Java project structure
+import org.apache.pdfbox.pdmodel.PDDocument;
+
+public class PdfService {
+    public static void main(String[] args) throws Exception {
+        // Just start using it — after setting up Maven, JDK, etc.
+        PDDocument document = new PDDocument();
+        System.out.println("PDFBox ready. Pages: " + document.getNumberOfPages());
+        document.close();
+    }
+}</code></pre>
+
+<h3>IronPDF License Setup (C#)</h3>
+
+<pre><code>using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        // License key — trial available at ironpdf.com
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        Console.WriteLine($"IronPDF licensed: {License.IsLicensed}");
+        // No JVM, no Maven, no second language
+    }
+}</code></pre>
+
+<h3>Step 2: Namespace Imports</h3>
+
+<h3>PDFBox Imports (Java)</h3>
+
+<pre><code>import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.multipdf.PDFMergerUtility;</code></pre>
+
+<h3>IronPDF Imports (C#)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;    // watermarks, headers, footers
+using IronPdf.Rendering;  // render options</code></pre>
+
+<h3>Step 3: Basic PDF Creation</h3>
+
+<h3>PDFBox PDF Creation (Java, ~20 lines)</h3>
+
+<pre><code>import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+
+public class CreatePdf {
+    public static void main(String[] args) throws Exception {
+        PDDocument document = new PDDocument();
+        PDPage page = new PDPage(PDRectangle.LETTER);
+        document.addPage(page);
+
+        PDPageContentStream content = new PDPageContentStream(document, page);
+        content.beginText();
+        content.setFont(PDType1Font.HELVETICA, 24);
+        content.newLineAtOffset(50, 700); // x, y from bottom-left
+        content.showText("Monthly Report");
+        content.endText();
+        content.close();
+
+        document.save("report_pdfbox.pdf");
+        document.close();
+        System.out.println("Saved with PDFBox.");
+    }
+}</code></pre>
+
+<h3>IronPDF PDF Creation (C#, 10 lines)</h3>
+
+<pre><code>using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.Letter;
+
+        var pdf = renderer.RenderHtmlAsPdf(
+            "&lt;h1 style='font-family:Helvetica;font-size:24pt;'&gt;Monthly Report&lt;/h1&gt;");
+
+        pdf.SaveAs("report_ironpdf.pdf");
+        Console.WriteLine("Saved with IronPDF.");
+    }
+}</code></pre>
+
+<p>No JVM. No Maven. No coordinate offsets. The <a href="https://ironpdf.com/tutorials/html-to-pdf/">IronPDF HTML-to-PDF tutorial</a> covers rendering options in detail.</p>
+
+<h2>How Do I Convert HTML to PDF After Migrating?</h2>
+
+<p>PDFBox has no HTML-to-PDF capability. The common workaround is shelling out to a separate tool like wkhtmltopdf from Java. With IronPDF, HTML rendering is built in.</p>
+
+<h3>PDFBox HTML-to-PDF Workaround (Java)</h3>
+
+<pre><code>// PDFBox cannot convert HTML to PDF.
+// Common workaround: use a separate tool and call it from Java
+import java.io.IOException;
+
+public class HtmlToPdfPdfbox {
+    public static void main(String[] args) throws IOException, InterruptedException {
+        // Option A: Shell out to wkhtmltopdf
+        ProcessBuilder pb = new ProcessBuilder(
+            "wkhtmltopdf",
+            "--page-size", "Letter",
+            "--margin-top", "20",
+            "--margin-bottom", "20",
+            "input.html",
+            "report.pdf"
+        );
+        Process process = pb.start();
+        int exitCode = process.waitFor();
+
+        if (exitCode != 0) {
+            System.err.println("wkhtmltopdf failed: " + exitCode);
+            return;
+        }
+
+        // Option B: Then post-process with PDFBox if needed
+        // PDDocument doc = PDDocument.load(new File("report.pdf"));
+        // ... manipulate ...
+        // doc.save("report_final.pdf");
+        // doc.close();
+
+        System.out.println("Generated with wkhtmltopdf + PDFBox.");
+    }
+}</code></pre>
+
+<h3>IronPDF HTML-to-PDF (C#)</h3>
+
+<pre><code>using IronPdf;
+
+class HtmlToPdfIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.Letter;
+        renderer.RenderingOptions.MarginTop = 20;
+        renderer.RenderingOptions.MarginBottom = 20;
+        renderer.RenderingOptions.PrintHtmlBackgrounds = true;
+
+        var pdf = renderer.RenderHtmlAsPdf(@"
+            &lt;html&gt;&lt;head&gt;&lt;style&gt;
+                body { font-family: Arial, sans-serif; }
+                .title { color: #1a237e; border-bottom: 2px solid #1a237e; padding-bottom: 10px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                td, th { padding: 10px; border: 1px solid #e0e0e0; }
+                th { background: #f5f5f5; }
+            &lt;/style&gt;&lt;/head&gt;&lt;body&gt;
+                &lt;h1 class='title'&gt;Q4 Sales Report&lt;/h1&gt;
+                &lt;table&gt;
+                    &lt;tr&gt;&lt;th&gt;Region&lt;/th&gt;&lt;th&gt;Revenue&lt;/th&gt;&lt;th&gt;Growth&lt;/th&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;North&lt;/td&gt;&lt;td&gt;$1.2M&lt;/td&gt;&lt;td&gt;+12%&lt;/td&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;South&lt;/td&gt;&lt;td&gt;$890K&lt;/td&gt;&lt;td&gt;+8%&lt;/td&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;West&lt;/td&gt;&lt;td&gt;$2.1M&lt;/td&gt;&lt;td&gt;+22%&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;
+            &lt;/body&gt;&lt;/html&gt;");
+
+        pdf.SaveAs("report.pdf");
+        Console.WriteLine("Saved with IronPDF.");
+    }
+}</code></pre>
+
+<p>No external process. No second language. See the <a href="https://ironpdf.com/tutorials/html-to-pdf/">IronPDF HTML-to-PDF tutorial</a>.</p>
+
+<h2>How Do I Merge PDFs After Migrating?</h2>
+
+<p>PDFBox merging requires creating a <code>PDFMergerUtility</code>, adding sources, and configuring memory settings. IronPDF reduces this to a single static method call.</p>
+
+<h3>PDFBox Merge (Java)</h3>
+
+<pre><code>import org.apache.pdfbox.multipdf.PDFMergerUtility;
+import org.apache.pdfbox.io.MemoryUsageSetting;
+import java.io.File;
+
+public class MergePdfbox {
+    public static void main(String[] args) throws Exception {
+        PDFMergerUtility merger = new PDFMergerUtility();
+
+        merger.addSource(new File("part1.pdf"));
+        merger.addSource(new File("part2.pdf"));
+        merger.setDestinationFileName("merged_pdfbox.pdf");
+
+        // MemoryUsageSetting controls temp file vs. memory usage
+        merger.mergeDocuments(MemoryUsageSetting.setupMainMemoryOnly());
+
+        System.out.println("Merged with PDFBox.");
+    }
+}</code></pre>
+
+<h3>IronPDF Merge (C#)</h3>
+
+<pre><code>using IronPdf;
+
+class MergeIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf1 = PdfDocument.FromFile("part1.pdf");
+        var pdf2 = PdfDocument.FromFile("part2.pdf");
+
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged.pdf");
+        Console.WriteLine("Merged with IronPDF.");
+    }
+}</code></pre>
+
+<p>No <code>MemoryUsageSetting</code>. No merger utility class. See <a href="https://ironpdf.com/examples/merge-pdfs/">IronPDF merge documentation</a>.</p>
+
+<h2>How Do I Apply Watermarks After Migrating?</h2>
+
+<p>PDFBox watermarking requires content stream operations, matrix transforms, and per-page loops. IronPDF replaces all of that with a single HTML string.</p>
+
+<h3>PDFBox Watermark (Java, content stream drawing)</h3>
+
+<pre><code>import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.util.Matrix;
+import java.io.File;
+
+public class WatermarkPdfbox {
+    public static void main(String[] args) throws Exception {
+        PDDocument doc = PDDocument.load(new File("input.pdf"));
+
+        for (PDPage page : doc.getPages()) {
+            PDPageContentStream cs = new PDPageContentStream(
+                doc, page, PDPageContentStream.AppendMode.APPEND, true, true);
+
+            cs.setFont(PDType1Font.HELVETICA, 48);
+            cs.setNonStrokingColor(200, 200, 200); // light gray
+
+            // Rotate 45 degrees around page center
+            float cx = page.getMediaBox().getWidth() / 2;
+            float cy = page.getMediaBox().getHeight() / 2;
+            cs.transform(Matrix.getRotateInstance(
+                Math.toRadians(45), cx, cy));
+
+            cs.beginText();
+            cs.newLineAtOffset(cx - 100, cy); // approximate centering
+            cs.showText("CONFIDENTIAL");
+            cs.endText();
+            cs.close();
+        }
+
+        doc.save("watermarked_pdfbox.pdf");
+        doc.close();
+        System.out.println("Watermarked with PDFBox.");
+    }
+}</code></pre>
+
+<h3>IronPDF Watermark (C#)</h3>
+
+<pre><code>using IronPdf;
+
+class WatermarkIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.ApplyWatermark(
+            "&lt;h1 style='color:rgb(200,200,200);font-size:48px;opacity:0.5;font-family:Helvetica;'&gt;CONFIDENTIAL&lt;/h1&gt;",
+            rotation: 45
+        );
+
+        pdf.SaveAs("watermarked.pdf");
+        Console.WriteLine("Watermarked with IronPDF.");
+    }
+}</code></pre>
+
+<h2>How Do I Add Password Protection After Migrating?</h2>
+
+<p>PDFBox encryption requires creating <code>AccessPermission</code> and <code>StandardProtectionPolicy</code> objects. IronPDF exposes the same controls through a single <code>SecuritySettings</code> property.</p>
+
+<h3>PDFBox Password Protection (Java)</h3>
+
+<pre><code>import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.encryption.AccessPermission;
+import org.apache.pdfbox.pdmodel.encryption.StandardProtectionPolicy;
+import java.io.File;
+
+public class PasswordPdfbox {
+    public static void main(String[] args) throws Exception {
+        PDDocument doc = PDDocument.load(new File("input.pdf"));
+
+        AccessPermission perms = new AccessPermission();
+        perms.setCanPrint(false);
+        perms.setCanModify(false);
+        perms.setCanExtractContent(false);
+
+        StandardProtectionPolicy policy = new StandardProtectionPolicy(
+            "owner123",  // owner password
+            "user456",   // user password
+            perms
+        );
+        policy.setEncryptionKeyLength(128);
+
+        doc.protect(policy);
+        doc.save("protected_pdfbox.pdf");
+        doc.close();
+        System.out.println("Protected with PDFBox.");
+    }
+}</code></pre>
+
+<h3>IronPDF Password Protection (C#)</h3>
+
+<pre><code>using IronPdf;
+
+class PasswordIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.SecuritySettings.OwnerPassword = "owner123";
+        pdf.SecuritySettings.UserPassword = "user456";
+        pdf.SecuritySettings.AllowUserPrinting = IronPdf.Security.PdfPrintSecurity.NoPrint;
+        pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+        pdf.SecuritySettings.AllowUserEdits = IronPdf.Security.PdfEditSecurity.NoEdit;
+
+        pdf.SaveAs("protected.pdf");
+        Console.WriteLine("Protected with IronPDF.");
+    }
+}</code></pre>
+
+<p>No <code>AccessPermission</code> + <code>StandardProtectionPolicy</code> ceremony. See <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">IronPDF security documentation</a>.</p>
+
+<h2>What Are the Complete API Mappings Between PDFBox and IronPDF?</h2>
+
+<p>These map Java PDFBox APIs to C# IronPDF APIs. The language change is the most significant part of this migration.</p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<tr>
+<th>PDFBox Package (Java)</th>
+<th>IronPDF Namespace (C#)</th>
+<th>Purpose</th>
+</tr>
+<tr>
+<td>org.apache.pdfbox.pdmodel</td>
+<td>IronPdf</td>
+<td>Core document model</td>
+</tr>
+<tr>
+<td>org.apache.pdfbox.pdmodel.font</td>
+<td>CSS font-family in HTML</td>
+<td>Font handling</td>
+</tr>
+<tr>
+<td>org.apache.pdfbox.multipdf</td>
+<td>IronPdf</td>
+<td>Merge/split utilities</td>
+</tr>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr>
+<th>PDFBox Class (Java)</th>
+<th>IronPDF Class (C#)</th>
+<th>Description</th>
+</tr>
+<tr>
+<td>PDDocument</td>
+<td>PdfDocument</td>
+<td>The PDF document object</td>
+</tr>
+<tr>
+<td>PDPage</td>
+<td>pdf.Pages[n]</td>
+<td>Individual page access</td>
+</tr>
+<tr>
+<td>PDPageContentStream</td>
+<td>HTML/CSS via ChromePdfRenderer</td>
+<td>Content creation -- IronPDF uses HTML instead of drawing commands</td>
+</tr>
+<tr>
+<td>PDFMergerUtility</td>
+<td>PdfDocument.Merge()</td>
+<td>Document merging</td>
+</tr>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<tr>
+<th>Operation</th>
+<th>PDFBox (Java)</th>
+<th>IronPDF (C#)</th>
+</tr>
+<tr>
+<td>Open from file</td>
+<td>PDDocument.load(new File("f.pdf"))</td>
+<td>PdfDocument.FromFile("f.pdf")</td>
+</tr>
+<tr>
+<td>Open with password</td>
+<td>PDDocument.load(file, "pass")</td>
+<td>PdfDocument.FromFile("f.pdf", "pass")</td>
+</tr>
+<tr>
+<td>Create new</td>
+<td>new PDDocument()</td>
+<td>renderer.RenderHtmlAsPdf(html)</td>
+</tr>
+<tr>
+<td>Save</td>
+<td>document.save("out.pdf")</td>
+<td>pdf.SaveAs("out.pdf")</td>
+</tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr>
+<th>Operation</th>
+<th>PDFBox (Java)</th>
+<th>IronPDF (C#)</th>
+</tr>
+<tr>
+<td>Get page count</td>
+<td>document.getNumberOfPages()</td>
+<td>pdf.PageCount</td>
+</tr>
+<tr>
+<td>Get page</td>
+<td>document.getPage(index) (0-based)</td>
+<td>pdf.Pages[index] (0-based)</td>
+</tr>
+<tr>
+<td>Add page</td>
+<td>document.addPage(new PDPage())</td>
+<td>Render HTML (pages auto-created)</td>
+</tr>
+<tr>
+<td>Remove page</td>
+<td>document.removePage(index)</td>
+<td>pdf.RemovePage(index)</td>
+</tr>
+</table>
+
+<h3>Merge / Split Operations</h3>
+
+<table>
+<tr>
+<th>Operation</th>
+<th>PDFBox (Java)</th>
+<th>IronPDF (C#)</th>
+</tr>
+<tr>
+<td>Merge</td>
+<td>PDFMergerUtility -> addSource() -> mergeDocuments()</td>
+<td>PdfDocument.Merge(pdf1, pdf2)</td>
+</tr>
+<tr>
+<td>Extract pages</td>
+<td>PDDocument.getPage() + new doc + import page</td>
+<td>pdf.CopyPages(start, end)</td>
+</tr>
+</table>
+
+<h2>What Should I Watch Out for During Migration?</h2>
+
+<p><strong>The language shift is the migration.</strong> Unlike migrating between two .NET libraries, this migration crosses a language boundary. You are not just swapping API calls -- you are eliminating a JVM dependency, a Java build tool, and potentially a microservice. Plan for decommissioning the Java infrastructure, not just rewriting the code.</p>
+
+<p><strong>Page indexing.</strong> Both PDFBox and IronPDF use 0-based page indexing. This is the one thing that does not change.</p>
+
+<p><strong>Text extraction ordering.</strong> PDFBox's <code>PDFTextStripper</code> extracts text in content stream order by default, which can produce scrambled output. You must set <code>setSortByPosition(true)</code> for visual reading order. IronPDF's text extraction may handle ordering differently -- test with your specific documents.</p>
+
+<p><strong>Resource management.</strong> PDFBox's <code>PDDocument</code> must be explicitly closed (<code>document.close()</code> in Java). IronPDF's <code>PdfDocument</code> implements <code>IDisposable</code> -- use <code>using</code> blocks in C#. The pattern maps naturally.</p>
+
+<p><strong>Bouncy Castle dependency.</strong> PDFBox uses Bouncy Castle for encryption in Java. IronPDF handles encryption internally in .NET. You can remove the Bouncy Castle Java dependency entirely.</p>
+
+<p><strong>Eliminating the network hop.</strong> If PDFBox runs in a sidecar microservice, every PDF operation incurs HTTP serialization overhead. Moving to IronPDF makes PDF operations in-process:</p>
+
+<pre><code>// Before: HTTP call to Java PDFBox service
+var response = await httpClient.PostAsync("http://pdf-service/merge",
+    new StringContent(JsonSerializer.Serialize(request)));
+
+// After: in-process, no network
+var merged = PdfDocument.Merge(pdf1, pdf2);</code></pre>
+
+<p><strong>Renderer reuse.</strong> Create one <code>ChromePdfRenderer</code> and reuse it:</p>
+
+<pre><code>private static readonly ChromePdfRenderer _renderer = new ChromePdfRenderer();</code></pre>
+
+<p><strong>Disposal.</strong> Always wrap <code>PdfDocument</code> instances in <code>using</code> blocks:</p>
+
+<pre><code>using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");</code></pre>
+
+<h2>What Edge Cases Should I Test?</h2>
+
+<p><strong>Text extraction quality.</strong> PDFBox's <code>PDFTextStripper</code> is well-regarded for extraction quality. Test IronPDF's text extraction against your specific document corpus. For extraction-heavy workloads, also consider PdfPig, a .NET-native PDF text extraction library that works without IronPDF.</p>
+
+<p><strong>PDF/A validation.</strong> PDFBox's Preflight module validates PDF/A compliance. IronPDF generates PDF/A but may not validate existing documents -- if you need validation, consider keeping Preflight as a separate tool or using veraPDF.</p>
+
+<p><strong>Large file memory.</strong> PDFBox offers <code>MemoryUsageSetting</code> to control memory vs. temp-file trade-offs for large documents. IronPDF handles this internally -- test with your largest production documents.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Is Apache PDFBox free and IronPDF paid?</h3>
+
+<p><strong>Answer:</strong> Yes. Apache PDFBox is free under the Apache License v2.0. IronPDF uses per-developer perpetual licenses. The cost trade-off is not just the license fee -- it is the JVM infrastructure, the cross-language bridge maintenance, and the deployment complexity that PDFBox requires in a .NET ecosystem.</p>
+
+<p>Many teams find the operational savings from eliminating the Java dependency outweigh the license cost. A <a href="https://ironpdf.com/get-started/license-keys/">trial key</a> lets you evaluate before committing.</p>
+
+<h3>Can I migrate incrementally or do I have to replace everything at once?</h3>
+
+<p><strong>Answer:</strong> You can migrate incrementally. Start with the highest-value operation -- typically HTML-to-PDF, since PDFBox cannot do this at all. Leave lower-priority operations (like text extraction) running through the existing PDFBox bridge while you validate IronPDF's output.</p>
+
+<p>The key is that each operation you migrate removes one HTTP call or interop boundary. You do not need to decommission the Java service until every operation has been ported.</p>
+
+<h3>What happens to my PDFBox Preflight (PDF/A validation) workflows?</h3>
+
+<p><strong>Answer:</strong> IronPDF supports PDF/A export but may not validate existing documents the way PDFBox's Preflight module does. If PDF/A validation is critical, consider keeping Preflight as a standalone validation tool or switching to veraPDF.</p>
+
+<p>This is one area where the migration is not a clean one-to-one swap. Audit your PDF/A workflows before migrating.</p>
+
+<h3>How do I handle text extraction differences between PDFBox and IronPDF?</h3>
+
+<p><strong>Answer:</strong> PDFBox's <code>PDFTextStripper</code> extracts text in content stream order by default, which is not necessarily visual order. You must explicitly call <code>setSortByPosition(true)</code> for reading-order output. IronPDF may handle ordering differently.</p>
+
+<p>Test with at least 10 diverse documents from your production corpus. Compare output line by line. For extraction-heavy workloads, PdfPig is a .NET-native alternative worth evaluating alongside IronPDF.</p>
+
+<h3>Do I need to change my page indexing code?</h3>
+
+<p><strong>Answer:</strong> No. Both PDFBox and IronPDF use 0-based page indexing. This is one of the few areas where the migration requires zero code changes beyond the API surface swap.</p>
+
+<p>The method names change -- <code>document.getPage(index)</code> becomes <code>pdf.Pages[index]</code> -- but the index values stay the same.</p>
+
+<h3>What is the recommended migration scenario for my team?</h3>
+
+<p><strong>Answer:</strong> It depends on your current integration pattern. If your .NET app calls a Java PDFBox sidecar for basic operations, migrate -- eliminate the cross-language bridge entirely. If your full .NET stack needs HTML-to-PDF plus manipulation, migrate -- IronPDF covers both in one NuGet package.</p>
+
+<p>If PDFBox is used only for text extraction, evaluate carefully. IronPDF extracts text, but you might also consider lighter .NET-native alternatives like PdfPig. If PDFBox is used for PDF/A validation via Preflight, keep Preflight or find a dedicated validator.</p>
+
+<h2>Conclusion</h2>
+
+<p>The real migration here is not API-to-API. It is ecosystem-to-ecosystem. You are removing a JVM, a Maven build, and a network boundary from your architecture. The code translation is the easy part. The deployment simplification is where the time savings compound.</p>
+
+<p>If you are currently bridging to PDFBox via IKVM, know that IKVM's compatibility with newer Java versions is limited. The project is actively maintained but does not cover all Java 11+ features. If you stay in .NET but want a free option, PdfPig handles text extraction and basic manipulation in pure C# under Apache 2.0, though it does not do HTML-to-PDF.</p>
+
+<p>For teams that need HTML rendering, merging, watermarking, and encryption in one package without maintaining a second language runtime, <a href="https://ironpdf.com">IronPDF</a> consolidates everything into a single NuGet install. Start with a <a href="https://ironpdf.com/get-started/license-keys/">trial key</a> and migrate one operation at a time.</p>

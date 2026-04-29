@@ -1,0 +1,419 @@
+<h1>Playwright vs IronPDF: The Decision Guide for .NET Teams</h1>
+
+<p>A common pattern in .NET shops: teams already use Playwright for end-to-end testing and discover its <code>page.Pdf()</code> method. The logic seems sound — we're already managing Playwright for tests, why add another dependency for PDF generation? One team ran this experiment: they measured first-render time (Playwright: 1.2s, IronPDF: 0.8s) and concluded Playwright was "close enough." Then they deployed to production. Under load, the testing-first architecture showed: full browser contexts per request consumed 3x memory, no renderer reuse optimization, and browser lifecycle management added complexity. The tool worked; the architecture didn't scale.</p>
+
+<p>Playwright is Microsoft's browser automation framework designed for comprehensive testing across Chromium, Firefox, and WebKit. <a href="https://ironpdf.com">IronPDF</a> approaches PDF generation as the primary problem: embedded Chromium engine optimized specifically for HTML-to-PDF conversion. This comparison examines where each tool fits and when testing-first architecture creates overhead for document generation workloads.</p>
+
+<h2>What Is Playwright?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Playwright is Microsoft's browser automation framework designed for comprehensive testing across Chromium, Firefox, and WebKit. The library manages browser processes, provides testing utilities (assertions, fixtures, reporters), and includes PDF generation as an ancillary feature through the browser's print-to-PDF functionality.</p>
+
+<p>This architecture makes sense for test scenarios — launch browser, run test, generate PDF of test results. For production document generation, the testing-first design creates overhead: each PDF requires full browser context initialization, no built-in renderer reuse patterns, and resource management designed for test isolation rather than throughput.</p>
+
+<h2>What Is IronPDF?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p><a href="https://ironpdf.com">IronPDF</a> approaches PDF generation as the primary problem: embedded Chromium engine optimized specifically for HTML-to-PDF conversion. The architecture supports renderer reuse (initialize once, render many), async patterns for concurrent operations, and resource management tuned for document generation workloads. The tradeoff: testing features (assertions, fixtures, cross-browser) aren't included because they're irrelevant to PDF generation.</p>
+
+<p>IronPDF's workflow is: initialize <code>ChromePdfRenderer</code>, call <code>RenderHtmlAsPdf()</code> repeatedly for multiple documents, dispose when done. The renderer reuse pattern amortizes Chromium startup costs across multiple conversions. Installation is a single NuGet package with Chromium bundled and lifecycle managed automatically. Performance optimization focuses on document throughput rather than test isolation.</p>
+
+<h2>What Are the Key Limitations of Playwright for PDF Generation?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p><strong>Product status:</strong> Active open-source project by Microsoft with official .NET bindings. Excellent for browser automation and testing. PDF generation is a secondary feature, not the primary design goal. Documentation focuses on testing scenarios; PDF-specific optimization patterns are minimal. Community support strong for testing use cases; PDF-specific performance guidance limited.</p>
+
+<p><strong>Missing capabilities:</strong> No dedicated PDF-generation API — uses browser print functionality. No renderer reuse patterns documented for PDF scenarios. No built-in merge, split, or edit operations on generated PDFs. No watermarking, encryption, or digital signature support. No text extraction or metadata editing APIs. PDF features limited to what browser print dialogs expose. For document manipulation beyond generation, separate libraries required.</p>
+
+<p><strong>Technical issues:</strong> Full browser context per conversion (high memory overhead). No automatic renderer reuse — each PDF generation launches/tears down browser resources. Browser binary downloads required (~400MB Chromium). Cold start requires PowerShell script execution (<code>playwright.ps1 install</code>). PDF generation Chromium-only (Firefox/WebKit don't support <code>page.Pdf()</code>). Process management complexity in containerized deployments. Resource cleanup critical — leaked browser processes consume memory.</p>
+
+<p><strong>Support status:</strong> Microsoft-backed OSS project with active community. Documentation excellent for testing, adequate for PDF generation. GitHub Issues for bug reports — testing issues prioritized over PDF-specific concerns. No commercial support offering. For production PDF workloads requiring SLA or vendor escalation, OSS support model creates risk.</p>
+
+<p><strong>Architecture problems:</strong> Testing-first architecture mismatched with document generation requirements. Browser contexts designed for isolation (each test independent), not throughput (reuse resources). No built-in patterns for high-volume PDF production. Resource management requires careful coding — easy to leak browser processes.</p>
+
+<h2>How Does Single PDF Generation Compare? (Cold Start)</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Playwright — Browser Launch Overhead</h3>
+
+<pre><code>// Install-Package Microsoft.Playwright
+// Then run: pwsh bin/Debug/net8.0/playwright.ps1 install
+
+using System;
+using System.Threading.Tasks;
+using Microsoft.Playwright;
+
+public class PlaywrightPdfGenerator
+{
+    public async Task GenerateSinglePdf()
+    {
+        // Initialize Playwright (one-time setup)
+        var playwright = await Playwright.CreateAsync();
+
+        // Launch browser (significant overhead)
+        var browser = await playwright.Chromium.LaunchAsync(new()
+        {
+            Headless = true
+        });
+
+        // Create browser context
+        var context = await browser.NewContextAsync();
+
+        // Create page
+        var page = await context.NewPageAsync();
+
+        // Navigate to HTML (can be URL or SetContent)
+        await page.SetContentAsync(@"
+            &lt;html&gt;
+            &lt;body&gt;
+                &lt;h1&gt;Invoice #2026-001&lt;/h1&gt;
+                &lt;p&gt;Generated at: " + DateTime.Now + @"&lt;/p&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;");
+
+        // Generate PDF
+        await page.PdfAsync(new()
+        {
+            Path = "invoice.pdf",
+            Format = "A4"
+        });
+
+        // Cleanup (critical to avoid resource leaks)
+        await page.CloseAsync();
+        await context.CloseAsync();
+        await browser.CloseAsync();
+        playwright.Dispose();
+    }
+}</code></pre>
+
+<p>Performance characteristics: cold start overhead of ~1-2 seconds (browser launch + context initialization), memory footprint of ~150-200MB per browser instance, external Chromium process created/destroyed, resource cleanup critical since leaked processes consume memory indefinitely, no automatic reuse (each call launches new browser), and browser binaries must be downloaded separately.</p>
+
+<h3>IronPDF — Optimized Cold Start</h3>
+
+<pre><code>// Install-Package IronPdf
+
+using System;
+using IronPdf;
+
+public class IronPdfGenerator
+{
+    public void GenerateSinglePdf()
+    {
+        var htmlContent = @"
+            &lt;html&gt;
+            &lt;body&gt;
+                &lt;h1&gt;Invoice #2026-001&lt;/h1&gt;
+                &lt;p&gt;Generated at: " + DateTime.Now + @"&lt;/p&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs("invoice.pdf");
+    }
+}</code></pre>
+
+<p>Performance characteristics: cold start overhead of ~0.5-1 second (first render initializes Chromium), memory footprint of ~80-120MB initial, managed Chromium lifecycle handled internally, automatic resource cleanup, and a simpler API with fewer abstractions than a browser automation framework.</p>
+
+<p>Cold start comparison (approximate): Playwright at 1,000-2,000ms (browser launch + context) versus IronPDF at 500-1,000ms (Chromium initialization).</p>
+
+<h2>How Does Batch PDF Generation Compare? (Renderer Reuse)</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Playwright — Manual Reuse Pattern</h3>
+
+<pre><code>using System;
+using System.Threading.Tasks;
+using Microsoft.Playwright;
+
+public class PlaywrightBatchGenerator
+{
+    public async Task GenerateBatchPdfs(int count)
+    {
+        var playwright = await Playwright.CreateAsync();
+        var browser = await playwright.Chromium.LaunchAsync(new() { Headless = true });
+        var context = await browser.NewContextAsync();
+
+        // Reuse single page for multiple PDFs
+        var page = await context.NewPageAsync();
+
+        for (int i = 0; i &lt; count; i++)
+        {
+            await page.SetContentAsync($@"
+                &lt;html&gt;&lt;body&gt;
+                    &lt;h1&gt;Document #{i + 1}&lt;/h1&gt;
+                    &lt;p&gt;Batch generation test&lt;/p&gt;
+                &lt;/body&gt;&lt;/html&gt;");
+
+            await page.PdfAsync(new()
+            {
+                Path = $"document_{i + 1}.pdf",
+                Format = "A4"
+            });
+        }
+
+        await page.CloseAsync();
+        await context.CloseAsync();
+        await browser.CloseAsync();
+        playwright.Dispose();
+    }
+}</code></pre>
+
+<p>Performance characteristics: Page.SetContent() per document adds ~50-100ms reuse overhead, context accumulates state across renders, no built-in optimization (manual reuse pattern required), browser context not designed for high-volume reuse, and must track multiple async resources for cleanup.</p>
+
+<h3>IronPDF — Built-in Renderer Reuse</h3>
+
+<pre><code>using IronPdf;
+
+public class IronPdfBatchGenerator
+{
+    public void GenerateBatchPdfs(int count)
+    {
+        // Renderer reuse pattern built-in
+        var renderer = new ChromePdfRenderer();
+
+        for (int i = 0; i &lt; count; i++)
+        {
+            var html = $@"
+                &lt;html&gt;&lt;body&gt;
+                    &lt;h1&gt;Document #{i + 1}&lt;/h1&gt;
+                    &lt;p&gt;Batch generation test&lt;/p&gt;
+                &lt;/body&gt;&lt;/html&gt;";
+
+            var pdf = renderer.RenderHtmlAsPdf(html);
+            pdf.SaveAs($"document_{i + 1}.pdf");
+        }
+
+        // Single renderer used for all conversions
+    }
+}</code></pre>
+
+<p>Performance characteristics: amortized startup with first render ~500ms and subsequent ~100-200ms, memory stays stable, renderer reuse pattern designed-in, simpler code with no manual resource tracking, and architecture designed for batch operations.</p>
+
+<p>Batch performance comparison (100 PDFs): Playwright with no reuse at ~1,000ms per PDF (total: ~100 seconds), Playwright with manual reuse at ~100-150ms per PDF after first (total: ~12 seconds), IronPDF with automatic reuse at ~100-200ms per PDF after first (total: ~10-12 seconds). For performance optimization patterns, see the <a href="https://ironpdf.com/how-to/rendering-options/">IronPDF performance guide</a>.</p>
+
+<h2>How Does Concurrent PDF Generation Compare?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Playwright — Multiple Browser Instances</h3>
+
+<pre><code>using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.Playwright;
+
+public class PlaywrightConcurrentGenerator
+{
+    public async Task GenerateConcurrentPdfs(int concurrency)
+    {
+        var tasks = new List&lt;Task&gt;();
+
+        for (int i = 0; i &lt; concurrency; i++)
+        {
+            int docIndex = i;
+            tasks.Add(Task.Run(async () =&gt;
+            {
+                var playwright = await Playwright.CreateAsync();
+                var browser = await playwright.Chromium.LaunchAsync(new() { Headless = true });
+                var page = await browser.NewPageAsync();
+
+                await page.SetContentAsync($"&lt;html&gt;&lt;body&gt;&lt;h1&gt;Document {docIndex}&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+                await page.PdfAsync(new() { Path = $"doc_{docIndex}.pdf" });
+
+                await page.CloseAsync();
+                await browser.CloseAsync();
+                playwright.Dispose();
+            }));
+        }
+
+        await Task.WhenAll(tasks);
+    }
+}</code></pre>
+
+<p>Performance characteristics: high memory usage (each concurrent task = separate browser at ~150MB), multiple Chromium processes running simultaneously, memory constrains practical concurrency (~5-10 on typical hardware), and must ensure all async resources are disposed.</p>
+
+<h3>IronPDF — Concurrent Renderer Pattern</h3>
+
+<pre><code>using System.Collections.Generic;
+using System.Threading.Tasks;
+using IronPdf;
+
+public class IronPdfConcurrentGenerator
+{
+    public async Task GenerateConcurrentPdfs(int concurrency)
+    {
+        var renderer = new ChromePdfRenderer();
+        var tasks = new List&lt;Task&gt;();
+
+        for (int i = 0; i &lt; concurrency; i++)
+        {
+            int docIndex = i;
+            tasks.Add(Task.Run(async () =&gt;
+            {
+                var html = $"&lt;html&gt;&lt;body&gt;&lt;h1&gt;Document {docIndex}&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
+                var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+                await pdf.SaveAsAsync($"doc_{docIndex}.pdf");
+            }));
+        }
+
+        await Task.WhenAll(tasks);
+    }
+}</code></pre>
+
+<p>Performance characteristics: single renderer handles concurrent requests, renderer pools resources internally for lower memory, built-in async support for concurrency, and better scaling with more concurrent operations per resource unit.</p>
+
+<p>Concurrency comparison (10 simultaneous PDFs): Playwright at ~1,500MB memory usage (10 browsers) versus IronPDF at ~400MB memory usage (shared renderer).</p>
+
+<h2>What Does the Feature Comparison Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr><th>Aspect</th><th>Playwright</th><th>IronPDF</th></tr>
+<tr><td><strong>Current Status</strong></td><td>Active (Microsoft OSS)</td><td>Active (commercial)</td></tr>
+<tr><td><strong>HTML Support</strong></td><td>Full (Chromium/Firefox/WebKit)</td><td>Full (Chromium)</td></tr>
+<tr><td><strong>Rendering Quality</strong></td><td>Browser-grade</td><td>Browser-grade optimized</td></tr>
+<tr><td><strong>Installation</strong></td><td>NuGet + browser binaries</td><td>Single NuGet</td></tr>
+<tr><td><strong>Support</strong></td><td>Community (GitHub)</td><td>Commercial</td></tr>
+<tr><td><strong>Future Viability</strong></td><td>Testing focus stable</td><td>PDF focus evolving</td></tr>
+</table>
+
+<h2>What Does the Comprehensive Feature Breakdown Reveal?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr><th>Feature</th><th>Playwright</th><th>IronPDF</th></tr>
+<tr><td colspan="3"><strong>Status &amp; Architecture</strong></td></tr>
+<tr><td>Primary Purpose</td><td>Browser testing</td><td>PDF generation</td></tr>
+<tr><td>License</td><td>Apache 2.0 (OSS)</td><td>Commercial</td></tr>
+<tr><td>Backing</td><td>Microsoft</td><td>IronSoftware</td></tr>
+<tr><td>Browser Support</td><td>Chromium/Firefox/WebKit</td><td>Chromium</td></tr>
+<tr><td>Architecture</td><td>External process (testing)</td><td>Embedded (generation)</td></tr>
+<tr><td>.NET Support</td><td>.NET 6/7/8/9</td><td>.NET 6/8/9/10 + Framework</td></tr>
+<tr><td colspan="3"><strong>PDF Generation</strong></td></tr>
+<tr><td>HTML to PDF</td><td>Yes (via print)</td><td>Yes (optimized)</td></tr>
+<tr><td>Renderer Reuse</td><td>Manual pattern</td><td>Automatic</td></tr>
+<tr><td>Async Support</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Concurrent Ops</td><td>Multiple browsers</td><td>Shared renderer</td></tr>
+<tr><td>Cold Start</td><td>Slower (~1-2s)</td><td>Faster (~0.5-1s)</td></tr>
+<tr><td>Memory Usage</td><td>Higher (per browser)</td><td>Lower (shared)</td></tr>
+<tr><td colspan="3"><strong>PDF Operations</strong></td></tr>
+<tr><td>Generate PDFs</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Merge PDFs</td><td>No</td><td>Yes</td></tr>
+<tr><td>Split PDFs</td><td>No</td><td>Yes</td></tr>
+<tr><td>Text Extraction</td><td>No</td><td>Yes</td></tr>
+<tr><td>Watermarks</td><td>No</td><td>Yes</td></tr>
+<tr><td>Encryption</td><td>No</td><td>Yes</td></tr>
+<tr><td>Digital Signatures</td><td>No</td><td>Yes</td></tr>
+<tr><td>Edit Existing</td><td>No</td><td>Limited</td></tr>
+<tr><td colspan="3"><strong>Deployment</strong></td></tr>
+<tr><td>Install Size</td><td>Large (~400MB+ browsers)</td><td>Moderate (~100MB Chromium)</td></tr>
+<tr><td>Setup Steps</td><td>NuGet + CLI (pwsh install)</td><td>Single NuGet</td></tr>
+<tr><td>Browser Download</td><td>Required (separate step)</td><td>Bundled</td></tr>
+<tr><td>Container Deploy</td><td>Complex (browser binaries)</td><td>Standard</td></tr>
+<tr><td colspan="3"><strong>Testing Features</strong></td></tr>
+<tr><td>E2E Testing</td><td>Yes (primary feature)</td><td>No</td></tr>
+<tr><td>Cross-browser</td><td>Chromium/Firefox/WebKit</td><td>N/A</td></tr>
+<tr><td>Test Assertions</td><td>Built-in</td><td>N/A</td></tr>
+<tr><td>Fixtures</td><td>Yes</td><td>N/A</td></tr>
+<tr><td>Reporters</td><td>Multiple formats</td><td>N/A</td></tr>
+</table>
+
+<h2>What Does the API Mapping Between Playwright and IronPDF Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr><th>Playwright Method</th><th>IronPDF Equivalent</th></tr>
+<tr><td><code>Playwright.CreateAsync()</code></td><td>Not needed — handled internally</td></tr>
+<tr><td><code>playwright.Chromium.LaunchAsync()</code></td><td>Not needed — handled internally</td></tr>
+<tr><td><code>browser.NewContextAsync()</code></td><td>Not needed — handled internally</td></tr>
+<tr><td><code>context.NewPageAsync()</code></td><td>Not needed — handled internally</td></tr>
+<tr><td><code>page.SetContentAsync(html)</code></td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td><code>page.GotoAsync(url)</code></td><td><code>renderer.RenderUrlAsPdf(url)</code></td></tr>
+<tr><td><code>page.PdfAsync()</code></td><td><code>RenderHtmlAsPdf()</code> (returns PdfDocument)</td></tr>
+<tr><td><code>page.CloseAsync()</code></td><td>Not needed — automatic</td></tr>
+<tr><td><code>browser.CloseAsync()</code></td><td>Not needed — automatic</td></tr>
+<tr><td>Manual browser reuse</td><td><code>ChromePdfRenderer</code> automatic reuse</td></tr>
+<tr><td>Page print options</td><td><code>RenderingOptions</code> properties</td></tr>
+<tr><td>No built-in merge</td><td><code>PdfDocument.Merge()</code></td></tr>
+<tr><td>No text extraction</td><td><code>pdf.ExtractAllText()</code></td></tr>
+<tr><td>No encryption</td><td><code>pdf.Password</code> property</td></tr>
+</table>
+
+<h2>How Do You Install Each Library?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Playwright Installation</h3>
+
+<pre><code># Install NuGet package
+dotnet add package Microsoft.Playwright
+
+# Build project
+dotnet build
+
+# Download browser binaries (required post-install step)
+pwsh bin/Debug/net8.0/playwright.ps1 install
+
+# Or in CI/CD
+pwsh bin/Release/net8.0/playwright.ps1 install chromium</code></pre>
+
+<pre><code>using Microsoft.Playwright;</code></pre>
+
+<p>Container deployment requires a Playwright base image or manually installing browsers:</p>
+
+<pre><code># Use Playwright base image (includes browsers)
+FROM mcr.microsoft.com/playwright/dotnet:v1.49.0-jammy
+# Or manually install browsers in custom image</code></pre>
+
+<h3>IronPDF Installation</h3>
+
+<pre><code># Single installation step
+dotnet add package IronPdf</code></pre>
+
+<pre><code>using IronPdf;</code></pre>
+
+<p>Container deployment uses standard .NET runtime with Chromium bundled in the package:</p>
+
+<pre><code># Standard .NET runtime (Chromium bundled in package)
+FROM mcr.microsoft.com/dotnet/aspnet:8.0</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can Playwright generate PDFs in production at scale?</h3>
+
+<p>Playwright can generate PDFs, but its testing-first architecture creates overhead at scale. Full browser context per PDF, manual reuse patterns required, and ~150-200MB memory per browser instance. Under load, the architecture designed for test isolation becomes a bottleneck — teams must build resource pooling and monitoring on top of testing-first architecture independently.</p>
+
+<h3>Why does Playwright use more memory than IronPDF for PDF generation?</h3>
+
+<p>Playwright launches full browser contexts designed for test isolation — each context gets independent state, cookies, and resources. For 10 simultaneous PDFs, that means ~1,500MB (10 separate browsers). <a href="https://ironpdf.com">IronPDF</a> shares a single renderer across concurrent requests, using ~400MB for the same workload because the architecture is designed for document throughput, not test isolation.</p>
+
+<h3>Does Playwright support PDF manipulation like merge, split, or watermark?</h3>
+
+<p>No. Playwright generates PDFs through the browser's print-to-PDF functionality, but has no built-in merge, split, edit, watermark, encryption, or digital signature support. For comprehensive PDF pipelines, teams must maintain Playwright (generation) plus another library (manipulation). IronPDF includes these operations natively through methods like <code>PdfDocument.Merge()</code>, <code>pdf.ExtractAllText()</code>, and the <code>pdf.Password</code> property.</p>
+
+<h3>What are the deployment differences between Playwright and IronPDF?</h3>
+
+<p>Playwright requires a NuGet package plus a separate CLI step (<code>playwright.ps1 install</code>) to download ~400MB of browser binaries. In containerized environments, this means custom Dockerfile layers, longer build times, and ensuring binaries are available at runtime. <a href="https://ironpdf.com/docs/">IronPDF</a> installs as a single NuGet package with Chromium bundled (~100MB), requiring no additional setup steps or custom container configurations.</p>
+
+<h3>When should I use Playwright versus IronPDF?</h3>
+
+<p>Use Playwright when browser automation and end-to-end testing are the primary need, with occasional PDF generation for test reports or screenshots. Use IronPDF when PDF generation is a production workload requiring renderer reuse, concurrent operations, low memory footprint, or document manipulation features. For teams needing both testing and PDF generation, the architectural question is: use Playwright for both (accept testing overhead for documents), or specialized tools (Playwright for tests, <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF</a> for PDFs).</p>
+
+<h2>Conclusion</h2>
+
+<p>Playwright excels at its designed purpose: browser automation and end-to-end testing across multiple browsers. The framework's testing-first architecture, cross-browser support, and comprehensive assertion libraries make it the right tool for test scenarios. PDF generation works as a side feature — adequate for test report generation, screenshot archiving, or occasional document needs. Microsoft's backing and active OSS community ensure long-term testing feature development.</p>
+
+<p>Migration from Playwright for PDF generation becomes relevant when: testing-first architecture overhead (browser context per PDF, manual reuse) outweighs tool reuse benefits, production document volumes expose resource management complexity designed for test isolation, missing PDF operations (merge, watermark, encrypt) require maintaining separate libraries anyway, or performance optimization burden (discovering reuse patterns, implementing pooling) exceeds dedicated PDF library benefits.</p>
+
+<p>IronPDF addresses PDF generation as the primary problem: embedded Chromium with renderer reuse patterns, async support, and resource management tuned for document throughput. For teams needing both testing and PDF generation, the evaluation centers on tool reuse versus architectural fit — use Playwright for both and accept testing overhead for documents, or use specialized tools for each purpose.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

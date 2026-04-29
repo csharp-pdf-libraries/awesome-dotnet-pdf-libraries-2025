@@ -1,0 +1,525 @@
+<h1>Migrating from NReco to IronPDF: What Breaks, What Doesn't</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>The PDF looks close. The heading font is right, the table renders, the footer is in the right position &mdash; but the column widths are slightly off, the image didn't align correctly, and the multi-line cell that looked fine in browser preview wrapped differently on page 3. You've spent hours tweaking CSS and the gap keeps closing but never quite closes.</p>
+
+<p>That is the CSS fidelity wall that teams hit with wkhtmltopdf-based generators, and NReco PDF Generator is a .NET wrapper around wkhtmltopdf. This article covers migrating from NReco PDF Generator to <a href="https://ironpdf.com/">IronPDF</a> and the troubleshooting patterns for the most common breakage points.</p>
+
+<h2>Why Should I Migrate from NReco PDF Generator?</h2>
+
+<p>Eight neutral triggers for leaving NReco PDF Generator:</p>
+
+<p><strong>WebKit vs Chromium rendering gap</strong> &mdash; modern CSS (Grid, Flexbox, CSS variables, some pseudo-elements) works in Chromium-based renderers but not in wkhtmltopdf's WebKit.</p>
+
+<p><strong>wkhtmltopdf is no longer actively developed</strong> &mdash; the upstream project appears unmaintained as of recent years. Verify current status before migration conversations.</p>
+
+<p><strong>Binary dependency management</strong> &mdash; wkhtmltopdf binary (or libwkhtmltopdf) must be installed in every environment. Docker images require explicit installation steps.</p>
+
+<p><strong>No PDF manipulation</strong> &mdash; NReco generates PDFs; it doesn't merge, split, watermark, or encrypt them. Secondary libraries are needed.</p>
+
+<p><strong>Subprocess or P/Invoke architecture</strong> &mdash; both patterns add complexity: process management, error handling, timeout management, interop fragility.</p>
+
+<p><strong>JavaScript rendering</strong> &mdash; wkhtmltopdf's JS support is limited. Dynamic content generated via modern JS frameworks may not render.</p>
+
+<p><strong>Font handling differences</strong> &mdash; system fonts on the render server must match what the template expects; font subsetting behavior differs from Chromium.</p>
+
+<p><strong>.NET version trajectory</strong> &mdash; verify NReco's compatibility with your target .NET version as you upgrade.</p>
+
+<h2>How Do NReco PDF Generator and IronPDF Compare Feature by Feature?</h2>
+
+<table>
+<tr><th>Aspect</th><th>NReco PDF Generator</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>HTML-to-PDF via wkhtmltopdf</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Free tier + commercial &mdash; verify at nrecosite.com</td><td>Commercial &mdash; verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>Wrapper around wkhtmltopdf subprocess/native</td><td>In-process .NET library</td></tr>
+<tr><td>Learning Curve</td><td>Low for basic use</td><td>Medium</td></tr>
+<tr><td>HTML Rendering</td><td>WebKit (wkhtmltopdf) &mdash; pre-modern CSS</td><td>Chromium-based &mdash; full CSS3</td></tr>
+<tr><td>Page Indexing</td><td>N/A (generation only)</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Subprocess: process-level isolation</td><td>Renderer instance reuse &mdash; see async docs</td></tr>
+<tr><td>Namespace</td><td><code>NReco.PdfGenerator</code></td><td><code>IronPdf</code></td></tr>
+</table>
+
+<h2>How Hard Is Each Feature to Migrate?</h2>
+
+<table>
+<tr><th>Feature</th><th>NReco Approach</th><th>Effort to Migrate</th></tr>
+<tr><td>HTML string to PDF</td><td><code>HtmlToPdfConverter.GeneratePdf()</code></td><td>Low</td></tr>
+<tr><td>URL to PDF</td><td><code>GeneratePdfFromUrl()</code></td><td>Low</td></tr>
+<tr><td>Custom margins</td><td><code>CustomWkhtmltopdfArgs</code> or property</td><td>Low</td></tr>
+<tr><td>Headers / footers</td><td><code>HtmlHeader</code> / <code>HtmlFooter</code></td><td>Medium</td></tr>
+<tr><td>wkhtmltopdf CLI flags</td><td><code>CustomWkhtmltopdfArgs</code></td><td>Medium &mdash; map to <code>ChromePdfRenderOptions</code></td></tr>
+<tr><td>Merge PDFs</td><td>External library required</td><td>Low (native in IronPDF)</td></tr>
+<tr><td>Watermark</td><td>External library required</td><td>Low</td></tr>
+<tr><td>Password protection</td><td>External library required</td><td>Low</td></tr>
+<tr><td>CSS Grid / Flexbox layouts</td><td>Broken in WebKit</td><td>Low to fix &mdash; automatic in Chromium</td></tr>
+<tr><td>JavaScript rendering</td><td>Limited in WebKit</td><td>Low to improve &mdash; Chromium supports more</td></tr>
+<tr><td>Binary management</td><td>Required</td><td>Eliminated</td></tr>
+</table>
+
+<h2>When Does It Make Sense to Migrate?</h2>
+
+<table>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+<tr><td>CSS fidelity gap is the primary problem</td><td>Chromium-based renderer is the fix; evaluate IronPDF or PuppeteerSharp</td></tr>
+<tr><td>wkhtmltopdf works fine for your templates</td><td>No urgent reason to migrate &mdash; factor in wkhtmltopdf maintenance trajectory</td></tr>
+<tr><td>Need merge/watermark/security in same library</td><td>IronPDF consolidates; removes secondary library dependency</td></tr>
+<tr><td>Open source budget constraint</td><td>PuppeteerSharp (free, Chromium-based) is an alternative</td></tr>
+</table>
+
+<h2>How Do I Diagnose Fidelity Problems Before Migrating?</h2>
+
+<p>Before migrating, confirm that the fidelity gap is renderer-related (WebKit vs Chromium) rather than a configuration issue. Some CSS fidelity problems with NReco/wkhtmltopdf are fixable.</p>
+
+<h3>Flexbox or CSS Grid layout broken</h3>
+
+<p>wkhtmltopdf uses a WebKit build from approximately 2012. CSS Flexbox and Grid have very limited support:</p>
+
+<pre><code># Verify your wkhtmltopdf version
+wkhtmltopdf --version
+# If &lt; 0.12.6, Flexbox may not work at all
+# Even 0.12.6 has incomplete Flexbox &mdash; Grid is largely unsupported</code></pre>
+
+<p>Fix within NReco: Convert layouts to <code>display: table</code> or float-based layouts (pre-Flexbox techniques). This works but means maintaining two CSS codebases if your HTML also renders in a browser.</p>
+
+<p>Fix via migration: Chromium-based renderer supports current CSS &mdash; no layout workarounds needed.</p>
+
+<h3>@media print rules not applying</h3>
+
+<pre><code>// NReco: enable media type setting
+var htmlToPdf = new NReco.PdfGenerator.HtmlToPdfConverter();
+htmlToPdf.CustomWkhtmltopdfArgs = "--print-media-type";
+// Verify this flag is set if your CSS uses @media print</code></pre>
+
+<p>If it was already set and still broken, the issue is WebKit-level &mdash; a renderer change is needed.</p>
+
+<h3>Background colors/images not rendering</h3>
+
+<pre><code>// NReco: enable background rendering
+var htmlToPdf = new NReco.PdfGenerator.HtmlToPdfConverter();
+htmlToPdf.CustomWkhtmltopdfArgs = "--background";
+// Also check: --disable-smart-shrinking</code></pre>
+
+<p>If after applying these fixes the output still doesn't match, the gap is likely renderer-level and migration is the more efficient path.</p>
+
+<h2>How Do I Set Up the Migration?</h2>
+
+<h3>Find NReco references in your codebase</h3>
+
+<pre><code># Find all NReco.PdfGenerator usage
+rg -l "NReco\|HtmlToPdfConverter" --type cs
+
+# Find converter instantiation
+rg "HtmlToPdfConverter\|new.*PdfConverter" --type cs -n
+
+# Find CustomWkhtmltopdfArgs usage &mdash; flags to migrate to options
+rg "CustomWkhtmltopdfArgs\|WkhtmltopdfPath" --type cs -n
+
+# Find using directives
+rg "using NReco" --type cs -n
+
+# Find wkhtmltopdf binary references
+rg "wkhtmltopdf" . -n 2&gt;/dev/null
+find . -name "wkhtmltopdf*" 2&gt;/dev/null</code></pre>
+
+<h3>Remove NReco, install IronPDF</h3>
+
+<pre><code># Remove NReco PDF Generator
+dotnet remove package NReco.PdfGenerator
+
+# Install IronPDF
+dotnet add package IronPdf
+dotnet restore</code></pre>
+
+<p>Also remove wkhtmltopdf from Docker images and CI/CD:</p>
+
+<pre><code># Find Docker references to wkhtmltopdf
+rg "wkhtmltopdf" Dockerfile* -n
+
+# Find CI/CD install steps
+rg "wkhtmltopdf" .github/ azure-pipelines.yml -l 2&gt;/dev/null</code></pre>
+
+<h2>How Do I Migrate Basic HTML-to-PDF Conversion?</h2>
+
+<h3>Before (NReco PDF Generator)</h3>
+
+<pre><code>using NReco.PdfGenerator;
+using System;
+using System.IO;
+
+class HtmlToPdfExample
+{
+    static void Main()
+    {
+        var htmlToPdf = new HtmlToPdfConverter();
+
+        // Common NReco configuration pattern
+        htmlToPdf.CustomWkhtmltopdfArgs =
+            "--print-media-type --background --dpi 180 " +
+            "--margin-top 10mm --margin-bottom 10mm " +
+            "--margin-left 15mm --margin-right 15mm";
+
+        // Optional: set explicit binary path
+        // htmlToPdf.WkhtmltopdfPath = "/usr/local/bin/";
+
+        string html = @"
+            &lt;html&gt;&lt;head&gt;&lt;style&gt;
+                body { font-family: Arial; font-size: 10pt; }
+                h1 { font-size: 18pt; }
+                .total { font-weight: bold; }
+            &lt;/style&gt;&lt;/head&gt;&lt;body&gt;
+                &lt;h1&gt;Invoice #1234&lt;/h1&gt;
+                &lt;p&gt;Customer: ACME Corp&lt;/p&gt;
+                &lt;p class='total'&gt;Total: $500.00&lt;/p&gt;
+            &lt;/body&gt;&lt;/html&gt;";
+
+        byte[] pdfBytes = htmlToPdf.GeneratePdf(html);
+        File.WriteAllBytes("invoice.pdf", pdfBytes);
+        Console.WriteLine("Saved: invoice.pdf");
+    }
+}</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize  = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop    = 10;
+renderer.RenderingOptions.MarginBottom = 10;
+renderer.RenderingOptions.MarginLeft   = 15;
+renderer.RenderingOptions.MarginRight  = 15;
+
+var pdf = renderer.RenderHtmlAsPdf(@"
+    &lt;html&gt;&lt;head&gt;&lt;style&gt;
+        body { font-family: Arial; font-size: 10pt; }
+        h1 { font-size: 18pt; }
+        .total { font-weight: bold; }
+    &lt;/style&gt;&lt;/head&gt;&lt;body&gt;
+        &lt;h1&gt;Invoice #1234&lt;/h1&gt;
+        &lt;p&gt;Customer: ACME Corp&lt;/p&gt;
+        &lt;p class='total'&gt;Total: $500.00&lt;/p&gt;
+    &lt;/body&gt;&lt;/html&gt;");
+
+pdf.SaveAs("invoice.pdf");
+// Rendering options: https://ironpdf.com/how-to/rendering-options/</code></pre>
+
+<p><strong>Answer:</strong> The key change is replacing NReco's <code>HtmlToPdfConverter</code> with IronPDF's <code>ChromePdfRenderer</code>. Each <code>CustomWkhtmltopdfArgs</code> flag maps to a typed property on <code>RenderingOptions</code> &mdash; no more string-based configuration. The Chromium-based rendering engine gives you modern CSS support out of the box.</p>
+
+<p>NReco returns <code>byte[]</code> while IronPDF returns a <code>PdfDocument</code>. If you need bytes for HTTP responses or storage, use <code>pdf.Stream</code> or save to a <code>MemoryStream</code>.</p>
+
+<h2>How Do I Map wkhtmltopdf Flags to IronPDF Options?</h2>
+
+<p>Map each <code>CustomWkhtmltopdfArgs</code> flag to a <code>ChromePdfRenderOptions</code> property:</p>
+
+<table>
+<tr><th>wkhtmltopdf Flag</th><th>IronPDF Equivalent</th></tr>
+<tr><td><code>--page-size A4</code></td><td><code>RenderingOptions.PaperSize = PdfPaperSize.A4</code></td></tr>
+<tr><td><code>--margin-top 10mm</code></td><td><code>RenderingOptions.MarginTop = 10</code></td></tr>
+<tr><td><code>--orientation Landscape</code></td><td><code>RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape</code></td></tr>
+<tr><td><code>--print-media-type</code></td><td>Not needed &mdash; Chromium handles this</td></tr>
+<tr><td><code>--background</code></td><td>Not needed &mdash; Chromium handles this</td></tr>
+<tr><td><code>--disable-smart-shrinking</code></td><td>Verify in <code>ChromePdfRenderOptions</code> &mdash; check rendering options docs</td></tr>
+<tr><td><code>--javascript-delay 1000</code></td><td><code>RenderingOptions.WaitFor.JavaScript()</code></td></tr>
+</table>
+
+<h3>Mapping NReco options to IronPDF</h3>
+
+<pre><code>// Mapping NReco options to IronPDF
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize    = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop    = 10; // mm
+renderer.RenderingOptions.MarginBottom = 10;
+renderer.RenderingOptions.MarginLeft   = 15;
+renderer.RenderingOptions.MarginRight  = 15;
+renderer.RenderingOptions.PaperOrientation = IronPdf.Rendering.PdfPaperOrientation.Portrait;
+// Full options: https://ironpdf.com/how-to/rendering-options/</code></pre>
+
+<p><strong>Answer:</strong> The biggest win here is that flags like <code>--print-media-type</code> and <code>--background</code> are simply not needed with Chromium &mdash; it handles these correctly by default. For JavaScript-heavy content, use <code>WaitFor.JavaScript()</code> instead of a fixed delay, which gives you more reliable rendering.</p>
+
+<h2>How Do I Migrate Headers and Footers?</h2>
+
+<p>NReco passes HTML headers/footers to wkhtmltopdf via specific properties. IronPDF uses <code>HtmlHeaderFooter</code>:</p>
+
+<h3>Before (NReco)</h3>
+
+<pre><code>// NReco header pattern:
+// htmlToPdf.PageHeaderHtml = "&lt;div style='text-align:right'&gt;Page {page}&lt;/div&gt;";</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    HtmlFragment = "&lt;div style='text-align:right;font-size:9pt;'&gt;" +
+                   "Page {page} of {total-pages}&lt;/div&gt;",
+    DrawDividerLine = true
+};
+// Headers guide: https://ironpdf.com/how-to/headers-and-footers/</code></pre>
+
+<p><strong>Answer:</strong> IronPDF's <code>HtmlHeaderFooter</code> gives you full HTML control over headers and footers with built-in placeholder tokens like <code>{page}</code> and <code>{total-pages}</code>. The <code>DrawDividerLine</code> property adds a visual separator without extra CSS. Test multi-page documents carefully &mdash; header/footer rendering is where renderer differences show up most.</p>
+
+<h2>How Do I Migrate PDF Merging?</h2>
+
+<h3>Before (NReco &mdash; not supported natively; secondary library)</h3>
+
+<pre><code>using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
+using System;
+
+class MergePdfsExample
+{
+    static void Main()
+    {
+        // NReco doesn't merge PDFs
+        // PdfSharp is a common secondary choice
+        using var output = new PdfDocument();
+
+        foreach (string path in new[] { "section1.pdf", "section2.pdf", "section3.pdf" })
+        {
+            using var input = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+            foreach (PdfPage page in input.Pages)
+                output.AddPage(page);
+        }
+
+        output.Save("merged.pdf");
+        Console.WriteLine("Merged: merged.pdf");
+    }
+}</code></pre>
+
+<h3>After (IronPDF native)</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var merged = PdfDocument.Merge(
+    PdfDocument.FromFile("section1.pdf"),
+    PdfDocument.FromFile("section2.pdf"),
+    PdfDocument.FromFile("section3.pdf")
+);
+merged.SaveAs("merged.pdf");
+// Guide: https://ironpdf.com/how-to/merge-or-split-pdfs/</code></pre>
+
+<p><strong>Answer:</strong> IronPDF's <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge API</a> takes any number of <code>PdfDocument</code> objects and combines them in one call. No secondary library like PdfSharp needed. This is one of the biggest wins of the migration &mdash; operations that required a separate dependency now work natively.</p>
+
+<h2>How Do I Migrate Watermarking?</h2>
+
+<h3>Before (NReco &mdash; not supported; secondary library)</h3>
+
+<pre><code>using iTextSharp.text;
+using iTextSharp.text.pdf;
+using System.IO;
+using System;
+
+class WatermarkExample
+{
+    static void Main()
+    {
+        // NReco generates; iTextSharp stamps
+        using var reader  = new PdfReader("generated.pdf");
+        using var fs      = new FileStream("watermarked.pdf", FileMode.Create);
+        using var stamper = new PdfStamper(reader, fs);
+
+        var baseFont = BaseFont.CreateFont(BaseFont.HELVETICA_BOLD, BaseFont.CP1252, false);
+        for (int page = 1; page &lt;= reader.NumberOfPages; page++)
+        {
+            var cb = stamper.GetOverContent(page);
+            cb.SaveState();
+            var gs1 = new PdfGState { FillOpacity = 0.3f };
+            cb.SetGState(gs1);
+            cb.BeginText();
+            cb.SetFontAndSize(baseFont, 60);
+            cb.SetColorFill(BaseColor.GRAY);
+            cb.ShowTextAligned(Element.ALIGN_CENTER, "CONFIDENTIAL", 300, 420, 45);
+            cb.EndText();
+            cb.RestoreState();
+        }
+        Console.WriteLine("Watermarked: watermarked.pdf");
+    }
+}</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("generated.pdf");
+var stamper = new TextStamper
+{
+    Text = "CONFIDENTIAL",
+    FontColor = IronSoftware.Drawing.Color.Gray,
+    FontSize = 60,
+    Opacity = 30,
+    Rotation = 45,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center
+};
+pdf.ApplyStamp(stamper);
+pdf.SaveAs("watermarked.pdf");
+// Guide: https://ironpdf.com/how-to/custom-watermark/</code></pre>
+
+<p><strong>Answer:</strong> IronPDF uses a <code>TextStamper</code> model instead of the low-level iTextSharp approach of manually managing graphics state, fonts, and coordinates. You configure text, font size, opacity, rotation, and alignment as properties, then apply with <code>ApplyStamp()</code>. The 20+ lines of iTextSharp boilerplate compress down to a handful of property assignments.</p>
+
+<h2>How Do I Migrate Password Protection?</h2>
+
+<h3>Before (NReco &mdash; not supported; secondary library)</h3>
+
+<pre><code>using iTextSharp.text.pdf;
+using System.IO;
+using System.Text;
+
+class SecurityExample
+{
+    static void Main()
+    {
+        byte[] userPass  = Encoding.ASCII.GetBytes("readpass");
+        byte[] ownerPass = Encoding.ASCII.GetBytes("adminpass");
+
+        using var reader  = new PdfReader("generated.pdf");
+        using var fs      = new FileStream("secured.pdf", FileMode.Create);
+        using var stamper = new PdfStamper(reader, fs, '\0', false);
+        stamper.SetEncryption(
+            userPass, ownerPass,
+            PdfWriter.ALLOW_PRINTING,
+            PdfWriter.ENCRYPTION_AES_128
+        );
+    }
+}</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Security;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("generated.pdf");
+pdf.SecuritySettings.UserPassword  = "readpass";
+pdf.SecuritySettings.OwnerPassword = "adminpass";
+pdf.SecuritySettings.AllowUserPrinting = PdfPrintSecurity.FullPrintRights;
+pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+pdf.SaveAs("secured.pdf");
+// Guide: https://ironpdf.com/how-to/pdf-permissions-passwords/</code></pre>
+
+<p><strong>Answer:</strong> IronPDF handles security through the <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">SecuritySettings</a> property on <code>PdfDocument</code>. Set <code>UserPassword</code>, <code>OwnerPassword</code>, and granular permissions directly as properties. No byte array encoding, no separate stamper class, no encryption constant flags.</p>
+
+<h2>What Are the Key API Mappings I Need to Know?</h2>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<tr><th>NReco</th><th>IronPDF</th><th>Notes</th></tr>
+<tr><td><code>NReco.PdfGenerator</code></td><td><code>IronPdf</code></td><td>Core</td></tr>
+<tr><td>N/A</td><td><code>IronPdf.Rendering</code></td><td>Options/configuration</td></tr>
+<tr><td>N/A</td><td><code>IronPdf.Editing</code></td><td>Manipulation ops</td></tr>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr><th>NReco Class</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td><code>HtmlToPdfConverter</code></td><td><code>ChromePdfRenderer</code></td><td>HTML-to-PDF entry point</td></tr>
+<tr><td><code>CustomWkhtmltopdfArgs</code> (string)</td><td><code>ChromePdfRenderOptions</code></td><td>Render configuration</td></tr>
+<tr><td>N/A</td><td><code>PdfDocument</code></td><td>PDF document model</td></tr>
+<tr><td><code>byte[]</code> return</td><td><code>PdfDocument</code> return</td><td>Output &mdash; save, stream, or manipulate</td></tr>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<tr><th>Operation</th><th>NReco</th><th>IronPDF</th></tr>
+<tr><td>HTML string</td><td><code>htmlToPdf.GeneratePdf(html)</code></td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td>URL</td><td><code>GeneratePdfFromUrl(url)</code></td><td><code>renderer.RenderUrlAsPdf(url)</code></td></tr>
+<tr><td>HTML file</td><td>File-read + string</td><td><code>renderer.RenderHtmlFileAsPdf(path)</code></td></tr>
+<tr><td>Existing PDF</td><td>Not NReco scope</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>NReco</th><th>IronPDF</th></tr>
+<tr><td>Paper size</td><td><code>CustomWkhtmltopdfArgs --page-size</code></td><td><code>ChromePdfRenderOptions.PaperSize</code></td></tr>
+<tr><td>Margins</td><td><code>CustomWkhtmltopdfArgs --margin-*</code></td><td><code>ChromePdfRenderOptions.Margin*</code></td></tr>
+<tr><td>Orientation</td><td><code>CustomWkhtmltopdfArgs --orientation</code></td><td><code>ChromePdfRenderOptions.PaperOrientation</code></td></tr>
+<tr><td>Page count</td><td>Not accessible</td><td><code>pdf.PageCount</code></td></tr>
+</table>
+
+<h3>Merge/Split Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>NReco</th><th>IronPDF</th></tr>
+<tr><td>Merge</td><td>External library required</td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
+<tr><td>Split</td><td>External library required</td><td><code>pdf.CopyPages(startIndex, endIndex)</code></td></tr>
+</table>
+
+<h2>How Do I Handle the byte[] to PdfDocument Output Change?</h2>
+
+<p>NReco returns <code>byte[]</code>. IronPDF returns <code>PdfDocument</code>. This is the change that ripples through the most call sites:</p>
+
+<h3>Updating output handling</h3>
+
+<pre><code>// Before: byte[] pdfBytes = htmlToPdf.GeneratePdf(html);
+// After:
+var pdf = renderer.RenderHtmlAsPdf(html);
+
+// If you need bytes (for HTTP response, storage, etc.):
+pdf.SaveAs("output.pdf");
+// Or stream to memory:
+using var ms = new MemoryStream();
+pdf.Stream.CopyTo(ms);
+byte[] pdfBytes = ms.ToArray();
+// Memory stream guide: https://ironpdf.com/how-to/pdf-memory-stream/</code></pre>
+
+<p><strong>Answer:</strong> The <code>PdfDocument</code> object is more powerful than raw bytes because you can chain operations &mdash; merge, watermark, encrypt &mdash; before saving. If downstream code expects <code>byte[]</code>, use <code>pdf.Stream</code> or <code>pdf.BinaryData</code> at the final step. IronPDF pages are 0-based; NReco doesn't expose a page model post-render, but if you are feeding output to page-aware tools, verify their indexing convention.</p>
+
+<h2>How Do I Handle Async Rendering and Performance?</h2>
+
+<p>NReco spawns wkhtmltopdf as a process (or calls native library). IronPDF runs in-process. Subprocess spawn cost (~50-200ms per call, system-dependent) is eliminated.</p>
+
+<h3>Reusing the renderer for batch work</h3>
+
+<pre><code>// Reuse renderer for batch work &mdash; amortizes Chromium initialization
+var renderer = new ChromePdfRenderer();
+
+foreach (var html in batchTemplates)
+{
+    using var pdf = renderer.RenderHtmlAsPdf(html);
+    pdf.SaveAs($"doc_{Guid.NewGuid()}.pdf");
+}</code></pre>
+
+<h3>Async rendering for web controllers</h3>
+
+<pre><code>// Async for web controllers &mdash; NReco doesn't have native async
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+return File(pdf.Stream, "application/pdf", "document.pdf");
+// Async guide: https://ironpdf.com/how-to/async/</code></pre>
+
+<p><strong>Answer:</strong> Reuse the <code>ChromePdfRenderer</code> instance across calls to amortize Chromium initialization overhead. For ASP.NET Core, register it as a singleton. Chromium has higher baseline memory than wkhtmltopdf, so profile under load. Test custom fonts explicitly &mdash; system font resolution differs between WebKit and Chromium. For JavaScript-heavy templates, verify timing with <code>WaitFor</code> options.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I run NReco and IronPDF side by side during migration?</h3>
+
+<p><strong>Answer:</strong> Yes. Install IronPDF via NuGet while NReco is still present. Run both libraries generating the same PDF from the same HTML, then compare outputs visually. This lets you catch rendering differences early &mdash; especially for Flexbox/Grid layouts, background colors, and custom fonts &mdash; before removing NReco and wkhtmltopdf from your project.</p>
+
+<h3>Do I need to remove wkhtmltopdf from my deployment pipeline?</h3>
+
+<p><strong>Answer:</strong> Yes, once migration is complete. Search your Dockerfiles, CI/CD scripts, and appsettings for <code>wkhtmltopdf</code> and <code>WkhtmltopdfPath</code> references. Removing the binary dependency is one of the main benefits of migrating &mdash; IronPDF ships as a NuGet package with no external binary installation required.</p>
+
+<h3>Will my CSS render differently after migration?</h3>
+
+<p><strong>Answer:</strong> It will likely render better. wkhtmltopdf uses a WebKit build from approximately 2012 with incomplete Flexbox and no Grid support. IronPDF's Chromium-based renderer supports current CSS3. However, test all templates carefully &mdash; some edge cases like specific table rendering or page break behavior may differ between WebKit and Chromium.</p>
+
+<h3>How do I handle NReco's CustomWkhtmltopdfArgs flags?</h3>
+
+<p><strong>Answer:</strong> Each wkhtmltopdf flag maps to a typed property on <code>ChromePdfRenderOptions</code>. Flags like <code>--print-media-type</code> and <code>--background</code> are not needed at all with Chromium. Flags like <code>--page-size</code>, <code>--margin-*</code>, and <code>--orientation</code> map to <code>PaperSize</code>, <code>Margin*</code>, and <code>PaperOrientation</code> properties. See the <a href="https://ironpdf.com/how-to/rendering-options/">rendering options guide</a> for the full mapping.</p>
+
+<h3>Does IronPDF support async PDF generation?</h3>
+
+<p><strong>Answer:</strong> Yes. NReco does not have native async support since it wraps a subprocess. IronPDF provides <code>RenderHtmlAsPdfAsync()</code> for non-blocking PDF generation in ASP.NET Core controllers and other async contexts. Register <code>ChromePdfRenderer</code> as a singleton to avoid per-request Chromium startup overhead.</p>

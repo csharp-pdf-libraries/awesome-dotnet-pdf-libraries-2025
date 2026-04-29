@@ -1,0 +1,310 @@
+<h1>Migrating from Syncfusion PDF to IronPDF: Solving Common Migration Pain Points</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Do Teams Migrate Away from Syncfusion PDF?</h2>
+
+<p>Version pinning is a quiet tax. You are on Syncfusion.Pdf.Net.Core 21.x because the upgrade to 22.x broke something in your PDF text extraction pipeline, and the fix required touching ten files and a full regression pass. The next major release came while that regression was still open. Now you are two versions behind, the new .NET runtime support you need is in the version you cannot upgrade to, and the options are narrowing.</p>
+
+<p>Before spending a sprint on a Syncfusion upgrade that might break something else, teams often ask whether the migration cost would be similar if they switched entirely. I have seen this pattern play out across dozens of teams, and in this article I will walk you through the concrete code changes required to move from Syncfusion PDF to <a href="https://ironpdf.com">IronPDF</a>.</p>
+
+<p>Teams evaluating Syncfusion PDF alternatives commonly cite these pain points:</p>
+
+<p>First, version pinning friction. Syncfusion's major releases occasionally include breaking changes, and skipping versions creates an upgrade debt that compounds. Second, license model complexity with community licenses for low-revenue projects and paid licenses for commercial use. Third, HTML converter package fragmentation where HTML-to-PDF is a separate package with its own native dependency story. Fourth, QtWebKit rendering age where modern CSS like flex, grid, and custom properties may not render as expected. Fifth, drawing API verbosity that requires manual layout calculation through PdfPage, PdfGraphics, and PdfFont.</p>
+
+<p>Additionally, native binary management can complicate deployments, cross-platform gaps mean some converters are Windows-only, large NuGet transitive closures pull in multiple Syncfusion packages, and new .NET versions may not be supported immediately in every Syncfusion package.</p>
+
+<h2>What Does the Syncfusion to IronPDF HTML Conversion Migration Look Like?</h2>
+
+<p>This is the most common migration path I see. Most teams using Syncfusion PDF are doing HTML-to-PDF conversion, and this translates almost directly.</p>
+
+<h3>Syncfusion HtmlToPdfConverter (Before)</h3>
+
+<pre><code>using Syncfusion.HtmlToPdfConverter;
+using Syncfusion.Pdf;
+using System;
+using System.IO;
+
+class HtmlToPdfBefore
+{
+    static void Main()
+    {
+        Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense(
+            Environment.GetEnvironmentVariable("SYNCFUSION_LICENSE_KEY"));
+
+        var html = @"
+            &lt;html&gt;&lt;head&gt;
+            &lt;style&gt;body { font-family: Arial; padding: 40px; }
+            table { width:100%; border-collapse:collapse; }
+            th, td { border:1px solid #ccc; padding:6px; }&lt;/style&gt;
+            &lt;/head&gt;&lt;body&gt;
+            &lt;h1&gt;Invoice #9901&lt;/h1&gt;
+            &lt;table&gt;&lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Amount&lt;/th&gt;&lt;/tr&gt;
+            &lt;tr&gt;&lt;td&gt;Consulting&lt;/td&gt;&lt;td&gt;$3,200&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+            &lt;/body&gt;&lt;/html&gt;";
+
+        var converter = new HtmlToPdfConverter();
+        converter.ConverterSettings.PdfPageSize = PdfPageSize.A4;
+        var doc = converter.Convert(html);
+        doc.Save("invoice.pdf");
+        doc.Close(true);
+        Console.WriteLine("Saved invoice.pdf");
+    }
+}
+</code></pre>
+
+<h3>IronPDF ChromePdfRenderer (After)</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var html = @"
+    &lt;html&gt;&lt;head&gt;
+    &lt;style&gt;body { font-family: Arial; padding: 40px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { border:1px solid #ccc; padding:6px; }&lt;/style&gt;
+    &lt;/head&gt;&lt;body&gt;
+    &lt;h1&gt;Invoice #9901&lt;/h1&gt;
+    &lt;table&gt;&lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Amount&lt;/th&gt;&lt;/tr&gt;
+    &lt;tr&gt;&lt;td&gt;Consulting&lt;/td&gt;&lt;td&gt;$3,200&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+    &lt;/body&gt;&lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("invoice.pdf");
+Console.WriteLine($"Saved invoice.pdf ({pdf.PageCount} page(s))");
+</code></pre>
+
+<p>The key differences: no separate converter package, no explicit Close(true) call, and Chromium-based rendering that handles modern CSS out of the box. You can find the full guide at <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF HTML String to PDF</a>.</p>
+
+<h2>How Do You Migrate the Syncfusion Drawing API Watermark to IronPDF?</h2>
+
+<p>The Syncfusion watermark approach uses a drawing layer with PdfGraphics, PdfFont, PdfBrush, and manual coordinate transforms. This is one of the more verbose patterns to migrate because IronPDF replaces all of that with a declarative stamper object.</p>
+
+<h3>Syncfusion Drawing Layer Watermark (Before)</h3>
+
+<pre><code>using Syncfusion.Pdf;
+using Syncfusion.Pdf.Graphics;
+using Syncfusion.Pdf.Parsing;
+using System;
+using System.Drawing;
+
+class WatermarkBefore
+{
+    static void Main()
+    {
+        Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense(
+            Environment.GetEnvironmentVariable("SYNCFUSION_LICENSE_KEY"));
+
+        var doc = new PdfLoadedDocument("source.pdf");
+
+        foreach (PdfPageBase page in doc.Pages)
+        {
+            var graphics = page.Graphics;
+            var font = new PdfStandardFont(PdfFontFamily.Helvetica, 60);
+            var brush = new PdfSolidBrush(Color.FromArgb(30, Color.Gray));
+
+            graphics.Save();
+            graphics.TranslateTransform(
+                (float)(page.Size.Width / 2),
+                (float)(page.Size.Height / 2));
+            graphics.RotateTransform(-45);
+            graphics.DrawString("DRAFT", font, brush, 0, 0);
+            graphics.Restore();
+        }
+
+        doc.Save("watermarked.pdf");
+        doc.Close(true);
+        Console.WriteLine("Watermark applied via drawing API");
+    }
+}
+</code></pre>
+
+<h3>IronPDF TextStamper Watermark (After)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Document&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+var watermark = new TextStamper
+{
+    Text = "DRAFT",
+    FontColor = IronPdf.Imaging.Color.Gray,
+    Opacity = 0.15,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs("watermarked.pdf");
+Console.WriteLine("Watermark applied");
+</code></pre>
+
+<p>All the coordinate math, font instantiation, and graphics state management collapses into a few property assignments. See the full watermark guide at <a href="https://ironpdf.com/how-to/custom-watermark/">IronPDF Custom Watermark</a>.</p>
+
+<h2>How Do You Migrate Syncfusion PDF Password Protection to IronPDF?</h2>
+
+<p>Password protection is a common requirement, and the migration is straightforward. The Syncfusion approach uses PdfSecurity with explicit algorithm and key size configuration. IronPDF simplifies this to direct property assignment on SecuritySettings.</p>
+
+<h3>Syncfusion PdfSecurity (Before)</h3>
+
+<pre><code>using Syncfusion.Pdf;
+using Syncfusion.Pdf.Security;
+using System;
+
+class PasswordBefore
+{
+    static void Main()
+    {
+        Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense(
+            Environment.GetEnvironmentVariable("SYNCFUSION_LICENSE_KEY"));
+
+        var doc = new PdfDocument();
+        var page = doc.Pages.Add();
+        page.Graphics.DrawString("Confidential", new PdfStandardFont(
+            PdfFontFamily.Helvetica, 24), PdfBrushes.Black, 40, 40);
+
+        doc.Security.Algorithm = PdfEncryptionAlgorithm.AES;
+        doc.Security.KeySize = PdfEncryptionKeySize.Key256Bit;
+        doc.Security.UserPassword = "open123";
+        doc.Security.OwnerPassword = "admin456";
+
+        doc.Save("secured.pdf");
+        doc.Close(true);
+        Console.WriteLine("Saved secured.pdf");
+    }
+}
+</code></pre>
+
+<h3>IronPDF SecuritySettings (After)</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Confidential Document&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+pdf.SecuritySettings.UserPassword = "open123";
+pdf.SecuritySettings.OwnerPassword = "admin456";
+
+pdf.SaveAs("secured.pdf");
+Console.WriteLine("Saved secured.pdf");
+</code></pre>
+
+<p>The drawing API code for placing text on the page is replaced entirely by HTML content, and the security configuration drops from five lines to two. Full details at <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">IronPDF PDF Permissions and Passwords</a>.</p>
+
+<h2>What Does the Full Feature Comparison Look Like?</h2>
+
+<table>
+<tr><th>Aspect</th><th>Syncfusion PDF</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>PDF creation/editing via drawing API + HTML converter</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Community (revenue-based) + paid — verify at syncfusion.com</td><td>Commercial license — verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>Drawing API + separate HtmlToPdfConverter</td><td>ChromePdfRenderer + PdfDocument</td></tr>
+<tr><td>Learning Curve</td><td>Medium-High for drawing API; Low for converter</td><td>Low for .NET devs; HTML/CSS is the input</td></tr>
+<tr><td>HTML Rendering</td><td>QtWebKit or Blink (depends on converter package)</td><td>Embedded Chromium</td></tr>
+<tr><td>Page Indexing</td><td>0-based</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify in Syncfusion docs per version</td><td>Verify IronPDF concurrent instance guidance</td></tr>
+<tr><td>Namespace</td><td>Syncfusion.Pdf, Syncfusion.HtmlToPdfConverter</td><td>IronPdf</td></tr>
+</table>
+
+<h3>Migration Effort by Feature</h3>
+
+<table>
+<tr><th>Feature</th><th>Syncfusion PDF</th><th>IronPDF Equivalent</th><th>Complexity</th></tr>
+<tr><td>HTML string to PDF</td><td>HtmlToPdfConverter.Convert(html)</td><td>ChromePdfRenderer.RenderHtmlAsPdfAsync()</td><td>Low</td></tr>
+<tr><td>URL to PDF</td><td>converter.Convert(new Uri(url))</td><td>renderer.RenderUrlAsPdfAsync(url)</td><td>Low</td></tr>
+<tr><td>Save to file</td><td>doc.Save(path)</td><td>pdf.SaveAs(path)</td><td>Low</td></tr>
+<tr><td>Save to stream</td><td>doc.Save(stream)</td><td>pdf.Stream / pdf.BinaryData</td><td>Low</td></tr>
+<tr><td>Custom page size</td><td>Drawing API page settings</td><td>RenderingOptions.PaperSize</td><td>Low</td></tr>
+<tr><td>Headers/footers</td><td>PdfPageTemplateElement or HTML converter options</td><td>RenderingOptions.HtmlHeader/Footer</td><td>Medium</td></tr>
+<tr><td>Merge PDFs</td><td>PdfDocumentBase.Append() / ImportPage()</td><td>PdfDocument.Merge()</td><td>Low</td></tr>
+<tr><td>Watermark</td><td>PdfWatermark or drawing layer</td><td>TextStamper / ImageStamper</td><td>Low</td></tr>
+<tr><td>Password protection</td><td>PdfSecurity.UserPassword</td><td>pdf.SecuritySettings.UserPassword</td><td>Low</td></tr>
+<tr><td>Text extraction</td><td>PdfPageBase.ExtractText()</td><td>pdf.ExtractAllText()</td><td>Low</td></tr>
+<tr><td>Drawing API layouts</td><td>PdfPage.Graphics.DrawString() etc.</td><td>HTML/CSS template</td><td>High (rewrite)</td></tr>
+<tr><td>Digital signatures</td><td>PdfSignature</td><td>pdf.Sign() — verify</td><td>Medium</td></tr>
+</table>
+
+<h2>What Are the Most Common Questions About This Migration?</h2>
+
+<p><strong>Answer:</strong> I get asked these questions constantly by teams mid-migration, so I have compiled the five most frequent ones below.</p>
+
+<h3>1. Can I migrate incrementally or do I need to swap everything at once?</h3>
+
+<p><strong>Answer:</strong> You can absolutely migrate incrementally. Both Syncfusion PDF and IronPDF can coexist in the same project during the transition period. I recommend starting with HTML-to-PDF conversion paths first since those are the lowest complexity migrations. Move drawing API code last, since that requires HTML template rewrites.</p>
+
+<p>Start by auditing your codebase to understand the scope. Use this to find all Syncfusion PDF references:</p>
+
+<pre><code>rg -l "Syncfusion\.Pdf\|HtmlToPdfConverter\|PdfDocument\|PdfPage\b" --type cs
+rg "Syncfusion\.Pdf\|HtmlToPdfConverter" --type cs -n
+</code></pre>
+
+<h3>2. What happens to my Syncfusion drawing API code that uses PdfGraphics?</h3>
+
+<p><strong>Answer:</strong> Drawing API code that constructs layouts with PdfPage.Graphics.DrawString, DrawLine, DrawRectangle, PdfFont, and PdfBrush has no direct IronPDF equivalent. IronPDF is HTML-first, so those drawing operations need to be rewritten as HTML/CSS templates. Audit the scope first:</p>
+
+<pre><code>rg "DrawString\|DrawLine\|DrawRectangle\|PdfGraphics\|PdfFont\b\|PdfBrush\b" --type cs -n | wc -l
+</code></pre>
+
+<p>If this count is high, estimate the HTML template rewrite effort before setting a timeline. The visual results are often better since you get full CSS layout capabilities, but the rewrite is proportional to the amount of drawing code.</p>
+
+<h3>3. How does the namespace and package swap work?</h3>
+
+<p><strong>Answer:</strong> The package swap is clean. Remove Syncfusion packages and install IronPdf:</p>
+
+<pre><code>dotnet remove package Syncfusion.Pdf.Net.Core
+dotnet remove package Syncfusion.HtmlToPdfConverter.Net.Core
+dotnet add package IronPdf
+dotnet restore
+</code></pre>
+
+<p>Namespace mapping is straightforward. Syncfusion.Pdf becomes IronPdf. Syncfusion.HtmlToPdfConverter becomes IronPdf as well since IronPDF includes the renderer in the core package with no separate package needed. Syncfusion.Pdf.Security becomes IronPdf where security settings live on the PdfDocument object directly.</p>
+
+<h3>4. Do I need to change how I handle document disposal?</h3>
+
+<p><strong>Answer:</strong> Yes, but it gets simpler. Syncfusion uses an explicit doc.Close(true) pattern for resource release. IronPDF uses standard C# using statements:</p>
+
+<pre><code>// Syncfusion:
+// doc.Save("out.pdf");
+// doc.Close(true);
+
+// IronPDF:
+using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("out.pdf");
+// pdf disposed at end of 'using' block
+</code></pre>
+
+<p>Find and replace all Close(true) calls with using declarations during migration.</p>
+
+<h3>5. Will my modern CSS render correctly after switching?</h3>
+
+<p><strong>Answer:</strong> If you were on Syncfusion's QtWebKit converter, this is one of the biggest improvements. QtWebKit uses an older rendering engine where modern CSS like flexbox, grid, and custom properties may not render as expected. IronPDF uses embedded Chromium, so you get the same rendering you see in Chrome DevTools.</p>
+
+<p>If you were on Syncfusion's Blink-based converter, the rendering fidelity should be comparable. Either way, test each HTML template and compare visual output as part of your migration validation.</p>
+
+<h2>When Should You Actually Migrate?</h2>
+
+<p><strong>Answer:</strong> The decision matrix comes down to your specific situation.</p>
+
+<p>If you are stuck on an old Syncfusion version due to breaking changes, switching resolves the version-pinning constraint entirely. You stop tracking multiple Syncfusion packages and their interdependencies. If you are primarily doing HTML-to-PDF generation with modern CSS, the switch gives you Chromium rendering versus QtWebKit.</p>
+
+<p>If you have extensive drawing API use for complex layouts, evaluate the migration cost carefully. Drawing API to HTML template rewrites are the highest-cost item in any Syncfusion migration. If you need PDF/A, digital signatures, or advanced form fields, verify IronPDF feature parity for your specific requirements before committing.</p>
+
+<p>The version pinning problem that triggers most Syncfusion migrations is solved structurally by switching: IronPDF versioning is independent of Syncfusion's release cycle. Once migrated, you track one dependency instead of multiple Syncfusion packages. The most variable migration cost is the drawing API. HTML converter usage is a find-and-replace exercise. Drawing API code that constructs layouts with PdfGraphics.DrawString requires HTML template rewrites, and those take proportional time.</p>
+
+<p>For teams ready to start, grab a trial license key at <a href="https://ironpdf.com/how-to/license-keys/">IronPDF License Keys</a> and begin with the HTML-to-PDF paths in your codebase. Those will give you a quick win and a feel for the API before tackling the more complex drawing API rewrites.</p>

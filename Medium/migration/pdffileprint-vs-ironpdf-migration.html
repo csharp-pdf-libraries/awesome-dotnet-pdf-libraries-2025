@@ -1,0 +1,625 @@
+<h1>Migrating from PDFFilePrint to IronPDF: Practical .NET 8 Migration Notes</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>Your team just committed to .NET 8 and the dependency audit came back with a flag on PDFFilePrint. The package hasn't published a .NET 8&ndash;compatible release and the maintainer's last response on the issue tracker was three months ago. You have a working library on a runtime you are leaving behind &mdash; that is the migration trigger, and this guide is for the period immediately after you have made the call to switch.</p>
+
+<p>The troubleshooting patterns here apply broadly to any migration triggered by a runtime incompatibility. The code samples and checklist stand on their own even if you choose a different destination library.</p>
+
+<h2>How Do I Diagnose the .NET Compatibility Failure?</h2>
+
+<p>Before migrating, confirm what is actually failing. .NET incompatibility manifests in several distinct ways, and I have seen teams start rewriting code when the real problem is a configuration issue.</p>
+
+<h3>Symptom: NuGet restore fails</h3>
+
+<pre><code># Check which .NET targets the package supports
+dotnet nuget show package PDFFilePrint --source nuget.org
+
+# Or check the NuGet page manually:
+# https://www.nuget.org/packages/PDFFilePrint
+# Look at &quot;Supported frameworks&quot; &mdash; verify .NET 8 is listed</code></pre>
+
+<h3>Symptom: Package installs but throws PlatformNotSupportedException at runtime</h3>
+
+<pre><code># Check if the package depends on System.Drawing.Common
+dotnet list package --include-transitive | grep -i drawing
+
+# System.Drawing.Common on .NET 7+ Linux throws by default
+# This affects packages that haven&#39;t updated their rendering path</code></pre>
+
+<h3>Symptom: Build succeeds, runtime fails with missing method or type</h3>
+
+<pre><code># Check for binding redirects or multi-targeting issues
+dotnet build --verbosity detailed 2&gt;&amp;1 | grep -i &quot;warning\|error\|NU\d\{4\}&quot;
+
+# Also check for TFM mismatch warnings:
+dotnet build 2&gt;&amp;1 | grep &quot;NU1701\|NU1202\|NU1213&quot;</code></pre>
+
+<p>Once you have confirmed the failure mode is genuine incompatibility (not configuration), proceed with migration.</p>
+
+<h2>Why Should I Migrate from PDFFilePrint?</h2>
+
+<p>Eight reasons a .NET version incompatibility becomes a migration trigger rather than a &ldquo;wait for the maintainer&rdquo; situation:</p>
+
+<p><strong>.NET 8 LTS timeline</strong> &mdash; if you are on the LTS track, staying on an older runtime to preserve a library is a security and support trade-off.</p>
+
+<p><strong>Maintainer responsiveness</strong> &mdash; unanswered issues on a .NET compatibility problem after several months suggests the fix is not coming.</p>
+
+<p><strong>System.Drawing.Common deprecation</strong> &mdash; any library that uses this on Linux in .NET 7+ may require significant upstream changes.</p>
+
+<p><strong>Native binary compatibility</strong> &mdash; print-driver or OS-dependent libraries may have broken native interop on new runtimes.</p>
+
+<p><strong>Feature gap at upgrade time</strong> &mdash; the incompatibility surfaces at upgrade time, creating a natural evaluation window.</p>
+
+<p><strong>No LTS support tier</strong> &mdash; open source or small-vendor libraries without a support SLA leave you waiting indefinitely.</p>
+
+<p><strong>Secondary library consolidation</strong> &mdash; if PDFFilePrint handles only part of your PDF workflow and other libraries are already covering other parts, consolidation during a forced migration makes sense.</p>
+
+<p><strong>Docker base image changes</strong> &mdash; .NET 8 base images may have different OS-level dependencies than .NET 6 images, compounding native library issues.</p>
+
+<h2>How Do PDFFilePrint and IronPDF Compare Feature by Feature?</h2>
+
+<table>
+<tr><th>Aspect</th><th>PDFFilePrint</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>Verify &mdash; print/file-based PDF</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Verify</td><td>Commercial &mdash; verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>Verify</td><td>In-process .NET library</td></tr>
+<tr><td>Learning Curve</td><td>Verify</td><td>Medium</td></tr>
+<tr><td>HTML Rendering</td><td>Verify &mdash; may not be primary feature</td><td>Chromium-based</td></tr>
+<tr><td>Page Indexing</td><td>Verify</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify</td><td>Renderer instance reuse</td></tr>
+<tr><td>Namespace</td><td>Verify</td><td><code>IronPdf</code></td></tr>
+</table>
+
+<h2>How Hard Is Each Feature to Migrate?</h2>
+
+<table>
+<tr><th>Feature</th><th>PDFFilePrint Approach</th><th>Effort to Migrate</th></tr>
+<tr><td>Print-to-PDF</td><td>Verify &mdash; may be primary feature</td><td>Medium-High &mdash; different paradigm</td></tr>
+<tr><td>HTML-to-PDF</td><td>Verify</td><td>Low (if primary need)</td></tr>
+<tr><td>File-based PDF reading</td><td>Verify</td><td>Low</td></tr>
+<tr><td>Merge PDFs</td><td>Verify</td><td>Low (native in IronPDF)</td></tr>
+<tr><td>Watermark</td><td>Verify</td><td>Low</td></tr>
+<tr><td>Password protection</td><td>Verify</td><td>Low</td></tr>
+<tr><td>Print driver integration</td><td>Verify &mdash; may be unique feature</td><td>High &mdash; no IronPDF equivalent</td></tr>
+<tr><td>Custom margins</td><td>Verify</td><td>Low</td></tr>
+<tr><td>Headers / footers</td><td>Verify</td><td>Medium</td></tr>
+<tr><td>Async rendering</td><td>Verify</td><td>Medium</td></tr>
+<tr><td>.NET 8 compatibility</td><td>N/A (broken)</td><td>Resolved in IronPDF</td></tr>
+</table>
+
+<h2>When Does It Make Sense to Migrate?</h2>
+
+<table>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+<tr><td>Primary use is print-to-PDF via OS print driver</td><td>IronPDF doesn't replicate this &mdash; different library needed</td></tr>
+<tr><td>Primary use is HTML-to-PDF generation</td><td>IronPDF is a direct fit</td></tr>
+<tr><td>Primary use is file manipulation (merge, encrypt)</td><td>IronPDF covers this; also evaluate iTextSharp 7 or PdfSharp</td></tr>
+<tr><td>.NET 8 upgrade is not negotiable</td><td>Migration required &mdash; evaluate all alternatives in one window</td></tr>
+</table>
+
+<h2>What Should I Do Before Writing Any Migration Code?</h2>
+
+<p>Before writing a single line of replacement code, gather the information that prevents wasted effort.</p>
+
+<h3>Prerequisites</h3>
+
+<p>Confirm .NET 8 target, document the exact failure mode (runtime error type, stack trace), and ensure NuGet access.</p>
+
+<h3>Find PDFFilePrint references in your codebase</h3>
+
+<pre><code># Find all PDFFilePrint usage
+rg -l &quot;PDFFilePrint\|PdfFilePrint&quot; --type cs -i
+
+# Find using statements
+rg &quot;using PDFFilePrint\|using PdfFilePrint&quot; --type cs -n
+
+# Find class instantiation &mdash; replace with actual class names
+rg &quot;new.*PdfPrint\|new.*FilePrint\|PrintPdf&quot; --type cs -n -i
+
+# Find NuGet references
+grep -r -i &quot;pdffileprint&quot; **/*.csproj *.csproj 2&gt;/dev/null</code></pre>
+
+<h3>Remove PDFFilePrint and install IronPDF</h3>
+
+<pre><code># Remove PDFFilePrint &mdash; verify exact package name
+dotnet remove package PDFFilePrint  # replace with actual package name
+
+# Install IronPDF
+dotnet add package IronPdf
+dotnet restore</code></pre>
+
+<h2>How Do I Migrate in 3 Quick Steps?</h2>
+
+<h3>Step 1: License configuration</h3>
+
+<p><strong>Before (PDFFilePrint):</strong></p>
+
+<pre><code>// PDFFilePrint license initialization &mdash; verify exact method in documentation
+// using PDFFilePrint; // verify namespace
+
+// Pattern is illustrative &mdash; verify before use:
+// PDFFilePrintLicense.Initialize(&quot;YOUR_KEY&quot;); // hypothetical
+// or: no license key if open source &mdash; verify</code></pre>
+
+<p><strong>After (<a href="https://ironpdf.com/">IronPDF</a>):</strong></p>
+
+<pre><code>using IronPdf;
+
+// Set once at application startup
+IronPdf.License.LicenseKey = &quot;YOUR_IRONPDF_LICENSE_KEY&quot;;
+// License guide: https://ironpdf.com/how-to/license-keys/</code></pre>
+
+<h3>Step 2: Namespace imports</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>// Verify actual namespaces from PDFFilePrint documentation
+using PDFFilePrint;         // verify
+using PDFFilePrint.Options; // verify &mdash; may not exist</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+using IronPdf.Editing;
+using IronPdf.Security;</code></pre>
+
+<h3>Step 3: Basic PDF generation</h3>
+
+<p><strong>Before (PDFFilePrint &mdash; placeholder, verify all names):</strong></p>
+
+<pre><code>using System;
+using System.IO;
+// using PDFFilePrint; // verify
+
+class BasicExample
+{
+    static void Main()
+    {
+        // VERIFY: All class names and method signatures
+        // The pattern below depends heavily on what PDFFilePrint does
+
+        // If HTML-to-PDF:
+        // var converter = new PdfConverter(); // verify class name
+        // byte[] pdf = converter.FromHtml(&quot;&lt;h1&gt;Hello&lt;/h1&gt;&quot;); // verify method
+
+        // If file-based:
+        // var processor = new PdfProcessor(); // verify
+        // processor.Process(&quot;input.pdf&quot;, &quot;output.pdf&quot;); // verify
+
+        Console.WriteLine(&quot;Verify PDFFilePrint API before implementing&quot;);
+    }
+}</code></pre>
+
+<p><strong>After (<a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF</a>):</strong></p>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = &quot;YOUR_LICENSE_KEY&quot;;
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;h1&gt;Hello World&lt;/h1&gt;&quot;);
+pdf.SaveAs(&quot;output.pdf&quot;);
+// Guide: https://ironpdf.com/how-to/html-string-to-pdf/</code></pre>
+
+<h2>What Are the Common Migration Failures and How Do I Fix Them?</h2>
+
+<h3>Problem: Build succeeds on .NET 8 but crashes at render time</h3>
+
+<pre><code># Check for runtime assembly binding issues
+dotnet run 2&gt;&amp;1 | head -50
+
+# Enable detailed assembly loading logs:
+export COREHOST_TRACE=1
+dotnet run
+# Look for &quot;Could not load file or assembly&quot; entries</code></pre>
+
+<p>If IronPDF itself fails at render time on .NET 8, verify you are using a current version:</p>
+
+<pre><code>dotnet list package | grep IronPdf
+# Should be a recent version &mdash; check https://www.nuget.org/packages/IronPdf</code></pre>
+
+<h3>Problem: Fonts render differently after migration</h3>
+
+<pre><code># List available fonts in your environment
+fc-list 2&gt;/dev/null | head -20
+
+# In Docker &mdash; install fonts if missing:
+# RUN apt-get install -y fonts-liberation fonts-dejavu fontconfig</code></pre>
+
+<p>In your HTML templates, specify fonts explicitly with fallbacks:</p>
+
+<pre><code>&lt;style&gt;
+  body { font-family: &#39;Liberation Sans&#39;, Arial, sans-serif; }
+&lt;/style&gt;</code></pre>
+
+<h3>Problem: PDF/A validation fails after generating with IronPDF</h3>
+
+<pre><code># Install veraPDF (free validator) and test output:
+# https://verapdf.org/
+verapdf --flavour 3b output.pdf
+
+# Common failure: embedded fonts not subset correctly
+# Try: renderer.RenderingOptions.PdfCoa = IronPdf.Rendering.PdfCoa.PdfA3b
+# Verify in IronPDF PDF/A docs: https://ironpdf.com/how-to/pdfa/</code></pre>
+
+<h3>Problem: Docker image size increased significantly</h3>
+
+<p>IronPDF includes Chromium binaries &mdash; larger than many PDF libraries:</p>
+
+<pre><code># Use multi-stage build to minimize final image
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+# IronPDF requires these on Debian/Ubuntu
+RUN apt-get update &amp;&amp; apt-get install -y \
+    libglib2.0-0 \
+    libnss3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libx11-6 \
+    --no-install-recommends \
+    &amp;&amp; rm -rf /var/lib/apt/lists/*
+# Verify current IronPDF Docker requirements at:
+# https://ironpdf.com/how-to/azure/</code></pre>
+
+<h2>How Do PDFFilePrint APIs Map to IronPDF?</h2>
+
+<h3>Namespace mapping</h3>
+
+<table>
+<tr><th>PDFFilePrint</th><th>IronPDF</th><th>Notes</th></tr>
+<tr><td><code>PDFFilePrint</code></td><td><code>IronPdf</code></td><td>Core</td></tr>
+<tr><td>Options namespace</td><td><code>IronPdf.Rendering</code></td><td>Configuration</td></tr>
+<tr><td>N/A</td><td><code>IronPdf.Editing</code></td><td>Manipulation</td></tr>
+</table>
+
+<h3>Core class mapping</h3>
+
+<table>
+<tr><th>PDFFilePrint Class</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td>PDF generation class</td><td><code>ChromePdfRenderer</code></td><td>HTML-to-PDF entry point</td></tr>
+<tr><td>Options/config class</td><td><code>ChromePdfRenderOptions</code></td><td>Render settings</td></tr>
+<tr><td>PDF manipulation class</td><td><code>PdfDocument</code></td><td>PDF document model</td></tr>
+<tr><td>N/A</td><td><code>PdfDocument</code> static</td><td>Merge, split, load</td></tr>
+</table>
+
+<h3>Document loading methods</h3>
+
+<table>
+<tr><th>Operation</th><th>PDFFilePrint</th><th>IronPDF</th></tr>
+<tr><td>HTML string</td><td>Verify</td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td>URL</td><td>Verify</td><td><code>renderer.RenderUrlAsPdf(url)</code></td></tr>
+<tr><td>HTML file</td><td>Verify</td><td><code>renderer.RenderHtmlFileAsPdf(path)</code></td></tr>
+<tr><td>Existing PDF</td><td>Verify</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+</table>
+
+<h3>Page operations</h3>
+
+<table>
+<tr><th>Operation</th><th>PDFFilePrint</th><th>IronPDF</th></tr>
+<tr><td>Paper size</td><td>Verify</td><td><code>ChromePdfRenderOptions.PaperSize</code></td></tr>
+<tr><td>Margins</td><td>Verify</td><td><code>ChromePdfRenderOptions.Margin*</code></td></tr>
+<tr><td>Orientation</td><td>Verify</td><td><code>ChromePdfRenderOptions.PaperOrientation</code></td></tr>
+<tr><td>Page count</td><td>Verify</td><td><code>pdf.PageCount</code></td></tr>
+</table>
+
+<h3>Merge/split operations</h3>
+
+<table>
+<tr><th>Operation</th><th>PDFFilePrint</th><th>IronPDF</th></tr>
+<tr><td>Merge</td><td>Verify</td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
+<tr><td>Split</td><td>Verify</td><td><code>pdf.CopyPages(startIndex, endIndex)</code></td></tr>
+</table>
+
+<h2>What Do Complete Before/After Code Migrations Look Like?</h2>
+
+<h3>HTML to PDF</h3>
+
+<p><strong>Before (PDFFilePrint &mdash; placeholder, verify API):</strong></p>
+
+<pre><code>using System;
+using System.IO;
+// using PDFFilePrint; // verify namespace
+
+class HtmlToPdfExample
+{
+    static void Main()
+    {
+        // VERIFY: All class and method names from PDFFilePrint documentation
+        // Replace every placeholder with actual API calls
+
+        // Typical pattern for a file-print library:
+        // var options = new PrintOptions // verify class name
+        // {
+        //     PageSize = &quot;A4&quot;,         // verify property name
+        //     MarginTop = 10,          // verify type
+        //     MarginBottom = 10        // verify
+        // };
+        // var printer = new PdfPrinter(options); // verify class name
+        // byte[] result = printer.Print(        // verify method name
+        //     &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;
+        // );
+        // File.WriteAllBytes(&quot;invoice.pdf&quot;, result);
+
+        Console.WriteLine(&quot;Replace with verified PDFFilePrint API&quot;);
+    }
+}</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = &quot;YOUR_LICENSE_KEY&quot;;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize    = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop    = 10;
+renderer.RenderingOptions.MarginBottom = 10;
+renderer.RenderingOptions.MarginLeft   = 15;
+renderer.RenderingOptions.MarginRight  = 15;
+
+var pdf = renderer.RenderHtmlAsPdf(
+    &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #1234&lt;/h1&gt;&lt;p&gt;Amount: $500&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;
+);
+pdf.SaveAs(&quot;invoice.pdf&quot;);
+// Rendering options: https://ironpdf.com/how-to/rendering-options/</code></pre>
+
+<h3>Merge PDFs</h3>
+
+<p><strong>Before (PDFFilePrint &mdash; verify merge support):</strong></p>
+
+<pre><code>using System;
+// Secondary library if PDFFilePrint doesn&#39;t support merge:
+using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
+
+class MergePdfsExample
+{
+    static void Main()
+    {
+        // Verify whether PDFFilePrint has merge API
+        // If not &mdash; PdfSharp is a common secondary choice:
+        using var output = new PdfDocument();
+
+        foreach (string path in new[] { &quot;part1.pdf&quot;, &quot;part2.pdf&quot; })
+        {
+            using var input = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+            foreach (PdfPage page in input.Pages)
+                output.AddPage(page);
+        }
+
+        output.Save(&quot;merged.pdf&quot;);
+        Console.WriteLine(&quot;Merged to: merged.pdf&quot;);
+    }
+}</code></pre>
+
+<p><strong>After (<a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">IronPDF</a>):</strong></p>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = &quot;YOUR_LICENSE_KEY&quot;;
+
+var merged = PdfDocument.Merge(
+    PdfDocument.FromFile(&quot;part1.pdf&quot;),
+    PdfDocument.FromFile(&quot;part2.pdf&quot;)
+);
+merged.SaveAs(&quot;merged.pdf&quot;);
+// Guide: https://ironpdf.com/how-to/merge-or-split-pdfs/</code></pre>
+
+<h3>Watermark</h3>
+
+<p><strong>Before (PDFFilePrint &mdash; verify watermark support):</strong></p>
+
+<pre><code>using iTextSharp.text;
+using iTextSharp.text.pdf;
+using System.IO;
+using System;
+
+class WatermarkExample
+{
+    static void Main()
+    {
+        // If PDFFilePrint doesn&#39;t watermark natively &mdash; iTextSharp pattern:
+        using var reader  = new PdfReader(&quot;input.pdf&quot;);
+        using var fs      = new FileStream(&quot;watermarked.pdf&quot;, FileMode.Create);
+        using var stamper = new PdfStamper(reader, fs);
+
+        var baseFont = BaseFont.CreateFont(BaseFont.HELVETICA_BOLD, BaseFont.CP1252, false);
+        for (int page = 1; page &lt;= reader.NumberOfPages; page++)
+        {
+            var cb = stamper.GetOverContent(page);
+            cb.SaveState();
+            cb.SetGState(new PdfGState { FillOpacity = 0.3f });
+            cb.BeginText();
+            cb.SetFontAndSize(baseFont, 60);
+            cb.SetColorFill(BaseColor.GRAY);
+            cb.ShowTextAligned(Element.ALIGN_CENTER, &quot;CONFIDENTIAL&quot;, 300, 420, 45);
+            cb.EndText();
+            cb.RestoreState();
+        }
+        Console.WriteLine(&quot;Watermarked.&quot;);
+    }
+}</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = &quot;YOUR_LICENSE_KEY&quot;;
+
+var pdf = PdfDocument.FromFile(&quot;input.pdf&quot;);
+var stamper = new TextStamper
+{
+    Text = &quot;CONFIDENTIAL&quot;,
+    FontColor = IronSoftware.Drawing.Color.Gray,
+    FontSize = 60,
+    Opacity = 30,
+    Rotation = 45,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center
+};
+pdf.ApplyStamp(stamper);
+pdf.SaveAs(&quot;watermarked.pdf&quot;);
+// Guide: https://ironpdf.com/how-to/custom-watermark/</code></pre>
+
+<h3>Password protection</h3>
+
+<p><strong>Before (PDFFilePrint &mdash; verify security API):</strong></p>
+
+<pre><code>using iTextSharp.text.pdf;
+using System.IO;
+using System.Text;
+
+class SecurityExample
+{
+    static void Main()
+    {
+        // If PDFFilePrint doesn&#39;t support encryption &mdash; iTextSharp pattern:
+        byte[] userPass  = Encoding.ASCII.GetBytes(&quot;readonly&quot;);
+        byte[] ownerPass = Encoding.ASCII.GetBytes(&quot;admin&quot;);
+
+        using var reader  = new PdfReader(&quot;input.pdf&quot;);
+        using var fs      = new FileStream(&quot;secured.pdf&quot;, FileMode.Create);
+        using var stamper = new PdfStamper(reader, fs, &#39;\0&#39;, false);
+        stamper.SetEncryption(
+            userPass, ownerPass,
+            PdfWriter.ALLOW_PRINTING,
+            PdfWriter.ENCRYPTION_AES_128
+        );
+    }
+}</code></pre>
+
+<p><strong>After (<a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">IronPDF</a>):</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Security;
+
+IronPdf.License.LicenseKey = &quot;YOUR_LICENSE_KEY&quot;;
+
+var pdf = PdfDocument.FromFile(&quot;input.pdf&quot;);
+pdf.SecuritySettings.UserPassword  = &quot;readonly&quot;;
+pdf.SecuritySettings.OwnerPassword = &quot;admin&quot;;
+pdf.SecuritySettings.AllowUserPrinting = PdfPrintSecurity.FullPrintRights;
+pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+pdf.SaveAs(&quot;secured.pdf&quot;);
+// Guide: https://ironpdf.com/how-to/pdf-permissions-passwords/</code></pre>
+
+<h2>What Critical Details Should I Watch During Migration?</h2>
+
+<h3>Page indexing</h3>
+
+<p>IronPDF is 0-based. Verify PDFFilePrint's convention and update all page index references:</p>
+
+<pre><code>// IronPDF: page 0 = first page
+var firstPage = pdf.Pages[0];
+for (int i = 0; i &lt; pdf.PageCount; i++)
+{
+    // operate on pdf.Pages[i]
+}</code></pre>
+
+<h3>Print-to-PDF feature gap</h3>
+
+<p>If PDFFilePrint's core value was OS-level print-to-PDF (virtual printer driver), IronPDF does not replicate that mechanism. IronPDF renders HTML to PDF &mdash; a different approach. If print driver behavior is essential, alternatives include:</p>
+
+<p><strong>Windows:</strong> <code>PrintDocument</code> API + PDF print driver.</p>
+
+<p><strong>Cross-platform:</strong> PuppeteerSharp for browser-based printing to PDF.</p>
+
+<p><strong>Server-side:</strong> IronPDF's HTML renderer if the source can be converted to HTML.</p>
+
+<h3>Error model migration</h3>
+
+<p>Replace any status-code or return-value error handling with try/catch:</p>
+
+<pre><code>try
+{
+    var pdf = renderer.RenderHtmlAsPdf(html);
+    pdf.SaveAs(&quot;output.pdf&quot;);
+}
+catch (IronPdf.Exceptions.IronPdfException ex)
+{
+    _logger.LogError(ex, &quot;PDF generation failed: {msg}&quot;, ex.Message);
+    throw;
+}</code></pre>
+
+<h2>How Do I Optimize Performance After Migration?</h2>
+
+<h3>Renderer reuse</h3>
+
+<p>Instantiate once per batch &mdash; do not create a new renderer per render:</p>
+
+<pre><code>// Instantiate once per batch
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+foreach (var html in documentQueue)
+{
+    using var pdf = renderer.RenderHtmlAsPdf(html);
+    pdf.SaveAs($&quot;output_{Guid.NewGuid()}.pdf&quot;);
+}</code></pre>
+
+<h3>Async in ASP.NET</h3>
+
+<pre><code>var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+return File(pdf.Stream, &quot;application/pdf&quot;, &quot;document.pdf&quot;);
+// Async guide: https://ironpdf.com/how-to/async/</code></pre>
+
+<h3>Docker image size</h3>
+
+<p>IronPDF's Chromium distribution increases image size. If image size is critical:</p>
+
+<pre><code># Measure before and after
+docker images | grep your-app-image
+# Use multi-stage builds and --no-install-recommends to minimize</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I migrate from PDFFilePrint to IronPDF if my primary use case is OS-level print-to-PDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF does not replicate OS-level print driver behavior. If PDFFilePrint's core value was virtual printer driver functionality, IronPDF is not a drop-in replacement for that specific feature.</p>
+
+<p>However, if the source content can be converted to HTML, IronPDF's <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML-to-PDF renderer</a> can produce equivalent output. Evaluate whether the print driver behavior is essential or whether HTML rendering achieves the same result.</p>
+
+<h3>Does IronPDF work on .NET 8 in Linux Docker containers?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. IronPDF supports .NET 8 on Linux. You will need to install Chromium dependencies in your Docker image &mdash; libglib2.0-0, libnss3, libatk1.0-0, libatk-bridge2.0-0, and libx11-6 at minimum.</p>
+
+<p>Use multi-stage builds and <code>--no-install-recommends</code> to keep image size manageable. Verify current requirements at the <a href="https://ironpdf.com/how-to/azure/">IronPDF Docker deployment guide</a>.</p>
+
+<h3>How do I handle page indexing differences between PDFFilePrint and IronPDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF uses 0-based page indexing. Verify PDFFilePrint's convention in its documentation. If PDFFilePrint uses 1-based indexing, subtract 1 from every page index reference when migrating.</p>
+
+<p>Audit all code paths that reference specific pages &mdash; <code>pdf.Pages[0]</code> is the first page in IronPDF.</p>
+
+<h3>Will my PDF output look different after migrating to IronPDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Rendering differences are possible. IronPDF uses a Chromium-based engine for HTML-to-PDF, which handles modern CSS well but may produce different spacing or font rendering compared to PDFFilePrint's engine.</p>
+
+<p>Specify fonts explicitly with fallbacks in your HTML templates. Visually compare output from both libraries on your representative document set before completing the migration.</p>
+
+<h3>Can IronPDF handle merge, watermark, and password protection without secondary libraries?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. IronPDF handles all three natively. Merging uses <code>PdfDocument.Merge()</code>, watermarking uses <code>TextStamper</code> via <code>ApplyStamp()</code>, and password protection uses <code>SecuritySettings</code> on the <code>PdfDocument</code> object.</p>
+
+<p>This is a consolidation advantage &mdash; if you were using secondary libraries like PdfSharp or iTextSharp alongside PDFFilePrint, you can remove those dependencies.</p>
+
+<h2>What Is the Bottom Line on This Migration?</h2>
+
+<p>.NET version incompatibility is one of the cleaner migration triggers &mdash; the decision is often made for you. The ambiguity lives in the feature audit: if PDFFilePrint's primary value was print driver behavior, IronPDF does not replace that, and you need to revisit the requirements before committing to a library.</p>
+
+<p>If your primary use case is HTML-to-PDF generation, PDF merging, watermarking, or encryption, <a href="https://ironpdf.com/">IronPDF</a> covers all of those with a single NuGet package that works on .NET 8 across Windows and Linux. The code samples above show the exact API translations.</p>
+
+<p>Run the codebase scan, swap the packages, translate the API calls using the mapping tables, and visually compare output on your representative documents. That is the migration in practice.</p>

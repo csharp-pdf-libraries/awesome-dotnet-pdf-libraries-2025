@@ -1,0 +1,622 @@
+<h1>Migrating from ComPDFKit to IronPDF: From Install to Ship</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>Performance numbers are the first thing people reach for when justifying a library migration to management. They're also the easiest to misrepresent &mdash; a benchmark that doesn't match your workload is worse than no benchmark at all.</p>
+
+<p>This article takes a benchmark-aware approach to migrating from ComPDFKit to IronPDF. That means: showing you how to measure what actually matters in your use case, providing before/after code for the operations most teams care about, and flagging where the libraries differ in architecture in ways that will affect throughput under real load. No synthetic numbers that don't apply to your environment.</p>
+
+<p>You'll leave with working migration code, an API mapping table, and a repeatable benchmark harness you can run against your own workloads &mdash; because the only relevant performance number is the one measured with your data.</p>
+
+<h2>Why Should I Migrate from ComPDFKit to IronPDF?</h2>
+
+<p>Teams using ComPDFKit on .NET typically adopted it for PDF viewing, annotation, or interactive document scenarios. Server-side batch generation and HTML-to-PDF are where friction tends to appear:</p>
+
+<p><strong>Answer:</strong></p>
+
+<p>ComPDFKit is viewer-focused. If you need browser-quality HTML rendering at scale, you'll want to verify current ComPDFKit HTML-to-PDF support against your requirements. Libraries optimized for interactive viewers have different performance characteristics at scale than batch generators. On top of that, CI/CD pipeline complexity increases if ComPDFKit requires native binary distribution outside of NuGet.</p>
+
+<p>Cross-platform server deployment, .NET version compatibility (.NET 6/7/8), async/parallel generation thread safety, and Azure/cloud deployment support are all areas worth verifying before committing further. If your license model is structured for end-user licensing, server or SaaS use terms may not align either.</p>
+
+<p>IronPDF is generation-focused. Merge, watermark, and encrypt operations require fewer setup steps, and the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">Chromium-based HTML-to-PDF renderer</a> handles modern CSS out of the box.</p>
+
+<h2>How Do the Two Libraries Compare at a Glance?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr><th>Aspect</th><th>ComPDFKit</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>PDF viewer, annotation, forms, editing</td><td>HTML-to-PDF, edit, merge, security</td></tr>
+<tr><td>Pricing</td><td>Per-app or per-platform</td><td>Per-developer or royalty-free</td></tr>
+<tr><td>API Style</td><td>SDK-style, viewer integration</td><td>High-level renderer + document model</td></tr>
+<tr><td>Learning Curve</td><td>Steep for server-side; designed for UI integration</td><td>Gradual for HTML; renderer-first mental model</td></tr>
+<tr><td>HTML Rendering</td><td>Verify current ComPDFKit capability</td><td>Chromium-based</td></tr>
+<tr><td>Page Indexing</td><td>Verify in SDK docs</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify for server-side concurrent use</td><td>Renderer reusable; verify thread safety docs</td></tr>
+<tr><td>Namespace</td><td>Verify current SDK namespace</td><td><code>IronPdf</code></td></tr>
+</table>
+
+<h2>How Much Effort Does Each Feature Take to Migrate?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>The effort varies by feature. HTML-to-PDF may actually be a new capability if your ComPDFKit setup didn't include it. Annotations and form fields are the heaviest lifts because ComPDFKit's annotation model is rich and you'll need to verify IronPDF parity before committing.</p>
+
+<table>
+<tr><th>Feature</th><th>Effort</th><th>Notes</th></tr>
+<tr><td>HTML string to PDF</td><td>Low&ndash;Medium</td><td>May be new capability vs ComPDFKit</td></tr>
+<tr><td>HTML file to PDF</td><td>Low&ndash;Medium</td><td>Same</td></tr>
+<tr><td>Merge PDFs</td><td>Medium</td><td>API model differs</td></tr>
+<tr><td>Split PDFs</td><td>Medium</td><td>Verify IronPDF page extraction API</td></tr>
+<tr><td>Watermark</td><td>Medium</td><td>Viewer SDK stamping vs IronPDF stamper model</td></tr>
+<tr><td>Password protection</td><td>Low&ndash;Medium</td><td>Both support; property names differ</td></tr>
+<tr><td>Annotation migration</td><td>High</td><td>ComPDFKit annotation model is rich; verify IronPDF parity</td></tr>
+<tr><td>Form field editing</td><td>High</td><td>Verify IronPDF form API coverage</td></tr>
+<tr><td>Server-side batch</td><td>Medium</td><td>Architecture change; test throughput</td></tr>
+<tr><td>Async / parallel</td><td>Medium</td><td>Both support; test under load</td></tr>
+</table>
+
+<h2>How Do I Set Up a Measurement Baseline Before Migrating?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Before removing ComPDFKit, capture timing data for your most frequent operations. This gives you apples-to-apples comparison after migration.</p>
+
+<h3>ComPDFKit Benchmark Harness</h3>
+
+<pre><code>using System;
+using System.Diagnostics;
+
+// Benchmark harness &mdash; run against your actual workload before migration
+class PdfBenchmark
+{
+    static void Main()
+    {
+        int iterations = 50;
+        var sw = Stopwatch.StartNew();
+
+        for (int i = 0; i &lt; iterations; i++)
+        {
+            // Run your most common ComPDFKit operation here
+            // Example: ConvertHtmlToPdf(&quot;sample.html&quot;, $&quot;out_{i}.pdf&quot;)
+        }
+
+        sw.Stop();
+        double avgMs = (double)sw.ElapsedMilliseconds / iterations;
+        Console.WriteLine($&quot;ComPDFKit average: {avgMs:F1} ms per operation ({iterations} iterations)&quot;);
+        Console.WriteLine($&quot;Total: {sw.ElapsedMilliseconds} ms&quot;);
+    }
+}
+</code></pre>
+
+<p>Run this benchmark. Record the numbers. Then run the equivalent IronPDF benchmark after migration. The delta in your environment is the only number that matters.</p>
+
+<h3>Finding ComPDFKit References in Your Codebase</h3>
+
+<pre><code># Find all ComPDFKit imports
+rg &quot;using Compdfkit\|using CPDF\|using ComPDF&quot; --type cs -l
+
+# Find SDK initialization patterns
+rg &quot;CPDFSDKVerifier\|LicenseVerify\|Initialize&quot; --type cs
+
+# Find document operations
+rg &quot;CPDFDocument\|CPDFPage\|CPDFAnnotation&quot; --type cs
+</code></pre>
+
+<h3>Installing IronPDF</h3>
+
+<pre><code># Add IronPDF (keep ComPDFKit while running parallel benchmarks)
+dotnet add package IronPdf
+dotnet restore
+</code></pre>
+
+<h2>What Does a Quick Start Migration Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>I break this into three steps: license configuration, namespace imports, and a basic HTML-to-PDF render. Here they are with before/after code.</p>
+
+<h3>Step 1 &mdash; License Configuration (Before)</h3>
+
+<pre><code>// ComPDFKit license &mdash; verify exact initialization API
+// This is a representative pattern &mdash; confirm against compdfkit.com docs
+using Compdfkit.Tools; // verify namespace
+
+class Program
+{
+    static void Main()
+    {
+        // ComPDFKit SDK initialization &mdash; verify exact API
+        CPDFSDKVerifier.LoadNativeLibrary(); // verify method name
+        bool licensed = CPDFSDKVerifier.VerifyAPPLicenseKey(&quot;YOUR-COMPDFKIT-KEY&quot;); // verify
+        if (!licensed)
+            throw new Exception(&quot;ComPDFKit license validation failed&quot;);
+    }
+}
+</code></pre>
+
+<h3>Step 1 &mdash; License Configuration (After)</h3>
+
+<pre><code>using IronPdf;
+
+// https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = &quot;YOUR-IRONPDF-KEY&quot;;
+</code></pre>
+
+<h3>Step 2 &mdash; Namespace Imports (Before)</h3>
+
+<pre><code>using Compdfkit.Tools;  // verify
+using Compdfkit.Pdf;    // verify
+</code></pre>
+
+<h3>Step 2 &mdash; Namespace Imports (After)</h3>
+
+<pre><code>using IronPdf;
+</code></pre>
+
+<h3>Step 3 &mdash; Basic HTML-to-PDF (Before)</h3>
+
+<pre><code>// ComPDFKit HTML-to-PDF &mdash; verify this capability exists in your SDK version
+// API shape varies; consult compdfkit.com documentation
+// Pseudocode pattern (verify all names):
+// var converter = new CPDFConverter(); // verify
+// converter.ConvertHtmlToPdf(&quot;input.html&quot;, &quot;output.pdf&quot;); // verify
+</code></pre>
+
+<h3>Step 3 &mdash; Basic HTML-to-PDF (After)</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = &quot;YOUR-KEY&quot;;
+
+        var renderer = new ChromePdfRenderer();
+        using var pdf = renderer.RenderHtmlAsPdf(
+            &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;
+        );
+        pdf.SaveAs(&quot;output.pdf&quot;);
+        Console.WriteLine(&quot;Done&quot;);
+    }
+}
+</code></pre>
+
+<h2>How Do the APIs Map Between ComPDFKit and IronPDF?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>ComPDFKit .NET class names are SDK-version-dependent. Verify all ComPDFKit entries below against your installed version. All <a href="https://ironpdf.com/">IronPDF</a> entries reflect the current public API.</p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<tr><th>ComPDFKit</th><th>IronPDF</th><th>Notes</th></tr>
+<tr><td><code>Compdfkit.Tools</code></td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td><code>Compdfkit.Pdf</code></td><td><code>IronPdf</code></td><td>Document operations</td></tr>
+<tr><td>Native library init</td><td>Not required</td><td>IronPDF is NuGet-only on Windows</td></tr>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr><th>ComPDFKit</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td><code>CPDFDocument</code></td><td><code>PdfDocument</code></td><td>PDF document object</td></tr>
+<tr><td><code>CPDFPage</code></td><td><code>PdfPage</code></td><td>Page reference</td></tr>
+<tr><td><code>CPDFSDKVerifier</code></td><td><code>IronPdf.License</code></td><td>SDK/license initialization</td></tr>
+<tr><td>Conversion API</td><td><code>ChromePdfRenderer</code></td><td>HTML-to-PDF rendering</td></tr>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<tr><th>Operation</th><th>ComPDFKit</th><th>IronPDF</th></tr>
+<tr><td>Load from file</td><td><code>CPDFDocument.InitWithFilePath(path)</code></td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+<tr><td>Load from stream</td><td>Verify in docs</td><td><code>PdfDocument.FromStream(stream)</code></td></tr>
+<tr><td>Create from HTML</td><td>Verify in docs</td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td>Load from bytes</td><td>Verify in docs</td><td><code>PdfDocument.FromStream(new MemoryStream(bytes))</code></td></tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>ComPDFKit</th><th>IronPDF</th></tr>
+<tr><td>Page count</td><td><code>doc.PageCount</code></td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Get page</td><td><code>doc.PageAtIndex(n)</code></td><td><code>pdf.Pages[n]</code> (0-based)</td></tr>
+<tr><td>Remove page</td><td>Verify in docs</td><td><code>pdf.RemovePage(n)</code> &mdash; verify</td></tr>
+<tr><td>Insert page</td><td>Verify in docs</td><td>Verify IronPDF insert API</td></tr>
+</table>
+
+<h3>Merge/Split</h3>
+
+<table>
+<tr><th>Operation</th><th>ComPDFKit</th><th>IronPDF</th></tr>
+<tr><td>Merge PDFs</td><td>Verify in docs</td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
+<tr><td>Extract pages</td><td>Verify in docs</td><td>Verify IronPDF extraction API</td></tr>
+</table>
+
+<h2>What Do Complete Before/After Code Migrations Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Here are four complete migrations covering the operations most teams care about: HTML-to-PDF, merge, watermark, and password protection.</p>
+
+<h3>1. HTML to PDF (Before &mdash; ComPDFKit)</h3>
+
+<pre><code>using System;
+// ComPDFKit HTML-to-PDF &mdash; verify all API names below against your SDK
+// This is a representative pseudocode pattern
+
+class Program
+{
+    static void Main()
+    {
+        // SDK initialization &mdash; verify exact API
+        // CPDFSDKVerifier.LoadNativeLibrary();
+        // CPDFSDKVerifier.VerifyAPPLicenseKey(&quot;KEY&quot;);
+
+        // HTML conversion &mdash; verify API availability and method names
+        // var converter = new CPDFConverter(); // hypothetical
+        // bool success = converter.ConvertHtmlToPdf(&quot;input.html&quot;, &quot;output.pdf&quot;); // hypothetical
+        // if (!success) throw new Exception(&quot;ComPDFKit conversion failed&quot;);
+
+        Console.WriteLine(&quot;verify-in-docs &mdash; replace with actual ComPDFKit API&quot;);
+    }
+}
+</code></pre>
+
+<h3>1. HTML to PDF (After &mdash; IronPDF)</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = &quot;YOUR-KEY&quot;;
+
+        // Chromium-based rendering &mdash; handles modern CSS
+        // https://ironpdf.com/how-to/html-string-to-pdf/
+        var renderer = new ChromePdfRenderer();
+
+        string html = @&quot;&lt;html&gt;
+            &lt;body style='font-family:Arial; padding:40px'&gt;
+                &lt;h1 style='color:#1D4ED8'&gt;Invoice #3810&lt;/h1&gt;
+                &lt;table border='1' style='width:100%'&gt;
+                    &lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Amount&lt;/th&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;Service A&lt;/td&gt;&lt;td&gt;$800&lt;/td&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;Service B&lt;/td&gt;&lt;td&gt;$400&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;
+            &lt;/body&gt;
+        &lt;/html&gt;&quot;;
+
+        using var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs(&quot;invoice.pdf&quot;);
+        Console.WriteLine(&quot;Saved invoice.pdf&quot;);
+    }
+}
+</code></pre>
+
+<h3>2. Merge PDFs (Before &mdash; ComPDFKit)</h3>
+
+<pre><code>using System;
+// ComPDFKit merge API &mdash; verify all below against your SDK
+
+class Program
+{
+    static void Main()
+    {
+        // SDK init &mdash; verify
+        // CPDFSDKVerifier.LoadNativeLibrary();
+
+        // Merge &mdash; verify API
+        // var doc1 = new CPDFDocument(); // hypothetical
+        // doc1.InitWithFilePath(&quot;part1.pdf&quot;);
+        // var doc2 = new CPDFDocument();
+        // doc2.InitWithFilePath(&quot;part2.pdf&quot;);
+        // bool success = doc1.ImportPages(doc2, &quot;0-99&quot;, doc1.PageCount); // hypothetical
+        // doc1.WriteToFile(&quot;merged.pdf&quot;);
+
+        Console.WriteLine(&quot;verify-in-docs &mdash; replace with actual ComPDFKit merge API&quot;);
+    }
+}
+</code></pre>
+
+<h3>2. Merge PDFs (After &mdash; IronPDF)</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = &quot;YOUR-KEY&quot;;
+
+        // https://ironpdf.com/how-to/merge-or-split-pdfs/
+        var pdf1 = PdfDocument.FromFile(&quot;part1.pdf&quot;);
+        var pdf2 = PdfDocument.FromFile(&quot;part2.pdf&quot;);
+        var pdf3 = PdfDocument.FromFile(&quot;part3.pdf&quot;);
+
+        using var merged = PdfDocument.Merge(pdf1, pdf2, pdf3);
+        merged.SaveAs(&quot;merged.pdf&quot;);
+        Console.WriteLine($&quot;Merged {merged.PageCount} pages to merged.pdf&quot;);
+    }
+}
+</code></pre>
+
+<h3>3. Watermark (Before &mdash; ComPDFKit)</h3>
+
+<pre><code>using System;
+// ComPDFKit watermark &mdash; verify all below against your SDK
+
+class Program
+{
+    static void Main()
+    {
+        // ComPDFKit has a watermark/stamp API &mdash; verify exact class and method names
+        // The viewer-focused nature may mean watermarks are interactive annotations
+        // For PDF-generation use cases, verify the correct API
+
+        // Hypothetical pattern &mdash; do not use without verifying
+        // var doc = new CPDFDocument();
+        // doc.InitWithFilePath(&quot;input.pdf&quot;);
+        // var watermark = doc.CreateWatermark(C_Watermark_Type.WATERMARK_TYPE_TEXT); // hypothetical
+        // watermark.Text = &quot;CONFIDENTIAL&quot;;
+        // watermark.Opacity = 0.4f;
+        // watermark.Rotation = 45f;
+        // watermark.UpdateAp();
+        // doc.WriteToFile(&quot;watermarked.pdf&quot;);
+
+        Console.WriteLine(&quot;verify-in-docs &mdash; replace with actual ComPDFKit watermark API&quot;);
+    }
+}
+</code></pre>
+
+<h3>3. Watermark (After &mdash; IronPDF)</h3>
+
+<pre><code>using System;
+using IronPdf;
+using IronPdf.Editing;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = &quot;YOUR-KEY&quot;;
+
+        using var pdf = PdfDocument.FromFile(&quot;input.pdf&quot;);
+
+        // https://ironpdf.com/how-to/stamp-text-image/
+        var stamper = new TextStamper
+        {
+            Text = &quot;CONFIDENTIAL&quot;,
+            FontSize = 48,
+            Opacity = 40,
+            Rotation = 45,
+            VerticalAlignment = VerticalAlignment.Middle,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+
+        pdf.ApplyStamp(stamper);
+        pdf.SaveAs(&quot;watermarked.pdf&quot;);
+        Console.WriteLine(&quot;Watermarked PDF saved&quot;);
+    }
+}
+</code></pre>
+
+<h3>4. Password Protection (Before &mdash; ComPDFKit)</h3>
+
+<pre><code>using System;
+// ComPDFKit encryption &mdash; verify API against your SDK
+
+class Program
+{
+    static void Main()
+    {
+        // Hypothetical encryption API &mdash; verify
+        // var doc = new CPDFDocument();
+        // doc.InitWithFilePath(&quot;input.pdf&quot;);
+        // bool success = doc.Encrypt(
+        //     &quot;user123&quot;,       // user password
+        //     &quot;owner456&quot;,      // owner password
+        //     CPDFPermissions.Print | CPDFPermissions.Copy, // verify enum
+        //     CPDFDocumentEncryptAlgo.CPDFDocumentRC4 // verify enum
+        // );
+        // doc.WriteToFile(&quot;protected.pdf&quot;);
+
+        Console.WriteLine(&quot;verify-in-docs &mdash; replace with actual ComPDFKit encrypt API&quot;);
+    }
+}
+</code></pre>
+
+<h3>4. Password Protection (After &mdash; IronPDF)</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = &quot;YOUR-KEY&quot;;
+
+        // https://ironpdf.com/how-to/pdf-permissions-passwords/
+        using var pdf = PdfDocument.FromFile(&quot;input.pdf&quot;);
+
+        pdf.SecuritySettings.UserPassword = &quot;user123&quot;;
+        pdf.SecuritySettings.OwnerPassword = &quot;owner456&quot;;
+        pdf.SecuritySettings.AllowUserPrinting =
+            IronPdf.Security.PdfPrintSecurity.FullPrintRights;
+
+        pdf.SaveAs(&quot;protected.pdf&quot;);
+        Console.WriteLine(&quot;Password protected PDF saved&quot;);
+    }
+}
+</code></pre>
+
+<h2>How Do I Benchmark IronPDF After Migration?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Run this harness after migration and compare against your ComPDFKit baseline numbers. It measures both sequential and parallel throughput so you can see how concurrency affects render time.</p>
+
+<h3>IronPDF Benchmark Harness</h3>
+
+<pre><code>using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Threading.Tasks;
+using IronPdf;
+
+class IronPdfBenchmark
+{
+    // Reuse renderer &mdash; important for fair throughput measurement
+    private static readonly ChromePdfRenderer _renderer = new ChromePdfRenderer();
+
+    static async Task Main()
+    {
+        IronPdf.License.LicenseKey = &quot;YOUR-KEY&quot;;
+
+        int iterations = 50;
+
+        // Sequential benchmark
+        Console.WriteLine($&quot;Sequential HTML-to-PDF ({iterations} iterations)...&quot;);
+        var sw = Stopwatch.StartNew();
+        for (int i = 0; i &lt; iterations; i++)
+        {
+            using var pdf = await _renderer.RenderHtmlAsPdfAsync(GetHtml(i));
+            // Don't save to disk &mdash; measures render time only
+        }
+        sw.Stop();
+        double seqAvg = (double)sw.ElapsedMilliseconds / iterations;
+        Console.WriteLine($&quot;Sequential avg: {seqAvg:F1} ms/render&quot;);
+
+        // Parallel benchmark
+        Console.WriteLine($&quot;\nParallel HTML-to-PDF ({iterations} iterations, 4-way)...&quot;);
+        sw.Restart();
+        var tasks = new List&lt;Task&gt;();
+        for (int i = 0; i &lt; iterations; i++)
+        {
+            int j = i;
+            tasks.Add(Task.Run(async () =&gt;
+            {
+                using var pdf = await _renderer.RenderHtmlAsPdfAsync(GetHtml(j));
+            }));
+            if (tasks.Count &gt;= 4)
+            {
+                await Task.WhenAll(tasks);
+                tasks.Clear();
+            }
+        }
+        if (tasks.Count &gt; 0) await Task.WhenAll(tasks);
+        sw.Stop();
+        double parAvg = (double)sw.ElapsedMilliseconds / iterations;
+        Console.WriteLine($&quot;Parallel avg: {parAvg:F1} ms/render effective&quot;);
+    }
+
+    static string GetHtml(int i) =&gt; $@&quot;&lt;html&gt;
+        &lt;body style='font-family:Arial'&gt;
+            &lt;h1&gt;Document #{i}&lt;/h1&gt;
+            &lt;p&gt;Generated at {DateTime.Now:O}&lt;/p&gt;
+        &lt;/body&gt;
+    &lt;/html&gt;&quot;;
+}
+</code></pre>
+
+<p>Compare <code>seqAvg</code> and <code>parAvg</code> against your ComPDFKit baseline measurements.</p>
+
+<h2>What Are the Most Common Feature Fit Questions?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+<tr><td>Interactive PDF viewer/editor application</td><td>Evaluate carefully &mdash; ComPDFKit is designed for this; IronPDF is not a UI viewer</td></tr>
+<tr><td>Server-side HTML-to-PDF batch generation</td><td>IronPDF's Chromium renderer is a better fit</td></tr>
+<tr><td>API-driven PDF operations (merge, stamp, encrypt)</td><td>Both work; IronPDF API is more concise for these ops</td></tr>
+<tr><td>Mixed viewer + server generation</td><td>May need both libraries &mdash; evaluate consolidation cost</td></tr>
+</table>
+
+<h2>What Critical Details Should I Watch for During Migration?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>ComPDFKit uses an SDK initialization step (loading native libraries, verifying license). IronPDF's license is a static string set once. The initialization model is simpler but the pattern in web applications differs:</p>
+
+<h3>License Key in Web Apps</h3>
+
+<pre><code>// Startup.cs / Program.cs &mdash; set once, early
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_KEY&quot;);
+</code></pre>
+
+<p>Don't set the license key inside hot paths or per-request code.</p>
+
+<p>If ComPDFKit requires explicit native library loading (e.g., <code>LoadNativeLibrary()</code> calls), you likely have code that checks for load success. IronPDF handles native library loading internally &mdash; remove explicit load checks and verify output on first render.</p>
+
+<p>Verify page indexing convention in your version of ComPDFKit. IronPDF uses 0-based indexing. Audit all page index references before migrating.</p>
+
+<p>If your application creates annotations and expects them to survive PDF round-trips (save, reload, verify), test annotation persistence with IronPDF before committing to the migration. Annotation formats are standardized in PDF, but library implementations differ in which annotation types and properties they preserve.</p>
+
+<h2>How Does IronPDF Perform Under Load?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF spawns a Chromium renderer process. This process startup is the largest latency contributor for the first render. Reusing <code>ChromePdfRenderer</code> across requests amortizes this cost. In a web application, register it as a singleton.</p>
+
+<p>Run a memory profile under your target concurrent load. The Chromium renderer's memory behavior under concurrent requests is different from an in-process renderer. Test at your expected peak concurrency, not just sequentially.</p>
+
+<h3>Disk vs Memory Output</h3>
+
+<p>If your downstream process consumes the PDF as bytes (upload to S3, email attachment), avoid writing to disk:</p>
+
+<pre><code>using var pdf = renderer.RenderHtmlAsPdf(html);
+byte[] bytes = pdf.BinaryData; // No disk write
+
+// Or stream directly
+using var stream = new MemoryStream();
+pdf.Stream.CopyTo(stream);
+</code></pre>
+
+<p>See <a href="https://ironpdf.com/how-to/pdf-memory-stream/">memory stream docs</a> for patterns. See <a href="https://ironpdf.com/how-to/async/">async rendering docs</a> for patterns that scale under load.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I run ComPDFKit and IronPDF side by side during migration?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. Install IronPDF via NuGet alongside ComPDFKit and run both in parallel. This lets you capture benchmark numbers from both libraries against your actual workload before committing to the switch. Keep ComPDFKit until your IronPDF integration passes all tests.</p>
+
+<h3>Will my ComPDFKit annotations survive the migration?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Annotation formats are standardized in the PDF spec, but library implementations differ in which annotation types and properties they preserve. If your application creates annotations and expects them to survive round-trips (save, reload, verify), test annotation persistence with IronPDF before committing. ComPDFKit's annotation model is rich &mdash; this is the highest-effort area of the migration.</p>
+
+<h3>Does IronPDF support Linux and cloud deployment?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF runs on Windows, Linux, and macOS. For cloud targets like Azure App Service or AWS Lambda, IronPDF is distributed entirely via NuGet &mdash; no native binary distribution outside of NuGet is required. Verify ComPDFKit's Linux server support for your specific use case if you're evaluating both.</p>
+
+<h3>How do I handle the Chromium renderer's first-render latency?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>The Chromium renderer process startup is the largest latency contributor for the first render. Reuse <code>ChromePdfRenderer</code> across requests by registering it as a singleton in your DI container. In the benchmark harness, the renderer is created once and reused across all iterations &mdash; this is the pattern you want in production.</p>
+
+<h3>What if my use case is primarily a PDF viewer or editor?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF is not a UI viewer. If your primary use case is an interactive PDF viewer/editor application, evaluate carefully &mdash; ComPDFKit is designed for exactly this scenario. If you have a mixed workload (viewer plus server-side generation), you may need both libraries. Evaluate consolidation cost against the complexity of maintaining two dependencies.</p>
+
+<h2>That's the Migration</h2>
+
+<p>The migration from ComPDFKit to IronPDF is most straightforward when your use case is server-side generation &mdash; HTML-to-PDF, merge, stamp, encrypt. The rougher edges are annotation workflows and any code that depended on ComPDFKit's native rendering pipeline directly.</p>
+
+<p>The benchmark harness matters here more than in most migrations because the performance characteristics of a Chromium-backed renderer versus a native PDF SDK are architecturally different. Don't assume &mdash; measure.</p>

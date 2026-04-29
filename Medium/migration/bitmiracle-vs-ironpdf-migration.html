@@ -1,0 +1,620 @@
+<h1>Migrating from Bit Miracle Docotic to IronPDF: The Decision Guide for .NET Teams</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>Docotic.Pdf is a genuinely well-engineered library. The API is clean, the NuGet package is lean, and it handles PDF parsing and programmatic construction reliably across platforms. The migration decision rarely comes from Docotic.Pdf breaking -- it comes from a requirement that was never in scope for Docotic's design goals.</p>
+
+<p>The most common trigger: someone adds a feature that requires rendering a complex HTML template to PDF. Docotic.Pdf doesn't embed an HTML renderer. Teams work around this by generating HTML externally and importing the result, or by constructing the document programmatically -- which is maintainable until the template gets complex enough that the programmatic approach can't keep pace with designer changes.</p>
+
+<p>I wrote this guide to walk you through the decision and the technical steps for migrating from BitMiracle Docotic.Pdf to <a href="https://ironpdf.com">IronPDF</a>. The migration is relatively low-drama because both are managed .NET libraries with no COM dependencies. The complexity concentrates in two places: the different mental model (Docotic's document construction vs IronPDF's renderer-first approach), and any text extraction or annotation code that relies on Docotic's parse-side API.</p>
+
+<h2>Why Should You Migrate?</h2>
+
+<p>Here are the neutral triggers I see teams run into most often:</p>
+
+<p><strong>Answer:</strong></p>
+
+<p><strong>HTML-to-PDF requirement</strong> -- Docotic.Pdf doesn't have a built-in HTML renderer. Adding browser-quality HTML rendering requires a separate dependency or workaround. IronPDF's Chromium renderer addresses this directly.</p>
+
+<p><strong>CSS rendering fidelity</strong> -- Programmatic document construction in Docotic doesn't match what a designer produces in HTML/CSS. IronPDF's Chromium renderer closes this gap for HTML-based workflows.</p>
+
+<p><strong>Template maintenance burden</strong> -- Programmatic PDF construction (positioning text objects, drawing borders) requires developer changes for every layout update. HTML templates can be maintained by non-developers.</p>
+
+<p>Beyond those core triggers, teams also cite font handling complexity (Docotic requires explicit font loading and glyph management while IronPDF's Chromium renderer handles font resolution as a browser would), deployment simplicity (IronPDF's all-in-one approach reduces the number of libraries in the dependency tree), API surface for new developers (<code>ChromePdfRenderer.RenderHtmlAsPdf(html)</code> is a shorter onboarding path than document construction for HTML-heavy workloads), PDF/A output workflows, license changes, and consolidation of parsing and rendering into one library.</p>
+
+<h2>How Do the Two Libraries Compare Side by Side?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr><th>Aspect</th><th>BitMiracle Docotic.Pdf</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>Parse, edit, construct, extract</td><td>HTML-to-PDF, edit, merge, security</td></tr>
+<tr><td>Pricing</td><td>Free with watermark; commercial license</td><td>Per-developer or royalty-free</td></tr>
+<tr><td>API Style</td><td>Document object model, explicit construction</td><td>High-level renderer + document model</td></tr>
+<tr><td>Learning Curve</td><td>Gradual for parsing; steep for programmatic layout</td><td>Gradual for HTML; moderate for parse ops</td></tr>
+<tr><td>HTML Rendering</td><td>Not built-in</td><td>Chromium-based</td></tr>
+<tr><td>Page Indexing</td><td>0-based</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify concurrent document access patterns</td><td>Renderer reusable; verify thread safety docs</td></tr>
+<tr><td>Namespace</td><td><code>BitMiracle.LibTiff</code>, <code>BitMiracle.Docotic.Pdf</code></td><td><code>IronPdf</code></td></tr>
+</table>
+
+<h2>What Does the Migration Effort Actually Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>I've broken down the effort by feature so you can estimate the scope for your codebase:</p>
+
+<table>
+<tr><th>Feature</th><th>Effort</th><th>Notes</th></tr>
+<tr><td>HTML string to PDF</td><td>Low</td><td>New capability for most Docotic users</td></tr>
+<tr><td>HTML file to PDF</td><td>Low</td><td>Same</td></tr>
+<tr><td>Merge PDFs</td><td>Low</td><td>Both support; API differs</td></tr>
+<tr><td>Split/extract pages</td><td>Medium</td><td>Page extraction model differs</td></tr>
+<tr><td>Text watermark</td><td>Medium</td><td>Docotic drawing model vs IronPDF stamper</td></tr>
+<tr><td>Image watermark</td><td>Medium</td><td>Coordinate model differs</td></tr>
+<tr><td>Password protection</td><td>Low</td><td>Both support owner/user passwords</td></tr>
+<tr><td>Text extraction</td><td>Medium-High</td><td>Docotic's text model is detailed; verify IronPDF parity</td></tr>
+<tr><td>Annotation handling</td><td>High</td><td>Docotic annotations API is rich; verify IronPDF coverage</td></tr>
+<tr><td>Form field editing</td><td>High</td><td>Verify IronPDF form API against Docotic's</td></tr>
+<tr><td>PDF/A output</td><td>Medium</td><td>Test against your validator</td></tr>
+</table>
+
+<h2>Which Scenario Matches Your Team?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+<tr><td>Primarily programmatic PDF construction, no HTML</td><td>Evaluate whether Docotic's model serves you; migration cost may exceed benefit</td></tr>
+<tr><td>HTML templates requiring browser-quality CSS</td><td>IronPDF's Chromium renderer addresses this directly</td></tr>
+<tr><td>Heavy text extraction and parse workflows</td><td>Audit IronPDF's extraction API against your Docotic usage before committing</td></tr>
+<tr><td>Mixed HTML + parse requirements</td><td>IronPDF can handle both; test extraction output quality</td></tr>
+</table>
+
+<h2>What Are the Prerequisites Before Starting?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>You need .NET 6, 7, or 8 (verify .NET Framework support for your version), an <a href="https://ironpdf.com/how-to/license-keys/">IronPDF license key</a>, and baseline PDF outputs captured for visual regression.</p>
+
+<p>Find all Docotic.Pdf references first:</p>
+
+<h3>Search for All Docotic References</h3>
+
+<pre><code># Find all files with Docotic imports
+rg "using BitMiracle" --type cs -l
+
+# Find all PdfDocument usages (Docotic's main class)
+rg "PdfDocument" --type cs
+
+# Find text extraction calls
+rg "GetText\|ExtractText\|PdfTextData" --type cs
+
+# Find annotation references
+rg "PdfAnnotation\|AddAnnotation" --type cs
+
+# Find drawing / graphics operations
+rg "PdfCanvas\|DrawText\|DrawLine" --type cs
+</code></pre>
+
+<h3>Remove Docotic and Add IronPDF</h3>
+
+<pre><code>dotnet remove package BitMiracle.Docotic.Pdf
+dotnet add package IronPdf
+dotnet restore
+</code></pre>
+
+<p>PowerShell: <code>Uninstall-Package BitMiracle.Docotic.Pdf</code> then <code>Install-Package IronPdf</code>.</p>
+
+<h2>What Does the Quick Start Migration Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>I break this into three steps: license configuration, namespace imports, and a basic PDF operation.</p>
+
+<h3>Step 1 -- License Configuration (Before)</h3>
+
+<pre><code>using BitMiracle.Docotic.Pdf;
+
+// Docotic uses a license string set before any API call
+PdfInfo.SetLicenseKey("YOUR-DOCOTIC-LICENSE-KEY");
+</code></pre>
+
+<h3>Step 1 -- License Configuration (After)</h3>
+
+<pre><code>using IronPdf;
+
+// https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = "YOUR-IRONPDF-KEY";
+</code></pre>
+
+<h3>Step 2 -- Namespace Imports (Before)</h3>
+
+<pre><code>using BitMiracle.Docotic.Pdf;
+using BitMiracle.Docotic.Pdf.Content;
+</code></pre>
+
+<h3>Step 2 -- Namespace Imports (After)</h3>
+
+<pre><code>using IronPdf;
+</code></pre>
+
+<h3>Step 3 -- Basic PDF Operation: Open and Extract Text (Before)</h3>
+
+<pre><code>using BitMiracle.Docotic.Pdf;
+
+PdfInfo.SetLicenseKey("KEY");
+using var doc = new PdfDocument("input.pdf");
+string text = doc.GetText();
+Console.WriteLine(text);
+</code></pre>
+
+<h3>Step 3 -- Basic PDF Operation: Open and Extract Text (After)</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "KEY";
+using var pdf = PdfDocument.FromFile("input.pdf");
+// https://ironpdf.com/how-to/extract-text-and-images/
+string text = pdf.ExtractAllText();
+Console.WriteLine(text);
+</code></pre>
+
+<h2>How Do the APIs Map Between Libraries?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<tr><th>Docotic.Pdf</th><th>IronPDF</th><th>Notes</th></tr>
+<tr><td><code>BitMiracle.Docotic.Pdf</code></td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td><code>BitMiracle.Docotic.Pdf.Content</code></td><td><code>IronPdf</code></td><td>Content ops in root namespace</td></tr>
+<tr><td><code>BitMiracle.Docotic.Pdf.Forms</code></td><td><code>IronPdf</code></td><td>Form ops -- verify IronPDF coverage</td></tr>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr><th>Docotic.Pdf Class</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td><code>PdfDocument</code></td><td><code>PdfDocument</code></td><td>Same name; different API</td></tr>
+<tr><td><code>PdfPage</code></td><td><code>PdfPage</code></td><td>Page object</td></tr>
+<tr><td><code>PdfCanvas</code></td><td>No direct equivalent</td><td>IronPDF uses stamper model for drawing</td></tr>
+<tr><td><code>PdfInfo.SetLicenseKey()</code></td><td><code>IronPdf.License.LicenseKey</code></td><td>License setup</td></tr>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<tr><th>Operation</th><th>Docotic.Pdf</th><th>IronPDF</th></tr>
+<tr><td>Load from file</td><td><code>new PdfDocument("file.pdf")</code></td><td><code>PdfDocument.FromFile("file.pdf")</code></td></tr>
+<tr><td>Load from stream</td><td><code>new PdfDocument(stream)</code></td><td><code>PdfDocument.FromStream(stream)</code></td></tr>
+<tr><td>Create from HTML</td><td>Not built-in</td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td>Load from bytes</td><td><code>new PdfDocument(byteArray)</code></td><td><code>PdfDocument.FromStream(new MemoryStream(bytes))</code></td></tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>Docotic.Pdf</th><th>IronPDF</th></tr>
+<tr><td>Page count</td><td><code>doc.PageCount</code></td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Get page</td><td><code>doc.Pages[n]</code> (0-based)</td><td><code>pdf.Pages[n]</code> (0-based)</td></tr>
+<tr><td>Remove page</td><td><code>doc.RemovePage(page)</code></td><td><code>pdf.RemovePage(n)</code></td></tr>
+<tr><td>Page size</td><td><code>page.Width</code>, <code>page.Height</code></td><td><code>PdfPage.Width</code>, <code>PdfPage.Height</code></td></tr>
+</table>
+
+<h3>Merge/Split</h3>
+
+<table>
+<tr><th>Operation</th><th>Docotic.Pdf</th><th>IronPDF</th></tr>
+<tr><td>Merge PDFs</td><td><code>PdfDocument.Merge(docs)</code> or append pages</td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
+<tr><td>Extract pages</td><td>Page copy to new document</td><td>Verify IronPDF page extraction API</td></tr>
+</table>
+
+<h2>How Does HTML-to-PDF Migration Work in Practice?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>This is the most common migration scenario. Docotic has no HTML renderer, so teams build documents programmatically. With IronPDF, you write an HTML template instead.</p>
+
+<h3>HTML to PDF -- Docotic Programmatic Approach (Before)</h3>
+
+<pre><code>using System;
+using BitMiracle.Docotic.Pdf;
+
+class Program
+{
+    static void Main()
+    {
+        PdfInfo.SetLicenseKey("KEY");
+
+        // Docotic: no HTML renderer -- build the document programmatically
+        using var doc = new PdfDocument();
+        var page = doc.Pages[0];
+        var canvas = page.Canvas;
+
+        // Load and set font explicitly
+        var font = doc.AddFont(PdfStandardFont.Helvetica);
+        font.Size = 24;
+
+        // Draw text at absolute coordinates
+        canvas.Font = font;
+        canvas.DrawString(50, 700, "Invoice #2071");
+
+        font.Size = 12;
+        canvas.Font = font;
+        canvas.DrawString(50, 670, "Amount: $1,200.00");
+        canvas.DrawString(50, 655, "Due: 2025-12-01");
+
+        // Every layout change requires code changes -- no HTML/CSS
+        doc.Save("invoice.pdf");
+        Console.WriteLine("Saved invoice.pdf");
+    }
+}
+</code></pre>
+
+<h3>HTML to PDF -- IronPDF Template Approach (After)</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        // https://ironpdf.com/how-to/html-string-to-pdf/
+        IronPdf.License.LicenseKey = "YOUR-KEY";
+
+        var renderer = new ChromePdfRenderer();
+
+        // HTML template -- can be maintained separately from code
+        string html = @"&lt;html&gt;
+            &lt;body style='font-family:Arial; padding:40px'&gt;
+                &lt;h1 style='color:#2563EB'&gt;Invoice #2071&lt;/h1&gt;
+                &lt;p&gt;Amount: &lt;strong&gt;$1,200.00&lt;/strong&gt;&lt;/p&gt;
+                &lt;p&gt;Due: 2025-12-01&lt;/p&gt;
+            &lt;/body&gt;
+        &lt;/html&gt;";
+
+        using var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("invoice.pdf");
+        Console.WriteLine("Saved invoice.pdf");
+    }
+}
+</code></pre>
+
+<h2>How Do You Migrate PDF Merging?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Merging is one of the simpler migrations. Docotic requires page-by-page appending while IronPDF has a single static method.</p>
+
+<h3>Merge PDFs -- Docotic Page-by-Page Approach (Before)</h3>
+
+<pre><code>using System;
+using BitMiracle.Docotic.Pdf;
+
+class Program
+{
+    static void Main()
+    {
+        PdfInfo.SetLicenseKey("KEY");
+
+        using var merged = new PdfDocument();
+
+        // Remove the blank page Docotic creates by default
+        // (Docotic creates one page on new PdfDocument)
+        // Verify current behavior in docs
+
+        string[] files = { "part1.pdf", "part2.pdf", "part3.pdf" };
+
+        foreach (var file in files)
+        {
+            using var src = new PdfDocument(file);
+            // Append all pages from source
+            // Note: Docotic page append API -- verify exact method name
+            foreach (var page in src.Pages)
+                merged.AddPage().ImportPage(page); // verify API
+        }
+
+        merged.Save("merged.pdf");
+        Console.WriteLine("Merged to merged.pdf");
+    }
+}
+</code></pre>
+
+<h3>Merge PDFs -- IronPDF Static Merge (After)</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-KEY";
+
+        // https://ironpdf.com/how-to/merge-or-split-pdfs/
+        var pdf1 = PdfDocument.FromFile("part1.pdf");
+        var pdf2 = PdfDocument.FromFile("part2.pdf");
+        var pdf3 = PdfDocument.FromFile("part3.pdf");
+
+        using var merged = PdfDocument.Merge(pdf1, pdf2, pdf3);
+        merged.SaveAs("merged.pdf");
+        Console.WriteLine("Merged to merged.pdf");
+    }
+}
+</code></pre>
+
+<h2>How Do You Migrate Watermarks?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Docotic uses a canvas drawing model where you position everything with coordinates. IronPDF uses an alignment-based stamper model, which is simpler but requires a mental shift if you're used to absolute positioning.</p>
+
+<h3>Watermark -- Docotic Canvas Drawing (Before)</h3>
+
+<pre><code>using System;
+using BitMiracle.Docotic.Pdf;
+
+class Program
+{
+    static void Main()
+    {
+        PdfInfo.SetLicenseKey("KEY");
+
+        using var doc = new PdfDocument("input.pdf");
+
+        // Docotic: draw text watermark on each page's canvas
+        foreach (var page in doc.Pages)
+        {
+            var canvas = page.Canvas;
+            var font = doc.AddFont(PdfStandardFont.Helvetica);
+            font.Size = 48;
+
+            // Save/restore graphics state for opacity
+            canvas.SaveState();
+            // Opacity via extended graphics -- verify Docotic API for transparency
+            canvas.Font = font;
+            canvas.Pen.Color = new PdfRgbColor(200, 0, 0);
+            canvas.TextAngle = 45;
+
+            // Center calculation depends on page dimensions
+            float centerX = (float)(page.Width / 2);
+            float centerY = (float)(page.Height / 2);
+            canvas.DrawString(centerX, centerY, "CONFIDENTIAL");
+            canvas.RestoreState();
+        }
+
+        doc.Save("watermarked.pdf");
+        Console.WriteLine("Watermarked PDF saved");
+    }
+}
+</code></pre>
+
+<h3>Watermark -- IronPDF Stamper Model (After)</h3>
+
+<pre><code>using System;
+using IronPdf;
+using IronPdf.Editing;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-KEY";
+
+        using var pdf = PdfDocument.FromFile("input.pdf");
+
+        // https://ironpdf.com/how-to/stamp-text-image/
+        var stamper = new TextStamper
+        {
+            Text = "CONFIDENTIAL",
+            FontSize = 48,
+            Opacity = 40,
+            Rotation = 45,
+            VerticalAlignment = VerticalAlignment.Middle,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+
+        // Applies to all pages by default
+        pdf.ApplyStamp(stamper);
+        pdf.SaveAs("watermarked.pdf");
+        Console.WriteLine("Watermarked PDF saved");
+    }
+}
+</code></pre>
+
+<h2>How Do You Migrate Password Protection?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Password protection is a straightforward swap. Both libraries support owner and user passwords with permission controls.</p>
+
+<h3>Password Protection -- Docotic Encryption Settings (Before)</h3>
+
+<pre><code>using System;
+using BitMiracle.Docotic.Pdf;
+
+class Program
+{
+    static void Main()
+    {
+        PdfInfo.SetLicenseKey("KEY");
+
+        using var doc = new PdfDocument("input.pdf");
+
+        // Docotic encryption settings
+        var encryption = doc.Encryption;
+        encryption.Algorithm = PdfEncryptionAlgorithm.Rc4OrAes128; // verify current enum values
+        encryption.OwnerPassword = "owner456";
+        encryption.UserPassword = "user123";
+
+        // Set permissions
+        encryption.PrintingPermissions = PdfPrintingPermissions.Allowed; // verify
+
+        doc.Save("protected.pdf");
+        Console.WriteLine("Password protected PDF saved");
+    }
+}
+</code></pre>
+
+<h3>Password Protection -- IronPDF Security Settings (After)</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-KEY";
+
+        // https://ironpdf.com/how-to/pdf-permissions-passwords/
+        using var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.SecuritySettings.UserPassword = "user123";
+        pdf.SecuritySettings.OwnerPassword = "owner456";
+        pdf.SecuritySettings.AllowUserPrinting =
+            IronPdf.Security.PdfPrintSecurity.FullPrintRights;
+
+        pdf.SaveAs("protected.pdf");
+        Console.WriteLine("Password protected PDF saved");
+    }
+}
+</code></pre>
+
+<h2>What Are the Critical Differences to Watch For?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>There are four areas where the migration can trip you up if you're not careful.</p>
+
+<p><strong>Text Extraction Differences.</strong> Docotic.Pdf has a detailed text model -- it exposes character positions, font information, and reading order metadata. IronPDF's text extraction returns the text content but with less granularity on positional data. If your code depends on character-level positioning (e.g., table detection, column parsing), test IronPDF's output carefully before committing.</p>
+
+<h3>Text Extraction Comparison</h3>
+
+<pre><code>// Docotic -- granular character data
+using var doc = new PdfDocument("input.pdf");
+foreach (var page in doc.Pages)
+{
+    foreach (var chunk in page.GetWords()) // verify API
+    {
+        Console.WriteLine($"{chunk.Text} at ({chunk.Bounds.X}, {chunk.Bounds.Y})");
+    }
+}
+
+// IronPDF -- text content
+// https://ironpdf.com/how-to/extract-text-and-images/
+using var pdf = PdfDocument.FromFile("input.pdf");
+string allText = pdf.ExtractAllText();
+// For page-level extraction, verify IronPDF per-page extraction API
+</code></pre>
+
+<p><strong>Annotation API Differences.</strong> Docotic.Pdf's annotation model is explicit -- you create <code>PdfAnnotation</code> objects with coordinates and properties. IronPDF has annotation support, but the API shape differs. Teams with heavy annotation workflows should test annotation round-trips (create, save, reload, verify) before migrating. See the <a href="https://ironpdf.com/how-to/annotations/">IronPDF annotations docs</a> for the current API.</p>
+
+<p><strong>Page Indexing.</strong> Both Docotic.Pdf and IronPDF use 0-based page indexing. This makes the page index migration simpler than moving from 1-based libraries, but still audit all page index references -- off-by-one errors are silent.</p>
+
+<p><strong>Canvas vs Stamper.</strong> Docotic's <code>PdfCanvas</code> is a drawing context -- you position everything with coordinates. IronPDF's stamper model is alignment-based. If you have precise coordinate requirements for stamps or overlays, check the stamper's <code>IsStampedOnAllPages</code>, <code>HorizontalOffset</code>, and <code>VerticalOffset</code> properties. For highly precise positioning, verify whether IronPDF's HTML-stamp approach (stamping a rendered HTML element) gives better control than the stamper API.</p>
+
+<h2>What About Performance and Deployment?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Neither Docotic.Pdf nor IronPDF require COM or native interop for core operations on Windows. This means the migration doesn't introduce new deployment complexity on Windows. On Linux, IronPDF's Chromium renderer does require system libraries -- Docotic.Pdf has fewer Linux-side requirements if your workload is parse-heavy.</p>
+
+<p>If you're adding HTML-to-PDF as a new capability during this migration, reuse <code>ChromePdfRenderer</code>:</p>
+
+<h3>Renderer Reuse Pattern</h3>
+
+<pre><code>// Register in DI container as singleton in ASP.NET Core
+services.AddSingleton&lt;ChromePdfRenderer&gt;();
+
+// Or reuse at class level
+private static readonly ChromePdfRenderer _renderer = new ChromePdfRenderer();
+</code></pre>
+
+<p>Docotic.Pdf documents are <code>IDisposable</code>. IronPDF <code>PdfDocument</code> is also <code>IDisposable</code>. The migration shouldn't change disposal discipline if your existing code uses <code>using</code> consistently. Audit for any <code>PdfDocument</code> instances created without <code>using</code> or explicit <code>.Dispose()</code> calls.</p>
+
+<p>If you generate PDFs in parallel, verify IronPDF's concurrent rendering behavior at the <a href="https://ironpdf.com/examples/parallel/">parallel examples</a>. The Chromium renderer process is separate from the managed layer -- concurrent requests share the renderer process differently than Docotic's in-process rendering.</p>
+
+<h2>What Is the Full Migration Checklist?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p><strong>Pre-Migration:</strong></p>
+
+<ul>
+<li>Run <code>rg "using BitMiracle" --type cs -l</code> to find all affected files</li>
+<li>Capture baseline PDF outputs for visual regression comparison</li>
+<li>Identify all <code>PdfCanvas</code> drawing operations (will need refactoring)</li>
+<li>Inventory annotation-heavy code -- verify IronPDF annotation API parity</li>
+<li>Check form field editing usage -- verify IronPDF form API</li>
+<li>Note any character-level text extraction dependencies</li>
+<li>Confirm target .NET version supports IronPDF</li>
+<li>Test IronPDF output in parallel with Docotic before removing Docotic</li>
+</ul>
+
+<p><strong>Code Migration:</strong></p>
+
+<ul>
+<li>Replace <code>BitMiracle.Docotic.Pdf</code> NuGet with <code>IronPdf</code></li>
+<li>Replace <code>PdfInfo.SetLicenseKey()</code> with <code>IronPdf.License.LicenseKey = "..."</code></li>
+<li>Replace <code>using BitMiracle.Docotic.Pdf</code> with <code>using IronPdf</code></li>
+<li>Replace <code>new PdfDocument("file.pdf")</code> with <code>PdfDocument.FromFile("file.pdf")</code></li>
+<li>Replace programmatic layout with HTML templates where feasible</li>
+<li>Replace <code>PdfCanvas</code> drawing with <code>TextStamper</code> or <code>ImageStamper</code></li>
+<li>Replace Docotic merge (page-by-page append) with <code>PdfDocument.Merge()</code></li>
+<li>Replace <code>doc.Encryption</code> settings with <code>pdf.SecuritySettings</code> properties</li>
+<li>Replace <code>doc.GetText()</code> with <code>pdf.ExtractAllText()</code> -- verify parity</li>
+<li>Update annotation handling to IronPDF API -- verify coverage</li>
+</ul>
+
+<p><strong>Testing:</strong></p>
+
+<ul>
+<li>Visual comparison: programmatic layouts vs HTML-rendered equivalents</li>
+<li>Text extraction output -- compare character data if positional data needed</li>
+<li>Annotation round-trip: create, save, reload, verify</li>
+<li>Password protection: open with user password, confirm owner restrictions</li>
+<li>Merge page count and order verification</li>
+<li>Test on Linux if target environment -- verify system library requirements</li>
+<li>Load test concurrent rendering if parallel workloads exist</li>
+</ul>
+
+<p><strong>Post-Migration:</strong></p>
+
+<ul>
+<li>Remove <code>BitMiracle.Docotic.Pdf</code> from all project files</li>
+<li>Update Docker images for Linux deployment with IronPDF dependencies</li>
+<li>Update internal documentation on PDF generation approach</li>
+<li>Archive Docotic license for audit purposes</li>
+</ul>
+
+<h2>What Questions Come Up Most During This Migration?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p><strong>Q: Can I keep Docotic.Pdf alongside IronPDF during the transition?</strong></p>
+
+<p>Yes. Both are managed .NET libraries with no COM dependencies, so they coexist in the same project without conflict. I recommend running them side by side during testing so you can compare outputs before fully removing Docotic. Both use a class named <code>PdfDocument</code>, so you will need namespace aliases to avoid ambiguity.</p>
+
+<p><strong>Q: Does IronPDF match Docotic's text extraction granularity?</strong></p>
+
+<p>Not exactly. Docotic.Pdf exposes character positions, font information, and reading order metadata. IronPDF's <code>ExtractAllText()</code> returns the text content but with less granularity on positional data. If your code depends on character-level positioning for table detection or column parsing, test carefully. Check the current API at <a href="https://ironpdf.com/how-to/extract-text-and-images/">ironpdf.com/how-to/extract-text-and-images</a>.</p>
+
+<p><strong>Q: What about PdfCanvas drawing code -- is there a direct equivalent?</strong></p>
+
+<p>There is no direct equivalent. Docotic's <code>PdfCanvas</code> is a coordinate-based drawing context. IronPDF uses an alignment-based stamper model (<code>TextStamper</code>, <code>ImageStamper</code>) for overlays. For highly precise positioning, IronPDF's HTML-stamp approach -- stamping a rendered HTML element -- may give you better control than the stamper API alone.</p>
+
+<p><strong>Q: Does the migration introduce new Linux deployment requirements?</strong></p>
+
+<p>On Windows, no new complexity. On Linux, IronPDF's Chromium renderer requires system libraries that Docotic.Pdf does not need. If your workload is parse-heavy and runs on Linux, factor in the additional system library dependencies when updating your Docker images or deployment scripts.</p>
+
+<h2>How Should You Make the Final Decision?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>The Docotic.Pdf to IronPDF migration is generally straightforward for the common operations -- loading, merging, password protection. The complexity concentrates in two areas that deserve careful evaluation before starting: annotation workflows and text extraction. If either is central to your use case, run a spike against the IronPDF API before committing to the migration path.</p>
+
+<p>The real win for most teams isn't the API swap -- it's getting HTML-to-PDF that renders like a browser, which eliminates the programmatic layout code that no one wants to maintain.</p>

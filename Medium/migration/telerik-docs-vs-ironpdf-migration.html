@@ -1,0 +1,640 @@
+<h1>Migrating from Telerik Document Processing to IronPDF: Less Config, Same Output</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Consider Migrating from Telerik Document Processing?</h2>
+
+<p>The conversation usually starts with a dependency audit. Someone runs <code>dotnet list package --include-transitive</code> and the Telerik Document Processing transitive dependency tree scrolls for several screens. There are multiple <code>Telerik.Documents.*</code> packages &mdash; some for PDF, some for Word, some for spreadsheets, some for imaging &mdash; and the application only uses PDF generation. The install footprint is wider than the actual use case.</p>
+
+<p>Teams evaluating Telerik Document Processing alternatives commonly cite these triggers. First, the package footprint: TDP involves multiple NuGet packages, and teams using only PDF generation pull in the entire Documents suite transitively. Second, the Telerik license dependency: TDP is part of the Telerik ecosystem, and access typically requires a Telerik subscription that bundles PDF with UI components you may not need.</p>
+
+<p>Third, document model verbosity. The <code>RadFixedDocument</code> / <code>FixedContentEditor</code> API is verbose for layout-heavy documents compared to HTML/CSS templates. Fourth, there is no HTML input path &mdash; generating PDFs from HTML requires additional packages and integration steps.</p>
+
+<p>Fifth, upgrade coupling. TDP version is often coupled to Telerik UI versions, so upgrading one may require upgrading others. Sixth, if your report content starts as HTML, converting it to a <code>RadFixedDocument</code> model adds intermediate steps that the CSS layout gap creates.</p>
+
+<p>Seventh, Docker and cross-platform deployment: verify which TDP operations are supported cross-platform, as some operations may have platform-specific behavior. Eighth, different Telerik documents packages for PDF vs Word vs Excel means version management across several package IDs. Ninth, some features like text extraction, watermark, and security may require specific TDP packages or configuration. And tenth, TDP documentation is thorough, but community Q&amp;A is concentrated in the Telerik forums rather than Stack Overflow.</p>
+
+<h2>What Does the Migration Effort Actually Look Like?</h2>
+
+<p>I want to give you a realistic picture of the effort involved. Here is a feature-by-feature breakdown so you can estimate the work before writing any code.</p>
+
+<h3>Effort by Feature</h3>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>Telerik Document Processing</th><th>IronPDF Equivalent</th><th>Complexity</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string to PDF</td><td>Via additional integration</td><td><code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code></td><td>Low</td></tr>
+<tr><td>URL to PDF</td><td>Via additional integration</td><td><code>renderer.RenderUrlAsPdfAsync()</code></td><td>Low</td></tr>
+<tr><td>Save to file</td><td><code>PdfFormatProvider.Export(doc, stream)</code></td><td><code>pdf.SaveAs(path)</code></td><td>Low</td></tr>
+<tr><td>Save to stream</td><td><code>PdfFormatProvider.Export(doc, stream)</code></td><td><code>pdf.Stream</code> / <code>pdf.BinaryData</code></td><td>Low</td></tr>
+<tr><td>Document model creation</td><td><code>RadFixedDocument</code> + <code>FixedContentEditor</code></td><td>HTML/CSS template</td><td>High (rewrite)</td></tr>
+<tr><td>Merge PDFs</td><td><code>RadFixedDocumentMerger</code></td><td><code>PdfDocument.Merge()</code></td><td>Low&ndash;Medium</td></tr>
+<tr><td>Watermark</td><td>Via document model layer</td><td><code>TextStamper</code> / <code>ImageStamper</code></td><td>Medium</td></tr>
+<tr><td>Password protection</td><td><code>PdfExportSettings.EncryptionSettings</code></td><td><code>pdf.SecuritySettings</code></td><td>Low</td></tr>
+<tr><td>Text extraction</td><td>Verify TDP extraction API</td><td><code>pdf.ExtractAllText()</code></td><td>Medium</td></tr>
+<tr><td>Digital signatures</td><td>Verify TDP signature support</td><td><code>pdf.Sign()</code> &mdash; verify</td><td>Medium-High</td></tr>
+</tbody>
+</table>
+
+<h2>How Do You Decide Whether to Migrate?</h2>
+
+<p>Not every team should migrate. Here is a decision matrix to help you figure out where you fall.</p>
+
+<table>
+<thead>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>PDF generation from HTML templates is the primary need</td><td>Switch &mdash; IronPDF is HTML-first; TDP's document model adds overhead</td></tr>
+<tr><td>Using TDP for PDF + Word + Excel in same project</td><td>Evaluate carefully &mdash; TDP covers more document formats</td></tr>
+<tr><td>Telerik subscription is bundled (already paying for it)</td><td>Evaluate migration cost vs ongoing footprint</td></tr>
+<tr><td>Docker/cloud deployment where package footprint matters</td><td>Switch &mdash; IronPDF has a smaller, focused dependency set</td></tr>
+</tbody>
+</table>
+
+<h2>How Do You Set Up IronPDF and Replace Telerik Document Processing?</h2>
+
+<p>I will walk you through the core migration in three steps. First, find your existing Telerik references, then swap the packages, and finally update your code.</p>
+
+<h3>Finding Telerik Document Processing References in Your Codebase</h3>
+
+<pre><code># Find TDP PDF API usage
+rg -l "Telerik\.Windows\.Documents\|RadFixedDocument\|PdfFormatProvider\|FixedContentEditor" --type cs
+rg "RadFixedDocument\|PdfFormatProvider\|FixedContentEditor" --type cs -n
+
+# Count document model usage (higher migration cost)
+rg "RadFixed\|FixedContent\|ContentEditor" --type cs | wc -l
+
+# Find TDP packages in project files
+grep -r "Telerik\.Documents" *.csproj **/*.csproj 2&gt;/dev/null
+
+# List all Telerik packages in use
+dotnet list package | grep -i telerik
+</code></pre>
+
+<h3>Removing Telerik and Installing IronPDF</h3>
+
+<pre><code># Remove Telerik Document Processing packages
+# Note: removing these may affect other Telerik packages -- check dependencies first
+dotnet remove package Telerik.Documents.Core
+dotnet remove package Telerik.Documents.Fixed
+# Remove other Telerik.Documents.* packages specific to your use
+
+# Install IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+</code></pre>
+
+<p>You can verify the install pattern and grab a trial key at <a href="https://ironpdf.com/how-to/license-keys/">the IronPDF license configuration guide</a>.</p>
+
+<h3>Step 1: License Configuration</h3>
+
+<pre><code>using IronPdf;
+
+// https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY")
+    ?? throw new InvalidOperationException("IRONPDF_LICENSE_KEY not set");
+</code></pre>
+
+<h3>Step 2: Namespace Swap</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>using Telerik.Windows.Documents.Fixed.Model;
+using Telerik.Windows.Documents.Fixed.FormatProviders.Pdf;
+using Telerik.Windows.Documents.Fixed.Model.Editing;
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+</code></pre>
+
+<h3>Step 3: Basic PDF Generation</h3>
+
+<p><strong>Before (Telerik RadFixedDocument model):</strong></p>
+
+<pre><code>using Telerik.Windows.Documents.Fixed.Model;
+using Telerik.Windows.Documents.Fixed.Model.Editing;
+using Telerik.Windows.Documents.Fixed.FormatProviders.Pdf;
+using System;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var doc = new RadFixedDocument();
+        var page = doc.Pages.AddPage();
+        page.Size = new System.Windows.Size(595, 842); // A4 in points
+
+        var editor = new FixedContentEditor(page);
+        editor.Position.Translate(40, 40);
+        editor.DrawText("Hello, PDF!"); // verify method signature
+
+        var provider = new PdfFormatProvider();
+        using var outStream = File.Create("output.pdf");
+        provider.Export(doc, outStream);
+        Console.WriteLine("Saved output.pdf -- verify Telerik API names");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+// HTML replaces RadFixedDocument model
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body style='font-family:Arial; padding:40px'&gt;&lt;h1&gt;Hello, PDF!&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+pdf.SaveAs("output.pdf");
+
+Console.WriteLine($"Saved output.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h2>What Does Each Before/After Migration Look Like in Practice?</h2>
+
+<p>Let me walk through four complete migration examples so you can see exactly what changes in real code.</p>
+
+<h3>1. HTML to PDF</h3>
+
+<p><strong>Before (Telerik Document Processing &mdash; document model approach):</strong></p>
+
+<pre><code>using Telerik.Windows.Documents.Fixed.Model;
+using Telerik.Windows.Documents.Fixed.Model.Editing;
+using Telerik.Windows.Documents.Fixed.Model.Resources;
+using Telerik.Windows.Documents.Fixed.FormatProviders.Pdf;
+using System;
+using System.IO;
+using System.Windows;
+
+class ReportBefore
+{
+    static void Main()
+    {
+        // Telerik: build document via model -- no HTML input
+        var doc = new RadFixedDocument();
+        var page = doc.Pages.AddPage();
+        page.Size = new Size(595, 842);
+
+        var editor = new FixedContentEditor(page);
+
+        // Header -- verify font API in your Telerik version
+        editor.Position.Translate(40, 40);
+        editor.DrawText("Invoice #2024-0099");  // verify method
+
+        editor.Position.Translate(40, 80);
+        editor.DrawText("Customer: Acme Corp"); // verify method
+
+        editor.Position.Translate(40, 120);
+        editor.DrawText("Total: $4,200.00");    // verify method
+
+        var provider = new PdfFormatProvider();
+        using var stream = File.Create("invoice.pdf");
+        provider.Export(doc, stream);
+        Console.WriteLine("Saved invoice.pdf -- verify all Telerik API names");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+// HTML template replaces RadFixedDocument model -- no manual position calculation
+var html = @"
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        body { font-family: Arial, sans-serif; padding: 40px; }
+        .title { font-size: 20px; font-weight: bold; }
+        .field { margin-top: 8px; font-size: 13px; }
+        .total { font-size: 16px; font-weight: bold; margin-top: 20px; }
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;div class='title'&gt;Invoice #2024-0099&lt;/div&gt;
+        &lt;div class='field'&gt;Customer: Acme Corp&lt;/div&gt;
+        &lt;div class='total'&gt;Total: $4,200.00&lt;/div&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("invoice.pdf");
+Console.WriteLine($"Saved invoice.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h3>2. Merge PDFs</h3>
+
+<p><strong>Before (Telerik Document Processing):</strong></p>
+
+<pre><code>using Telerik.Windows.Documents.Fixed.Model;
+using Telerik.Windows.Documents.Fixed.FormatProviders.Pdf;
+using System;
+using System.IO;
+
+class MergeBefore
+{
+    static void Main()
+    {
+        // Load two documents
+        var provider = new PdfFormatProvider();
+
+        RadFixedDocument doc1, doc2;
+        using (var s1 = File.OpenRead("section1.pdf"))
+            doc1 = provider.Import(s1); // verify method name
+
+        using (var s2 = File.OpenRead("section2.pdf"))
+            doc2 = provider.Import(s2);
+
+        // VERIFY: Telerik merge API -- RadFixedDocumentMerger or direct page manipulation
+        // var merger = new RadFixedDocumentMerger(doc1);
+        // merger.MergeDocument(doc2); // verify
+
+        using var outStream = File.Create("merged.pdf");
+        provider.Export(doc1, outStream); // verify -- after merge
+        Console.WriteLine("Verify Telerik Document Processing merge API");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+
+var results = await Task.WhenAll(
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 1&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"),
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 2&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;")
+);
+
+// https://ironpdf.com/how-to/merge-or-split-pdfs/
+var merged = PdfDocument.Merge(results[0], results[1]);
+merged.SaveAs("merged.pdf");
+Console.WriteLine($"Merged: {merged.PageCount} pages");
+</code></pre>
+
+<h3>3. Watermark</h3>
+
+<p><strong>Before (Telerik Document Processing &mdash; verify watermark API):</strong></p>
+
+<pre><code>using Telerik.Windows.Documents.Fixed.Model;
+using Telerik.Windows.Documents.Fixed.Model.Editing;
+using Telerik.Windows.Documents.Fixed.FormatProviders.Pdf;
+using System;
+using System.IO;
+
+class WatermarkBefore
+{
+    static void Main()
+    {
+        // VERIFY: Telerik watermark approach
+        // TDP typically uses FixedContentEditor to add content to a page
+        // Transparency/opacity for watermark effect may require specific configuration
+
+        var provider = new PdfFormatProvider();
+        RadFixedDocument doc;
+        using (var s = File.OpenRead("source.pdf"))
+            doc = provider.Import(s);
+
+        foreach (var page in doc.Pages)
+        {
+            var editor = new FixedContentEditor(page);
+            // VERIFY: Telerik watermark -- transparency, font, position API
+            // editor.Position.Translate(...);
+            // editor.DrawText("DRAFT"); // with opacity? verify API
+        }
+
+        using var outStream = File.Create("watermarked.pdf");
+        provider.Export(doc, outStream);
+        Console.WriteLine("Verify Telerik watermark API -- transparency support");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Document&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// https://ironpdf.com/how-to/custom-watermark/
+var watermark = new TextStamper
+{
+    Text = "DRAFT",
+    FontColor = IronPdf.Imaging.Color.Gray,
+    Opacity = 0.15,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs("watermarked.pdf");
+Console.WriteLine("Watermark applied");
+</code></pre>
+
+<h3>4. Password Protection</h3>
+
+<p><strong>Before (Telerik Document Processing):</strong></p>
+
+<pre><code>using Telerik.Windows.Documents.Fixed.FormatProviders.Pdf;
+using Telerik.Windows.Documents.Fixed.FormatProviders.Pdf.Export;
+using System;
+using System.IO;
+
+class PasswordBefore
+{
+    static void Main()
+    {
+        // VERIFY: Telerik PDF export settings and security API
+        var doc = BuildDocument(); // your RadFixedDocument
+
+        var settings = new PdfExportSettings();
+        // VERIFY: Telerik encryption settings property names
+        settings.EncryptionSettings = new StandardEncryptionSettings
+        {
+            UserPassword = "open123",
+            OwnerPassword = "admin456",
+        };
+
+        var provider = new PdfFormatProvider();
+        provider.ExportSettings = settings;
+
+        using var stream = File.Create("secured.pdf");
+        provider.Export(doc, stream);
+        Console.WriteLine("Secured PDF saved -- verify Telerik encryption API names");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Confidential&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// https://ironpdf.com/how-to/pdf-permissions-passwords/
+pdf.SecuritySettings.UserPassword = "open123";
+pdf.SecuritySettings.OwnerPassword = "admin456";
+
+pdf.SaveAs("secured.pdf");
+Console.WriteLine("Saved secured.pdf");
+</code></pre>
+
+<h2>How Do the Two Libraries Compare Feature by Feature?</h2>
+
+<p>Here are the full mapping tables I use when planning a migration. These cover the overall comparison, namespaces, core classes, document loading, page operations, and merge/split.</p>
+
+<h3>Overall Comparison</h3>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>Telerik Document Processing</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>Document generation (PDF, Word, Excel) via document model</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Telerik subscription (bundles UI) &mdash; verify at telerik.com</td><td>Commercial license &mdash; verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td><code>RadFixedDocument</code> document model + editor</td><td><code>ChromePdfRenderer</code> + HTML input</td></tr>
+<tr><td>Learning Curve</td><td>Medium-High; own document model with many types</td><td>Low for web devs; HTML/CSS is the input</td></tr>
+<tr><td>HTML Rendering</td><td>Via additional integration &mdash; not primary model</td><td>Embedded Chromium</td></tr>
+<tr><td>Page Indexing</td><td>0-based</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify in Telerik docs</td><td>Verify IronPDF concurrent instance guidance</td></tr>
+<tr><td>Namespace</td><td><code>Telerik.Windows.Documents.Fixed.*</code></td><td><code>IronPdf</code></td></tr>
+</tbody>
+</table>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<thead>
+<tr><th>Telerik Document Processing</th><th>IronPDF</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Telerik.Windows.Documents.Fixed.Model</code></td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td><code>Telerik.Windows.Documents.Fixed.FormatProviders.Pdf</code></td><td><code>IronPdf</code> (SaveAs/Stream)</td><td>Export handled by pdf object</td></tr>
+<tr><td><code>Telerik.Windows.Documents.Fixed.Model.Editing</code></td><td>N/A &mdash; not needed for HTML path</td><td>Editor replaced by HTML/CSS</td></tr>
+</tbody>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<thead>
+<tr><th>Telerik Class</th><th>IronPDF Class</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>RadFixedDocument</code></td><td><code>ChromePdfRenderer</code></td><td>Different model &mdash; HTML is the input</td></tr>
+<tr><td><code>PdfFormatProvider</code></td><td><code>pdf.SaveAs()</code> / <code>pdf.Stream</code></td><td>Export is on the pdf object</td></tr>
+<tr><td><code>FixedContentEditor</code></td><td>N/A &mdash; HTML/CSS handles layout</td><td>No editor required</td></tr>
+<tr><td>N/A</td><td><code>PdfDocument</code></td><td>PDF object for manipulation</td></tr>
+</tbody>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>Telerik</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Create from model</td><td><code>new RadFixedDocument()</code> + editor</td><td><code>renderer.RenderHtmlAsPdfAsync(html)</code></td></tr>
+<tr><td>Render URL</td><td>Verify TDP integration path</td><td><code>renderer.RenderUrlAsPdfAsync(url)</code></td></tr>
+<tr><td>Load existing PDF</td><td><code>PdfFormatProvider.Import(stream)</code></td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+<tr><td>Save to stream</td><td><code>PdfFormatProvider.Export(doc, stream)</code></td><td><code>pdf.Stream.CopyTo(stream)</code></td></tr>
+</tbody>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>Telerik</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Page count</td><td><code>doc.Pages.Count</code></td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Remove page</td><td><code>doc.Pages.Remove(page)</code></td><td><code>pdf.RemovePage(index)</code> &mdash; verify</td></tr>
+<tr><td>Extract text</td><td>Verify TDP text extraction</td><td><code>pdf.ExtractAllText()</code></td></tr>
+<tr><td>Rotate</td><td>Verify</td><td>Verify in IronPDF docs</td></tr>
+</tbody>
+</table>
+
+<h3>Merge/Split Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>Telerik</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Merge</td><td><code>RadFixedDocumentMerger.Merge()</code></td><td><code>PdfDocument.Merge(doc1, doc2)</code></td></tr>
+<tr><td>Split</td><td>Verify TDP split support</td><td><a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Guide</a></td></tr>
+</tbody>
+</table>
+
+<h2>What Are the Critical Migration Notes?</h2>
+
+<p>The biggest shift in this migration is conceptual. Telerik's <code>RadFixedDocument</code> + <code>FixedContentEditor</code> approach uses an absolute-position layout model &mdash; translate X, Y, draw content. IronPDF uses HTML/CSS, which is a flow layout model. The translation is conceptual, not mechanical.</p>
+
+<h3>The Document Model to HTML Rewrite</h3>
+
+<table>
+<thead>
+<tr><th>TDP Pattern</th><th>HTML/CSS Equivalent</th></tr>
+</thead>
+<tbody>
+<tr><td><code>editor.Position.Translate(40, 40); DrawText("Title")</code></td><td><code>&lt;h1 style='margin-left:40px'&gt;Title&lt;/h1&gt;</code></td></tr>
+<tr><td><code>editor.DrawRectangle(rect)</code></td><td><code>&lt;div style='border:1px solid #333; width:...; height:...'&gt;</code></td></tr>
+<tr><td>Explicit font size / color</td><td><code>style='font-size:16px; color:#333'</code></td></tr>
+<tr><td>Absolute page coordinates</td><td>CSS <code>position:absolute</code> or flow layout</td></tr>
+</tbody>
+</table>
+
+<p>For complex positioned layouts, this is a design exercise. The HTML template is what ships, not translated coordinate code.</p>
+
+<h3>PdfFormatProvider.Export() to pdf.SaveAs()</h3>
+
+<p>The most common Telerik export pattern maps directly.</p>
+
+<pre><code>// Telerik:
+// var provider = new PdfFormatProvider();
+// using var stream = File.Create("out.pdf");
+// provider.Export(doc, stream);
+
+// IronPDF:
+using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("out.pdf");
+// Or: pdf.Stream.CopyTo(yourStream);
+</code></pre>
+
+<h3>Package Removal Is Gradual</h3>
+
+<p>If your application uses Telerik for PDF and also for Word/Excel documents, remove <code>Telerik.Documents.Fixed</code> and PDF-specific packages while keeping Word/Excel packages. Do not remove the entire Telerik.Documents suite at once if it serves multiple use cases.</p>
+
+<pre><code># Check what each Telerik.Documents package is used for before removing
+rg "Telerik\.Windows\.Documents\.Fixed" --type cs  # PDF-specific
+rg "Telerik\.Windows\.Documents\.Flow" --type cs   # Word-specific
+rg "Telerik\.Windows\.Documents\.Spreadsheet" --type cs  # Excel-specific
+</code></pre>
+
+<h3>Parallel Rendering</h3>
+
+<pre><code>using IronPdf;
+using System.Linq;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+// https://ironpdf.com/examples/parallel/
+var pdfs = await Task.WhenAll(reportData.Select(async data =&gt;
+{
+    var renderer = new ChromePdfRenderer();
+    return await renderer.RenderHtmlAsPdfAsync(BuildHtml(data));
+}));
+
+foreach (var pdf in pdfs) pdf.Dispose();
+// See: https://ironpdf.com/how-to/async/
+</code></pre>
+
+<h3>Disposal vs PdfFormatProvider Pattern</h3>
+
+<pre><code>using IronPdf;
+using System.IO;
+
+// Telerik: provider.Export(doc, stream) -- stream stays open
+// IronPDF: 'using' on PdfDocument handles disposal
+
+var renderer = new ChromePdfRenderer();
+using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+
+// Safe export patterns:
+pdf.SaveAs("output.pdf");               // file
+pdf.Stream.CopyTo(existingStream);      // stream
+var bytes = pdf.BinaryData;             // bytes
+// pdf disposed automatically at end of 'using' block
+</code></pre>
+
+<h2>What Are the Frequently Asked Questions?</h2>
+
+<p><strong>Answer:</strong> I get these five questions on almost every Telerik Document Processing migration I advise on. Here they are with direct answers.</p>
+
+<h3>Will My PDFs Look Exactly the Same After Migration?</h3>
+
+<p><strong>Answer:</strong> No, and that is expected. Telerik Document Processing uses a fixed-position document model where you place content at explicit coordinates. IronPDF uses Chromium to render HTML/CSS into PDF. The visual output will be equivalent in content but the layout approach is fundamentally different. For simple documents like invoices and reports, the HTML/CSS approach typically produces cleaner output with less code. For complex positioned layouts with overlapping elements, you will need to invest design time in the HTML template.</p>
+
+<p>Both libraries use 0-based page indexing, so manipulation code that references page numbers translates directly.</p>
+
+<h3>How Do I Handle the RadFixedDocument to HTML Rewrite?</h3>
+
+<p><strong>Answer:</strong> This is the main creative work in the migration. The TDP pattern of <code>editor.Position.Translate(x, y)</code> followed by <code>DrawText()</code> maps to HTML elements with CSS styling. Start with the simplest document templates first. Single-column report layouts translate quickly. Complex multi-column layouts with precise positioning take more HTML design work. Treat each document type as its own mini-project.</p>
+
+<p>The payoff is that HTML templates are easier to maintain, can be previewed in a browser, and do not require recompilation to update styling.</p>
+
+<h3>What About Performance and Concurrent Rendering?</h3>
+
+<p><strong>Answer:</strong> IronPDF supports concurrent rendering with separate renderer instances. The parallel rendering pattern using <code>Task.WhenAll</code> works well for batch jobs. Each task gets its own <code>ChromePdfRenderer</code> instance. Monitor memory consumption during the first production week since the Chromium rendering engine has a different memory profile than TDP's document model approach.</p>
+
+<h3>Can I Migrate Gradually If I Use TDP for Multiple Document Formats?</h3>
+
+<p><strong>Answer:</strong> Yes. If your application uses Telerik for PDF, Word, and Excel, you can remove the PDF-specific packages (<code>Telerik.Documents.Fixed</code>) while keeping the Word and Excel packages. Run <code>rg "Telerik\.Windows\.Documents\.Fixed" --type cs</code> to find PDF-specific usage, and migrate those files first. The other Telerik.Documents packages remain untouched.</p>
+
+<h3>What Is the Biggest Risk in This Migration?</h3>
+
+<p><strong>Answer:</strong> The document model rewrite. The effort table above marks "Document model creation" as High complexity for a reason. Every <code>RadFixedDocument</code> layout needs to be reimagined as an HTML/CSS template. The API swap for merge, watermark, and password protection is straightforward and low risk. The template rewrite is where the time goes. Scope it per document type and test each one individually against reference output from the TDP version.</p>
+
+<h2>What Is the Decision Framework for Your Team?</h2>
+
+<p><strong>Answer:</strong> Here is the migration checklist I recommend. Work through it in order: pre-migration assessment, code migration, testing, and post-migration cleanup.</p>
+
+<h3>Pre-Migration</h3>
+
+<p>Count <code>RadFixedDocument</code> / <code>FixedContentEditor</code> usage with <code>rg "RadFixed\|FixedContent" --type cs | wc -l</code>. Identify which Telerik.Documents packages are PDF-specific vs Word/Excel. Verify Telerik license model &mdash; are you paying for the full bundle or PDF specifically? Measure current install footprint with <code>dotnet list package --include-transitive | wc -l</code>. Document features in use: merge, security, signatures, form fields. Obtain an <a href="https://ironpdf.com/how-to/license-keys/">IronPDF license key</a>. Verify IronPDF .NET version compatibility. Plan the HTML template rewrite for each document type.</p>
+
+<h3>Code Migration</h3>
+
+<p>Install IronPDF with <code>dotnet add package IronPdf</code>. Remove <code>Telerik.Documents.Core</code>, <code>Telerik.Documents.Fixed</code>, and related packages. Add license key at application startup. Convert <code>RadFixedDocument</code> layouts to HTML templates. Replace <code>PdfFormatProvider.Export()</code> with <code>pdf.SaveAs()</code> or <code>pdf.Stream</code>. Replace <code>RadFixedDocumentMerger</code> with <code>PdfDocument.Merge()</code>. Replace document model watermark with <code>TextStamper</code> / <code>ImageStamper</code>. Replace <code>PdfExportSettings.EncryptionSettings</code> with <code>pdf.SecuritySettings</code>. Handle URL rendering via <code>renderer.RenderUrlAsPdfAsync()</code>. Verify text extraction via <code>pdf.ExtractAllText()</code> if used.</p>
+
+<h3>Testing</h3>
+
+<p>Compare PDF output visually against TDP reference exports. Verify package footprint reduction with <code>dotnet list package | grep Telerik</code>. Test merge output page count and order. Test password protection. Benchmark render time vs TDP baseline. Test Docker/Linux deployment. Verify concurrent rendering behavior.</p>
+
+<h3>Post-Migration</h3>
+
+<p>Remove Telerik.Documents.Fixed and related packages. Confirm remaining Telerik packages are still needed for Word/Excel use cases. Update bundle size metrics if applicable. Archive TDP document model code for reference.</p>
+
+<p>The package footprint reduction is often the most immediately measurable outcome. Running <code>dotnet list package --include-transitive</code> before and after the PDF-specific Telerik packages are removed shows the size delta. The document model-to-HTML rewrite is the main creative work &mdash; the most complex TDP layouts take the most HTML design work to replicate, while simpler single-column report layouts are fast.</p>

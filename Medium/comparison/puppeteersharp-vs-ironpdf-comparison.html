@@ -1,0 +1,655 @@
+<h1>PuppeteerSharp vs IronPDF: Solving Common .NET PDF Pain Points</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>What Is PuppeteerSharp?</h2>
+
+<p>PuppeteerSharp is a .NET port of the popular Node.js Puppeteer library. It launches headless Chromium as an external process and controls it via the DevTools Protocol. Teams discover it when they need HTML-to-PDF conversion and recognize Puppeteer's popularity in the Node ecosystem.</p>
+
+<p>It works -- until it doesn't. Common failure modes include Chrome binary downloads timing out in CI/CD pipelines, X-server requirements breaking Linux containers, PDF generation mysteriously hanging on page loads with external assets, memory leaks from undisposed browser instances piling up, and cryptic DevTools Protocol errors that offer no actionable guidance.</p>
+
+<p>PuppeteerSharp is actively maintained (version 20.2.6 as of December 2025), has 3.8k GitHub stars, and tracks upstream Puppeteer changes. But it is fundamentally a browser automation tool adapted for PDF generation, not a PDF-focused library.</p>
+
+<p>IronPDF takes the opposite approach. It embeds a Chromium rendering engine as a .NET library component -- no external processes, no browser binaries to manage, no DevTools Protocol complexity. Both produce Chrome-quality PDFs, but the architectural differences create very different operational experiences. You can explore the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> to see IronPDF's approach firsthand.</p>
+
+<h2>How Do I Convert HTML to PDF with Each Library?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>This is the most common task, and it reveals the fundamental architectural difference. PuppeteerSharp requires explicit browser lifecycle management. IronPDF treats PDF generation as a single method call.</p>
+
+<h3>PuppeteerSharp -- Browser Automation Approach</h3>
+
+<pre><code>using PuppeteerSharp;
+using System;
+using System.IO;
+using System.Threading.Tasks;
+
+public class PuppeteerPdfGenerator
+{
+    public static async Task GenerateBasicPdf()
+    {
+        // Download Chrome binary if not present (can take 1-2 minutes on first run)
+        var browserFetcher = new BrowserFetcher();
+        await browserFetcher.DownloadAsync();
+
+        // Launch headless Chrome (creates external process)
+        await using var browser = await Puppeteer.LaunchAsync(new LaunchOptions
+        {
+            Headless = true,
+            Args = new[] { &quot;--no-sandbox&quot;, &quot;--disable-setuid-sandbox&quot; } // Required in containers
+        });
+
+        // Create new page (separate browser context)
+        await using var page = await browser.NewPageAsync();
+
+        // Set content and wait for resources
+        await page.SetContentAsync(@&quot;
+            &lt;!DOCTYPE html&gt;
+            &lt;html&gt;
+            &lt;head&gt;
+                &lt;style&gt;
+                    body { font-family: Arial, sans-serif; margin: 40px; }
+                    h1 { color: #333; }
+                &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+                &lt;h1&gt;Sample Report&lt;/h1&gt;
+                &lt;p&gt;This is a basic HTML to PDF example.&lt;/p&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;
+        &quot;);
+
+        // Wait for fonts to load (required for accurate rendering)
+        await page.EvaluateExpressionHandleAsync(&quot;document.fonts.ready&quot;);
+
+        // Generate PDF
+        await page.PdfAsync(&quot;puppeteersharp-basic.pdf&quot;, new PdfOptions
+        {
+            Format = PaperFormat.A4,
+            PrintBackground = true,
+            MarginOptions = new MarginOptions
+            {
+                Top = &quot;20px&quot;,
+                Bottom = &quot;20px&quot;,
+                Left = &quot;20px&quot;,
+                Right = &quot;20px&quot;
+            }
+        });
+
+        // Browser and page are disposed via await using
+    }
+}
+
+// Usage
+await PuppeteerPdfGenerator.GenerateBasicPdf();
+</code></pre>
+
+<p>There are several troubleshooting points in this code. The binary download can timeout since <code>DownloadAsync()</code> fetches roughly 200 MB. The <code>--no-sandbox</code> flag is a security risk but is required in Docker containers without proper user namespaces. Without <code>document.fonts.ready</code>, PDFs may render with missing or fallback fonts. And forgetting <code>await using</code> or <code>Dispose()</code> leaves Chrome processes running at around 150-200 MB each.</p>
+
+<h3>IronPDF -- Embedded Rendering Approach</h3>
+
+<pre><code>using IronPdf;
+
+// Generate PDF from HTML string (no browser process, no external binaries)
+var renderer = new ChromePdfRenderer();
+using var pdf = renderer.RenderHtmlAsPdf(@&quot;
+    &lt;!DOCTYPE html&gt;
+    &lt;html&gt;
+    &lt;head&gt;
+        &lt;style&gt;
+            body { font-family: Arial, sans-serif; margin: 40px; }
+            h1 { color: #333; }
+        &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Sample Report&lt;/h1&gt;
+        &lt;p&gt;This is a basic HTML to PDF example.&lt;/p&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;
+&quot;);
+
+pdf.SaveAs(&quot;ironpdf-basic.pdf&quot;);
+</code></pre>
+
+<p>IronPDF's embedded engine handles fonts, resources, and rendering internally. No <code>--no-sandbox</code> flags, no X-server requirements, no process lifecycle management. The <code>using</code> statement ensures memory cleanup. See the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> for advanced scenarios.</p>
+
+<h2>How Do I Render URLs with External Resources?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Rendering live URLs introduces timeout and wait-condition complexity. PuppeteerSharp requires careful configuration around navigation strategies. IronPDF handles it with a simpler API.</p>
+
+<h3>PuppeteerSharp -- Navigation and Wait Strategies</h3>
+
+<pre><code>using PuppeteerSharp;
+using System;
+using System.Threading.Tasks;
+
+public class PuppeteerUrlRenderer
+{
+    public static async Task RenderUrlWithWait()
+    {
+        var browserFetcher = new BrowserFetcher();
+        await browserFetcher.DownloadAsync();
+
+        await using var browser = await Puppeteer.LaunchAsync(new LaunchOptions
+        {
+            Headless = true,
+            Args = new[]
+            {
+                &quot;--no-sandbox&quot;,
+                &quot;--disable-setuid-sandbox&quot;,
+                &quot;--disable-dev-shm-usage&quot; // Prevent shared memory issues in containers
+            },
+            Timeout = 120000 // 2-minute launch timeout
+        });
+
+        await using var page = await browser.NewPageAsync();
+
+        // Set longer timeout for navigation
+        page.DefaultNavigationTimeout = 60000; // 60 seconds
+
+        try
+        {
+            // Navigate and wait for network idle (all resources loaded)
+            await page.GoToAsync(&quot;https://example.com/report&quot;, new NavigationOptions
+            {
+                WaitUntil = new[] { WaitUntilNavigation.Networkidle0 }, // Wait for network idle
+                Timeout = 60000
+            });
+
+            // Wait for specific elements if needed
+            await page.WaitForSelectorAsync(&quot;body&quot;, new WaitForSelectorOptions
+            {
+                Timeout = 10000
+            });
+
+            // Additional wait for fonts and images
+            await page.EvaluateExpressionHandleAsync(&quot;document.fonts.ready&quot;);
+            await Task.Delay(500); // Additional buffer for images
+
+            // Generate PDF
+            await page.PdfAsync(&quot;puppeteersharp-url.pdf&quot;, new PdfOptions
+            {
+                Format = PaperFormat.A4,
+                PrintBackground = true,
+                PreferCSSPageSize = true,
+                MarginOptions = new MarginOptions
+                {
+                    Top = &quot;20px&quot;,
+                    Bottom = &quot;20px&quot;,
+                    Left = &quot;20px&quot;,
+                    Right = &quot;20px&quot;
+                }
+            });
+        }
+        catch (NavigationException ex)
+        {
+            Console.WriteLine($&quot;Navigation failed: {ex.Message}&quot;);
+        }
+        catch (TimeoutException ex)
+        {
+            Console.WriteLine($&quot;Operation timed out: {ex.Message}&quot;);
+        }
+    }
+}
+
+await PuppeteerUrlRenderer.RenderUrlWithWait();
+</code></pre>
+
+<p>The default 30-second timeout is often insufficient for real-world sites with analytics, ads, or slow CDNs. Choosing between <code>Networkidle0</code> (zero connections for 500ms) and <code>Networkidle2</code> (two or fewer connections) determines whether you get premature rendering or excessive waits. External analytics scripts can delay network idle indefinitely. And <code>--disable-dev-shm-usage</code> is required to prevent Chrome from using <code>/dev/shm</code>, which is often limited in containers.</p>
+
+<h3>IronPDF -- Simplified URL Rendering</h3>
+
+<pre><code>using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+
+// Configure wait conditions if needed
+renderer.RenderingOptions.Timeout = 60; // seconds
+renderer.RenderingOptions.WaitFor.RenderDelay(500); // Wait 500ms after load
+
+// Render URL to PDF (handles navigation, resources, fonts automatically)
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://example.com/report&quot;);
+pdf.SaveAs(&quot;ironpdf-url.pdf&quot;);
+</code></pre>
+
+<p>IronPDF's embedded engine manages the full rendering pipeline. No navigation strategies, no process lifecycle, no DevTools Protocol complexity. For advanced wait conditions, see the <a href="https://ironpdf.com/how-to/html-file-to-pdf/">JavaScript and render delays guide</a>.</p>
+
+<h2>How Do I Handle Authentication When Generating PDFs?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Rendering authenticated pages is a common requirement for internal dashboards and secure reports. PuppeteerSharp requires manual cookie and header management. IronPDF exposes authentication through rendering options.</p>
+
+<h3>PuppeteerSharp -- Cookie and Header Management</h3>
+
+<pre><code>using PuppeteerSharp;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+public class PuppeteerAuthRenderer
+{
+    public static async Task RenderWithAuth()
+    {
+        var browserFetcher = new BrowserFetcher();
+        await browserFetcher.DownloadAsync();
+
+        await using var browser = await Puppeteer.LaunchAsync(new LaunchOptions
+        {
+            Headless = true,
+            Args = new[] { &quot;--no-sandbox&quot;, &quot;--disable-setuid-sandbox&quot; }
+        });
+
+        await using var page = await browser.NewPageAsync();
+
+        // Set authentication cookie
+        await page.SetCookieAsync(new CookieParam
+        {
+            Name = &quot;auth_token&quot;,
+            Value = &quot;your-token-here&quot;,
+            Domain = &quot;example.com&quot;,
+            Path = &quot;/&quot;,
+            HttpOnly = true,
+            Secure = true
+        });
+
+        // Set custom headers (e.g., Bearer token)
+        await page.SetExtraHttpHeadersAsync(new Dictionary&lt;string, string&gt;
+        {
+            { &quot;Authorization&quot;, &quot;Bearer your-bearer-token&quot; },
+            { &quot;Custom-Header&quot;, &quot;custom-value&quot; }
+        });
+
+        // Navigate with authentication
+        await page.GoToAsync(&quot;https://example.com/secure-report&quot;, new NavigationOptions
+        {
+            WaitUntil = new[] { WaitUntilNavigation.Networkidle0 },
+            Timeout = 60000
+        });
+
+        await page.PdfAsync(&quot;puppeteersharp-auth.pdf&quot;, new PdfOptions
+        {
+            Format = PaperFormat.A4,
+            PrintBackground = true
+        });
+    }
+}
+
+await PuppeteerAuthRenderer.RenderWithAuth();
+</code></pre>
+
+<p>Watch out for cookie domain mismatches -- setting cookies with the wrong domain silently fails. Cookies with <code>Secure = true</code> only work over HTTPS. Extra headers only apply to the navigation request, not subsequent resource loads. For complex auth flows like OAuth or multi-step logins, you must script the full browser interaction including form fills, clicks, and redirects.</p>
+
+<h3>IronPDF -- Authentication in Rendering Options</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Engines.Chrome;
+
+var renderer = new ChromePdfRenderer();
+
+// Set authentication credentials
+renderer.RenderingOptions.CustomCookies.Add(&quot;auth_token&quot;, &quot;your-token-here&quot;);
+renderer.RenderingOptions.CustomHttpHeaders.Add(&quot;Authorization&quot;, &quot;Bearer your-bearer-token&quot;);
+
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://example.com/secure-report&quot;);
+pdf.SaveAs(&quot;ironpdf-auth.pdf&quot;);
+</code></pre>
+
+<p>IronPDF's rendering options handle authentication configuration without manual browser scripting. See the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> for comprehensive authentication examples.</p>
+
+<h2>How Do the Two Libraries Compare on Features?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>I built the table below from real capability checks. The biggest gap is PDF manipulation -- PuppeteerSharp generates PDFs but cannot merge, split, watermark, sign, or encrypt them. You need a second library for any post-generation operations.</p>
+
+<table>
+<tr>
+<th>Category</th>
+<th>Feature</th>
+<th>PuppeteerSharp</th>
+<th>IronPDF</th>
+</tr>
+<tr>
+<td>Status</td>
+<td>Active development</td>
+<td>Yes (20.2.6 latest)</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Status</td>
+<td>Commercial support</td>
+<td>Sponsorship-based community support</td>
+<td>24/5 engineer support (24/7 premium)</td>
+</tr>
+<tr>
+<td>Status</td>
+<td>Enterprise SLA</td>
+<td>No</td>
+<td>Available</td>
+</tr>
+<tr>
+<td>Support</td>
+<td>Documentation quality</td>
+<td>Good (browser automation focused)</td>
+<td>Extensive (PDF-focused tutorials, how-tos)</td>
+</tr>
+<tr>
+<td>Support</td>
+<td>Response time</td>
+<td>Community-dependent (GitHub issues)</td>
+<td>&lt;1 min median chat response</td>
+</tr>
+<tr>
+<td>Support</td>
+<td>Troubleshooting depth</td>
+<td>DevTools Protocol knowledge required</td>
+<td>PDF-specific guidance</td>
+</tr>
+<tr>
+<td>Content Creation</td>
+<td>HTML rendering</td>
+<td>Full Chromium browser (navigate, interact)</td>
+<td>Embedded Chrome engine (render-focused)</td>
+</tr>
+<tr>
+<td>Content Creation</td>
+<td>CSS support</td>
+<td>Full CSS3 via Chrome</td>
+<td>Full CSS3 via embedded Chrome</td>
+</tr>
+<tr>
+<td>Content Creation</td>
+<td>JavaScript execution</td>
+<td>Full browser automation capabilities</td>
+<td>JavaScript rendering with wait strategies</td>
+</tr>
+<tr>
+<td>Content Creation</td>
+<td>External binary requirement</td>
+<td>Yes (~200 MB Chrome download)</td>
+<td>No (embedded engine)</td>
+</tr>
+<tr>
+<td>Content Creation</td>
+<td>X-server requirement (Linux)</td>
+<td>Yes (requires xvfb or --no-sandbox)</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Content Creation</td>
+<td>Process management</td>
+<td>Manual (launch, dispose browser instances)</td>
+<td>Automatic (library-based)</td>
+</tr>
+<tr>
+<td>PDF Operations</td>
+<td>Merge PDFs</td>
+<td>No (requires external library)</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>PDF Operations</td>
+<td>Split PDFs</td>
+<td>No (requires external library)</td>
+<td>Yes (extract pages)</td>
+</tr>
+<tr>
+<td>PDF Operations</td>
+<td>Add watermarks</td>
+<td>No (requires external library)</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>PDF Operations</td>
+<td>Digital signatures</td>
+<td>No (requires external library)</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>PDF Operations</td>
+<td>Form filling</td>
+<td>No (requires external library)</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>PDF Operations</td>
+<td>Extract text</td>
+<td>No (requires external library)</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>PDF Operations</td>
+<td>Password protection</td>
+<td>No (requires external library)</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>Sandbox escapes</td>
+<td>Risk with --no-sandbox flag in containers</td>
+<td>No process isolation concerns</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>Resource cleanup</td>
+<td>Manual (disposal critical)</td>
+<td>Automatic</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>Memory leak risk</td>
+<td>High (if disposal missed)</td>
+<td>Low (library lifecycle)</td>
+</tr>
+<tr>
+<td>Known Issues</td>
+<td>Chrome binary download timeouts</td>
+<td>Common in CI/CD and restricted networks</td>
+<td>N/A (no external binaries)</td>
+</tr>
+<tr>
+<td>Known Issues</td>
+<td>Navigation timeouts</td>
+<td>Common with slow external resources</td>
+<td>Rare (tuned defaults)</td>
+</tr>
+<tr>
+<td>Known Issues</td>
+<td>Process leaks</td>
+<td>Common if disposal missed</td>
+<td>N/A (library-based)</td>
+</tr>
+<tr>
+<td>Known Issues</td>
+<td>X-server errors on Linux</td>
+<td>Common in Docker without proper configuration</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td>Known Issues</td>
+<td>Memory usage</td>
+<td>~150-200 MB per browser instance</td>
+<td>Optimized for high-throughput</td>
+</tr>
+<tr>
+<td>Development</td>
+<td>Learning curve</td>
+<td>Moderate (browser automation concepts)</td>
+<td>Low (PDF-focused API)</td>
+</tr>
+<tr>
+<td>Development</td>
+<td>.NET Standard 2.0</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Development</td>
+<td>.NET Framework 4.6.2+</td>
+<td>Yes (.NET Framework 4.6.1+)</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Development</td>
+<td>.NET 5, 6, 7, 8, 10</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Development</td>
+<td>Linux support</td>
+<td>Yes (with X-server or --no-sandbox)</td>
+<td>Yes (native)</td>
+</tr>
+<tr>
+<td>Development</td>
+<td>Docker/containers</td>
+<td>Yes (with configuration)</td>
+<td>Yes (minimal configuration)</td>
+</tr>
+</table>
+
+<h2>What Are the Most Common PuppeteerSharp Troubleshooting Scenarios?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>I see four issues that come up repeatedly when teams use PuppeteerSharp for PDF generation. These are architectural consequences of wrapping an external browser process, and each one has a different mitigation strategy.</p>
+
+<h3>Chrome Binary Download Failures</h3>
+
+<p><code>BrowserFetcher.DownloadAsync()</code> times out or fails in CI/CD pipelines. The workaround is to pre-download Chrome and bundle it with your application, or use a Docker image with Chrome pre-installed.</p>
+
+<pre><code>// Pre-download Chrome and bundle with application
+var browserFetcher = new BrowserFetcher(new BrowserFetcherOptions
+{
+    Path = &quot;/path/to/bundled/chrome&quot;
+});
+
+// Specify exact Chrome revision to avoid downloads
+await browserFetcher.DownloadAsync(BrowserFetcher.DefaultChromiumRevision);
+</code></pre>
+
+<p>With IronPDF, this is not applicable -- there are no external binary downloads required.</p>
+
+<h3>"Cannot open display" Error in Docker</h3>
+
+<p>This error means Chrome cannot find an X-server. You either install X virtual framebuffer in your Dockerfile or use the <code>--no-sandbox</code> flag, which carries security risks.</p>
+
+<pre><code># Install X virtual framebuffer in Dockerfile
+RUN apt-get update &amp;&amp; apt-get install -y xvfb
+
+# Run with xvfb-run
+xvfb-run dotnet MyApp.dll
+</code></pre>
+
+<p>With IronPDF, this is not applicable -- there is no X-server requirement.</p>
+
+<h3>Memory Leaks from Undisposed Browser Instances</h3>
+
+<p>Application memory grows continuously and eventually throws <code>OutOfMemoryException</code>. The cause is missing disposal of browser and page objects.</p>
+
+<pre><code>// WRONG - leaks browser process
+public async Task GeneratePdfBadExample()
+{
+    var browser = await Puppeteer.LaunchAsync(new LaunchOptions { Headless = true });
+    var page = await browser.NewPageAsync();
+    await page.SetContentAsync(&quot;&lt;h1&gt;Test&lt;/h1&gt;&quot;);
+    await page.PdfAsync(&quot;output.pdf&quot;);
+    // Missing: await browser.DisposeAsync()
+    // Missing: await page.DisposeAsync()
+}
+
+// CORRECT - uses await using for automatic disposal
+public async Task GeneratePdfGoodExample()
+{
+    await using var browser = await Puppeteer.LaunchAsync(new LaunchOptions { Headless = true });
+    await using var page = await browser.NewPageAsync();
+    await page.SetContentAsync(&quot;&lt;h1&gt;Test&lt;/h1&gt;&quot;);
+    await page.PdfAsync(&quot;output.pdf&quot;);
+    // Automatic disposal via await using
+}
+</code></pre>
+
+<p>IronPDF handles resource cleanup internally. A standard <code>using</code> statement ensures PDF document disposal:</p>
+
+<pre><code>public void GeneratePdf()
+{
+    var renderer = new ChromePdfRenderer();
+    using var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;h1&gt;Test&lt;/h1&gt;&quot;);
+    pdf.SaveAs(&quot;output.pdf&quot;);
+    // Automatic cleanup via using statement
+}
+</code></pre>
+
+<h3>Navigation Timeout on Pages with Slow External Resources</h3>
+
+<p><code>TimeoutException: Navigation timeout of 30000 ms exceeded</code> is one of the most common errors. The fix is to block problematic domains and increase timeouts.</p>
+
+<pre><code>// Block problematic domains (analytics, ads)
+await page.SetRequestInterceptionAsync(true);
+page.Request += (sender, e) =&gt;
+{
+    var blockedDomains = new[] { &quot;google-analytics.com&quot;, &quot;doubleclick.net&quot;, &quot;facebook.com&quot; };
+    if (blockedDomains.Any(domain =&gt; e.Request.Url.Contains(domain)))
+    {
+        e.Request.AbortAsync();
+    }
+    else
+    {
+        e.Request.ContinueAsync();
+    }
+};
+
+// Increase timeouts
+await page.GoToAsync(&quot;https://slow-site.com&quot;, new NavigationOptions
+{
+    WaitUntil = new[] { WaitUntilNavigation.DOMContentLoaded },
+    Timeout = 90000 // 90 seconds
+});
+</code></pre>
+
+<p>IronPDF has built-in timeout handling with configurable delays:</p>
+
+<pre><code>var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.Timeout = 90; // seconds
+renderer.RenderingOptions.WaitFor.RenderDelay(1000); // Wait 1 second after load
+
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://slow-site.com&quot;);
+pdf.SaveAs(&quot;output.pdf&quot;);
+</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Is PuppeteerSharp free to use?</h3>
+
+<p>Yes. PuppeteerSharp is open source and free. It is community-maintained with sponsorship-based support. However, support is community-dependent through GitHub issues and Stack Overflow. Complex debugging often requires understanding Chrome DevTools Protocol internals. IronPDF is commercial with a 30-day free trial and includes 24/5 engineer support with optional 24/7 premium tiers and enterprise SLAs.</p>
+
+<h3>Can PuppeteerSharp merge, split, or watermark PDFs?</h3>
+
+<p>No. PuppeteerSharp generates PDFs but does not merge them, split them, extract text, add watermarks, apply digital signatures, or fill forms. You need an additional library like IronPDF, iText, or PdfSharp for any post-generation operations. IronPDF provides <code>PdfDocument.Merge()</code>, <code>PdfDocument.ExtractAllText()</code>, <code>PdfDocument.ApplyWatermark()</code>, <code>PdfDocument.Sign()</code>, and form-filling capabilities out of the box.</p>
+
+<h3>Does PuppeteerSharp work in Docker containers without extra configuration?</h3>
+
+<p>Not typically. PuppeteerSharp requires X11 on Linux for headless Chrome. In Docker containers, you must install <code>xvfb</code> or use the <code>--no-sandbox</code> flag, which has security implications. You also need <code>--disable-dev-shm-usage</code> to prevent shared memory issues. IronPDF runs natively on Linux with no X-server requirements and minimal container configuration.</p>
+
+<h3>What happens if I forget to dispose the browser in PuppeteerSharp?</h3>
+
+<p>Each undisposed browser instance leaks a Chrome process consuming roughly 150-200 MB of memory and file handles. In high-traffic applications, 10-20 leaked processes can exhaust server memory. PuppeteerSharp's async architecture with nested operations makes it easy to miss disposal. Always use <code>await using</code> for both browser and page objects. IronPDF handles resource management internally through its library-based architecture, and a standard <code>using</code> statement handles cleanup.</p>
+
+<h3>Do both libraries produce the same rendering quality?</h3>
+
+<p>Yes. Both use Chrome's rendering engine, so the output quality is identical. The difference is architectural: PuppeteerSharp launches headless Chrome as an external process and controls it via the DevTools Protocol, while IronPDF embeds the Chromium rendering engine as a library component. Same Chrome quality, different operational characteristics.</p>
+
+<h2>When Should I Use PuppeteerSharp vs IronPDF?</h2>
+
+<p>PuppeteerSharp is the right choice if you need full browser automation capabilities -- scripting clicks, form fills, screenshots, and navigation flows in addition to PDF generation. Its process-based architecture provides isolation and the full Chrome API surface. For teams already using browser automation or requiring fine-grained browser control, the operational complexity is justified.</p>
+
+<p>However, if your primary need is "convert HTML to PDF," PuppeteerSharp's browser automation model adds troubleshooting overhead without functional benefit. Chrome download timeouts, X-server errors, process leaks, and navigation hangs are all architectural consequences of wrapping an external browser process.</p>
+
+<p>IronPDF's library-based approach handles the full PDF lifecycle in-process. It renders HTML with the same Chrome quality but without operational friction. Built-in PDF manipulation (merge, split, watermark, sign, encrypt) and 24/5 engineer support streamline production deployments. IronPDF supports .NET Core, .NET 5+, and .NET Framework 4.6.2+, and integrates naturally with ASP.NET, Azure Functions, AWS Lambda, and containerized deployments. For teams that need reliable HTML-to-PDF conversion without browser automation complexity, <a href="https://ironpdf.com/">IronPDF</a>'s embedded architecture is the pragmatic choice.</p>
+
+<p>The question to ask your team: does your application need full browser automation with PDF as a byproduct, or is HTML-to-PDF rendering the primary requirement?</p>

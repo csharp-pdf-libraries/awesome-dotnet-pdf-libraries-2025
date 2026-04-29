@@ -1,0 +1,439 @@
+<h1>Migrating from QuestPDF to IronPDF: Solving Common Migration Pain Points</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Would You Migrate from QuestPDF to IronPDF?</h2>
+
+<p>It works on your machine. It generates the PDF exactly right. Then you push it through the CI pipeline &mdash; a Docker container running a minimal base image &mdash; and the font rendering breaks, or the runner exits with a native library error. QuestPDF has made real progress on cross-platform support, but teams on minimal Linux images occasionally still hit SkiaSharp or font provider issues that don't reproduce locally. That gap between local and pipeline behavior is the pain that typically triggers an evaluation.</p>
+
+<p>I've walked through this migration with enough teams to know the patterns. Here are the conditions that most commonly push teams toward an alternative:</p>
+
+<p><strong>SkiaSharp native library issues in containers</strong> &mdash; <code>libfontconfig</code>, <code>libfreetype</code>, or <code>libskia</code> not present in minimal Docker base images like alpine or distroless. <strong>Font provider configuration</strong> &mdash; QuestPDF requires a font provider setup, and on CI runners without system fonts, this needs explicit configuration. <strong>No HTML rendering path</strong> &mdash; web developers maintaining templates in HTML can't directly use QuestPDF without rewriting everything to the fluent DSL. <strong>Limited PDF manipulation</strong> &mdash; QuestPDF is a generation library; merge, split, watermark, security, and text extraction all need additional libraries.</p>
+
+<p>If any of those sound familiar, this article covers the complete migration path with before/after code for every standard operation.</p>
+
+<h2>Problem 1: SkiaSharp Native Dependencies Break Your CI Pipeline</h2>
+
+<p>The most common trigger I see is SkiaSharp failing in containers. QuestPDF depends on SkiaSharp for rendering, which requires native system libraries that minimal Docker images simply don't include. You end up adding <code>libfontconfig1</code>, <code>libfreetype6</code>, and <code>libgdiplus</code> to your Dockerfile just to get PDF generation working.</p>
+
+<p>IronPDF uses an embedded Chromium renderer instead of SkiaSharp, so those native dependencies disappear entirely. Here is how the cleanup looks.</p>
+
+<h3>Removing QuestPDF and Installing IronPDF</h3>
+
+<pre><code># Remove QuestPDF (and SkiaSharp if only used by QuestPDF)
+dotnet remove package QuestPDF
+
+# Check if SkiaSharp can be removed too
+dotnet remove package SkiaSharp  # only if no other dependency requires it
+
+# Install IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+</code></pre>
+
+<h3>Cleaning Up Your Dockerfile</h3>
+
+<pre><code># Remove SkiaSharp system dependencies if they were only for QuestPDF:
+# RUN apt-get install -y libfontconfig1 libfreetype6 libgdiplus
+
+# IronPDF: no SkiaSharp; verify IronPDF's own system requirements in their Docker docs
+</code></pre>
+
+<p>After removing QuestPDF, verify that SkiaSharp packages can actually be removed:</p>
+
+<pre><code>dotnet list package | grep -i "skia"
+# If SkiaSharp appears only as a QuestPDF transitive dependency, it can be removed
+</code></pre>
+
+<h2>Problem 2: The Fluent DSL Locks You into Code-Only Document Changes</h2>
+
+<p>QuestPDF's fluent DSL is powerful, but every layout change requires a code change. Your designers can't touch the templates. Your frontend developers who already know HTML and CSS have to learn an entirely new document model with containers, columns, and custom components.</p>
+
+<p>With <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF's HTML-to-PDF approach</a>, your existing HTML templates become your PDF templates. Non-developers can modify them. Here is the fundamental shift.</p>
+
+<h3>QuestPDF Fluent DSL (Before)</h3>
+
+<pre><code>using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
+using System;
+
+class InvoiceBefore
+{
+    static void Main()
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+
+        Document.Create(container =&gt;
+        {
+            container.Page(page =&gt;
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(2, Unit.Centimetre);
+
+                page.Header()
+                    .Text("Invoice #5001")
+                    .SemiBold()
+                    .FontSize(24);
+
+                page.Content()
+                    .Column(col =&gt;
+                    {
+                        col.Item().Text("Client: Acme Corp").FontSize(12);
+                        col.Item().PaddingTop(10).Text("Amount Due: $3,200").FontSize(12);
+                    });
+
+                page.Footer()
+                    .AlignCenter()
+                    .Text(x =&gt; x.CurrentPageNumber());
+            });
+        }).GeneratePdf("invoice.pdf");
+
+        Console.WriteLine("Saved invoice.pdf");
+    }
+}
+</code></pre>
+
+<h3>IronPDF HTML-Driven (After)</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var html = @"
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        body { font-family: Arial, sans-serif; padding: 2cm; }
+        h1 { font-size: 24px; font-weight: 600; }
+        p { font-size: 12px; margin: 4px 0; }
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Invoice #5001&lt;/h1&gt;
+        &lt;p&gt;Client: Acme Corp&lt;/p&gt;
+        &lt;p&gt;Amount Due: $3,200&lt;/p&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// Page numbers via footer
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    HtmlFragment = "&lt;div style='text-align:center; font-size:10px'&gt;{page}&lt;/div&gt;",
+};
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("invoice.pdf");
+
+Console.WriteLine($"Saved invoice.pdf ({pdf.PageCount} page(s))");
+</code></pre>
+
+<p>The namespace swap is straightforward. Replace <code>QuestPDF.Fluent</code>, <code>QuestPDF.Helpers</code>, and <code>QuestPDF.Infrastructure</code> with <code>IronPdf</code> and <code>IronPdf.Rendering</code>. Remove the <code>QuestPDF.Settings.License = LicenseType.Community</code> call and add your <a href="https://ironpdf.com/how-to/license-keys/">IronPDF license key</a> instead.</p>
+
+<h2>Problem 3: Merge, Watermark, and Security Require Secondary Libraries</h2>
+
+<p>QuestPDF is a generation library. If you need to merge documents, apply watermarks, or add password protection, you need a second (or third) library. With IronPDF, those operations are built in.</p>
+
+<h3>Merging PDFs &mdash; QuestPDF (Before)</h3>
+
+<pre><code>using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
+using System;
+using System.IO;
+
+class MergeBefore
+{
+    static void Main()
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+
+        // QuestPDF doesn't support merging separate documents.
+        // Teams typically generate each section as a separate file
+        // then use a secondary library to combine them.
+
+        var sections = new[]
+        {
+            ("Section 1: Overview", "sec1.pdf"),
+            ("Section 2: Detail", "sec2.pdf"),
+        };
+
+        foreach (var (title, filename) in sections)
+        {
+            Document.Create(container =&gt;
+            {
+                container.Page(page =&gt;
+                {
+                    page.Size(PageSizes.A4);
+                    page.Content().Text(title).FontSize(20);
+                });
+            }).GeneratePdf(filename);
+        }
+
+        // Now merge sec1.pdf + sec2.pdf using secondary library (e.g., PDFsharp)
+        Console.WriteLine("Merge requires secondary library — not built into QuestPDF");
+    }
+}
+</code></pre>
+
+<h3>Merging PDFs &mdash; IronPDF (After)</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+
+// Render concurrently
+var results = await Task.WhenAll(
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 1: Overview&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"),
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 2: Detail&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;")
+);
+
+var merged = PdfDocument.Merge(results[0], results[1]);
+merged.SaveAs("combined.pdf");
+
+Console.WriteLine($"Merged: {merged.PageCount} pages");
+</code></pre>
+
+<h3>Watermark &mdash; QuestPDF (Before)</h3>
+
+<pre><code>using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
+using QuestPDF.Drawing;
+using SkiaSharp;
+using System;
+
+class WatermarkBefore
+{
+    static void Main()
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+
+        // QuestPDF watermark via custom Canvas element — requires SkiaSharp directly
+        Document.Create(container =&gt;
+        {
+            container.Page(page =&gt;
+            {
+                page.Size(PageSizes.A4);
+
+                // Foreground layer for watermark
+                page.Foreground().Canvas((canvas, size) =&gt;
+                {
+                    using var paint = new SKPaint
+                    {
+                        Color = SKColors.Gray.WithAlpha(50),
+                        TextSize = 72,
+                        IsAntialias = true,
+                    };
+                    // Manual rotation and positioning required
+                    canvas.Save();
+                    canvas.Translate(size.Width / 2, size.Height / 2);
+                    canvas.RotateDegrees(-45);
+                    canvas.DrawText("DRAFT", 0, 0, paint);
+                    canvas.Restore();
+                });
+
+                page.Content().Text("Report Content").FontSize(14);
+            });
+        }).GeneratePdf("watermarked.pdf");
+
+        Console.WriteLine("SkiaSharp watermark applied");
+    }
+}
+</code></pre>
+
+<h3>Watermark &mdash; IronPDF (After)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report Content&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// No SkiaSharp required — programmatic text stamp
+var watermark = new TextStamper
+{
+    Text = "DRAFT",
+    FontColor = IronPdf.Imaging.Color.Gray,
+    Opacity = 0.2,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs("watermarked.pdf");
+</code></pre>
+
+<h3>Password Protection &mdash; QuestPDF (Before)</h3>
+
+<pre><code>using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
+using System;
+using System.IO;
+
+class PasswordBefore
+{
+    static void Main()
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+
+        // Step 1: Generate PDF with QuestPDF
+        var pdfBytes = Document.Create(container =&gt;
+        {
+            container.Page(page =&gt;
+            {
+                page.Size(PageSizes.A4);
+                page.Content().Text("Confidential Document").FontSize(18);
+            });
+        }).GeneratePdf();
+
+        // Step 2: Apply password with a secondary library (required)
+        // QuestPDF has no security/password API
+        // Pseudo-code:
+        // var secured = SomePdfLib.SetPassword(pdfBytes, "open123", "admin456");
+        // File.WriteAllBytes("secured.pdf", secured);
+
+        Console.WriteLine("Password protection requires a secondary library with QuestPDF");
+    }
+}
+</code></pre>
+
+<h3>Password Protection &mdash; IronPDF (After)</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Confidential Document&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+pdf.SecuritySettings.UserPassword = "open123";
+pdf.SecuritySettings.OwnerPassword = "admin456";
+
+pdf.SaveAs("secured.pdf");
+</code></pre>
+
+<h2>How Do the Two Libraries Compare Feature by Feature?</h2>
+
+<table>
+<tr><th>Aspect</th><th>QuestPDF</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>Programmatic PDF via fluent DSL</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>MIT (QuestPDF Community) — verify commercial terms for high revenue</td><td>Commercial license — verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>Fluent document model / layout DSL</td><td>HTML renderer + PDF manipulation objects</td></tr>
+<tr><td>Learning Curve</td><td>Medium; DSL has its own concepts (containers, columns, etc.)</td><td>Low for web devs; HTML/CSS is the input</td></tr>
+<tr><td>HTML Rendering</td><td>Not supported — DSL only</td><td>Embedded Chromium</td></tr>
+<tr><td>Page Indexing</td><td>N/A — generation only</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify in QuestPDF docs</td><td>Verify IronPDF concurrent instance guidance</td></tr>
+<tr><td>Namespace</td><td><code>QuestPDF.Fluent</code>, <code>QuestPDF.Infrastructure</code></td><td><code>IronPdf</code></td></tr>
+</table>
+
+<table>
+<tr><th>Feature</th><th>QuestPDF</th><th>IronPDF Equivalent</th><th>Complexity</th></tr>
+<tr><td>Simple document with text</td><td>Fluent DSL</td><td>HTML string</td><td>Low (rewrite as HTML)</td></tr>
+<tr><td>Table layout</td><td><code>.Table()</code> fluent API</td><td>HTML <code>&lt;table&gt;</code></td><td>Low-Medium</td></tr>
+<tr><td>Images</td><td><code>.Image()</code> component</td><td><code>&lt;img&gt;</code> in HTML</td><td>Low</td></tr>
+<tr><td>Custom fonts</td><td>Font provider config</td><td>CSS <code>@font-face</code></td><td>Medium</td></tr>
+<tr><td>Headers/footers</td><td><code>.Header()</code> / <code>.Footer()</code> components</td><td><code>RenderingOptions.HtmlHeader/Footer</code></td><td>Medium</td></tr>
+<tr><td>Page numbers</td><td>Via footer component</td><td><code>{page}</code> token in header/footer</td><td>Medium</td></tr>
+<tr><td>Multi-section document</td><td>Page model composition</td><td>Multiple HTML sections</td><td>Medium</td></tr>
+<tr><td>Merge PDFs</td><td>Not native</td><td><code>PdfDocument.Merge()</code></td><td>Medium</td></tr>
+<tr><td>Watermark</td><td>Not native (custom component)</td><td><code>TextStamper</code> / <code>ImageStamper</code></td><td>Medium</td></tr>
+<tr><td>Password protection</td><td>Not native</td><td><code>pdf.SecuritySettings</code></td><td>Medium</td></tr>
+<tr><td>Dynamic data binding</td><td>C# lambda expressions in DSL</td><td>HTML template strings / Razor</td><td>Medium</td></tr>
+<tr><td>SkiaSharp native deps</td><td>Required</td><td>Not required (Chromium)</td><td>Low (remove)</td></tr>
+</table>
+
+<table>
+<tr><th>Operation</th><th>QuestPDF</th><th>IronPDF</th></tr>
+<tr><td>Generate from DSL</td><td><code>Document.Create(...).GeneratePdf()</code></td><td><code>renderer.RenderHtmlAsPdfAsync(html)</code></td></tr>
+<tr><td>Generate from URL</td><td>Not supported</td><td><code>renderer.RenderUrlAsPdfAsync(url)</code></td></tr>
+<tr><td>Load existing PDF</td><td>Not supported</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+<tr><td>Save to stream</td><td><code>.GeneratePdf(stream)</code></td><td><code>pdf.Stream</code></td></tr>
+<tr><td>Page count</td><td>Via page callbacks</td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Remove page</td><td>N/A — generation only</td><td><code>pdf.RemovePage(index)</code> — verify</td></tr>
+<tr><td>Extract text</td><td>N/A</td><td><code>pdf.ExtractAllText()</code></td></tr>
+<tr><td>Merge</td><td>Not native</td><td><code>PdfDocument.Merge(doc1, doc2)</code></td></tr>
+</table>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>How long does a typical QuestPDF to IronPDF migration take?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>The document rewrite from QuestPDF's fluent DSL to HTML is the main cost, and it scales linearly with the number of distinct document types in your codebase. Simple single-column documents &mdash; text, basic tables, logos &mdash; take roughly 30 minutes each to rewrite as HTML.</p>
+
+<p>Before committing to a timeline, run <code>rg "Document.Create" --type cs | wc -l</code> to count how many document definitions exist. The namespace swap and package installation themselves take minutes. Complex multi-column layouts with precise spacing will take longer per document.</p>
+
+<h3>Do I need to rewrite every QuestPDF document from scratch?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. The fundamental migration challenge is that QuestPDF's fluent DSL doesn't map 1:1 to HTML. There is no automated converter. Every <code>Document.Create()</code> block needs to be rewritten as HTML/CSS and rendered through <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF's ChromePdfRenderer</a>.</p>
+
+<p>The upside is that once documents are in HTML, non-developers can modify templates without code changes, and your frontend team can reuse existing HTML/CSS skills directly.</p>
+
+<h3>How do I handle page numbers after migrating?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>QuestPDF's page numbering uses <code>x.CurrentPageNumber()</code> in the document model. IronPDF uses placeholder tokens in <a href="https://ironpdf.com/how-to/headers-and-footers/">HtmlHeaderFooter</a>. Here is the equivalent:</p>
+
+<pre><code>renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    HtmlFragment = @"
+        &lt;div style='text-align:center; font-size:9px; color:#666'&gt;
+            Page {page} of {total-pages}
+        &lt;/div&gt;",
+};
+</code></pre>
+
+<p>Verify the exact token names (<code>{page}</code>, <code>{total-pages}</code>) in the current IronPDF documentation.</p>
+
+<h3>Will IronPDF perform the same as QuestPDF for my documents?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>The performance profiles differ. QuestPDF renders via SkiaSharp &mdash; CPU-bound vector graphics rasterization with no HTML parse or layout pass. IronPDF renders via Chromium HTML parse, layout, and render, including JavaScript execution if present.</p>
+
+<p>For simple text documents, QuestPDF may be faster. For complex HTML-derived content, IronPDF avoids the DSL rewrite overhead. You should measure for your specific templates using the benchmark patterns in this article, and run them in your actual environment rather than relying on synthetic benchmarks.</p>
+
+<h3>Can I remove SkiaSharp from my project after migrating?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>If SkiaSharp was only used as a transitive dependency of QuestPDF, yes. Run <code>dotnet list package | grep -i "skia"</code> to confirm. Also remove any SkiaSharp system library installs from your Dockerfiles &mdash; lines like <code>RUN apt-get install -y libfontconfig1 libfreetype6 libgdiplus</code> that were only there for QuestPDF.</p>
+
+<p>If another part of your application uses SkiaSharp directly (image processing, for example), keep it. But in most cases I see, SkiaSharp is only present because of QuestPDF, and removing it simplifies your container images significantly.</p>
+
+<h2>When Should You Migrate from QuestPDF to IronPDF?</h2>
+
+<table>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+<tr><td>Documents already designed as HTML/CSS templates</td><td>Switch — direct HTML input eliminates DSL rewrite</td></tr>
+<tr><td>Minimal Docker images (alpine, distroless) with SkiaSharp issues</td><td>Switch — IronPDF avoids SkiaSharp native dependency</td></tr>
+<tr><td>Complex programmatic layouts where DSL is working well</td><td>QuestPDF may be appropriate — evaluate migration cost</td></tr>
+<tr><td>Documents need HTML-to-PDF from existing web content</td><td>Switch — IronPDF accepts live HTML/URLs directly</td></tr>
+</table>
+
+<p>The operational wins &mdash; removing SkiaSharp native library dependencies, eliminating font provider configuration, cleaning up Docker image system libraries &mdash; are immediate and verifiable before any code is written. If your CI pipeline has ever broken because of a missing native library in a container, that alone may justify the switch.</p>
+
+<p>Start by counting your document definitions and categorizing them by complexity. The <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge</a> and <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">security</a> features that previously required secondary libraries come built in, so you may end up with fewer dependencies overall.</p>

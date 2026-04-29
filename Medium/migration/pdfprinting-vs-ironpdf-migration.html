@@ -1,0 +1,299 @@
+<h1>Migrating from PDFPrinting.NET to IronPDF: Solving Common Migration Pain Points</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>The output never quite matches the design. That is the recurring complaint I hear from teams using HTML-to-PDF tools built on aging rendering engines or non-Chromium stacks. A table that renders perfectly in Chrome looks slightly different in the PDF &mdash; column widths shift, fonts fall back, a flex layout collapses. You fix one page and something shifts on the next.</p>
+
+<p>This article walks you through what to expect when you swap PDFPrinting.NET for <a href="https://ironpdf.com/">IronPDF</a>, which uses an embedded Chromium renderer. You will have working migration code for the four most common operations by the end.</p>
+
+<h2>Why Should You Migrate Away from PDFPrinting.NET?</h2>
+
+<p>Teams evaluating alternatives to PDFPrinting.NET commonly encounter these friction points. Not all apply to every version or use case, but this is a general list I have seen across migrations.</p>
+
+<p><strong>HTML/CSS fidelity gaps</strong> &mdash; output diverges from browser rendering, particularly with modern CSS (flex, grid, custom properties). The rendering engine age means older non-Chromium renderers do not track browser standards updates.</p>
+
+<p><strong>Windows-only or GDI-dependent pipeline</strong> &mdash; Docker and Linux deployments become problematic. Font handling tied to system fonts in Windows-only libraries breaks in containerized environments.</p>
+
+<p><strong>Limited .NET version support</strong> &mdash; newer .NET 6/7/8/9 targets may not be fully supported. Async API gaps mean synchronous-only rendering APIs do not integrate well with modern async .NET code.</p>
+
+<p><strong>Sparse documentation</strong> &mdash; limited examples for edge cases like headers/footers, custom page sizes, or JavaScript-rendered content. Maintenance uncertainty from infrequent NuGet updates suggests reduced active development.</p>
+
+<p><strong>Missing features</strong> &mdash; no built-in support for annotations, form fields, or digital signatures depending on version. Thread safety guidance is unclear or restrictive for concurrent usage.</p>
+
+<h2>What Does the Basic HTML-to-PDF Migration Look Like?</h2>
+
+<h3>Install IronPDF and Remove PDFPrinting.NET</h3>
+
+<pre><code># Remove PDFPrinting.NET &mdash; verify exact package name at nuget.org
+dotnet remove package PDFPrinting  # verify package name
+
+# Install IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+</code></pre>
+
+<h3>Set Your License Key</h3>
+
+<pre><code>using IronPdf;
+
+// Set before any IronPDF usage &mdash; https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY-HERE&quot;;
+</code></pre>
+
+<h3>Swap the Namespaces</h3>
+
+<p>Replace the old namespace imports:</p>
+
+<pre><code>// Before (verify actual PDFPrinting.NET namespace)
+using PDFPrinting;
+using PDFPrinting.Options;
+
+// After
+using IronPdf;
+using IronPdf.Rendering;
+</code></pre>
+
+<h3>Convert HTML String to PDF</h3>
+
+<p>This is the most common operation I see teams migrating. The IronPDF version uses <code>ChromePdfRenderer</code>, which renders CSS as Chrome does &mdash; so table layouts, flex, and grid all behave as you would expect in a browser.</p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+var html = @&quot;
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        body { font-family: Arial, sans-serif; }
+        .invoice-table { width: 100%; border-collapse: collapse; }
+        .invoice-table th, .invoice-table td { border: 1px solid #ddd; padding: 8px; }
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Invoice #2024-001&lt;/h1&gt;
+        &lt;table class='invoice-table'&gt;
+            &lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Qty&lt;/th&gt;&lt;th&gt;Price&lt;/th&gt;&lt;/tr&gt;
+            &lt;tr&gt;&lt;td&gt;Widget A&lt;/td&gt;&lt;td&gt;10&lt;/td&gt;&lt;td&gt;$50&lt;/td&gt;&lt;/tr&gt;
+        &lt;/table&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;&quot;;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// Chromium renderer &mdash; CSS table layouts render as in Chrome
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs(&quot;invoice.pdf&quot;);
+
+Console.WriteLine($&quot;Saved invoice.pdf ({pdf.PageCount} page(s))&quot;);
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h2>How Do You Handle PDF Merging Without a Secondary Library?</h2>
+
+<p>A common finding during PDFPrinting.NET migrations is that teams added PdfSharp, iTextSharp, or a similar library specifically to fill gaps like merging. With IronPDF, merging is built in &mdash; so you can remove that secondary dependency entirely.</p>
+
+<h3>Merge Two PDFs with IronPDF</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+var renderer = new ChromePdfRenderer();
+
+var section1Html = &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 1: Executive Summary&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;;
+var section2Html = &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 2: Financial Detail&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;;
+
+var pdf1 = await renderer.RenderHtmlAsPdfAsync(section1Html);
+var pdf2 = await renderer.RenderHtmlAsPdfAsync(section2Html);
+
+// https://ironpdf.com/how-to/merge-or-split-pdfs/
+var merged = PdfDocument.Merge(pdf1, pdf2);
+merged.SaveAs(&quot;report.pdf&quot;);
+
+Console.WriteLine($&quot;Merged: {merged.PageCount} total pages&quot;);
+</code></pre>
+
+<h2>How Do You Add Watermarks Programmatically Instead of CSS Hacks?</h2>
+
+<p>With PDFPrinting.NET, teams typically injected watermarks via CSS pseudo-elements. The rendering fidelity of that approach varied depending on the engine. IronPDF provides a dedicated <code>TextStamper</code> API that applies consistent watermarks across all pages.</p>
+
+<h3>Apply a Text Watermark with IronPDF</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Quarterly Report&lt;/h1&gt;&lt;p&gt;Content here...&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;
+);
+
+// Programmatic watermark &mdash; consistent across all pages
+var watermark = new TextStamper
+{
+    Text = &quot;CONFIDENTIAL&quot;,
+    FontColor = IronPdf.Imaging.Color.Red,
+    Opacity = 0.15,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs(&quot;confidential-report.pdf&quot;);
+</code></pre>
+
+<h2>How Do You Replace Secondary-Library Password Protection?</h2>
+
+<p>If PDFPrinting.NET did not support password protection natively, your team likely added iTextSharp or another library just for that. IronPDF has built-in security settings, so you can consolidate into a single package.</p>
+
+<h3>Set Password Protection with IronPDF</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Sensitive Document&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;
+);
+
+// Security settings: https://ironpdf.com/how-to/pdf-permissions-passwords/
+pdf.SecuritySettings.UserPassword = &quot;open123&quot;;
+pdf.SecuritySettings.OwnerPassword = &quot;admin456&quot;;
+
+pdf.SaveAs(&quot;secured.pdf&quot;);
+</code></pre>
+
+<h2>What Are the Most Common Troubleshooting Issues After Migration?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>These are the patterns teams most frequently hit when switching from an older HTML-to-PDF library to a Chromium-based renderer.</p>
+
+<p><strong>CSS layout differences.</strong> Tables or flex/grid layouts render differently after migration. PDFPrinting.NET may have used a non-Chromium rendering pipeline. IronPDF uses Chromium, which renders CSS as Chrome does. Most "broken" CSS is actually more correct in IronPDF &mdash; it was previously being rendered in a degraded mode. For print-specific styles, use <code>@media print</code> CSS:</p>
+
+<pre><code>var html = @&quot;
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        @media print {
+            .no-print { display: none; }
+            table { page-break-inside: avoid; }
+        }
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;...&lt;/body&gt;
+    &lt;/html&gt;&quot;;
+
+var renderer = new ChromePdfRenderer();
+// See: https://ironpdf.com/how-to/html-to-pdf-responsive-css/
+</code></pre>
+
+<p><strong>JavaScript-rendered content.</strong> Dynamic content from JavaScript frameworks (React, Vue) does not appear in the PDF. Use the <code>WaitFor</code> setting to let JavaScript execute before rendering:</p>
+
+<pre><code>var renderer = new ChromePdfRenderer();
+
+// Wait for JavaScript execution before rendering
+renderer.RenderingOptions.WaitFor.JavaScript(500); // ms &mdash; adjust as needed
+
+var pdf = await renderer.RenderUrlAsPdfAsync(&quot;https://your-spa-url.com/report&quot;);
+</code></pre>
+
+<p><strong>Font fallback issues.</strong> Custom fonts appear as system fallbacks. Embed fonts in your HTML using <code>@font-face</code> with base64 or CDN URLs. IronPDF's Chromium renderer handles web fonts as Chrome does. Avoid relying on system-installed fonts in containerized environments:</p>
+
+<pre><code>var html = @&quot;
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;link href='https://fonts.googleapis.com/css2?family=Roboto' rel='stylesheet'&gt;
+    &lt;style&gt;body { font-family: 'Roboto', sans-serif; }&lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;...&lt;/body&gt;
+    &lt;/html&gt;&quot;;
+</code></pre>
+
+<h2>How Does PDFPrinting.NET Compare to IronPDF Feature by Feature?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Here is the full comparison table. Note that many PDFPrinting.NET capabilities need verification against their specific documentation, while IronPDF surfaces these features through a consistent API.</p>
+
+<table>
+<tr><th>Aspect</th><th>PDFPrinting.NET</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>Document/HTML printing to PDF</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Verify at their site</td><td>Commercial license &mdash; verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>Verify &mdash; likely class-per-operation</td><td>Fluent/object-oriented C#</td></tr>
+<tr><td>Learning Curve</td><td>Low for basic use; verify API surface</td><td>Low for .NET devs; Chromium internals abstracted</td></tr>
+<tr><td>HTML Rendering</td><td>Verify engine type (GDI/WebKit/other)</td><td>Embedded Chromium</td></tr>
+<tr><td>Page Indexing</td><td>Verify</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify in their docs</td><td>Verify concurrent instance guidance in IronPDF docs</td></tr>
+<tr><td>Namespace</td><td>Verify at NuGet</td><td><code>IronPdf</code></td></tr>
+</table>
+
+<p>And here is the migration effort breakdown by feature:</p>
+
+<table>
+<tr><th>Feature</th><th>PDFPrinting.NET</th><th>IronPDF Equivalent</th><th>Complexity</th></tr>
+<tr><td>HTML string to PDF</td><td>Verify method name</td><td><code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code></td><td>Low</td></tr>
+<tr><td>URL to PDF</td><td>Verify if supported</td><td><code>ChromePdfRenderer.RenderUrlAsPdfAsync()</code></td><td>Low</td></tr>
+<tr><td>Save to file</td><td>Verify method name</td><td><code>pdf.SaveAs(path)</code></td><td>Low</td></tr>
+<tr><td>Save to stream</td><td>Verify if supported</td><td><code>pdf.Stream</code></td><td>Low&ndash;Medium</td></tr>
+<tr><td>Custom page size</td><td>Verify option API</td><td><code>RenderingOptions.PaperSize</code></td><td>Low</td></tr>
+<tr><td>Margins</td><td>Verify option API</td><td><code>RenderingOptions.MarginTop/Bottom/Left/Right</code></td><td>Low</td></tr>
+<tr><td>Headers and footers</td><td>Verify if supported</td><td><code>RenderingOptions.HtmlHeader/Footer</code></td><td>Medium</td></tr>
+<tr><td>JavaScript rendering</td><td>Verify</td><td>Supported &mdash; verify wait settings</td><td>Medium</td></tr>
+<tr><td>Merge PDFs</td><td>Verify if native</td><td><code>PdfDocument.Merge()</code></td><td>Medium</td></tr>
+<tr><td>Watermark</td><td>Verify if native</td><td><code>TextStamper</code> / <code>ImageStamper</code></td><td>Medium</td></tr>
+<tr><td>Password protection</td><td>Verify if native</td><td><code>pdf.SecuritySettings</code></td><td>Medium</td></tr>
+<tr><td>Async rendering</td><td>Verify</td><td>Built-in async methods</td><td>Medium</td></tr>
+</table>
+
+<h2>What Are the Frequently Asked Questions About This Migration?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Do I need to rewrite all my HTML templates?</h3>
+
+<p>No. IronPDF uses an embedded Chromium renderer, so your existing HTML and CSS will render as they do in Chrome. In fact, CSS that was intentionally simplified to work around the old renderer's limitations can often be restored to its full form. Test your HTML in Chrome DevTools first &mdash; if it looks correct there, it will look correct in <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF's HTML-to-PDF output</a>.</p>
+
+<h3>Can I remove secondary PDF libraries after migrating?</h3>
+
+<p>In most cases, yes. A common finding during this migration is that projects added PdfSharp, iTextSharp, or a similar library specifically to fill gaps in PDFPrinting.NET &mdash; merge, security, watermark. After migrating to IronPDF, those secondary packages can often be removed. Audit your NuGet dependencies after migration.</p>
+
+<h3>Does IronPDF work on Linux and Docker?</h3>
+
+<p>Yes. One of the main migration drivers is moving from a Windows-only or GDI-dependent pipeline to something that runs in containers. IronPDF supports Linux deployments. Avoid relying on system-installed fonts in containerized environments &mdash; embed fonts via <code>@font-face</code> with base64 or CDN URLs instead.</p>
+
+<h3>How do I handle synchronous code that calls the old library?</h3>
+
+<p>IronPDF provides async methods like <code>RenderHtmlAsPdfAsync()</code>. If your existing code was synchronous, replace calls with their async equivalents. Do not block with <code>.Result</code> or <code>.Wait()</code> in async contexts:</p>
+
+<pre><code>// Avoid this pattern:
+// var pdf = renderer.RenderHtmlAsPdfAsync(html).Result; // blocks thread
+
+// Use this:
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+</code></pre>
+
+<h3>What about page indexing differences?</h3>
+
+<p>IronPDF uses 0-based page indexing. If you have any page manipulation code, audit all page index references. This is a small but important detail that can cause off-by-one errors if overlooked. Verify the specifics in the <a href="https://ironpdf.com/">IronPDF documentation</a>.</p>
+
+<h2>When Is the Right Time to Migrate?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>The CSS fidelity improvement is usually the clearest win in this migration. Layouts that required workarounds for a weaker rendering engine tend to just work with Chromium. If your current output has visual errors on tables, flex, or grid layouts, that alone justifies the switch.</p>
+
+<p>The consolidation argument is also strong. If your project currently depends on PDFPrinting.NET plus one or more secondary libraries for merge, security, or watermarking, migrating to <a href="https://ironpdf.com/">IronPDF</a> lets you collapse those into a single package. That means fewer dependencies, fewer version conflicts, and a simpler build pipeline.</p>
+
+<p>If your deployment target is moving to Linux or Docker, and PDFPrinting.NET's Windows-only or GDI-dependent pipeline is blocking that move, the migration becomes a deployment prerequisite rather than a nice-to-have. IronPDF supports Linux and handles web fonts via its Chromium renderer the same way Chrome does &mdash; no system font dependencies to manage.</p>
+
+<p>The one area worth testing carefully: if your PDFPrinting.NET setup had specific behavior for form fields or annotations, verify IronPDF's equivalents explicitly &mdash; the API surface differs.</p>

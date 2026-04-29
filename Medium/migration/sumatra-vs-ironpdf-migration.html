@@ -1,0 +1,581 @@
+<h1>Migrating from Sumatra PDF to IronPDF in C#: The Complete Guide</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Migrate from Sumatra PDF to IronPDF?</h2>
+
+<p>The on-premises deployment works fine. Sumatra PDF is on the file path, the process invocation is stable, and the PDFs print correctly. Then the team moves toward containers &mdash; and Sumatra PDF is a Windows GUI application. There is no Linux binary, no Docker image, no server mode. A process that shells out to a <code>.exe</code> on a Windows path simply does not exist in a Linux container, and the deployment model collapses entirely.</p>
+
+<p>I have seen this pattern repeat across teams moving from Sumatra PDF to IronPDF. Here are the migration triggers that come up most often.</p>
+
+<p><strong>Windows-only constraint.</strong> Sumatra PDF has no Linux binary. Docker on Linux is impossible with this dependency.</p>
+
+<p><strong>Process invocation overhead.</strong> Each print or render operation spawns a new process, adding latency and requiring error-handling around exit codes.</p>
+
+<p><strong>Binary management.</strong> Bundling <code>SumatraPDF.exe</code> with the application adds to the deployment artifact and requires explicit version management.</p>
+
+<p><strong>Printing vs generation gap.</strong> Sumatra PDF prints existing PDFs; it does not generate PDFs from HTML. HTML-to-PDF requires a separate pipeline stage.</p>
+
+<p><strong>Cloud deployment.</strong> Azure App Service, AWS Lambda, and similar platforms do not have Windows printer contexts. Sumatra PDF's printing use case does not apply.</p>
+
+<p><strong>Silent failure modes.</strong> Sumatra PDF CLI errors surface via process exit codes. Error messages go to stderr and require explicit capture.</p>
+
+<p><strong>No PDF manipulation API.</strong> Sumatra PDF does not expose merge, watermark, security, or text extraction via its CLI.</p>
+
+<p><strong>Version pinning.</strong> Application behavior depends on the bundled binary version. Updates require explicit deployment of a new binary.</p>
+
+<p><strong>Licensing.</strong> Verify Sumatra PDF's commercial use terms. AGPLv3 has implications for closed-source applications.</p>
+
+<p><strong>Audit trail.</strong> Shelling out to a binary makes rendering auditing harder than in-process library calls.</p>
+
+<h3>Comparison Table</h3>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>Sumatra PDF</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>PDF viewer / printer / image renderer</td><td>PDF generation + manipulation</td></tr>
+<tr><td>Pricing</td><td>Open source &mdash; verify AGPLv3 commercial terms</td><td>Commercial license &mdash; verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>CLI invocation via <code>Process.Start()</code></td><td>Native .NET library; no external process</td></tr>
+<tr><td>Learning Curve</td><td>Low for basic printing; CLI flags for options</td><td>Low for .NET devs</td></tr>
+<tr><td>HTML Rendering</td><td>Not applicable &mdash; renders existing PDFs</td><td>Embedded Chromium</td></tr>
+<tr><td>Page Indexing</td><td>1-based in CLI flags</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Process-level isolation</td><td>Verify IronPDF concurrent instance guidance</td></tr>
+<tr><td>Namespace</td><td>None &mdash; CLI binary</td><td><code>IronPdf</code></td></tr>
+</tbody>
+</table>
+
+<h2>What Does the Migration Effort Look Like?</h2>
+
+<p>I want to give you a realistic picture of the effort involved. This is not a typical library swap &mdash; it is a workflow replacement. Sumatra PDF views and prints existing PDF files as a Windows-only CLI application. IronPDF generates and manipulates PDF files as a cross-platform .NET library. The scope depends on whether your use case was printing existing PDFs or generating PDFs from HTML.</p>
+
+<h3>Effort by Feature</h3>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>Sumatra PDF</th><th>IronPDF Equivalent</th><th>Complexity</th></tr>
+</thead>
+<tbody>
+<tr><td>Print PDF to printer</td><td><code>SumatraPDF.exe -print-to PrinterName</code></td><td>Verify IronPDF print API in docs</td><td>Medium</td></tr>
+<tr><td>Print to default printer</td><td><code>-print-to-default</code></td><td>Verify</td><td>Medium</td></tr>
+<tr><td>Render PDF page to image</td><td><code>-render</code> flag</td><td>Verify IronPDF image extraction</td><td>Medium</td></tr>
+<tr><td>Generate PDF from HTML</td><td>Not applicable</td><td><code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code></td><td>Low (new capability)</td></tr>
+<tr><td>Generate PDF from URL</td><td>Not applicable</td><td><code>renderer.RenderUrlAsPdfAsync()</code></td><td>Low (new capability)</td></tr>
+<tr><td>Merge PDFs</td><td>Not applicable</td><td><code>PdfDocument.Merge()</code></td><td>Medium (new capability)</td></tr>
+<tr><td>Watermark</td><td>Not applicable</td><td><code>TextStamper</code></td><td>Medium</td></tr>
+<tr><td>Password protection</td><td>Not applicable</td><td><code>pdf.SecuritySettings</code></td><td>Low</td></tr>
+<tr><td>Cross-platform</td><td>Windows only</td><td>Linux/macOS/Windows</td><td>Low (inherit)</td></tr>
+<tr><td>Process spawn overhead</td><td>Per operation</td><td>In-process</td><td>Low (eliminate)</td></tr>
+</tbody>
+</table>
+
+<h3>Decision Matrix</h3>
+
+<table>
+<thead>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>Printing PDFs to physical printers on Windows</td><td>IronPDF does not replace printer API; evaluate <code>System.Drawing.Printing</code> for that</td></tr>
+<tr><td>Generating PDFs from HTML/URLs (new requirement)</td><td>Switch &mdash; IronPDF is designed for this</td></tr>
+<tr><td>Moving to Linux/Docker containers</td><td>Switch &mdash; eliminates Windows-only binary dependency</td></tr>
+<tr><td>Rendering PDF pages to images</td><td>Evaluate IronPDF image rendering &mdash; verify in current docs</td></tr>
+</tbody>
+</table>
+
+<h2>How Do You Set Up IronPDF and Replace Sumatra PDF?</h2>
+
+<p>I will walk you through the core migration steps. First, find your existing Sumatra PDF references, then swap the packages, and finally update your code.</p>
+
+<h3>Finding Sumatra PDF References in Your Codebase</h3>
+
+<pre><code># Find SumatraPDF process invocations
+rg -l "SumatraPDF\|sumatrapdf\|SumatraPDF\.exe" --type cs
+rg "SumatraPDF\|sumatrapdf" --type cs -n
+
+# Find Process.Start() calls that may invoke Sumatra
+rg "Process\.Start.*[Ss]umatra\|StartInfo.*[Ss]umatra" --type cs -n
+
+# Find binary references in deployment scripts
+grep -r "SumatraPDF\|sumatra" Dockerfile* .github/**/*.yml deploy/**/*.ps1 2&gt;/dev/null
+
+# Find bundled binary in project
+find . -name "SumatraPDF.exe" -o -name "sumatrapdf.exe" 2&gt;/dev/null
+</code></pre>
+
+<h3>Removing Sumatra PDF and Installing IronPDF</h3>
+
+<pre><code># No NuGet package to remove &mdash; Sumatra PDF is a bundled binary
+# Remove the binary from the project:
+# rm -f Tools/SumatraPDF.exe
+# rm -f wwwroot/SumatraPDF.exe  # if web-accessible (not recommended)
+
+# Install IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+</code></pre>
+
+<p>Remove from COPY steps in Dockerfile:</p>
+
+<pre><code># Remove:
+# COPY Tools/SumatraPDF.exe /app/Tools/
+# ENV SUMATRA_PATH=/app/Tools/SumatraPDF.exe
+
+# IronPDF &mdash; no binary copy step needed
+</code></pre>
+
+<h3>Step 1: License Configuration</h3>
+
+<pre><code>using IronPdf;
+
+// https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY")
+    ?? throw new InvalidOperationException("IRONPDF_LICENSE_KEY not set");
+</code></pre>
+
+<h3>Step 2: Namespace Imports</h3>
+
+<p><strong>Before (no namespace &mdash; just Process.Start):</strong></p>
+
+<pre><code>using System.Diagnostics;
+using System.IO;
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+</code></pre>
+
+<h3>Step 3: Basic PDF Generation</h3>
+
+<p><strong>Before (Sumatra PDF printing existing PDF via CLI):</strong></p>
+
+<pre><code>using System;
+using System.Diagnostics;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        // Sumatra PDF: print an existing PDF to a named printer
+        // This requires a pre-generated PDF &mdash; Sumatra doesn't generate from HTML
+
+        var pdfPath = "existing-document.pdf";
+        var printerName = "HP LaserJet Office";
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = @"C:\Tools\SumatraPDF.exe",   // must be on this path
+            // VERIFY: -print-to flag name and syntax in current Sumatra version
+            Arguments = $"-print-to \"{printerName}\" \"{pdfPath}\"",
+            UseShellExecute = false,
+            RedirectStandardError = true,
+        };
+
+        using var process = Process.Start(psi)!;
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+            Console.Error.WriteLine("SumatraPDF error: " + process.StandardError.ReadToEnd());
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF generates PDF; print separately if needed):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+// Generate the PDF &mdash; IronPDF replaces the generation step (if any) upstream of Sumatra
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Document&lt;/h1&gt;&lt;p&gt;Content.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+pdf.SaveAs("generated.pdf");
+
+Console.WriteLine($"Generated generated.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+
+// If raw printing to a physical printer is still needed,
+// use System.Drawing.Printing.PrintDocument &mdash; IronPDF is a generation library
+</code></pre>
+
+<h2>What Does Each Before/After Migration Look Like in Practice?</h2>
+
+<p>Here are four complete before/after migrations covering the most common scenarios teams encounter when moving from Sumatra PDF to <a href="https://ironpdf.com/">IronPDF</a>.</p>
+
+<h3>HTML to PDF (Sumatra Gap to New IronPDF Capability)</h3>
+
+<p><strong>Before (Sumatra PDF &mdash; requires pre-generated PDF; HTML generation was done separately):</strong></p>
+
+<pre><code>using System;
+using System.Diagnostics;
+using System.IO;
+
+class HtmlToPdfBefore
+{
+    static void Main()
+    {
+        // Sumatra PDF cannot generate from HTML.
+        // A typical pattern before this migration:
+        // 1. Generate HTML string from data
+        // 2. Use another tool to convert HTML to PDF (wkhtmltopdf, Chrome CLI, etc.)
+        // 3. Pass the resulting PDF to Sumatra for printing
+
+        var html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #1042&lt;/h1&gt;&lt;p&gt;Total: $2,800&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;";
+
+        // Step 2: Write HTML to temp file and invoke another tool (illustrative)
+        var tmpHtml = Path.GetTempFileName() + ".html";
+        File.WriteAllText(tmpHtml, html);
+
+        // This needed a SECOND binary alongside Sumatra PDF
+        var psi = new ProcessStartInfo
+        {
+            FileName = @"C:\Tools\wkhtmltopdf.exe",   // or Chrome, Prince, etc.
+            Arguments = $"\"{tmpHtml}\" invoice.pdf",
+            UseShellExecute = false,
+        };
+        using var proc = Process.Start(psi)!;
+        proc.WaitForExit();
+        File.Delete(tmpHtml);
+
+        Console.WriteLine("Needed TWO external binaries for HTML to PDF to print workflow");
+    }
+}
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+// Single in-process step replaces the two-binary pipeline
+var html = @"
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        body { font-family: Arial, sans-serif; padding: 40px; }
+        h1 { font-size: 22px; }
+        .amount { font-weight: bold; font-size: 18px; margin-top: 20px; }
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Invoice #1042&lt;/h1&gt;
+        &lt;p&gt;Date: 2024-09-30 | Customer: Acme Corp&lt;/p&gt;
+        &lt;div class='amount'&gt;Total Due: $2,800.00&lt;/div&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("invoice.pdf");
+
+Console.WriteLine($"Generated invoice.pdf ({pdf.PageCount} page(s)) &mdash; in-process, no external binary");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h3>Merge PDFs</h3>
+
+<p><strong>Before (Sumatra PDF &mdash; not applicable):</strong></p>
+
+<pre><code>using System;
+// Sumatra PDF has no merge capability.
+// PDF merge was done before Sumatra received the file, using a secondary library.
+
+class MergeBefore
+{
+    static void Main()
+    {
+        // Pre-Sumatra pipeline (illustrative):
+        // 1. Generate PDF A from some source
+        // 2. Generate PDF B from another source
+        // 3. Merge via secondary library (iTextSharp, PDFSharp, etc.)
+        // 4. Pass merged PDF to SumatraPDF.exe for printing
+
+        Console.WriteLine("Merge was done before Sumatra &mdash; separate library required");
+    }
+}
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+
+var results = await Task.WhenAll(
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Part A: Summary&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"),
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Part B: Detail&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;")
+);
+
+// https://ironpdf.com/how-to/merge-or-split-pdfs/
+var merged = PdfDocument.Merge(results[0], results[1]);
+merged.SaveAs("merged-document.pdf");
+
+Console.WriteLine($"Merged: {merged.PageCount} pages &mdash; no external binary required");
+</code></pre>
+
+<h3>Watermark</h3>
+
+<p><strong>Before (Sumatra PDF &mdash; not applicable):</strong></p>
+
+<pre><code>using System;
+// Sumatra PDF cannot add watermarks.
+// Watermarks had to be embedded in the source PDF before passing to Sumatra.
+// Typically required a secondary library.
+
+class WatermarkBefore
+{
+    static void Main()
+    {
+        // Pre-Sumatra: secondary library applied watermark to PDF bytes
+        // var watermarked = SomePdfLib.AddTextWatermark(pdfBytes, "DRAFT");
+        // File.WriteAllBytes("watermarked.pdf", watermarked);
+        // Then SumatraPDF.exe printed watermarked.pdf
+
+        Console.WriteLine("Watermark required separate library before Sumatra print step");
+    }
+}
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Document&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// https://ironpdf.com/how-to/custom-watermark/
+var watermark = new TextStamper
+{
+    Text = "DRAFT",
+    FontColor = IronPdf.Imaging.Color.Gray,
+    Opacity = 0.15,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs("watermarked.pdf");
+Console.WriteLine("Watermark applied");
+</code></pre>
+
+<h3>Password Protection</h3>
+
+<p><strong>Before (Sumatra PDF &mdash; not applicable for generation):</strong></p>
+
+<pre><code>using System;
+// Sumatra PDF can open password-protected PDFs (with password prompt)
+// but cannot set passwords on PDFs.
+// Password protection had to be applied before Sumatra received the file.
+
+class PasswordBefore
+{
+    static void Main()
+    {
+        // Pre-Sumatra: secondary library encrypted the PDF
+        // var secured = SomePdfLib.SetPassword(pdfBytes, "open123", "admin456");
+        // File.WriteAllBytes("secured.pdf", secured);
+        // Sumatra then received secured.pdf for display/printing
+
+        Console.WriteLine("Password protection required a secondary library before Sumatra");
+    }
+}
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Confidential Document&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// https://ironpdf.com/how-to/pdf-permissions-passwords/
+pdf.SecuritySettings.UserPassword = "open123";
+pdf.SecuritySettings.OwnerPassword = "admin456";
+
+pdf.SaveAs("secured.pdf");
+Console.WriteLine("Saved secured.pdf with password protection");
+</code></pre>
+
+<h2>How Do the Two Libraries Compare Feature by Feature?</h2>
+
+<p>Here is a complete mapping of the API surface between Sumatra PDF and <a href="https://ironpdf.com/">IronPDF</a>. I find it helpful to see these side by side when planning the migration.</p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<thead>
+<tr><th>Sumatra PDF</th><th>IronPDF</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>None &mdash; <code>System.Diagnostics</code> for Process.Start</td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td>None</td><td><code>IronPdf.Rendering</code></td><td>Rendering config</td></tr>
+<tr><td>None</td><td><code>IronPdf.Editing</code></td><td>Watermark / stamp</td></tr>
+</tbody>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<thead>
+<tr><th>Sumatra PDF Pattern</th><th>IronPDF Class</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>SumatraPDF.exe -print-to</code></td><td>N/A &mdash; different purpose</td><td>IronPDF generates PDFs; use OS print API to print</td></tr>
+<tr><td><code>Process.Start()</code> wrapper</td><td><code>ChromePdfRenderer</code></td><td>In-process rendering; no binary invocation</td></tr>
+<tr><td>Exit code error handling</td><td>try/catch <code>IronPdfException</code></td><td>Exception-based errors</td></tr>
+<tr><td>N/A</td><td><code>PdfDocument</code></td><td>PDF object for manipulation</td></tr>
+</tbody>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>Sumatra PDF</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Generate from HTML</td><td>Not applicable</td><td><code>renderer.RenderHtmlAsPdfAsync(html)</code></td></tr>
+<tr><td>Render from URL</td><td>Not applicable</td><td><code>renderer.RenderUrlAsPdfAsync(url)</code></td></tr>
+<tr><td>Load existing PDF</td><td>Via file path to CLI</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+<tr><td>Save to file</td><td>Output via CLI</td><td><code>pdf.SaveAs(path)</code></td></tr>
+</tbody>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>Sumatra PDF</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Page count</td><td>Not exposed via CLI</td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Remove page</td><td>Not applicable</td><td><code>pdf.RemovePage(index)</code> &mdash; verify</td></tr>
+<tr><td>Extract text</td><td>Not applicable</td><td><code>pdf.ExtractAllText()</code></td></tr>
+<tr><td>Rotate</td><td>Via print settings flag</td><td>Verify in IronPDF docs</td></tr>
+</tbody>
+</table>
+
+<h3>Merge / Split Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>Sumatra PDF</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Merge</td><td>Not applicable</td><td><code>PdfDocument.Merge(doc1, doc2)</code></td></tr>
+<tr><td>Split</td><td>Not applicable</td><td><a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Guide</a></td></tr>
+</tbody>
+</table>
+
+<h2>What Are the Frequently Asked Questions?</h2>
+
+<p><strong>Answer:</strong> I get these questions on nearly every Sumatra PDF migration I advise on. Here they are with direct answers.</p>
+
+<h3>Is This a Direct Library Swap?</h3>
+
+<p><strong>Answer:</strong> No. Sumatra PDF and IronPDF solve fundamentally different problems. Sumatra PDF views and prints existing PDF files as a Windows-only CLI application. IronPDF generates and manipulates PDF files as a cross-platform .NET library. The migration is replacing a Windows-only binary invocation workflow with an in-process library. The scope depends on whether your use case was printing existing PDFs (partial migration &mdash; IronPDF handles generation, printing still needs OS API) or generating PDFs from HTML (full replacement).</p>
+
+<h3>What Replaces Sumatra PDF's Printing Capability?</h3>
+
+<p><strong>Answer:</strong> IronPDF is a PDF generation library, not a printer API. For physical printer output on Windows, <code>System.Drawing.Printing.PrintDocument</code> is the standard .NET approach. Verify IronPDF's print methods in their documentation as they may cover this use case. You can also keep Sumatra for printing and add IronPDF for generation if both use cases exist in the same codebase.</p>
+
+<h3>Will Font Rendering Look Different?</h3>
+
+<p><strong>Answer:</strong> Yes. Sumatra PDF and IronPDF use different rendering engines. Sumatra displays existing PDFs using its own renderer. IronPDF generates PDFs from HTML via Chromium. These are different pipelines. If the source of truth is an HTML template, render that in Chrome browser with <code>@media print</code> styles enabled (DevTools, Rendering, Emulate CSS media, print) to preview IronPDF output before rendering. The Chromium rendering in IronPDF matches Chrome browser rendering closely. See the <a href="https://ironpdf.com/how-to/pixel-perfect-html-to-pdf/">pixel-perfect guide</a> for details.</p>
+
+<h3>What About Docker Deployments?</h3>
+
+<p><strong>Answer:</strong> After removing Sumatra (Windows binary) and adding IronPDF, Docker builds succeed but rendering may throw at runtime if system libraries are missing. IronPDF uses embedded Chromium, and on minimal Linux base images Chromium may require libraries that are not present. Use a non-minimal base image or install dependencies like <code>libnss3</code>, <code>libatk-bridge2.0-0</code>, <code>libdrm2</code>, <code>libxkbcommon0</code>, <code>libgbm1</code>, and <code>fonts-liberation</code>. The key benefit is that there is no <code>SumatraPDF.exe</code> to copy into the container.</p>
+
+<h3>How Does Error Handling Change?</h3>
+
+<p><strong>Answer:</strong> Existing error handling that checks <code>process.ExitCode != 0</code> for Sumatra failures needs to become try/catch. IronPDF uses exception-based error handling via <code>IronPdf.Exceptions.IronPdfException</code>. This is a straightforward pattern replacement across the codebase.</p>
+
+<pre><code>// Before (Sumatra exit code pattern):
+// using var proc = Process.Start(psi)!;
+// proc.WaitForExit();
+// if (proc.ExitCode != 0)
+//     throw new Exception($"SumatraPDF failed: exit {proc.ExitCode}");
+
+// After (IronPDF exception pattern):
+try
+{
+    using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+    pdf.SaveAs(outputPath);
+}
+catch (IronPdf.Exceptions.IronPdfException ex)
+{
+    Console.Error.WriteLine($"PDF generation failed: {ex.Message}");
+    throw;
+}
+</code></pre>
+
+<h3>What About Performance When Moving from Process Spawn to In-Process?</h3>
+
+<p><strong>Answer:</strong> Each Sumatra PDF operation spawned a new process. IronPDF renders in-process. The process spawn overhead is non-trivial, especially if Sumatra was invoked per-document in a batch. The first render initializes Chromium (warm-up), but subsequent renders reuse the instance. For parallel workloads, each task can get its own renderer instance. See the <a href="https://ironpdf.com/how-to/async/">async rendering guide</a> for concurrent rendering patterns.</p>
+
+<pre><code>using IronPdf;
+using System;
+using System.Diagnostics;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+// Warm-up (first render initializes Chromium)
+var renderer = new ChromePdfRenderer();
+using var _ = await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;warmup&lt;/body&gt;&lt;/html&gt;");
+
+// Batch generation &mdash; compare against Sumatra process-per-document baseline
+var sw = Stopwatch.StartNew();
+for (int i = 0; i &lt; 10; i++)
+{
+    using var pdf = await renderer.RenderHtmlAsPdfAsync($"&lt;html&gt;&lt;body&gt;&lt;h1&gt;Document {i}&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+    pdf.SaveAs($"doc-{i}.pdf");
+}
+sw.Stop();
+Console.WriteLine($"10 documents in {sw.Elapsed.TotalMilliseconds:F0}ms (in-process, no process spawn)");
+</code></pre>
+
+<h2>What Is the Migration Checklist for Your Team?</h2>
+
+<p><strong>Answer:</strong> Here is the migration checklist I recommend. Work through it in order: pre-migration assessment, code migration, testing, and post-migration cleanup.</p>
+
+<h3>Pre-Migration</h3>
+
+<p>Identify all Sumatra PDF invocations with <code>rg "SumatraPDF\|sumatrapdf" --type cs</code>. Determine primary use case: printing existing PDFs, or rendering/generation. Identify how PDFs were generated before being passed to Sumatra &mdash; this is what IronPDF replaces. Find bundled <code>SumatraPDF.exe</code> in project files. Find Sumatra references in Dockerfiles and CI configs. Verify Sumatra licensing terms if that was a concern. Obtain an <a href="https://ironpdf.com/how-to/license-keys/">IronPDF license key</a>. Verify IronPDF .NET version compatibility.</p>
+
+<h3>Code Migration</h3>
+
+<p>Install IronPDF with <code>dotnet add package IronPdf</code>. Add license key at application startup. Replace the HTML generation to file to Sumatra pipeline with <code>ChromePdfRenderer</code>. Remove all <code>Process.Start("SumatraPDF.exe")</code> patterns. Replace exit code error handling with try/catch blocks. Remove binary path configuration from appsettings and environment variables. Add merge capability via <code>PdfDocument.Merge()</code> where previously a secondary library was needed. Add watermark via <code>TextStamper</code>. Add password protection via <code>pdf.SecuritySettings</code>. Handle physical printing separately if still required.</p>
+
+<h3>Testing</h3>
+
+<p>Verify PDF generation in Linux/Docker &mdash; the original deployment blocker. Compare PDF output against Sumatra baseline where applicable. Test Docker image builds without the <code>SumatraPDF.exe</code> copy step. Benchmark generation time versus the Sumatra-based pipeline including process spawn. Verify error handling with exceptions instead of exit codes. Test merge, watermark, and security if implemented. Test font rendering in the deployment environment.</p>
+
+<h3>Post-Migration</h3>
+
+<p>Remove <code>SumatraPDF.exe</code> from project and deployment artifacts. Remove <code>SUMATRA_PATH</code> and related environment variables. Remove <code>COPY SumatraPDF.exe</code> from Dockerfiles. Remove secondary PDF libraries that were used for merge, watermark, or security alongside Sumatra. The deployment blocker &mdash; Windows binary in a Linux container &mdash; is resolved structurally. The underlying problem goes away, not just the symptom.</p>

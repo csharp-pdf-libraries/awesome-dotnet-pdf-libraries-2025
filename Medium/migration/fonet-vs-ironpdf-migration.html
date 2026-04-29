@@ -1,0 +1,613 @@
+<h1>Migrating from FO.NET to IronPDF in C#: The Complete Guide</h1>
+
+<p>The FO.NET migration question usually starts with a specific failure: an XSL-FO stylesheet that worked for a decade stops rendering correctly on a new server, or the team discovers FO.NET has had no meaningful updates since the mid-2000s, or a new requirement comes in that FO.NET simply cannot fulfill. XSL-FO is a powerful layout specification, but FO.NET is one of the more obscure implementation choices for .NET projects, and its maintenance trajectory is what it is.</p>
+
+<p>This is not a drop-in library swap. FO.NET takes XSL Formatting Objects as input. <a href="https://ironpdf.com/">IronPDF</a> takes HTML. The conceptual gap between XSL-FO and HTML-to-PDF is real and worth understanding before writing any code. In this guide, I'll walk you through identifying what's broken, deciding what to migrate, and making the switch to IronPDF systematically.</p>
+
+<h2>Why Should I Migrate Away from FO.NET?</h2>
+
+<p>There are several compelling reasons to move, and most of them are not optional — they're forced by the state of the library itself.</p>
+
+<p><strong>Abandonment.</strong> FO.NET has no active maintenance. .NET runtime changes (especially .NET Core+) may break it silently or loudly.</p>
+
+<p><strong>.NET Core / .NET 5+ incompatibility.</strong> FO.NET was built for .NET Framework. You need to verify if it even runs on your target runtime.</p>
+
+<p><strong>XSL-FO expertise drain.</strong> The team that understood XSL-FO may have left. HTML + CSS is far more accessible to modern .NET developers.</p>
+
+<p><strong>Runtime exceptions on upgrade.</strong> Upgrading the .NET runtime or OS frequently reveals FO.NET incompatibilities.</p>
+
+<p><strong>Docker/Linux failures.</strong> FO.NET's rendering pipeline may depend on Windows GDI+. Linux containers will fail.</p>
+
+<p><strong>Feature gap.</strong> Modern requirements (CSS animations as print snapshots, JS-rendered charts) are incompatible with XSL-FO processing.</p>
+
+<p><strong>Tooling scarcity.</strong> XSL-FO editors and validators are rare. HTML templates can be built and debugged in any browser.</p>
+
+<p><strong>Pipeline complexity.</strong> XSLT to XSL-FO to FO.NET to PDF is a multi-step transformation chain. HTML to <a href="https://ironpdf.com/">IronPDF</a> to PDF is one step.</p>
+
+<p><strong>Error diagnosis.</strong> FO.NET errors are often cryptic XML processing exceptions with no actionable message.</p>
+
+<h2>How Do FO.NET and IronPDF Compare Side by Side?</h2>
+
+<p>The fundamental difference is the input model. FO.NET processes XSL Formatting Objects. IronPDF renders HTML through a real Chromium engine. Here's how they stack up across every major dimension.</p>
+
+<table>
+<tr><th>Aspect</th><th>FO.NET</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>XSL-FO processor to PDF</td><td>HTML/URL to PDF via Chromium</td></tr>
+<tr><td>Pricing</td><td>Appears to be free/abandoned</td><td>Commercial — verify current</td></tr>
+<tr><td>API Style</td><td>XML/stream processing</td><td>Simple render methods</td></tr>
+<tr><td>Learning Curve</td><td>High — XSL-FO is complex</td><td>Low for HTML-first workflows</td></tr>
+<tr><td>HTML Rendering</td><td>Not applicable — XSL-FO input only</td><td>Chromium, full CSS/JS</td></tr>
+<tr><td>Page Indexing</td><td>N/A</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify</td><td><code>ChromePdfRenderer</code> reusable</td></tr>
+<tr><td>Namespace</td><td><code>Fonet</code></td><td><code>IronPdf</code></td></tr>
+</table>
+
+<h2>How Complex Is This Migration, Feature by Feature?</h2>
+
+<p>I want to be upfront about this: some parts of the migration are straightforward, and some require real engineering effort. The template rewrite from XSL-FO to HTML/CSS is likely the bulk of the work. Here's the effort breakdown by feature.</p>
+
+<table>
+<tr><th>Feature</th><th>Complexity</th><th>Notes</th></tr>
+<tr><td>XML data to PDF</td><td>Medium-High</td><td>Pipeline changes; XSL-FO to HTML template conversion</td></tr>
+<tr><td>XSL-FO layout to HTML/CSS</td><td>High</td><td>Significant design work; not a code swap</td></tr>
+<tr><td>Tables with complex spans</td><td>High</td><td>XSL-FO table model vs HTML table: similar concept, different syntax</td></tr>
+<tr><td>Running headers/footers</td><td>Medium</td><td>XSL-FO <code>&lt;fo:static-content&gt;</code> to IronPDF HTML headers</td></tr>
+<tr><td>Multi-column layout</td><td>High</td><td>XSL-FO has explicit multi-column; CSS Multi-column spec differs</td></tr>
+<tr><td>Page numbering</td><td>Medium</td><td>XSL-FO <code>&lt;fo:page-number&gt;</code> to IronPDF HTML header patterns</td></tr>
+<tr><td>Merge output</td><td>Low</td><td>Both conceptually support; different APIs</td></tr>
+<tr><td>Password/security</td><td>Low</td><td>New capability addition</td></tr>
+<tr><td>Watermark</td><td>Medium</td><td>New capability; stamp API</td></tr>
+<tr><td>Conditional page masters</td><td>High</td><td>XSL-FO page master sequences to HTML CSS @page</td></tr>
+</table>
+
+<h2>When Should I Actually Pull the Trigger on Migration?</h2>
+
+<p>Not every situation demands immediate migration. Here's a decision matrix to help you figure out where you stand.</p>
+
+<table>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+<tr><td>FO.NET no longer runs on your .NET version</td><td>Must migrate</td></tr>
+<tr><td>XSL-FO templates are working; team understands them</td><td>Lower urgency; validate long-term maintenance plan</td></tr>
+<tr><td>New requirements can't be met by XSL-FO</td><td>Migrate those requirements to IronPDF</td></tr>
+<tr><td>Need Linux container support</td><td>FO.NET likely won't work; migrate</td></tr>
+</table>
+
+<h2>How Do I Diagnose Common FO.NET Problems Before Migrating?</h2>
+
+<p>Before you write any migration code, it helps to understand what's actually failing. Here are the most common FO.NET problems I've seen and the path forward for each.</p>
+
+<h3>FO.NET Won't Load on .NET 6+</h3>
+
+<p>The symptom is a <code>System.BadImageFormatException</code> or <code>System.IO.FileNotFoundException</code> when loading the FO.NET DLL. The root cause: FO.NET DLLs target .NET Framework. On .NET Core / .NET 6+, they may not load.</p>
+
+<pre><code># Check FO.NET DLL target framework
+# On Windows (PowerShell):
+[System.Reflection.Assembly]::ReflectionOnlyLoadFrom("Fonet.dll").ImageRuntimeVersion
+
+# Check your project target framework:
+grep -r "TargetFramework" *.csproj</code></pre>
+
+<p>If the DLL won't load, you can't keep FO.NET. The migration is forced.</p>
+
+<h3>XSL-FO Rendering Produces Malformed PDF</h3>
+
+<p>The PDF opens but has missing sections, garbled text, or overlapping regions — no exception thrown. Here's the typical FO.NET pipeline for context.</p>
+
+<pre><code>// FO.NET (verify all class/method names — these are approximate)
+// Typical FO.NET pipeline (verify):
+
+// Step 1: Load XML data
+// var xmlDoc = new XmlDocument();
+// xmlDoc.Load("data.xml");
+
+// Step 2: Apply XSLT to get XSL-FO
+// var transform = new XslCompiledTransform();
+// transform.Load("stylesheet.xsl");
+// var foString = new StringBuilder();
+// transform.Transform(xmlDoc, null, new StringWriter(foString));
+
+// Step 3: Pass XSL-FO to FO.NET — verify FonetDriver or equivalent
+// var driver = FonetDriver.Make(); // verify method
+// driver.Render(new StringReader(foString.ToString()), outputStream); // verify</code></pre>
+
+<p>If the XSL-FO renders correctly but FO.NET produces bad PDF, the data and transformation logic is salvageable. The pipeline changes from:</p>
+
+<pre><code>[OLD]: XML &rarr; XSLT &rarr; XSL-FO &rarr; FO.NET &rarr; PDF
+[NEW]: XML &rarr; XSLT &rarr; HTML &rarr; IronPDF &rarr; PDF</code></pre>
+
+<p>The key insight: the XML data and the transformation are often good. The output target changes from XSL-FO to HTML.</p>
+
+<h3>Missing Fonts in PDF Output</h3>
+
+<p>FO.NET outputs PDF with fonts substituted or missing. Font configuration in FO.NET is non-trivial and may involve configuration files pointing to system font directories. With IronPDF, Chromium handles font rendering natively.</p>
+
+<pre><code>using IronPdf;
+
+// Embed custom fonts via HTML @font-face
+string htmlWithFont = @"
+&lt;html&gt;
+&lt;head&gt;
+&lt;style&gt;
+@font-face {
+    font-family: 'CustomFont';
+    src: url('https://your-domain.com/fonts/custom.woff2') format('woff2');
+}
+body { font-family: 'CustomFont', sans-serif; }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;&lt;p&gt;Custom font text&lt;/p&gt;&lt;/body&gt;
+&lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+using var pdf = renderer.RenderHtmlAsPdf(htmlWithFont);
+pdf.SaveAs("output_with_fonts.pdf");
+
+// For local font files, use BaseUrl to serve from local file system:
+// renderer.RenderingOptions.BaseUrl = new Uri("file:///path/to/fonts/dir/");</code></pre>
+
+<h2>How Do I Handle Page Numbering After Migration?</h2>
+
+<p>XSL-FO's <code>&lt;fo:page-number&gt;</code> was a first-class feature. Here's what the XSL-FO pattern looked like, for reference:</p>
+
+<pre><code>&lt;!-- XSL-FO page numbering — this becomes HTML headers/footers in IronPDF --&gt;
+&lt;fo:static-content flow-name="xsl-region-after"&gt;
+  &lt;fo:block text-align="center"&gt;
+    Page &lt;fo:page-number/&gt; of &lt;fo:page-number-citation ref-id="last-page"/&gt;
+  &lt;/fo:block&gt;
+&lt;/fo:static-content&gt;</code></pre>
+
+<p>And here's the IronPDF equivalent using HTML headers and footers:</p>
+
+<pre><code>using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+
+// HTML footer with page number placeholder
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    HtmlFragment = "&lt;div style='text-align:center; font-size:10px;'&gt;Page {page} of {total-pages}&lt;/div&gt;",
+    DrawDividerLine = false
+};
+
+string html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Multi-page Document&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("numbered.pdf");
+// Docs: https://ironpdf.com/how-to/rendering-options/</code></pre>
+
+<h2>How Do I Handle Complex Table Layouts That Repeat Headers Across Pages?</h2>
+
+<p>XSL-FO tables with <code>table-header</code> and <code>table-footer</code> that repeated across pages work in FO.NET, but you need the HTML equivalent. The good news: Chromium respects CSS print table rules.</p>
+
+<pre><code>&lt;!-- HTML table headers repeat on page breaks via print CSS --&gt;
+&lt;html&gt;
+&lt;head&gt;
+&lt;style&gt;
+  thead { display: table-header-group; }  /* repeat on each page */
+  tfoot { display: table-footer-group; }  /* repeat at bottom */
+  @media print {
+    table { page-break-inside: auto; }
+    tr    { page-break-inside: avoid; page-break-after: auto; }
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;table&gt;
+    &lt;thead&gt;
+      &lt;tr&gt;&lt;th&gt;Column A&lt;/th&gt;&lt;th&gt;Column B&lt;/th&gt;&lt;/tr&gt;
+    &lt;/thead&gt;
+    &lt;tbody&gt;
+      &lt;!-- data rows --&gt;
+    &lt;/tbody&gt;
+  &lt;/table&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+
+<p>IronPDF uses Chromium's print rendering, so <code>display: table-header-group</code> is respected.</p>
+
+<h2>How Do I Set Up the Migration Step by Step?</h2>
+
+<h3>Find FO.NET References in Your Codebase</h3>
+
+<pre><code># Find Fonet/FO.NET references (namespace name varies — verify yours)
+rg "Fonet\|FonetDriver\|fo\.net" --type cs -i -l
+
+# Find XSL-FO pipeline stages
+rg "XslCompiledTransform" --type cs        # XSLT stage
+rg "XSL-FO\|xsl-fo\|fo:root" --type xsl   # XSL-FO stylesheets
+
+# Find FO.NET DLL references in project files
+rg "Fonet\|fo\.net" --include="*.csproj" --include="*.fsproj" -l</code></pre>
+
+<h3>Inventory Your XSL-FO Stylesheets</h3>
+
+<pre><code># List all XSLT stylesheets that produce XSL-FO output
+grep -rl "xmlns:fo=\"http://www.w3.org/1999/XSL/Format\"" . --include="*.xsl"
+grep -rl "xmlns:fo=" . --include="*.xslt"</code></pre>
+
+<p><strong>Important:</strong> These XSL-FO stylesheets represent significant layout work. If you're migrating to HTML output, you'll be writing equivalent HTML/CSS templates. Factor this effort into your migration plan — it's not a code swap, it's a template rewrite.</p>
+
+<h3>Uninstall FO.NET and Install IronPDF</h3>
+
+<pre><code># Remove FO.NET reference (may be DLL reference or NuGet)
+# If NuGet: dotnet remove package Fonet (verify package name)
+# If DLL reference: remove from .csproj manually
+
+# Install IronPDF
+dotnet add package IronPdf
+
+dotnet list package</code></pre>
+
+<h2>What Does the Quick Start Migration Look Like in Code?</h2>
+
+<h3>Step 1: License Setup</h3>
+
+<pre><code>// FO.NET: no license setup (public domain / MIT-style)
+// IronPDF: license before first render
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+// Docs: https://ironpdf.com/how-to/license-keys/</code></pre>
+
+<h3>Step 2: Namespace Imports</h3>
+
+<pre><code>// Before (FO.NET — verify exact namespace)
+// using Fonet; // verify
+
+// After
+using IronPdf;
+// Keep: using System.Xml; using System.Xml.Xsl; — for your data transformation</code></pre>
+
+<h3>Step 3: Pipeline Restructure</h3>
+
+<p>The core change is the XSLT output target: instead of XSL-FO, your XSLT now produces HTML.</p>
+
+<pre><code>// Before: XSLT &rarr; XSL-FO &rarr; FO.NET &rarr; PDF
+// var xslfo = ApplyXslt(xmlData, "to_fo.xsl");   // XSLT to XSL-FO
+// FonetDriver.Render(xslfo, outputStream);          // FO.NET renders
+
+// After: XSLT &rarr; HTML &rarr; IronPDF &rarr; PDF
+using System.Xml;
+using System.Xml.Xsl;
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+// Step 1: Transform XML data to HTML (change your XSLT output to HTML)
+var transform = new XslCompiledTransform();
+transform.Load("to_html.xsl"); // new XSLT targeting HTML output
+
+var xmlDoc = new XmlDocument();
+xmlDoc.Load("data.xml");
+
+var htmlWriter = new System.Text.StringBuilder();
+transform.Transform(xmlDoc, null, new System.IO.StringWriter(htmlWriter));
+string html = htmlWriter.ToString();
+
+// Step 2: IronPDF renders HTML
+var renderer = new ChromePdfRenderer();
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+// Docs: https://ironpdf.com/how-to/html-string-to-pdf/</code></pre>
+
+<h2>How Do the APIs Map Between FO.NET and IronPDF?</h2>
+
+<p>Here are the complete API mapping tables so you can quickly find the IronPDF equivalent for any FO.NET operation you're currently using.</p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<tr><th>FO.NET</th><th>IronPDF</th><th>Notes</th></tr>
+<tr><td><code>Fonet</code></td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td>XSL-FO markup</td><td>HTML + CSS</td><td>Input format changes</td></tr>
+<tr><td>XSLT output method="xml"</td><td>XSLT output method="html"</td><td>Stylesheet retarget</td></tr>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr><th>FO.NET Class</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td><code>FonetDriver</code></td><td><code>ChromePdfRenderer</code></td><td>Main rendering class</td></tr>
+<tr><td><code>FonetDriver.Render()</code></td><td><code>renderer.RenderHtmlAsPdf()</code></td><td>Render trigger</td></tr>
+<tr><td>XSL-FO document (stream)</td><td>HTML string</td><td>Input type changes</td></tr>
+<tr><td>Output stream</td><td><code>PdfDocument.SaveAs() / BinaryData</code></td><td>Output</td></tr>
+</table>
+
+<h3>Document Loading</h3>
+
+<table>
+<tr><th>Operation</th><th>FO.NET</th><th>IronPDF</th></tr>
+<tr><td>Render XSL-FO stream</td><td><code>driver.Render(stream, outputStream)</code> — verify</td><td>N/A — input changes to HTML</td></tr>
+<tr><td>Render HTML string</td><td>N/A</td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td>Load existing PDF</td><td>verify</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+<tr><td>Load from bytes</td><td>verify</td><td><code>PdfDocument.FromBytes(bytes)</code></td></tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>FO.NET</th><th>IronPDF</th></tr>
+<tr><td>Running headers</td><td><code>fo:static-content</code> in XSL-FO</td><td><code>RenderingOptions.HtmlHeader</code></td></tr>
+<tr><td>Running footers</td><td><code>fo:static-content</code> in XSL-FO</td><td><code>RenderingOptions.HtmlFooter</code></td></tr>
+<tr><td>Page size</td><td><code>fo:simple-page-master</code></td><td><code>RenderingOptions.PaperSize</code></td></tr>
+<tr><td>Margins</td><td><code>fo:simple-page-master</code> attributes</td><td><code>RenderingOptions.Margin*</code></td></tr>
+</table>
+
+<h3>Merge / Split</h3>
+
+<table>
+<tr><th>Operation</th><th>FO.NET</th><th>IronPDF</th></tr>
+<tr><td>Merge multiple docs</td><td>verify</td><td><code>PdfDocument.Merge(a, b)</code></td></tr>
+<tr><td>Split</td><td>verify</td><td><code>pdf.CopyPages(start, end)</code></td></tr>
+</table>
+
+<h2>What Do the Complete Before/After Code Migrations Look Like?</h2>
+
+<p>Let me walk through four complete migration examples covering the most common use cases.</p>
+
+<h3>XML Data to PDF (Core Pipeline)</h3>
+
+<p>This is the most common FO.NET use case. The XML data and XSLT stay; the output target changes.</p>
+
+<pre><code>// BEFORE: XSL-FO pipeline (verify FO.NET API)
+using System.Xml;
+using System.Xml.Xsl;
+using System.IO;
+// using Fonet; // verify namespace
+
+class Program
+{
+    static void Main()
+    {
+        // Step 1: Load XML data
+        var xmlDoc = new XmlDocument();
+        xmlDoc.Load("invoice_data.xml");
+
+        // Step 2: XSLT transforms XML &rarr; XSL-FO
+        var transform = new XslCompiledTransform();
+        transform.Load("invoice_to_fo.xsl"); // XSL-FO stylesheet
+
+        var foOutput = new StringBuilder();
+        transform.Transform(xmlDoc, null, new StringWriter(foOutput));
+        string xslfo = foOutput.ToString();
+
+        // Step 3: FO.NET renders XSL-FO to PDF — verify API
+        // var driver = FonetDriver.Make(); // verify static factory
+        // driver.Options = new FonetOptions(); // verify options class
+        // using var outputStream = File.OpenWrite("invoice.pdf");
+        // driver.Render(new StringReader(xslfo), outputStream); // verify
+        Console.WriteLine("FO.NET render was here — verify API");
+    }
+}</code></pre>
+
+<pre><code>// AFTER: HTML pipeline with IronPDF
+using System.Xml;
+using System.Xml.Xsl;
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        // Docs: https://ironpdf.com/how-to/license-keys/
+
+        // Step 1: Load XML data (unchanged)
+        var xmlDoc = new XmlDocument();
+        xmlDoc.Load("invoice_data.xml");
+
+        // Step 2: XSLT now produces HTML instead of XSL-FO
+        // (requires rewriting invoice_to_fo.xsl &rarr; invoice_to_html.xsl)
+        var transform = new XslCompiledTransform();
+        transform.Load("invoice_to_html.xsl");
+
+        var htmlOutput = new System.Text.StringBuilder();
+        transform.Transform(xmlDoc, null, new System.IO.StringWriter(htmlOutput));
+        string html = htmlOutput.ToString();
+
+        // Step 3: IronPDF renders HTML to PDF
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+        // Docs: https://ironpdf.com/how-to/rendering-options/
+
+        using var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("invoice.pdf");
+    }
+}</code></pre>
+
+<h3>Merge PDFs</h3>
+
+<pre><code>// BEFORE: FO.NET merge (verify)
+// FO.NET merge: may require rendering each separately then concatenating
+// Verify FO.NET's merge capabilities — may not exist natively
+
+// Typical pattern: render multiple XSL-FO to separate PDFs,
+// then use another library to merge
+// var doc1Bytes = RenderFonetToPdf(xslfo1); // verify
+// var doc2Bytes = RenderFonetToPdf(xslfo2); // verify
+// -- then a separate PDF merge step --
+Console.WriteLine("verify FO.NET merge in your version");</code></pre>
+
+<pre><code>// AFTER: IronPDF merge
+using IronPdf;
+
+class MergeSample
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        using var docA = PdfDocument.FromFile("doc_a.pdf");
+        using var docB = PdfDocument.FromFile("doc_b.pdf");
+
+        using var merged = PdfDocument.Merge(docA, docB);
+        merged.SaveAs("merged.pdf");
+        // Docs: https://ironpdf.com/how-to/merge-or-split-pdfs/
+    }
+}</code></pre>
+
+<h3>Watermark</h3>
+
+<pre><code>&lt;!-- BEFORE: XSL-FO watermark via fo:block-container (verify FO.NET support) --&gt;
+&lt;!--
+&lt;fo:block-container position="fixed" top="0" left="0"
+    width="21cm" height="29.7cm" z-index="-1"&gt;
+  &lt;fo:block text-align="center" padding-top="10cm" opacity="0.3"
+      font-size="60pt" color="gray"&gt;DRAFT&lt;/fo:block&gt;
+&lt;/fo:block-container&gt;
+--&gt;
+&lt;!-- FO.NET may not support all XSL-FO features — verify opacity/z-index support --&gt;</code></pre>
+
+<pre><code>// AFTER: IronPDF watermark
+using IronPdf;
+using IronPdf.Editing;
+
+class WatermarkSample
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        using var pdf = PdfDocument.FromFile("input.pdf");
+
+        var stamper = new TextStamper
+        {
+            Text = "DRAFT",
+            FontSize = 50,
+            Opacity = 30,
+            Rotation = 45,
+            VerticalAlignment = VerticalAlignment.Middle,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+
+        pdf.ApplyStamp(stamper);
+        pdf.SaveAs("watermarked.pdf");
+    }
+}</code></pre>
+
+<h3>Password Protection</h3>
+
+<pre><code>// BEFORE: FO.NET security (verify if supported)
+// FO.NET security — verify if FonetDriver supported PDF encryption
+// Older FO.NET versions may not have had security features
+
+// var driver = FonetDriver.Make(); // verify
+// var options = driver.Options; // verify
+// options.UserPassword = "user123"; // verify if this existed
+// options.OwnerPassword = "owner456"; // verify
+// driver.Render(foReader, outputStream); // verify
+Console.WriteLine("verify FO.NET password support — may not exist");</code></pre>
+
+<pre><code>// AFTER: IronPDF password protection
+using IronPdf;
+using IronPdf.Security;
+
+class SecuritySample
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        using var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.SecuritySettings.UserPassword = "user123";
+        pdf.SecuritySettings.OwnerPassword = "owner456";
+        pdf.SecuritySettings.AllowUserPrinting =
+            IronPdf.Security.PdfPrintSecurity.FullPrintRights;
+
+        pdf.SaveAs("secured.pdf");
+    }
+}</code></pre>
+
+<h2>What Are the Critical Migration Notes I Need to Know?</h2>
+
+<p>There are several architectural realities that will affect your migration. I want to lay them out clearly so you're not caught off guard.</p>
+
+<p><strong>XSL-FO is a different input model.</strong> FO.NET takes XSL Formatting Objects as input. IronPDF takes HTML. If your pipeline generates XSL-FO via XSLT, you have two options:</p>
+
+<p><strong>Option A: Retarget XSLT to HTML output.</strong> Change your XSLT <code>xsl:output method="xml"</code> to <code>method="html"</code>. Rewrite layout rules from XSL-FO vocabulary (<code>fo:block</code>, <code>fo:table</code>, <code>fo:simple-page-master</code>) to HTML + CSS equivalents. Higher up-front effort but results in maintainable HTML templates.</p>
+
+<p><strong>Option B: Add an XSL-FO to HTML/PDF transformation step.</strong> Use a third-party XSL-FO processor that supports HTML output, or transform XSL-FO to HTML using a separate XSLT stylesheet. Less upfront work but adds complexity.</p>
+
+<p>Neither option is a configuration change. Budget engineering time for template work.</p>
+
+<p><strong>FO.NET feature parity.</strong> FO.NET supported a subset of the XSL-FO specification. Some features may have been silently unsupported. Test your migrated HTML output against the original PDF output visually — don't assume 1:1 fidelity in either direction.</p>
+
+<p><strong>Running headers and footers.</strong> XSL-FO's <code>fo:static-content</code> with <code>flow-name="xsl-region-before/after"</code> is a first-class feature. IronPDF uses <code>RenderingOptions.HtmlHeader</code> and <code>HtmlFooter</code> with <code>{page}</code> and <code>{total-pages}</code> placeholders. For complex headers (images, company logos, variable data), embed them in the HTML header fragment.</p>
+
+<p><strong>Page master sequences.</strong> XSL-FO's <code>fo:page-sequence-master</code> with different masters for first page, odd/even pages has no direct equivalent in IronPDF's HTML model. Use CSS <code>@page :first</code>, <code>@page :left</code>, <code>@page :right</code> selectors and verify Chromium's support for them.</p>
+
+<h2>How Do I Handle Performance in the Migration?</h2>
+
+<p>FO.NET was a synchronous, single-threaded processor. IronPDF is Chromium-based with async support. For high-volume document generation, this matters.</p>
+
+<h3>Async Rendering</h3>
+
+<pre><code>// Async render — preferred for server contexts
+public async Task&lt;byte[]&gt; GenerateAsync(string html)
+{
+    using var pdf = await _renderer.RenderHtmlAsPdfAsync(html);
+    return pdf.BinaryData;
+}</code></pre>
+
+<h3>Parallel Batch Processing</h3>
+
+<pre><code>using IronPdf;
+
+// Singleton renderer — initialize once
+private static readonly ChromePdfRenderer _renderer = new ChromePdfRenderer();
+
+// Parallel render
+var tasks = documents.Select(async doc =&gt;
+{
+    string html = TransformToHtml(doc.XmlData, doc.XsltPath);
+    using var pdf = await _renderer.RenderHtmlAsPdfAsync(html);
+    return (doc.Id, pdf.BinaryData);
+});
+
+var results = await Task.WhenAll(tasks);</code></pre>
+
+<p>Cold start note: IronPDF initializes Chromium on first render. FO.NET's cold start was lighter. Plan a warm-up render in your application startup.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Is this a drop-in library replacement?</h3>
+
+<p><strong>Answer:</strong> No, and this is the most important thing to understand. FO.NET takes XSL Formatting Objects as input. IronPDF takes HTML. The input model is fundamentally different.</p>
+
+<p>If your pipeline generates XSL-FO via XSLT, you need to retarget your XSLT to output HTML instead. The XML data and transformation logic are salvageable, but the stylesheet itself needs a rewrite from XSL-FO vocabulary to HTML + CSS.</p>
+
+<h3>Can I keep my existing XML data pipeline?</h3>
+
+<p><strong>Answer:</strong> Yes, absolutely. Your XML data sources stay the same. Your XSLT transformations stay as the mechanism. What changes is the XSLT output target — from XSL-FO markup to HTML markup.</p>
+
+<p>The pipeline goes from XML to XSLT to XSL-FO to FO.NET to PDF, and becomes XML to XSLT to HTML to <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF</a> to PDF. The first two stages are preserved.</p>
+
+<h3>How do I handle fo:static-content headers and footers?</h3>
+
+<p><strong>Answer:</strong> XSL-FO's <code>fo:static-content</code> maps to IronPDF's <code>RenderingOptions.HtmlHeader</code> and <code>RenderingOptions.HtmlFooter</code>. You write the header/footer content as an HTML fragment with placeholders like <code>{page}</code> and <code>{total-pages}</code>.</p>
+
+<p>For complex headers with images, logos, or variable data, embed them directly in the HTML header fragment. IronPDF renders these through Chromium, so full CSS styling is supported.</p>
+
+<h3>Does IronPDF support the same page layout controls as XSL-FO?</h3>
+
+<p><strong>Answer:</strong> The concepts map, but the syntax is different. <code>fo:simple-page-master</code> for page size maps to <code>RenderingOptions.PaperSize</code>. Margin attributes map to <code>RenderingOptions.Margin*</code> properties. Multi-column layouts use CSS Multi-column instead of XSL-FO's explicit column controls.</p>
+
+<p>For conditional page masters (different layouts for first page, odd/even), use CSS <code>@page :first</code>, <code>@page :left</code>, and <code>@page :right</code> selectors.</p>
+
+<h3>Will IronPDF work in my Linux Docker container where FO.NET failed?</h3>
+
+<p><strong>Answer:</strong> Yes. FO.NET's rendering pipeline may depend on Windows GDI+, which is why it fails in Linux containers. IronPDF ships with its own Chromium binary and works on Linux without GDI+ dependencies. Update your Dockerfile to account for <a href="https://ironpdf.com/how-to/azure/">IronPDF's Linux requirements</a>.</p>
+
+<p>Test on your specific container base image early in the migration process.</p>
+
+<h3>How much engineering time should I budget for the template rewrite?</h3>
+
+<p><strong>Answer:</strong> The template rewrite from XSL-FO to HTML/CSS is likely the bulk of the migration effort. Simple documents with basic tables and text may take a day per template. Complex documents with conditional page masters, multi-column layouts, and intricate table spanning could take significantly longer.</p>
+
+<p>Keep your old XSL-FO stylesheets as reference documentation — they describe the layout intent precisely. Use them to guide your HTML/CSS equivalents, page by page. The XSL-FO to HTML layout concept mapping is well-understood territory; most constructs have direct CSS equivalents.</p>
+
+<h2>Conclusion</h2>
+
+<p>FO.NET migrations are the most conceptually complex because the input model changes — not just the library. The combination of an abandoned tool, .NET Core incompatibility, and an input format that most modern .NET developers don't know makes this feel more daunting than it is. The XSL-FO to HTML/CSS translation is well-understood territory; most layout concepts map directly, and the CSS Print specification covers the print-specific features you need.</p>
+
+<p>The best approach: keep your old XSL-FO stylesheets as reference documentation. They describe the layout intent precisely. Use them to guide your HTML/CSS equivalents, page by page. Start with the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML-to-PDF quick start</a>, retarget one XSLT stylesheet at a time, and validate visually against the original output. The XML data pipeline stays; only the rendering target changes.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

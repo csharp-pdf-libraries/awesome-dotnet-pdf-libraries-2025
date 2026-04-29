@@ -1,0 +1,479 @@
+<h1>Migrating from BCL easyPDF to IronPDF: Solving Common Migration Pain Points</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>The support ticket that forces the migration conversation usually has a subject line like: "PDF generation failing on new server." The stack trace points to a missing COM component, or a 32-bit DLL that doesn't load in a 64-bit process, or a Windows-only native dependency that was never going to survive the move to Linux containers.</p>
+
+<p>BCL EasyPDF SDK works well in the environment it was designed for. The problems start when that environment changes &mdash; containerized CI/CD, cross-platform deployments, or .NET Core workloads that never anticipated a COM dependency in the PDF path.</p>
+
+<p>I wrote this guide to walk through the real failure modes you will hit and how to solve them with <a href="https://ironpdf.com/">IronPDF</a>. The focus is on the troubleshooting patterns and migration steps, not a theoretical comparison.</p>
+
+<h2>Why Should I Migrate from BCL EasyPDF SDK?</h2>
+
+<p>Teams running BCL EasyPDF SDK in stable Windows environments often have no reason to move. The trigger is usually an infrastructure change, not a library failure. Here are the common migration drivers I see:</p>
+
+<p><strong>Docker/Linux containerization</strong> &mdash; BCL EasyPDF SDK's native Windows dependencies don't translate to Linux containers without significant workaround effort.</p>
+
+<p><strong>.NET Core / .NET 5+ incompatibility</strong> &mdash; COM-based components require <code>[STAThread]</code> or specific interop configuration that conflicts with modern ASP.NET Core threading models. Verify current .NET support before assuming.</p>
+
+<p><strong>32-bit/64-bit mismatch</strong> &mdash; Historical BCL SDK versions ship 32-bit native components. 64-bit IIS and modern .NET runtime defaults cause load failures.</p>
+
+<p><strong>NuGet-first dependency management</strong> &mdash; BCL EasyPDF distributed via installer, not NuGet, creates friction in modern CI/CD pipelines.</p>
+
+<p><strong>Missing MSI in CI</strong> &mdash; Build agents provisioned from images don't have the BCL installer baked in; each provisioning cycle requires manual intervention.</p>
+
+<p><strong>Azure App Service / serverless</strong> &mdash; Managed hosting environments often prohibit COM registration or native library installation.</p>
+
+<p><strong>HTML rendering limitations</strong> &mdash; BCL's HTML-to-PDF engine may not handle modern CSS. Verify your specific version's CSS support.</p>
+
+<p><strong>Support escalation path</strong> &mdash; If BCL Technologies support is slow to respond to issues, teams start evaluating alternatives.</p>
+
+<p><strong>License key management</strong> &mdash; Machine-bound or per-server licensing creates friction at scale.</p>
+
+<p><strong>Consolidation</strong> &mdash; Teams running multiple PDF tools prefer one well-maintained library.</p>
+
+<h2>How Do BCL EasyPDF and IronPDF Compare Feature by Feature?</h2>
+
+<table>
+<tr><th>Aspect</th><th>BCL EasyPDF SDK</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>HTML/Word to PDF, Windows-centric</td><td>HTML-to-PDF, edit, merge, security</td></tr>
+<tr><td>Pricing</td><td>Per-developer or server</td><td>Per-developer or royalty-free</td></tr>
+<tr><td>API Style</td><td>COM interop or .NET wrapper over native</td><td>Managed .NET, NuGet-native</td></tr>
+<tr><td>Learning Curve</td><td>Simple for basic use; COM quirks for advanced</td><td>Gradual; Chromium model helps with CSS</td></tr>
+<tr><td>HTML Rendering</td><td>Proprietary</td><td>Chromium-based</td></tr>
+<tr><td>Page Indexing</td><td>Verify in current docs</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>COM STA model; verify concurrent patterns</td><td>Renderer reusable; verify thread safety docs</td></tr>
+<tr><td>Namespace</td><td>Varies by version</td><td><code>IronPdf</code></td></tr>
+</table>
+
+<h2>How Hard Is Each Feature to Migrate?</h2>
+
+<table>
+<tr><th>Feature</th><th>Effort</th><th>Notes</th></tr>
+<tr><td>HTML string to PDF</td><td>Low&ndash;Medium</td><td>API shape likely differs; test CSS output carefully</td></tr>
+<tr><td>HTML file to PDF</td><td>Low&ndash;Medium</td><td>Path and base URL handling may differ</td></tr>
+<tr><td>Merge PDFs</td><td>Medium</td><td>BCL merge API varies by version; verify</td></tr>
+<tr><td>Split PDFs</td><td>Medium-High</td><td>Verify BCL page extraction support</td></tr>
+<tr><td>Watermark</td><td>Medium</td><td>Stamping model differs</td></tr>
+<tr><td>Password protection</td><td>Medium</td><td>Both support; property names differ</td></tr>
+<tr><td>COM interop removal</td><td>High</td><td>Core architectural change &mdash; audit threading model</td></tr>
+<tr><td>32-bit to 64-bit</td><td>High</td><td>Any P/Invoke or unsafe code must be audited</td></tr>
+<tr><td>Azure/container deploy</td><td>High</td><td>New dependency surface, test thoroughly</td></tr>
+<tr><td>Async patterns</td><td>Medium</td><td>Verify IronPDF async API against your usage</td></tr>
+</table>
+
+<h2>When Does It Make Sense to Migrate?</h2>
+
+<table>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+<tr><td>Windows-only, stable infrastructure</td><td>Evaluate whether migration provides enough benefit</td></tr>
+<tr><td>Moving to Linux containers or Azure App Service</td><td>Migration strongly worth evaluating</td></tr>
+<tr><td>.NET Core 3.1+ or .NET 5/6/7/8 workloads</td><td>Verify BCL compatibility first; IronPDF is modern .NET native</td></tr>
+<tr><td>CI/CD pipeline without MSI installer support</td><td>NuGet-based IronPDF simplifies dependency management</td></tr>
+</table>
+
+<h2>What Should I Troubleshoot Before Writing Any Migration Code?</h2>
+
+<p>Before writing migration code, diagnose what is actually failing. I have seen teams waste days rewriting code when the real issue is a missing runtime dependency.</p>
+
+<h3>Diagnostic step 1 &mdash; What is BCL actually doing?</h3>
+
+<pre><code># Find all BCL EasyPDF references
+rg "EasyPDF\|BCL\|PdfPrint\|PdfDocument" --type cs -l
+
+# Find COM interop usage
+rg "CreateObject\|Activator\.CreateInstance\|Marshal\." --type cs
+
+# Find P/Invoke signatures
+rg "\[DllImport" --type cs</code></pre>
+
+<h3>Diagnostic step 2 &mdash; Check process architecture</h3>
+
+<pre><code>// Run this in your current app to confirm 32/64-bit context
+Console.WriteLine($"Process is 64-bit: {Environment.Is64BitProcess}");
+Console.WriteLine($"OS is 64-bit: {Environment.Is64BitOperatingSystem}");
+Console.WriteLine($"Runtime: {System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}");</code></pre>
+
+<h3>Diagnostic step 3 &mdash; Confirm COM availability</h3>
+
+<pre><code>// If BCL uses COM, this will fail in environments without the component registered
+try
+{
+    // Replace with actual BCL COM ProgID &mdash; verify in your docs
+    var type = Type.GetTypeFromProgID("BCL.EasyPDF"); // hypothetical &mdash; verify
+    if (type == null)
+        Console.WriteLine("COM type not found &mdash; likely unregistered or missing");
+    var obj = Activator.CreateInstance(type);
+    Console.WriteLine("COM instance created successfully");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"COM instantiation failed: {ex.Message}");
+    // This is the error to address before migration
+}</code></pre>
+
+<h3>Install IronPDF alongside BCL (don't remove BCL yet)</h3>
+
+<pre><code># Add IronPDF while BCL is still present
+dotnet add package IronPdf
+
+# Restore
+dotnet restore</code></pre>
+
+<p>Run a parallel test &mdash; both libraries generating the same PDF &mdash; before removing BCL. This lets you compare outputs visually and catch rendering differences early.</p>
+
+<h2>How Do I Handle the COM Threading Problem?</h2>
+
+<p>If BCL EasyPDF SDK uses COM under the hood, your code may rely on <code>[STAThread]</code> or manual STA thread marshaling. <a href="https://ironpdf.com/">IronPDF</a> is fully managed and does not require STA threading. After migration, you can remove <code>[STAThread]</code> from entry points and simplify async code that worked around COM STA restrictions.</p>
+
+<h3>Removing the STAThread requirement</h3>
+
+<pre><code>// Before &mdash; STA required for COM-based PDF generation
+[STAThread]
+static void Main()
+{
+    // BCL PDF call
+}
+
+// After &mdash; no threading constraint
+static void Main()
+{
+    // IronPDF call
+}</code></pre>
+
+<p><strong>Answer:</strong> IronPDF is fully managed .NET, so it works in any threading context. You can safely remove <code>[STAThread]</code> attributes and simplify any STA marshaling workarounds. COM-based failures that threw <code>COMException</code> with HRESULT codes are gone entirely &mdash; IronPDF throws standard .NET exception types instead.</p>
+
+<p>Update your <code>catch</code> blocks accordingly:</p>
+
+<pre><code>// Before
+catch (System.Runtime.InteropServices.COMException comEx)
+{
+    Log($"COM error 0x{comEx.HResult:X}: {comEx.Message}");
+}
+
+// After
+catch (Exception ex)
+{
+    Log($"IronPDF error: {ex.GetType().Name}: {ex.Message}");
+}</code></pre>
+
+<h2>How Do I Fix the 32-bit to 64-bit Migration Issue?</h2>
+
+<p>If your project was forced to target <code>x86</code> due to BCL's 32-bit native components, you may be able to switch to <code>AnyCPU</code> or <code>x64</code> after migration.</p>
+
+<h3>Update your project file</h3>
+
+<pre><code>&lt;!-- Before --&gt;
+&lt;PlatformTarget&gt;x86&lt;/PlatformTarget&gt;
+
+&lt;!-- After --&gt;
+&lt;PlatformTarget&gt;AnyCPU&lt;/PlatformTarget&gt;</code></pre>
+
+<p><strong>Answer:</strong> Once BCL's native 32-bit components are out of the picture, you can switch to <code>AnyCPU</code> or <code>x64</code>. Rebuild and test thoroughly &mdash; other dependencies may have had hidden x86 assumptions. Also audit any <code>[DllImport]</code> or P/Invoke signatures that may have assumed a 32-bit process.</p>
+
+<p>IronPDF pages are 0-based. If BCL used 1-based indexing, update all page index references. This is the most common silent bug in PDF library migrations &mdash; it won't throw, it will just operate on the wrong page.</p>
+
+<h2>How Do I Migrate HTML-to-PDF Conversion?</h2>
+
+<h3>Before (BCL EasyPDF &mdash; verify all API against your version)</h3>
+
+<pre><code>using System;
+// NOTE: verify actual BCL namespace and class names in your SDK documentation
+// The following is a representative pattern &mdash; not guaranteed to compile
+
+class Program
+{
+    [STAThread] // COM-based BCL may require STA thread model
+    static void Main()
+    {
+        // BCL license &mdash; verify exact API
+        // LicenseManager.SetKey("KEY"); // hypothetical
+
+        // BCL HTML conversion &mdash; verify class and method names
+        // var converter = new HtmlToPdfConverter();
+        // converter.Html = GetHtml();
+        // converter.OutputFile = "invoice.pdf";
+        // converter.Convert(); // hypothetical method name
+
+        // The above is pseudocode &mdash; use your BCL docs for actual API
+        Console.WriteLine("verify-in-docs &mdash; replace with actual BCL API");
+    }
+
+    static string GetHtml() =&gt; @"&lt;html&gt;
+        &lt;body style='font-family:Arial'&gt;
+            &lt;h1&gt;Invoice #2071&lt;/h1&gt;
+            &lt;p&gt;Amount: $1,200.00&lt;/p&gt;
+            &lt;p&gt;Due: 2025-12-01&lt;/p&gt;
+        &lt;/body&gt;
+    &lt;/html&gt;";
+}</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        // No STA thread requirement &mdash; works in any threading context
+        IronPdf.License.LicenseKey = "YOUR-KEY";
+
+        var renderer = new ChromePdfRenderer();
+
+        string html = @"&lt;html&gt;
+            &lt;body style='font-family:Arial'&gt;
+                &lt;h1&gt;Invoice #2071&lt;/h1&gt;
+                &lt;p&gt;Amount: $1,200.00&lt;/p&gt;
+                &lt;p&gt;Due: 2025-12-01&lt;/p&gt;
+            &lt;/body&gt;
+        &lt;/html&gt;";
+
+        using var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("invoice.pdf");
+        Console.WriteLine("Saved invoice.pdf");
+    }
+}</code></pre>
+
+<p><strong>Answer:</strong> The key change is replacing BCL's <code>HtmlToPdfConverter</code> (verify class name) with IronPDF's <code>ChromePdfRenderer</code>. The Chromium-based rendering engine gives you modern CSS support out of the box. No COM, no STA thread, no installer &mdash; just a NuGet package.</p>
+
+<h2>How Do I Migrate PDF Merging?</h2>
+
+<h3>Before (BCL &mdash; verify)</h3>
+
+<pre><code>using System;
+// BCL merge API &mdash; verify all below against your SDK version
+// This is a representative pseudocode pattern
+
+class Program
+{
+    static void Main()
+    {
+        // BCL merge &mdash; hypothetical; verify actual class/method
+        // var merger = new PdfMerger(); // verify
+        // merger.Add("part1.pdf");      // verify
+        // merger.Add("part2.pdf");      // verify
+        // merger.Save("merged.pdf");    // verify
+        Console.WriteLine("verify-in-docs &mdash; replace with actual BCL merge API");
+    }
+}</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-KEY";
+
+        var pdf1 = PdfDocument.FromFile("part1.pdf");
+        var pdf2 = PdfDocument.FromFile("part2.pdf");
+        var pdf3 = PdfDocument.FromFile("part3.pdf");
+
+        using var merged = PdfDocument.Merge(pdf1, pdf2, pdf3);
+        merged.SaveAs("merged.pdf");
+        Console.WriteLine("Merged to merged.pdf");
+    }
+}</code></pre>
+
+<p><strong>Answer:</strong> IronPDF's <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge API</a> takes any number of <code>PdfDocument</code> objects and combines them in one call. No intermediate file writes, no COM objects to manage. Load each PDF with <code>PdfDocument.FromFile()</code>, merge with <code>PdfDocument.Merge()</code>, and save.</p>
+
+<h2>How Do I Migrate Watermarking and Stamping?</h2>
+
+<h3>Before (BCL &mdash; verify)</h3>
+
+<pre><code>using System;
+// BCL watermark/stamp API &mdash; verify in your SDK documentation
+// The stamping mechanism varies significantly by BCL SDK version
+
+class Program
+{
+    static void Main()
+    {
+        // Hypothetical BCL watermark API &mdash; do not use without verifying
+        // var doc = PdfDocument.Open("input.pdf");
+        // doc.Pages[0].Watermark("CONFIDENTIAL", opacity: 0.4f);
+        // doc.Save("watermarked.pdf");
+        Console.WriteLine("verify-in-docs &mdash; replace with actual BCL watermark API");
+    }
+}</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using System;
+using IronPdf;
+using IronPdf.Editing;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-KEY";
+
+        using var pdf = PdfDocument.FromFile("input.pdf");
+
+        var stamper = new TextStamper
+        {
+            Text = "CONFIDENTIAL",
+            FontSize = 48,
+            Opacity = 40,
+            Rotation = 45,
+            VerticalAlignment = VerticalAlignment.Middle,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+
+        pdf.ApplyStamp(stamper);
+        pdf.SaveAs("watermarked.pdf");
+        Console.WriteLine("Watermarked PDF saved");
+    }
+}</code></pre>
+
+<p><strong>Answer:</strong> IronPDF uses a <a href="https://ironpdf.com/how-to/stamp-text-image/">TextStamper</a> model instead of a watermark-specific API. You configure the stamp text, font size, opacity, rotation, and alignment as properties, then apply it with <code>ApplyStamp()</code>. This gives you more control over positioning than most watermark-only APIs.</p>
+
+<h2>How Do I Migrate Password Protection?</h2>
+
+<h3>Before (BCL &mdash; verify)</h3>
+
+<pre><code>using System;
+// BCL password protection &mdash; verify API against your version
+
+class Program
+{
+    static void Main()
+    {
+        // Hypothetical &mdash; verify actual BCL encryption API
+        // var security = new PdfSecurity("input.pdf");
+        // security.SetUserPassword("user123");
+        // security.SetOwnerPassword("owner456");
+        // security.Save("protected.pdf");
+        Console.WriteLine("verify-in-docs &mdash; replace with actual BCL security API");
+    }
+}</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using System;
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-KEY";
+
+        using var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.SecuritySettings.UserPassword = "user123";
+        pdf.SecuritySettings.OwnerPassword = "owner456";
+        pdf.SecuritySettings.AllowUserPrinting =
+            IronPdf.Security.PdfPrintSecurity.FullPrintRights;
+
+        pdf.SaveAs("protected.pdf");
+        Console.WriteLine("Password protected PDF saved");
+    }
+}</code></pre>
+
+<p><strong>Answer:</strong> IronPDF handles security through the <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">SecuritySettings</a> property on <code>PdfDocument</code>. Set <code>UserPassword</code>, <code>OwnerPassword</code>, and granular permissions like <code>AllowUserPrinting</code> directly as properties. No separate security class to instantiate.</p>
+
+<h2>How Do I Handle Async PDF Generation After Migration?</h2>
+
+<p>BCL's COM-based architecture makes <code>async</code>/<code>await</code> painful &mdash; COM STA objects can't be awaited across threads without explicit marshaling. IronPDF's managed API works cleanly with <code>async</code>.</p>
+
+<h3>IronPDF async rendering</h3>
+
+<pre><code>public async Task&lt;byte[]&gt; RenderAsync(string html)
+{
+    var renderer = new ChromePdfRenderer();
+    using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+    return pdf.BinaryData;
+}</code></pre>
+
+<p><strong>Answer:</strong> In ASP.NET Core, register <code>ChromePdfRenderer</code> as a singleton or reuse it at the service level. Creating one per request adds startup overhead from Chromium process initialization. For Linux containers, IronPDF requires native libraries &mdash; check the <a href="https://ironpdf.com/how-to/azure/">Azure deployment docs</a> for the current authoritative dependency list.</p>
+
+<h3>Docker configuration for Linux</h3>
+
+<pre><code>FROM mcr.microsoft.com/dotnet/aspnet:8.0
+
+# Install IronPDF native dependencies (verify current list in IronPDF docs)
+RUN apt-get update &amp;&amp; apt-get install -y \
+    libgdiplus \
+    libx11-6 \
+    libc6 \
+    libgtk-3-0 \
+    # verify current required packages at https://ironpdf.com/how-to/azure/
+    &amp;&amp; rm -rf /var/lib/apt/lists/*</code></pre>
+
+<h2>What Are the Key API Mappings I Need to Know?</h2>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<tr><th>BCL EasyPDF</th><th>IronPDF</th><th>Notes</th></tr>
+<tr><td><code>BCL.EasyPdf</code></td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td>COM ProgID usage</td><td>Not applicable</td><td>IronPDF is fully managed</td></tr>
+<tr><td><code>BCL.EasyPdf.Html</code></td><td><code>IronPdf</code></td><td>HTML rendering</td></tr>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr><th>BCL EasyPDF</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td><code>HtmlToPdfConverter</code></td><td><code>ChromePdfRenderer</code></td><td>HTML-to-PDF conversion</td></tr>
+<tr><td><code>PdfDocument</code></td><td><code>PdfDocument</code></td><td>Loaded PDF document</td></tr>
+<tr><td><code>License</code> class</td><td><code>IronPdf.License</code></td><td>License configuration</td></tr>
+<tr><td>COM object (via Activator)</td><td>Not applicable</td><td>IronPDF requires no COM</td></tr>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<tr><th>Operation</th><th>BCL EasyPDF</th><th>IronPDF</th></tr>
+<tr><td>Load from file</td><td>Verify in docs</td><td><code>PdfDocument.FromFile("file.pdf")</code></td></tr>
+<tr><td>Load from stream</td><td>Verify in docs</td><td><code>PdfDocument.FromStream(stream)</code></td></tr>
+<tr><td>HTML string</td><td>Verify in docs</td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td>HTML file</td><td>Verify in docs</td><td><code>renderer.RenderHtmlFileAsPdf(path)</code></td></tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>BCL EasyPDF</th><th>IronPDF</th></tr>
+<tr><td>Page count</td><td>Verify in docs</td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Get page</td><td>Verify in docs</td><td><code>pdf.Pages[0]</code> (0-based)</td></tr>
+<tr><td>Delete page</td><td>Verify in docs</td><td><code>pdf.RemovePage(0)</code> &mdash; verify</td></tr>
+<tr><td>Rotate</td><td>Verify in docs</td><td>See rendering options docs</td></tr>
+</table>
+
+<h3>Merge/Split</h3>
+
+<table>
+<tr><th>Operation</th><th>BCL EasyPDF</th><th>IronPDF</th></tr>
+<tr><td>Merge PDFs</td><td>Verify in docs</td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
+<tr><td>Split/extract</td><td>Verify in docs</td><td>Verify IronPDF page extraction API</td></tr>
+</table>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I run IronPDF and BCL EasyPDF side by side during migration?</h3>
+
+<p><strong>Answer:</strong> Yes, and I strongly recommend it. Install IronPDF via NuGet alongside your existing BCL references. Run both libraries generating the same PDF, then compare outputs visually before removing BCL. This lets you catch rendering differences early and validate your migration incrementally.</p>
+
+<h3>Do I need to change my project's platform target after removing BCL?</h3>
+
+<p><strong>Answer:</strong> If your project was forced to target <code>x86</code> due to BCL's 32-bit native components, you can switch to <code>AnyCPU</code> or <code>x64</code> after migration. Update <code>&lt;PlatformTarget&gt;</code> in your project file, rebuild, and test thoroughly. Other dependencies may have had hidden x86 assumptions that surface only at runtime.</p>
+
+<h3>Will my existing catch blocks for COMException still work?</h3>
+
+<p><strong>Answer:</strong> No. COM-based failures throw <code>COMException</code> with HRESULT codes. IronPDF throws standard .NET exception types. You need to update your <code>catch</code> blocks from <code>catch (COMException)</code> to <code>catch (Exception)</code> or more specific .NET exception types. This is a quick find-and-replace but easy to miss.</p>
+
+<h3>Does IronPDF support async PDF generation?</h3>
+
+<p><strong>Answer:</strong> Yes. Unlike BCL's COM-based architecture where <code>async</code>/<code>await</code> requires painful STA thread marshaling, IronPDF's managed API works cleanly with <code>async</code>. Use <code>renderer.RenderHtmlAsPdfAsync(html)</code> for non-blocking PDF generation. In ASP.NET Core, register <code>ChromePdfRenderer</code> as a singleton to avoid per-request Chromium startup overhead.</p>
+
+<h3>What dependencies does IronPDF need on Linux containers?</h3>
+
+<p><strong>Answer:</strong> IronPDF on Linux requires native libraries including <code>libgdiplus</code>, <code>libx11-6</code>, <code>libc6</code>, and <code>libgtk-3-0</code>. Add these to your Dockerfile's <code>apt-get install</code> step. Check the <a href="https://ironpdf.com/how-to/azure/">IronPDF Azure deployment docs</a> for the current authoritative dependency list, as requirements may change between versions.</p>

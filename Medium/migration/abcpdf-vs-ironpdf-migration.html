@@ -1,0 +1,666 @@
+<h1>Migrating from ABCpdf to IronPDF: When Your Chromium Fork Falls Three Years Behind</h1>
+
+<p>Your ABCpdf <code>Doc</code> object just swallowed a 47-page HTML invoice and spat out a blank PDF — again. The Chromium engine version bundled with ABCpdf 12 is three years behind, and the CSS grid you shipped last sprint renders as a single column. You could pin the engine, patch the HTML, or file another ticket. Or you could migrate.</p>
+
+<p>I have walked dozens of teams through this exact move. This guide covers replacing ABCpdf with <a href="https://ironpdf.com">IronPDF</a> in a .NET codebase. Eighty percent of what follows is general migration knowledge — dependency auditing, API surface mapping, testing strategy — that applies even if you pick a different target library. The remaining twenty percent shows where IronPDF specifically reduces friction.</p>
+
+<h2>Why Would You Migrate Away from ABCpdf?</h2>
+
+<p>Nobody migrates a working PDF pipeline for fun. Here are the concrete triggers that push teams to evaluate alternatives.</p>
+
+<p><strong>Answer:</strong> There are at least ten reasons I see come up repeatedly when .NET teams reach out about switching.</p>
+
+<ol>
+<li><strong>HTML engine lag.</strong> ABCpdf bundles its own Chromium fork ("ABCChrome"). The version ships months behind upstream Chromium, which means CSS features you rely on in production browsers may not render in your PDFs.</li>
+<li><strong>Native DLL deployment.</strong> ABCpdf requires platform-specific native binaries (<code>ABCpdf13-32.dll</code> or <code>ABCpdf13-64.dll</code>) alongside your managed assembly. Docker builds, Azure App Services, and CI agents all need these in the right path.</li>
+<li><strong>License file mechanics.</strong> ABCpdf uses a trial key installed via <code>XSettings.InstallLicense()</code> or a registry-based license. Cloud-first deployments — especially ephemeral containers — fight with this model.</li>
+<li><strong>API verbosity for common tasks.</strong> Generating a PDF from HTML in ABCpdf requires creating a <code>Doc</code>, adding HTML via <code>Doc.AddImageHtml()</code>, looping with <code>Doc.Chainable()</code> and <code>Doc.Page = Doc.AddPage()</code>, then flattening and saving. That is a lot of ceremony for "turn this HTML into a file."</li>
+<li><strong>Page coordinate system.</strong> ABCpdf uses a bottom-left origin with point-based coordinates. If your team thinks in pixels or CSS units, every measurement needs manual conversion.</li>
+<li><strong>Thread safety caveats.</strong> ABCpdf <code>Doc</code> objects are not thread-safe. High-throughput services need careful pooling or per-request instantiation — easy to get wrong under load.</li>
+<li><strong>Cross-platform gaps.</strong> Linux support arrived in v13 but some features (XPS, WPF rendering) remain Windows-only. If your deployment matrix includes both, you carry two code paths.</li>
+<li><strong>Font embedding complexity.</strong> Getting CJK or custom web fonts to render correctly often requires manual font installation on the server, plus explicit configuration in ABCpdf's rendering options.</li>
+<li><strong>No built-in Razor / template integration.</strong> If your .NET app uses Razor views, you must pre-render them to HTML strings yourself before passing to ABCpdf.</li>
+<li><strong>Upgrade friction between major versions.</strong> Namespace and assembly names change between major versions (e.g., <code>WebSupergoo.ABCpdf12</code> to <code>WebSupergoo.ABCpdf13</code>). This means every major upgrade is a mini-migration anyway.</li>
+</ol>
+
+<h2>How Do ABCpdf and IronPDF Compare at a Glance?</h2>
+
+<table>
+<tr><th>Aspect</th><th>ABCpdf</th><th>IronPDF</th></tr>
+<tr><td><strong>Focus</strong></td><td>Full PDF manipulation + 3 HTML engines</td><td>HTML-first PDF generation + manipulation</td></tr>
+<tr><td><strong>Pricing</strong></td><td>Per-developer, Standard/Professional tiers</td><td>Per-developer, perpetual licenses available</td></tr>
+<tr><td><strong>API Style</strong></td><td>Imperative <code>Doc</code> object, manual page chaining</td><td>Fluent renderer, one-call HTML-to-PDF</td></tr>
+<tr><td><strong>Learning Curve</strong></td><td>Moderate — coordinate system and chaining take time</td><td>Low — HTML/CSS developers productive in minutes</td></tr>
+<tr><td><strong>HTML Rendering</strong></td><td>ABCChrome (Chromium fork), Gecko, IE engines</td><td>Built-in Chrome rendering engine</td></tr>
+<tr><td><strong>Page Indexing</strong></td><td>1-based</td><td>0-based</td></tr>
+<tr><td><strong>Thread Safety</strong></td><td><code>Doc</code> not thread-safe; manual pooling required</td><td><code>ChromePdfRenderer</code> stateless; safe to reuse</td></tr>
+<tr><td><strong>Namespace</strong></td><td><code>WebSupergoo.ABCpdf13</code></td><td><code>IronPdf</code></td></tr>
+</table>
+
+<h2>How Complex Is This Migration?</h2>
+
+<p><strong>Answer:</strong> It depends on which ABCpdf features you actually use. Here is the effort breakdown I give teams during planning.</p>
+
+<table>
+<tr><th>Feature</th><th>Complexity</th><th>Notes</th></tr>
+<tr><td>HTML to PDF</td><td>Low</td><td>Direct replacement; IronPDF eliminates the page-chaining loop</td></tr>
+<tr><td>URL to PDF</td><td>Low</td><td><code>RenderUrlAsPdf</code> replaces <code>AddImageUrl</code> + chaining</td></tr>
+<tr><td>Merge</td><td>Low</td><td><code>PdfDocument.Merge()</code> is a one-liner</td></tr>
+<tr><td>Split / extract pages</td><td>Low</td><td>Page range copy via indexer</td></tr>
+<tr><td>Watermark</td><td>Medium</td><td>ABCpdf uses <code>Doc.AddText</code> at coordinates; IronPDF uses <code>ApplyWatermark</code> with HTML</td></tr>
+<tr><td>Password / encryption</td><td>Low</td><td>Property-based in both; IronPDF uses <code>SecuritySettings</code></td></tr>
+<tr><td>Digital signatures</td><td>Medium</td><td>Different API surface; verify IronPDF signing docs</td></tr>
+<tr><td>Form filling</td><td>Medium</td><td>ABCpdf uses field atoms; IronPDF uses <code>FormField</code> collection</td></tr>
+<tr><td>PDF/A compliance</td><td>Medium-High</td><td>ABCpdf has built-in PDF/A export; IronPDF supports PDF/A — verify version coverage</td></tr>
+<tr><td>Text extraction</td><td>Low</td><td>Both offer text extraction; API shape differs</td></tr>
+<tr><td>Accessibility tagging</td><td>High</td><td>ABCpdf 13 has sophisticated auto-tagging; IronPDF coverage varies — verify in docs</td></tr>
+</table>
+
+<h2>What Does the Decision Matrix Look Like?</h2>
+
+<table>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+<tr><td>HTML-heavy generation, minimal low-level manipulation</td><td>Migrate — IronPDF's one-call renderer saves significant code</td></tr>
+<tr><td>Heavy PDF/A and accessibility tagging workflows</td><td>Evaluate carefully — ABCpdf 13's tagging is mature</td></tr>
+<tr><td>Docker / Linux-first deployment</td><td>Migrate — IronPDF's single NuGet, no native DLL management</td></tr>
+<tr><td>Existing large ABCpdf codebase with coordinate-based drawing</td><td>Phased migration — wrap new features in IronPDF, legacy in ABCpdf</td></tr>
+</table>
+
+<h2>What Do You Need Before Starting?</h2>
+
+<ul>
+<li>.NET 6+ (or .NET Framework 4.6.2+)</li>
+<li>A trial or licensed <a href="https://ironpdf.com/get-started/license-keys/">IronPDF key</a></li>
+<li>Access to your CI pipeline configuration</li>
+</ul>
+
+<h3>Find ABCpdf References</h3>
+
+<p>Use <code>rg</code> (ripgrep) to locate every ABCpdf touchpoint in your codebase.</p>
+
+<pre><code># Find all ABCpdf using statements and references
+rg -l "WebSupergoo|ABCpdf|XSettings|Doc\.Add" --glob "*.cs"
+
+# Count occurrences for effort estimation
+rg -c "new Doc\(\)" --glob "*.cs"
+
+# Find project file references
+rg -l "ABCpdf" --glob "*.csproj"</code></pre>
+
+<p>If you don't have <code>rg</code>, the <code>grep</code> equivalent works too.</p>
+
+<pre><code>grep -rl "WebSupergoo\|ABCpdf\|XSettings" --include="*.cs" .</code></pre>
+
+<p>In PowerShell, <code>Get-ChildItem -Recurse -Filter *.cs | Select-String -Pattern "WebSupergoo|ABCpdf"</code> achieves the same result.</p>
+
+<h3>Swap NuGet Packages</h3>
+
+<pre><code># Remove ABCpdf
+dotnet remove package ABCpdf
+
+# Install IronPDF
+dotnet add package IronPdf</code></pre>
+
+<h2>How Do You Migrate in 3 Steps?</h2>
+
+<p><strong>Answer:</strong> License, namespaces, then your first HTML-to-PDF render. Here is the exact sequence I recommend.</p>
+
+<h3>Step 1: License Configuration</h3>
+
+<h3>Before (ABCpdf)</h3>
+
+<pre><code>using WebSupergoo.ABCpdf13; // verify namespace for your version
+
+class Program
+{
+    static void Main()
+    {
+        // ABCpdf license installation
+        // Trial key from PDFSettings.exe or registry
+        if (!XSettings.InstallLicense("your-abcpdf-trial-key-here"))
+        {
+            Console.WriteLine("License failed: " + XSettings.LicenseDescription);
+            return;
+        }
+
+        Console.WriteLine("ABCpdf licensed successfully.");
+    }
+}</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>// using IronPdf; // Install via NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        // IronPDF license — one line, works in containers
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        Console.WriteLine($"IronPDF licensed: {License.IsLicensed}");
+    }
+}</code></pre>
+
+<h3>Step 2: Namespace Imports</h3>
+
+<h3>Before (ABCpdf)</h3>
+
+<pre><code>using WebSupergoo.ABCpdf13; // verify for your version
+using WebSupergoo.ABCpdf13.Objects; // verify — used for atoms, fields
+using WebSupergoo.ABCpdf13.Operations; // verify — used for optimization</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>// using IronPdf; // Install via NuGet: Install-Package IronPdf
+using IronPdf;
+using IronPdf.Editing;    // for watermarks, headers, footers
+using IronPdf.Rendering;  // for render options</code></pre>
+
+<h3>Step 3: Basic HTML-to-PDF</h3>
+
+<h3>Before (ABCpdf — ~20 lines)</h3>
+
+<pre><code>using WebSupergoo.ABCpdf13; // verify namespace
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        if (!XSettings.InstallLicense("your-key")) return;
+
+        using var doc = new Doc();
+        doc.HtmlOptions.Engine = EngineType.Chrome; // verify enum name
+        doc.HtmlOptions.Media = MediaType.Screen;   // verify enum name
+        doc.Rect.Inset(20, 20);
+
+        // Add first page of HTML
+        int pageId = doc.AddImageHtml("&lt;h1&gt;Invoice&lt;/h1&gt;&lt;p&gt;Hello from ABCpdf&lt;/p&gt;");
+
+        // Chain remaining pages
+        while (doc.Chainable(pageId))
+        {
+            doc.Page = doc.AddPage();
+            pageId = doc.AddImageHtml();
+        }
+
+        // Flatten and save
+        for (int i = 1; i &lt;= doc.PageCount; i++)
+        {
+            doc.PageNumber = i;
+            doc.Flatten();
+        }
+        doc.Save("invoice.pdf");
+    }
+}</code></pre>
+
+<h3>After (IronPDF — 10 lines)</h3>
+
+<pre><code>// using IronPdf; // Install via NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.CssMediaType = IronPdf.Rendering.PdfCssMediaType.Screen;
+        renderer.RenderingOptions.MarginTop = 20;
+        renderer.RenderingOptions.MarginBottom = 20;
+
+        var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Invoice&lt;/h1&gt;&lt;p&gt;Hello from IronPDF&lt;/p&gt;");
+        pdf.SaveAs("invoice.pdf");
+    }
+}</code></pre>
+
+<p>The page-chaining loop, manual flatten pass, and coordinate inset are all gone.</p>
+
+<h2>How Do the APIs Map Between ABCpdf and IronPDF?</h2>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<tr><th>ABCpdf Namespace</th><th>IronPDF Namespace</th><th>Purpose</th></tr>
+<tr><td><code>WebSupergoo.ABCpdf13</code></td><td><code>IronPdf</code></td><td>Core classes</td></tr>
+<tr><td><code>WebSupergoo.ABCpdf13.Objects</code></td><td><code>IronPdf.Editing</code></td><td>Document manipulation</td></tr>
+<tr><td><code>WebSupergoo.ABCpdf13.Operations</code></td><td><code>IronPdf.Rendering</code></td><td>Render options, optimization</td></tr>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr><th>ABCpdf Class</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td><code>Doc</code></td><td><code>ChromePdfRenderer</code> + <code>PdfDocument</code></td><td>ABCpdf combines rendering and document in one object; IronPDF separates them</td></tr>
+<tr><td><code>XSettings</code></td><td><code>IronPdf.License</code></td><td>Licensing configuration</td></tr>
+<tr><td><code>HtmlOptions</code> / <code>EngineType</code></td><td><code>ChromePdfRenderOptions</code></td><td>HTML rendering configuration</td></tr>
+<tr><td><code>Rect</code></td><td><code>RenderingOptions.MarginTop</code> etc.</td><td>Page area / margin control</td></tr>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<tr><th>Operation</th><th>ABCpdf</th><th>IronPDF</th></tr>
+<tr><td>Load from file</td><td><code>new Doc(); doc.Read("file.pdf")</code></td><td><code>PdfDocument.FromFile("file.pdf")</code></td></tr>
+<tr><td>Load from bytes</td><td><code>doc.Read(byteArray)</code></td><td><code>PdfDocument.FromBinaryData(byteArray)</code></td></tr>
+<tr><td>Load from stream</td><td><code>doc.Read(stream)</code></td><td><code>PdfDocument.FromStream(stream)</code></td></tr>
+<tr><td>Load password-protected</td><td><code>doc.Read("file.pdf"); doc.Password = "pass"</code></td><td><code>PdfDocument.FromFile("file.pdf", "pass")</code></td></tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>ABCpdf</th><th>IronPDF</th></tr>
+<tr><td>Get page count</td><td><code>doc.PageCount</code></td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Navigate to page</td><td><code>doc.PageNumber = n</code> (1-based)</td><td><code>pdf.Pages[n]</code> (0-based)</td></tr>
+<tr><td>Add blank page</td><td><code>doc.AddPage()</code></td><td>Render HTML with empty content, or copy from template</td></tr>
+<tr><td>Delete page</td><td><code>doc.Delete(pageId)</code></td><td><code>pdf.RemovePages(index)</code></td></tr>
+</table>
+
+<h3>Merge / Split Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>ABCpdf</th><th>IronPDF</th></tr>
+<tr><td>Merge documents</td><td><code>doc.Append(otherDoc)</code></td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
+<tr><td>Extract page range</td><td>Manual page copy loop</td><td><code>pdf.CopyPages(startIndex, endIndex)</code></td></tr>
+</table>
+
+<h2>What Do the Full Before/After Code Migrations Look Like?</h2>
+
+<h3>1. HTML to PDF</h3>
+
+<h3>Before (ABCpdf)</h3>
+
+<pre><code>using WebSupergoo.ABCpdf13; // verify namespace
+using System;
+
+class HtmlToPdfAbcpdf
+{
+    static void Main()
+    {
+        if (!XSettings.InstallLicense("your-key")) return;
+
+        using var doc = new Doc();
+        doc.HtmlOptions.Engine = EngineType.Chrome; // verify
+        doc.HtmlOptions.Media = MediaType.Screen;   // verify
+        doc.HtmlOptions.BrowserWidth = 1280;         // verify property name
+        doc.Rect.Inset(30, 30);
+
+        string html = @"
+            &lt;html&gt;
+            &lt;head&gt;&lt;style&gt;
+                body { font-family: Arial; }
+                .header { background: #2c3e50; color: white; padding: 20px; }
+                table { width: 100%; border-collapse: collapse; }
+                td, th { border: 1px solid #ddd; padding: 8px; }
+            &lt;/style&gt;&lt;/head&gt;
+            &lt;body&gt;
+                &lt;div class='header'&gt;&lt;h1&gt;Monthly Report&lt;/h1&gt;&lt;/div&gt;
+                &lt;table&gt;
+                    &lt;tr&gt;&lt;th&gt;Metric&lt;/th&gt;&lt;th&gt;Value&lt;/th&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;Revenue&lt;/td&gt;&lt;td&gt;$142,000&lt;/td&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;Users&lt;/td&gt;&lt;td&gt;8,421&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        int pageId = doc.AddImageHtml(html);
+        while (doc.Chainable(pageId))
+        {
+            doc.Page = doc.AddPage();
+            pageId = doc.AddImageHtml();
+        }
+        for (int i = 1; i &lt;= doc.PageCount; i++)
+        {
+            doc.PageNumber = i;
+            doc.Flatten();
+        }
+        doc.Save("report_abcpdf.pdf");
+        Console.WriteLine("Saved with ABCpdf.");
+    }
+}</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>// using IronPdf; // Install via NuGet: Install-Package IronPdf
+using IronPdf;
+
+class HtmlToPdfIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.CssMediaType = IronPdf.Rendering.PdfCssMediaType.Screen;
+        renderer.RenderingOptions.PrintHtmlBackgrounds = true;
+        renderer.RenderingOptions.MarginTop = 30;
+        renderer.RenderingOptions.MarginBottom = 30;
+
+        string html = @"
+            &lt;html&gt;
+            &lt;head&gt;&lt;style&gt;
+                body { font-family: Arial; }
+                .header { background: #2c3e50; color: white; padding: 20px; }
+                table { width: 100%; border-collapse: collapse; }
+                td, th { border: 1px solid #ddd; padding: 8px; }
+            &lt;/style&gt;&lt;/head&gt;
+            &lt;body&gt;
+                &lt;div class='header'&gt;&lt;h1&gt;Monthly Report&lt;/h1&gt;&lt;/div&gt;
+                &lt;table&gt;
+                    &lt;tr&gt;&lt;th&gt;Metric&lt;/th&gt;&lt;th&gt;Value&lt;/th&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;Revenue&lt;/td&gt;&lt;td&gt;$142,000&lt;/td&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;Users&lt;/td&gt;&lt;td&gt;8,421&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("report_ironpdf.pdf");
+        Console.WriteLine("Saved with IronPDF.");
+    }
+}</code></pre>
+
+<p>No page chaining. No flatten loop. The Chrome engine handles multi-page content automatically. See the <a href="https://ironpdf.com/tutorials/html-to-pdf/">IronPDF HTML-to-PDF tutorial</a> for advanced rendering options.</p>
+
+<h3>2. Merge PDFs</h3>
+
+<h3>Before (ABCpdf)</h3>
+
+<pre><code>using WebSupergoo.ABCpdf13; // verify namespace
+using System;
+
+class MergeAbcpdf
+{
+    static void Main()
+    {
+        if (!XSettings.InstallLicense("your-key")) return;
+
+        using var doc1 = new Doc();
+        doc1.Read("part1.pdf"); // verify method name
+
+        using var doc2 = new Doc();
+        doc2.Read("part2.pdf");
+
+        // Append doc2 into doc1
+        doc1.Append(doc2); // verify method name
+
+        doc1.Save("merged_abcpdf.pdf");
+        Console.WriteLine("Merged with ABCpdf.");
+    }
+}</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>// using IronPdf; // Install via NuGet: Install-Package IronPdf
+using IronPdf;
+
+class MergeIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf1 = PdfDocument.FromFile("part1.pdf");
+        var pdf2 = PdfDocument.FromFile("part2.pdf");
+
+        // Static merge — returns a new PdfDocument
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged_ironpdf.pdf");
+        Console.WriteLine("Merged with IronPDF.");
+    }
+}</code></pre>
+
+<p><code>PdfDocument.Merge()</code> accepts <code>params PdfDocument[]</code>, so you can pass any number of documents in one call. See the <a href="https://ironpdf.com/examples/merge-pdfs/">IronPDF merge documentation</a> for additional patterns.</p>
+
+<h3>3. Watermark</h3>
+
+<h3>Before (ABCpdf)</h3>
+
+<pre><code>using WebSupergoo.ABCpdf13; // verify namespace
+using System;
+
+class WatermarkAbcpdf
+{
+    static void Main()
+    {
+        if (!XSettings.InstallLicense("your-key")) return;
+
+        using var doc = new Doc();
+        doc.Read("input.pdf"); // verify
+
+        // Add text watermark to each page
+        for (int i = 1; i &lt;= doc.PageCount; i++)
+        {
+            doc.PageNumber = i;
+            doc.Rect.String = doc.MediaBox.String; // verify — full page rect
+            doc.Color.String = "200 200 200";       // verify — light gray
+            doc.Font = doc.AddFont("Helvetica");     // verify method
+            doc.FontSize = 48;
+
+            // Rotate and position — coordinate math required
+            doc.Transform.Rotate(45, doc.MediaBox.Width / 2, doc.MediaBox.Height / 2); // verify
+            doc.AddText("CONFIDENTIAL");
+            doc.Transform.Reset(); // verify
+        }
+
+        doc.Save("watermarked_abcpdf.pdf");
+        Console.WriteLine("Watermarked with ABCpdf.");
+    }
+}</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>// using IronPdf; // Install via NuGet: Install-Package IronPdf
+using IronPdf;
+
+class WatermarkIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf = PdfDocument.FromFile("input.pdf");
+
+        // HTML-based watermark — use any CSS you want
+        pdf.ApplyWatermark(
+            "&lt;h1 style='color:lightgray;font-size:48px;opacity:0.5;'&gt;CONFIDENTIAL&lt;/h1&gt;",
+            rotation: 45,
+            hyperlink: null
+        );
+
+        pdf.SaveAs("watermarked_ironpdf.pdf");
+        Console.WriteLine("Watermarked with IronPDF.");
+    }
+}</code></pre>
+
+<p>The coordinate math and per-page loop collapse into a single <code>ApplyWatermark</code> call using HTML + CSS. See the <a href="https://ironpdf.com/how-to/custom-watermark/">IronPDF watermark documentation</a> for alignment options via <code>VerticalAlignment</code> and <code>HorizontalAlignment</code> enums in <code>IronPdf.Editing</code>.</p>
+
+<h3>4. Password Protection</h3>
+
+<h3>Before (ABCpdf)</h3>
+
+<pre><code>using WebSupergoo.ABCpdf13; // verify namespace
+using System;
+
+class PasswordAbcpdf
+{
+    static void Main()
+    {
+        if (!XSettings.InstallLicense("your-key")) return;
+
+        using var doc = new Doc();
+        doc.Read("input.pdf"); // verify
+
+        // Set encryption and passwords — verify property names
+        doc.Encryption.Type = 2;                     // verify — 128-bit AES
+        doc.Encryption.OwnerPassword = "owner123";   // verify property
+        doc.Encryption.Password = "user456";          // verify property
+        doc.Encryption.CanPrint = false;              // verify property
+        doc.Encryption.CanEdit = false;               // verify property
+
+        doc.Save("protected_abcpdf.pdf");
+        Console.WriteLine("Protected with ABCpdf.");
+    }
+}</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>// using IronPdf; // Install via NuGet: Install-Package IronPdf
+using IronPdf;
+
+class PasswordIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf = PdfDocument.FromFile("input.pdf");
+
+        // Security settings — named properties, no magic numbers
+        pdf.SecuritySettings.OwnerPassword = "owner123";
+        pdf.SecuritySettings.UserPassword = "user456";
+        pdf.SecuritySettings.AllowUserPrinting = IronPdf.Security.PdfPrintSecurity.NoPrint;
+        pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+        pdf.SecuritySettings.AllowUserEdits = IronPdf.Security.PdfEditSecurity.NoEdit;
+
+        pdf.SaveAs("protected_ironpdf.pdf");
+        Console.WriteLine("Protected with IronPDF.");
+    }
+}</code></pre>
+
+<p>IronPDF uses typed enums instead of integer flags. See the <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">IronPDF security documentation</a> for the full <code>SecuritySettings</code> surface.</p>
+
+<h2>What Are the Critical Migration Gotchas?</h2>
+
+<h3>Page Indexing Differences</h3>
+
+<p>ABCpdf uses 1-based page numbering (<code>doc.PageNumber = 1</code> is the first page). IronPDF uses 0-based indexing (<code>pdf.Pages[0]</code> is the first page). Every loop, every page reference, every index needs adjusting. A quick <code>rg "PageNumber\s*=" --glob "*.cs"</code> will find them all.</p>
+
+<h3>Doc Object vs. Separate Renderer + Document</h3>
+
+<p>ABCpdf's <code>Doc</code> is both the renderer and the document. IronPDF separates these concerns: <code>ChromePdfRenderer</code> handles creation, <code>PdfDocument</code> handles the result. If your ABCpdf code passes <code>doc</code> around for both rendering and manipulation, you will need to refactor call sites to accept the appropriate type.</p>
+
+<h3>Unit Conversion</h3>
+
+<p>ABCpdf works in PDF points (1 point = 1/72 inch) with a bottom-left origin. IronPDF margins are specified in millimeters by default. If you have hard-coded coordinate values, convert them: 1 point is approximately 0.353 mm.</p>
+
+<h3>Disposal Patterns</h3>
+
+<p>ABCpdf's <code>Doc</code> is <code>IDisposable</code>. IronPDF's <code>PdfDocument</code> is also <code>IDisposable</code>. Your existing <code>using</code> blocks should transfer directly — just change the type.</p>
+
+<h2>How Should You Handle Performance in IronPDF?</h2>
+
+<h3>Renderer Reuse</h3>
+
+<p>In ABCpdf, you create a new <code>Doc</code> per render. In IronPDF, <code>ChromePdfRenderer</code> is stateless and lightweight — create one instance and reuse it across requests.</p>
+
+<pre><code>// using IronPdf; // Install via NuGet: Install-Package IronPdf
+// Good — reuse the renderer
+private static readonly ChromePdfRenderer _renderer = new ChromePdfRenderer();
+
+public PdfDocument GeneratePdf(string html)
+{
+    return _renderer.RenderHtmlAsPdf(html);
+}</code></pre>
+
+<h3>Disposal</h3>
+
+<p>Always dispose <code>PdfDocument</code> instances when done. In high-throughput scenarios, this matters.</p>
+
+<pre><code>// using IronPdf; // Install via NuGet: Install-Package IronPdf
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+// pdf is disposed here</code></pre>
+
+<h3>Edge Cases Worth Flagging</h3>
+
+<ul>
+<li><strong>Large HTML tables (1000+ rows):</strong> Both libraries handle these, but consider paginating in HTML with <code>page-break-before: always</code> for predictable output.</li>
+<li><strong>JavaScript-dependent rendering:</strong> IronPDF's Chrome engine executes JS by default. If your HTML relies on JS to build the DOM, set <code>renderer.RenderingOptions.EnableJavaScript = true</code> and consider adding a <code>RenderDelay</code> if content loads asynchronously.</li>
+<li><strong>Concurrent rendering:</strong> IronPDF handles concurrency internally. For batch jobs, <code>Parallel.ForEach</code> with the same renderer instance works. ABCpdf required explicit <code>Doc</code>-per-thread isolation.</li>
+</ul>
+
+<h2>What Should Your Migration Checklist Include?</h2>
+
+<h3>Pre-Migration (8 items)</h3>
+
+<ul>
+<li>Run <code>rg</code> scan to inventory all ABCpdf usage across the codebase</li>
+<li>Catalog which ABCpdf features you actually use (HTML-to-PDF, merge, forms, etc.)</li>
+<li>Obtain an IronPDF trial key from <a href="https://ironpdf.com/get-started/license-keys/">ironpdf.com</a></li>
+<li>Create a migration branch in source control</li>
+<li>Identify integration tests that exercise PDF generation paths</li>
+<li>Document any ABCpdf coordinate-based drawing code that needs rethinking</li>
+<li>Check for ABCpdf license files or registry entries in deployment scripts</li>
+<li>Review Docker / CI configurations for native DLL copy steps</li>
+</ul>
+
+<h3>Code Migration (10 items)</h3>
+
+<ul>
+<li>Replace NuGet package: remove <code>ABCpdf</code>, add <code>IronPdf</code></li>
+<li>Update all <code>using</code> directives from <code>WebSupergoo.ABCpdf*</code> to <code>IronPdf</code></li>
+<li>Replace <code>XSettings.InstallLicense()</code> with <code>IronPdf.License.LicenseKey = "..."</code></li>
+<li>Replace <code>Doc</code> + <code>AddImageHtml</code> + chaining loop with <code>ChromePdfRenderer.RenderHtmlAsPdf()</code></li>
+<li>Replace <code>Doc.Append()</code> with <code>PdfDocument.Merge()</code></li>
+<li>Replace coordinate-based watermarks with <code>ApplyWatermark()</code> HTML</li>
+<li>Replace encryption integer flags with <code>SecuritySettings</code> properties</li>
+<li>Convert all 1-based page indices to 0-based</li>
+<li>Convert point-based margins to millimeters</li>
+<li>Remove native DLL copy steps from build scripts</li>
+</ul>
+
+<h3>Testing (7 items)</h3>
+
+<ul>
+<li>Run existing PDF output tests and compare visually</li>
+<li>Verify multi-page HTML renders without manual chaining</li>
+<li>Test password-protected PDF open/save round-trip</li>
+<li>Test merge with 3+ documents</li>
+<li>Validate watermark positioning on single-page and multi-page docs</li>
+<li>Load-test concurrent rendering in staging</li>
+<li>Verify Docker/Linux deployment produces identical output</li>
+</ul>
+
+<h3>Post-Migration (4 items)</h3>
+
+<ul>
+<li>Remove ABCpdf native DLLs from deployment artifacts</li>
+<li>Remove ABCpdf license registry entries or file deployment steps</li>
+<li>Update project documentation and onboarding guides</li>
+<li>Monitor production error rates for PDF-related exceptions for two weeks</li>
+</ul>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I run ABCpdf and IronPDF side by side during a phased migration?</h3>
+
+<p>Yes. Both libraries use separate namespaces (<code>WebSupergoo.ABCpdf13</code> vs. <code>IronPdf</code>) and have no conflicting dependencies. You can install both NuGet packages in the same project and migrate feature by feature. This is the approach I recommend for large codebases with coordinate-based drawing code.</p>
+
+<h3>How do I handle ABCpdf's 1-based page indexing when moving to IronPDF's 0-based indexing?</h3>
+
+<p>Search your codebase for every reference to <code>PageNumber</code> and page index loops. In ABCpdf, the first page is <code>doc.PageNumber = 1</code>. In IronPDF, it is <code>pdf.Pages[0]</code>. Every <code>for</code> loop that starts at 1 and goes to <code>PageCount</code> needs to start at 0 and go to <code>PageCount - 1</code>. Run <code>rg "PageNumber\s*=" --glob "*.cs"</code> to find every occurrence.</p>
+
+<h3>What happens to my ABCpdf coordinate-based drawing code?</h3>
+
+<p>ABCpdf uses PDF points (1/72 inch) with a bottom-left origin. IronPDF margins use millimeters by default. For watermarks and overlays, IronPDF replaces coordinate math with HTML/CSS via <code>ApplyWatermark()</code>. For complex coordinate-based drawing that has no HTML equivalent, consider a phased migration where legacy drawing stays in ABCpdf while new features use IronPDF.</p>
+
+<h3>Do I need to change my Docker or CI pipeline configuration?</h3>
+
+<p>Almost certainly yes, but to remove complexity rather than add it. ABCpdf requires native DLL files (<code>ABCpdf13-32.dll</code> or <code>ABCpdf13-64.dll</code>) copied into the right path. IronPDF ships as a single NuGet package with no separate native DLL management. Remove any native DLL copy steps, registry-based license entries, and platform-specific binary paths from your build scripts.</p>
+
+<h3>How long should a typical ABCpdf-to-IronPDF migration take?</h3>
+
+<p>If your codebase is mostly HTML-to-PDF with straightforward merge and security, expect one to two days for a mid-size project. The hardest parts are the page-chaining loop refactor and the coordinate-system shift. If you have heavy coordinate-based drawing or accessibility tagging, plan for a phased approach spread over a sprint or two.</p>
+
+<h2>What Is the Bottom Line?</h2>
+
+<p>The hardest part of this migration is not the API mapping — it is the page-chaining loop refactor and the coordinate-system shift. If your codebase is mostly HTML-to-PDF with straightforward merge and security, expect a one-to-two day migration for a mid-size project. If you have heavy coordinate-based drawing or accessibility tagging, plan for a phased approach.</p>
+
+<p>Worth knowing even without IronPDF: the page-chaining pattern that ABCpdf requires is a common source of off-by-one bugs and blank-page issues. Any modern HTML-to-PDF library that handles pagination internally — IronPDF, Puppeteer Sharp, Playwright — eliminates this class of bug entirely. The <a href="https://ironpdf.com/how-to/cshtml-to-pdf-razor/">Razor-to-PDF guide</a> is a good next step if your .NET app uses Razor views.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

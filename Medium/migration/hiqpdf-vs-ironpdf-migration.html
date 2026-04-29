@@ -1,0 +1,526 @@
+<h1>Migrating from HiQPdf to IronPDF in C#: The Complete Guide</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>Here is a concrete scenario that comes up: you have been using HiQPdf for HTML-to-PDF conversion and it works, but you need to add PDF/A compliance output for document archiving. You open the HiQPdf docs looking for a PDF/A export option, and it is not there -- or it is marked as a feature in a tier you do not currently have. That is the trigger for this article. Not drama, just a gap in capability that forces a library evaluation.</p>
+
+<p>This walkthrough covers the migration path from HiQPdf to <a href="https://ironpdf.com">IronPDF</a>: what transfers cleanly, what needs attention, and what to measure before you commit.</p>
+
+<h2>Why Should I Migrate from HiQPdf to IronPDF?</h2>
+
+<p>Nine reasons teams evaluate alternatives to HiQPdf. Take what applies to your situation.</p>
+
+<p><strong>Missing features.</strong> PDF/A compliance, specific digital signature workflows, or advanced PDF manipulation operations may not be in the version you are on.</p>
+
+<p><strong>Platform support gap.</strong> HiQPdf's Linux support posture matters if you are moving workloads to Linux containers. Verify current state before assuming.</p>
+
+<p><strong>Commercial license model.</strong> Both HiQPdf and IronPDF are commercial. If you are re-evaluating, compare what is included at your tier.</p>
+
+<p><strong>CSS fidelity deltas.</strong> Even among Chromium-based renderers, version differences and configuration options produce different output. Teams with pixel-sensitive documents test this case by case.</p>
+
+<p><strong>API verbosity.</strong> Some operations require more boilerplate in HiQPdf than equivalent IronPDF calls.</p>
+
+<p><strong>Documentation coverage.</strong> If you are hitting underdocumented corners of HiQPdf, that is friction.</p>
+
+<p><strong>Thread safety and concurrency model.</strong> Verify how HiQPdf handles concurrent render requests before scaling.</p>
+
+<p><strong>Ecosystem integration.</strong> NuGet, Azure DevOps, GitHub Actions compatibility. Verify any CI/CD-specific package consumption nuances.</p>
+
+<p><strong>Support responsiveness.</strong> Commercial library support quality varies. If you are blocked on issues, that is a migration signal.</p>
+
+<h2>How Do HiQPdf and IronPDF Compare at a Glance?</h2>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>HiQPdf</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>HTML-to-PDF + PDF operations</td><td>HTML-to-PDF + full PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Commercial -- verify at hiqpdf.com</td><td>Commercial -- verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>Converter + document classes</td><td>Renderer + document model</td></tr>
+<tr><td>Learning Curve</td><td>Medium</td><td>Medium</td></tr>
+<tr><td>HTML Rendering</td><td>Chromium-based</td><td>Chromium-based</td></tr>
+<tr><td>Page Indexing</td><td>Verify in HiQPdf docs</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify in HiQPdf docs</td><td>Renderer instance reuse -- see async docs</td></tr>
+<tr><td>Namespace</td><td><code>HiQPdf</code></td><td><code>IronPdf</code></td></tr>
+</tbody>
+</table>
+
+<h2>How Much Effort Does Each Feature Take to Migrate?</h2>
+
+<p>I have mapped out the effort level for each feature area. Most conversions fall into the low-effort category, which means straightforward API substitutions.</p>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>HiQPdf Approach</th><th>Effort to Migrate</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string to PDF</td><td>Converter class</td><td>Low</td></tr>
+<tr><td>URL to PDF</td><td>Converter class</td><td>Low</td></tr>
+<tr><td>HTML file to PDF</td><td>Converter class</td><td>Low</td></tr>
+<tr><td>PDF/A compliance output</td><td>Verify HiQPdf support -- may be N/A</td><td>Low in IronPDF if starting from zero</td></tr>
+<tr><td>Merge PDFs</td><td>Verify HiQPdf support</td><td>Low</td></tr>
+<tr><td>Watermark</td><td>Verify HiQPdf support</td><td>Low</td></tr>
+<tr><td>Password protection</td><td>Verify HiQPdf support</td><td>Low</td></tr>
+<tr><td>Custom margins</td><td>Options object</td><td>Low</td></tr>
+<tr><td>Headers / footers</td><td>Verify HiQPdf API</td><td>Medium</td></tr>
+<tr><td>Digital signatures</td><td>Verify HiQPdf support</td><td>Medium -- verify in IronPDF docs</td></tr>
+<tr><td>Concurrent rendering</td><td>Verify HiQPdf thread model</td><td>Medium</td></tr>
+</tbody>
+</table>
+
+<h2>What Does the Decision Matrix Look Like?</h2>
+
+<table>
+<thead>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>PDF/A compliance required</td><td>Verify HiQPdf tier; IronPDF has it -- test both outputs for compliance</td></tr>
+<tr><td>Windows-only deployment</td><td>Both should work -- verify</td></tr>
+<tr><td>Linux/Docker deployment</td><td>Verify HiQPdf Linux support carefully before committing to either</td></tr>
+<tr><td>Both libraries are commercial</td><td>Compare feature set per license tier against your specific needs</td></tr>
+</tbody>
+</table>
+
+<h2>How Do I Convert HTML to PDF After Migration?</h2>
+
+<p>This is the most common operation. The pattern changes from a converter class returning bytes to a renderer class returning a document object.</p>
+
+<h3>HiQPdf (Before)</h3>
+
+<pre><code>using HiQPdf;
+using System;
+using System.IO;
+
+class HtmlToPdfExample
+{
+    static void Main()
+    {
+        // Verify HiQPdf class names and method signatures in official docs
+        // The pattern below is illustrative
+        HtmlToPdf.SetLicense("YOUR_HIQPDF_KEY"); // verify method name
+
+        var converter = new HtmlToPdf();
+        // Verify property names for paper size, margins, etc.
+        converter.Document.PageSize = HiQPdfPageSize.A4; // verify enum/class names
+
+        byte[] pdfBytes = converter.ConvertHtmlString(
+            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #1234&lt;/h1&gt;&lt;p&gt;Amount: $500&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;",
+            "https://localhost/" // base URL -- verify if required
+        );
+
+        File.WriteAllBytes("invoice.pdf", pdfBytes);
+        Console.WriteLine("Saved: invoice.pdf");
+    }
+}
+</code></pre>
+
+<h3>IronPDF (After)</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+var pdf = renderer.RenderHtmlAsPdf(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #1234&lt;/h1&gt;&lt;p&gt;Amount: $500&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+pdf.SaveAs("invoice.pdf");
+</code></pre>
+
+<p>You can find more details in the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF HTML string to PDF guide</a>.</p>
+
+<h2>How Do I Output PDF/A Compliant Documents?</h2>
+
+<p>This is often the feature gap that triggers migration in the first place. If HiQPdf does not expose PDF/A in your licensed tier, this is where IronPDF fills the gap directly.</p>
+
+<h3>HiQPdf (Before)</h3>
+
+<pre><code>using HiQPdf;
+using System.IO;
+
+class PdfAExample
+{
+    static void Main()
+    {
+        // Verify whether HiQPdf supports PDF/A in your tier
+        // If not, this is the feature gap triggering migration
+        HtmlToPdf.SetLicense("YOUR_KEY"); // verify method
+
+        var converter = new HtmlToPdf();
+        // PDF/A settings -- verify if HiQPdf exposes this at all
+        // If not present: verify in docs before concluding N/A
+        // converter.Document.PdfStandard = PdfStandard.PdfA1b; // hypothetical -- verify
+
+        byte[] pdfBytes = converter.ConvertHtmlString("&lt;h1&gt;Archived Document&lt;/h1&gt;");
+        File.WriteAllBytes("archived.pdf", pdfBytes);
+    }
+}
+</code></pre>
+
+<h3>IronPDF (After)</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Archived Document&lt;/h1&gt;");
+
+// Convert to PDF/A-3b for long-term archiving
+pdf.SaveAsPdfA("archived_pdfa.pdf", IronPdf.PdfAVersions.PdfA3b);
+</code></pre>
+
+<p>For full details on PDF/A output, see the <a href="https://ironpdf.com/how-to/pdfa/">IronPDF PDF/A guide</a>.</p>
+
+<h2>How Do I Add Watermarks After Migration?</h2>
+
+<p>Watermarking is another area where HiQPdf support varies. In IronPDF, the stamper API makes this straightforward.</p>
+
+<h3>HiQPdf (Before)</h3>
+
+<pre><code>using HiQPdf;
+using System.IO;
+
+class WatermarkExample
+{
+    static void Main()
+    {
+        // Verify HiQPdf watermark support and API
+        HtmlToPdf.SetLicense("YOUR_KEY"); // verify
+
+        // If HiQPdf doesn't support watermarking natively,
+        // teams typically add a secondary library here
+        byte[] pdfBytes = File.ReadAllBytes("input.pdf");
+
+        // Hypothetical watermark API -- verify in HiQPdf docs:
+        // var watermarker = new PdfWatermark(); // if exists
+        // watermarker.Apply(pdfBytes, "CONFIDENTIAL"); // verify
+        File.WriteAllBytes("watermarked.pdf", pdfBytes);
+    }
+}
+</code></pre>
+
+<h3>IronPDF (After)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("input.pdf");
+var stamper = new TextStamper
+{
+    Text = "CONFIDENTIAL",
+    FontColor = IronSoftware.Drawing.Color.LightGray,
+    Opacity = 40,
+    Rotation = 45,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center
+};
+pdf.ApplyStamp(stamper);
+pdf.SaveAs("watermarked.pdf");
+</code></pre>
+
+<p>See the <a href="https://ironpdf.com/how-to/custom-watermark/">IronPDF watermark guide</a> for more stamper options.</p>
+
+<h2>How Do I Apply Password Protection After Migration?</h2>
+
+<p>Security settings move from converter-level properties to the PdfDocument's SecuritySettings object in IronPDF.</p>
+
+<h3>HiQPdf (Before)</h3>
+
+<pre><code>using HiQPdf;
+using System.IO;
+
+class SecurityExample
+{
+    static void Main()
+    {
+        // Verify HiQPdf security settings API
+        HtmlToPdf.SetLicense("YOUR_KEY"); // verify
+
+        var converter = new HtmlToPdf();
+        // Hypothetical -- verify property names in HiQPdf docs:
+        // converter.Document.Security.UserPassword = "userpass"; // verify
+        // converter.Document.Security.OwnerPassword = "ownerpass"; // verify
+
+        byte[] pdf = converter.ConvertHtmlString("&lt;h1&gt;Secure Document&lt;/h1&gt;");
+        File.WriteAllBytes("secured.pdf", pdf);
+    }
+}
+</code></pre>
+
+<h3>IronPDF (After)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Security;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Secure Document&lt;/h1&gt;");
+pdf.SecuritySettings.UserPassword = "userpass";
+pdf.SecuritySettings.OwnerPassword = "ownerpass";
+pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+pdf.SaveAs("secured.pdf");
+</code></pre>
+
+<p>Full details are in the <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">IronPDF permissions and passwords guide</a>.</p>
+
+<h2>What Are the Core API Mapping Differences?</h2>
+
+<p><strong>Answer:</strong> The namespace and class mappings are direct. Here is a complete reference for the core conversions you will make across your codebase.</p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<thead>
+<tr><th>HiQPdf</th><th>IronPDF</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>HiQPdf</code></td><td><code>IronPdf</code></td><td>Core -- verify HiQPdf sub-namespaces</td></tr>
+<tr><td>HiQPdf options classes</td><td><code>IronPdf.Rendering</code></td><td>Render configuration</td></tr>
+<tr><td>HiQPdf PDF manipulation</td><td><code>IronPdf</code> / <code>IronPdf.Editing</code></td><td>Manipulation ops</td></tr>
+</tbody>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<thead>
+<tr><th>HiQPdf Class</th><th>IronPDF Class</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>HtmlToPdf</code></td><td><code>ChromePdfRenderer</code></td><td>Main rendering entry point</td></tr>
+<tr><td>Converter options class</td><td><code>ChromePdfRenderOptions</code></td><td>Render configuration</td></tr>
+<tr><td>PDF document class</td><td><code>PdfDocument</code></td><td>Represents a PDF</td></tr>
+<tr><td>N/A</td><td><code>PdfDocument</code> static methods</td><td>Merge, split, load from file</td></tr>
+</tbody>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>HiQPdf</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string</td><td><code>ConvertHtmlString()</code></td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td>URL</td><td><code>ConvertUrl()</code></td><td><code>renderer.RenderUrlAsPdf(url)</code></td></tr>
+<tr><td>HTML file</td><td>File-based method</td><td><code>renderer.RenderHtmlFileAsPdf(path)</code></td></tr>
+<tr><td>Existing PDF</td><td>File load method</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+</tbody>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>HiQPdf</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Page count</td><td>Verify</td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Paper size</td><td>Options property</td><td><code>ChromePdfRenderOptions.PaperSize</code></td></tr>
+<tr><td>Margins</td><td>Options property</td><td><code>ChromePdfRenderOptions.Margin*</code></td></tr>
+<tr><td>Orientation</td><td>Options property</td><td><code>ChromePdfRenderOptions.PaperOrientation</code></td></tr>
+</tbody>
+</table>
+
+<h3>Merge/Split Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>HiQPdf</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Merge</td><td>Verify support in HiQPdf</td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
+<tr><td>Split</td><td>Verify support in HiQPdf</td><td><code>pdf.CopyPages(startIndex, endIndex)</code></td></tr>
+</tbody>
+</table>
+
+<h2>What Critical Migration Notes Should I Know?</h2>
+
+<p><strong>Answer:</strong> There are three key differences in how the two libraries handle output and errors. Getting these right will prevent subtle bugs.</p>
+
+<h3>Page Indexing</h3>
+
+<p>Verify HiQPdf's page indexing convention in its docs. IronPDF uses 0-based indexing throughout. If you are migrating page manipulation code, audit all index references.</p>
+
+<h3>Byte Array vs File Model</h3>
+
+<p>HiQPdf commonly returns <code>byte[]</code> from conversion. IronPDF returns a <code>PdfDocument</code> object, which you then save or stream. Update call sites accordingly:</p>
+
+<pre><code>// HiQPdf pattern (illustrative -- verify):
+byte[] pdfBytes = converter.ConvertHtmlString(html);
+File.WriteAllBytes("output.pdf", pdfBytes);
+
+// IronPDF pattern:
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+
+// Or to MemoryStream:
+using var ms = new MemoryStream();
+pdf.Stream.CopyTo(ms);
+</code></pre>
+
+<h3>Error Handling Model</h3>
+
+<p>HiQPdf may return null or empty bytes on failure; IronPDF throws exceptions. Update error handling:</p>
+
+<pre><code>// IronPDF exception pattern
+try
+{
+    var pdf = renderer.RenderHtmlAsPdf(html);
+    pdf.SaveAs("output.pdf");
+}
+catch (IronPdf.Exceptions.IronPdfException ex)
+{
+    // Handle render errors
+    Console.Error.WriteLine($"Render failed: {ex.Message}");
+}
+</code></pre>
+
+<h2>How Do I Optimize Performance After Migration?</h2>
+
+<p><strong>Answer:</strong> Three patterns will get you the most out of IronPDF: renderer reuse, async rendering, and proper parallel execution.</p>
+
+<h3>Renderer Reuse</h3>
+
+<pre><code>// Configure once, reuse for batch work
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 10;
+
+foreach (var html in templates)
+{
+    using var pdf = renderer.RenderHtmlAsPdf(html);
+    pdf.SaveAs($"output_{Guid.NewGuid()}.pdf");
+}
+</code></pre>
+
+<h3>Async for I/O-Heavy Workloads</h3>
+
+<pre><code>// Async rendering for web applications
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+await pdf.SaveAsAsync("output.pdf");
+</code></pre>
+
+<h3>Parallel Rendering</h3>
+
+<pre><code>// Separate renderer per task -- don't share across threads
+var results = await Task.WhenAll(
+    htmlItems.Select(async html =&gt;
+    {
+        var r = new ChromePdfRenderer();
+        return await r.RenderHtmlAsPdfAsync(html);
+    })
+);
+</code></pre>
+
+<h2>How Should I Benchmark HiQPdf vs IronPDF?</h2>
+
+<p>I want to be clear here: run these benchmarks in your environment before making a call. Do not rely on numbers from other contexts.</p>
+
+<h3>What to Measure</h3>
+
+<table>
+<thead>
+<tr><th>Metric</th><th>Why It Matters</th><th>How to Test</th></tr>
+</thead>
+<tbody>
+<tr><td>Single-page HTML-to-PDF time (ms)</td><td>Baseline render performance</td><td><code>Stopwatch</code> around render call, 100 iterations, median</td></tr>
+<tr><td>Multi-page document render time</td><td>Scales differently across renderers</td><td>20-page template, 50 iterations</td></tr>
+<tr><td>Memory allocation per render</td><td>Critical for high-volume services</td><td><code>GC.GetTotalMemory()</code> before and after; or memory profiler</td></tr>
+<tr><td>Concurrent renders throughput</td><td>Relevant if scaling horizontally</td><td>N threads, M renders each, measure wall clock</td></tr>
+<tr><td>Cold start time</td><td>Relevant for serverless / per-request scaling</td><td>First render after process start vs warm</td></tr>
+<tr><td>Output file size for same input</td><td>Affects storage and transfer costs</td><td>Same HTML, compare byte counts</td></tr>
+<tr><td>CSS fidelity score</td><td>Your real templates, visual comparison</td><td>Side-by-side screenshot diff</td></tr>
+</tbody>
+</table>
+
+<h3>Benchmark Scaffold</h3>
+
+<pre><code>using System;
+using System.Diagnostics;
+using System.Collections.Generic;
+using IronPdf; // Swap to HiQPdf namespace when testing that library
+
+class RenderBenchmark
+{
+    static void Main(string[] args)
+    {
+        IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+        const int warmupRounds = 3;
+        const int timedRounds = 50;
+        string html = System.IO.File.ReadAllText("test_template.html");
+
+        var renderer = new ChromePdfRenderer();
+
+        // Warm up -- exclude from timing
+        for (int i = 0; i &lt; warmupRounds; i++)
+        {
+            using var warmup = renderer.RenderHtmlAsPdf(html);
+        }
+
+        // Timed runs
+        var times = new List&lt;long&gt;();
+        var sw = new Stopwatch();
+
+        for (int i = 0; i &lt; timedRounds; i++)
+        {
+            sw.Restart();
+            using var pdf = renderer.RenderHtmlAsPdf(html);
+            sw.Stop();
+            times.Add(sw.ElapsedMilliseconds);
+        }
+
+        times.Sort();
+        Console.WriteLine($"Median: {times[timedRounds / 2]}ms");
+        Console.WriteLine($"P95:    {times[(int)(timedRounds * 0.95)]}ms");
+        Console.WriteLine($"P99:    {times[(int)(timedRounds * 0.99)]}ms");
+        Console.WriteLine($"Min:    {times[0]}ms");
+        Console.WriteLine($"Max:    {times[timedRounds - 1]}ms");
+    }
+}
+</code></pre>
+
+<p>Run the same scaffold with HiQPdf substituted in. Compare your numbers -- not numbers from this article.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Is IronPDF a drop-in replacement for HiQPdf?</h3>
+
+<p>Not a literal drop-in -- the class names and method signatures differ. However, the migration effort for most operations is low. You are replacing <code>HtmlToPdf</code> with <code>ChromePdfRenderer</code>, swapping <code>ConvertHtmlString()</code> for <code>RenderHtmlAsPdf()</code>, and changing from a <code>byte[]</code> return pattern to a <code>PdfDocument</code> object model. Most teams complete the core swap in a few hours.</p>
+
+<h3>Does IronPDF support PDF/A output?</h3>
+
+<p>Yes. This is often the feature that triggers the migration. Call <code>pdf.SaveAsPdfA("output.pdf", IronPdf.PdfAVersions.PdfA3b)</code> after rendering. Always validate the output with a tool like PAC or veraPDF to confirm conformance.</p>
+
+<h3>How does rendering fidelity compare between HiQPdf and IronPDF?</h3>
+
+<p>Both use Chromium-based rendering, so fidelity differences are likely to be subtle and template-specific rather than systematic. Test with your actual HTML templates side by side. Complex CSS and multi-page table layouts are where Chromium version differences tend to surface.</p>
+
+<h3>Can I reuse my HiQPdf license key with IronPDF?</h3>
+
+<p>No. These are separate commercial products with separate licenses. You will need an IronPDF license key. Remove your HiQPdf license key from config and secrets management after migration is complete.</p>
+
+<h3>How does IronPDF handle concurrent rendering?</h3>
+
+<p>Create a separate <code>ChromePdfRenderer</code> instance per task -- do not share across threads. For async workloads, use <code>RenderHtmlAsPdfAsync()</code> and <code>SaveAsAsync()</code>. This pattern scales well for web applications and high-volume services.</p>
+
+<h3>What .NET versions does IronPDF support?</h3>
+
+<p>.NET 6+ is recommended. Verify IronPDF's current .NET version compatibility in their documentation before starting migration. Make sure your dev environment has HiQPdf currently working so you can do side-by-side render comparison testing.</p>
+
+<h2>What Should I Do After Completing the Migration?</h2>
+
+<p>The migration itself is mechanical -- the interesting question is whether the output matches. Both HiQPdf and IronPDF use Chromium-based rendering, which means fidelity differences are likely to be subtle and template-specific rather than systematic.</p>
+
+<p>After swapping the code, render each of your HTML templates through both libraries and compare the visual output side by side. Run the benchmark scaffold on your templates and record median and P95 numbers. If PDF/A was the trigger, validate the output with PAC or veraPDF.</p>
+
+<p>Finally, remove your HiQPdf license key from config and secrets management, update your deployment docs, and monitor memory and CPU for the first production week.</p>

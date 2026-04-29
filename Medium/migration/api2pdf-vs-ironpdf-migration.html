@@ -1,0 +1,415 @@
+<h1>Migrating from Api2pdf to IronPDF: Solving Common Migration Pain Points</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Would You Migrate Away from Api2pdf?</h2>
+
+<p>This is not an API-to-API migration. It is a paradigm shift from a SaaS REST service to an in-process .NET library. Api2pdf removes the pain of hosting Chrome or wkhtmltopdf yourself, and it does that job well. But teams outgrow it for reasons that have nothing to do with the quality of the service.</p>
+
+<p><strong>Latency per render.</strong> Every PDF is an HTTP round-trip: POST HTML, wait for the render, download the file from a temporary URL. For high-volume applications, this adds 1&ndash;5 seconds per PDF that an in-process library eliminates.</p>
+
+<p><strong>Temporary file URLs.</strong> Api2pdf returns a URL to the generated file, not the file itself. Your application must download the PDF before the 24-hour expiry. This introduces a race condition and a failure mode that does not exist with in-process generation.</p>
+
+<p><strong>External dependency for a core function.</strong> If Api2pdf's service goes down, your PDF generation stops. If your internet connection degrades, your PDF generation slows. For applications where PDFs are on the critical path &mdash; invoices, contracts, compliance docs &mdash; this is a risk.</p>
+
+<p><strong>Data leaves your network.</strong> Your HTML, which may contain customer names, addresses, and financial data, is sent to Api2pdf's servers for rendering. For regulated industries like healthcare, finance, and legal, this data transit may require additional compliance review.</p>
+
+<p><strong>Per-call cost at scale.</strong> Api2pdf's usage-based pricing is economical for low volume. At hundreds of thousands of calls per month, a one-time library license may be cheaper.</p>
+
+<p><strong>No offline capability.</strong> If your application needs to generate PDFs in disconnected environments &mdash; on-premise deployments, air-gapped networks &mdash; a REST API is not an option.</p>
+
+<p><strong>Limited post-processing.</strong> Api2pdf handles generation and merge well, but more advanced manipulation like watermarking, page-level security settings, and form filling requires additional API calls or is not supported.</p>
+
+<p><strong>wkhtmltopdf deprecation risk.</strong> Api2pdf offers wkhtmltopdf as a rendering option. wkhtmltopdf is based on a deprecated version of WebKit and has not received updates.</p>
+
+<p><strong>File size and timeout limits.</strong> Cloud APIs have practical limits on request payload size and processing time. Very large or complex HTML documents may timeout.</p>
+
+<p><strong>Debugging opacity.</strong> When a render fails or produces unexpected output, you cannot inspect the rendering engine's state. With an in-process library, you can step through with a debugger.</p>
+
+<h2>What Does the SaaS-to-Library Paradigm Shift Actually Mean?</h2>
+
+<p>You are changing the execution model entirely. With Api2pdf, rendering happens on their AWS/GCP servers. Your HTML travels over the internet, the PDF sits on a temporary URL for 24 hours, and your availability depends on their uptime.</p>
+
+<p>With <a href="https://ironpdf.com">IronPDF</a>, rendering happens in your own process. HTML stays in memory. Files live on your filesystem. Availability depends on your uptime, not someone else's.</p>
+
+<table>
+<thead>
+<tr><th>Concern</th><th>Api2pdf (SaaS)</th><th>IronPDF (Library)</th></tr>
+</thead>
+<tbody>
+<tr><td>Where rendering happens</td><td>Api2pdf's AWS/GCP servers</td><td>Your server / container</td></tr>
+<tr><td>Data transit</td><td>HTML sent over internet</td><td>HTML stays in-process</td></tr>
+<tr><td>Availability</td><td>Depends on Api2pdf uptime</td><td>Depends on your uptime</td></tr>
+<tr><td>Latency</td><td>Network round-trip + render time</td><td>Render time only</td></tr>
+<tr><td>File lifecycle</td><td>24-hour temp URL</td><td>Your filesystem / memory</td></tr>
+</tbody>
+</table>
+
+<p>The most significant performance gain is eliminating the network round-trip. Rough illustrative ranges: Api2pdf runs approximately 1,500&ndash;4,000ms per render (network + remote render + download), while IronPDF in-process runs approximately 200&ndash;1,000ms per render (render only, depends on HTML complexity). Your actual numbers will depend on network conditions, HTML complexity, and server resources.</p>
+
+<h2>How Do I Replace Html-to-PDF Generation?</h2>
+
+<p>This is the most common Api2pdf call, and it maps directly. The key difference: Api2pdf returns a URL you must download before it expires. IronPDF returns a <code>PdfDocument</code> object in memory.</p>
+
+<h3>Api2pdf HTML-to-PDF (before)</h3>
+
+<pre><code>using Api2Pdf;
+using System;
+using System.IO;
+using System.Net.Http;
+
+class HtmlToPdfApi2pdf
+{
+    static void Main()
+    {
+        var a2p = new Api2Pdf.Api2Pdf("your-api-key");
+
+        var request = new ChromeHtmlToPdfRequest
+        {
+            Html = @"&lt;html&gt;&lt;head&gt;&lt;style&gt;
+                body { font-family: Arial; }
+                .header { background: #0d47a1; color: white; padding: 20px; }
+                table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                td, th { padding: 8px; border: 1px solid #ddd; }
+            &lt;/style&gt;&lt;/head&gt;&lt;body&gt;
+                &lt;div class='header'&gt;&lt;h1&gt;Statement&lt;/h1&gt;&lt;/div&gt;
+                &lt;table&gt;
+                    &lt;tr&gt;&lt;th&gt;Date&lt;/th&gt;&lt;th&gt;Description&lt;/th&gt;&lt;th&gt;Amount&lt;/th&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;2025-01-15&lt;/td&gt;&lt;td&gt;Service fee&lt;/td&gt;&lt;td&gt;$250.00&lt;/td&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;2025-01-20&lt;/td&gt;&lt;td&gt;Subscription&lt;/td&gt;&lt;td&gt;$99.00&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;
+            &lt;/body&gt;&lt;/html&gt;"
+        };
+
+        var result = a2p.Chrome.HtmlToPdf(request);
+
+        if (!result.Success)
+        {
+            Console.WriteLine("API error: " + result.Error);
+            return;
+        }
+
+        // Must download from temporary URL
+        using var http = new HttpClient();
+        var bytes = http.GetByteArrayAsync(result.FileUrl).Result;
+        File.WriteAllBytes("statement.pdf", bytes);
+        Console.WriteLine("Downloaded statement.pdf");
+    }
+}
+</code></pre>
+
+<h3>IronPDF HTML-to-PDF (after)</h3>
+
+<pre><code>using IronPdf;
+
+class HtmlToPdfIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PrintHtmlBackgrounds = true;
+
+        var pdf = renderer.RenderHtmlAsPdf(@"&lt;html&gt;&lt;head&gt;&lt;style&gt;
+                body { font-family: Arial; }
+                .header { background: #0d47a1; color: white; padding: 20px; }
+                table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                td, th { padding: 8px; border: 1px solid #ddd; }
+            &lt;/style&gt;&lt;/head&gt;&lt;body&gt;
+                &lt;div class='header'&gt;&lt;h1&gt;Statement&lt;/h1&gt;&lt;/div&gt;
+                &lt;table&gt;
+                    &lt;tr&gt;&lt;th&gt;Date&lt;/th&gt;&lt;th&gt;Description&lt;/th&gt;&lt;th&gt;Amount&lt;/th&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;2025-01-15&lt;/td&gt;&lt;td&gt;Service fee&lt;/td&gt;&lt;td&gt;$250.00&lt;/td&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;2025-01-20&lt;/td&gt;&lt;td&gt;Subscription&lt;/td&gt;&lt;td&gt;$99.00&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;
+            &lt;/body&gt;&lt;/html&gt;");
+
+        pdf.SaveAs("statement.pdf");
+        Console.WriteLine("Saved locally — no download step.");
+    }
+}
+</code></pre>
+
+<p>No HTTP client. No temporary URL. No download race condition. See the <a href="https://ironpdf.com/tutorials/html-to-pdf/">IronPDF HTML-to-PDF tutorial</a> for more rendering options.</p>
+
+<h2>How Do I Replace PDF Merging?</h2>
+
+<p>Api2pdf's merge endpoint requires URLs to existing PDFs hosted somewhere accessible. Your PDFs must be publicly reachable, and the merged result comes back as yet another temporary URL you must download. IronPDF merges local files, byte arrays, or in-memory <code>PdfDocument</code> objects directly.</p>
+
+<h3>Api2pdf merge (before)</h3>
+
+<pre><code>using Api2Pdf;
+using System;
+using System.IO;
+using System.Net.Http;
+using System.Collections.Generic;
+
+class MergeApi2pdf
+{
+    static void Main()
+    {
+        var a2p = new Api2Pdf.Api2Pdf("your-api-key");
+
+        // Api2pdf merge requires URLs to existing PDFs
+        var pdfUrls = new List&lt;string&gt;
+        {
+            "https://your-server.com/files/part1.pdf",
+            "https://your-server.com/files/part2.pdf"
+        };
+
+        var result = a2p.PdfSharp.Merge(pdfUrls);
+
+        if (!result.Success)
+        {
+            Console.WriteLine("Merge error: " + result.Error);
+            return;
+        }
+
+        // Download the merged result
+        using var http = new HttpClient();
+        var bytes = http.GetByteArrayAsync(result.FileUrl).Result;
+        File.WriteAllBytes("merged.pdf", bytes);
+        Console.WriteLine("Merged and downloaded.");
+    }
+}
+</code></pre>
+
+<h3>IronPDF merge (after)</h3>
+
+<pre><code>using IronPdf;
+
+class MergeIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf1 = PdfDocument.FromFile("part1.pdf");
+        var pdf2 = PdfDocument.FromFile("part2.pdf");
+
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged.pdf");
+        Console.WriteLine("Merged locally.");
+    }
+}
+</code></pre>
+
+<p>No need to host PDFs at public URLs. No download step after the merge. No 24-hour expiry on the merged result. See the <a href="https://ironpdf.com/examples/merge-pdfs/">IronPDF merge documentation</a> for additional options.</p>
+
+<h2>How Do I Add Watermarks and Password Protection?</h2>
+
+<p>These are two areas where the migration actually gives you capabilities you did not have before. Api2pdf does not have a native watermark endpoint. Password protection requires a separate API call to a URL-based endpoint. IronPDF handles both in-process with granular control.</p>
+
+<h3>Watermarking with IronPDF</h3>
+
+<pre><code>using IronPdf;
+
+class WatermarkIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.ApplyWatermark(
+            "&lt;h1 style='color:rgba(0,0,0,0.15);font-size:60px;'&gt;DRAFT&lt;/h1&gt;",
+            rotation: 45
+        );
+
+        pdf.SaveAs("watermarked.pdf");
+        Console.WriteLine("Watermarked locally.");
+    }
+}
+</code></pre>
+
+<h3>Password protection with Api2pdf (before)</h3>
+
+<pre><code>using Api2Pdf;
+using System;
+using System.IO;
+using System.Net.Http;
+
+class PasswordApi2pdf
+{
+    static void Main()
+    {
+        var a2p = new Api2Pdf.Api2Pdf("your-api-key");
+
+        // Api2pdf password endpoint requires a URL to an existing PDF
+        var result = a2p.PdfSharp.AddPassword(
+            "https://your-server.com/files/input.pdf",
+            "user456"
+        );
+
+        if (!result.Success)
+        {
+            Console.WriteLine("Password error: " + result.Error);
+            return;
+        }
+
+        using var http = new HttpClient();
+        var bytes = http.GetByteArrayAsync(result.FileUrl).Result;
+        File.WriteAllBytes("protected.pdf", bytes);
+        Console.WriteLine("Password-protected and downloaded.");
+    }
+}
+</code></pre>
+
+<h3>Password protection with IronPDF (after)</h3>
+
+<pre><code>using IronPdf;
+
+class PasswordIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.SecuritySettings.OwnerPassword = "owner123";
+        pdf.SecuritySettings.UserPassword = "user456";
+        pdf.SecuritySettings.AllowUserPrinting = IronPdf.Security.PdfPrintSecurity.NoPrint;
+        pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+
+        pdf.SaveAs("protected.pdf");
+        Console.WriteLine("Protected locally.");
+    }
+}
+</code></pre>
+
+<p>IronPDF gives you granular permission control &mdash; not just a single password. Your PDF file never leaves your server. See the <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">IronPDF security documentation</a> for the full list of permission settings.</p>
+
+<h2>How Do the Two Libraries Compare Feature by Feature?</h2>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>Api2pdf (REST API)</th><th>IronPDF (.NET library)</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>Cloud PDF generation via REST</td><td>In-process PDF generation + manipulation</td></tr>
+<tr><td>Pricing</td><td>Usage-based per API call</td><td>Per-developer, perpetual license</td></tr>
+<tr><td>API Style</td><td>HTTP REST + client SDK</td><td>Native .NET API, no network calls</td></tr>
+<tr><td>Learning Curve</td><td>Low &mdash; simple HTTP calls</td><td>Low &mdash; simple .NET API calls</td></tr>
+<tr><td>HTML Rendering</td><td>Headless Chrome or wkhtmltopdf (remote)</td><td>Chrome engine (in-process)</td></tr>
+<tr><td>Page Indexing</td><td>N/A (service handles internally)</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>N/A (stateless API)</td><td><code>ChromePdfRenderer</code> stateless, safe to share</td></tr>
+<tr><td>Namespace</td><td><code>Api2Pdf</code></td><td><code>IronPdf</code></td></tr>
+</tbody>
+</table>
+
+<h3>Migration Effort by Feature</h3>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>Complexity</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML &rarr; PDF (Chrome)</td><td>Low</td><td>Direct replacement; IronPDF runs Chrome in-process</td></tr>
+<tr><td>URL &rarr; PDF</td><td>Low</td><td><code>RenderUrlAsPdf</code> replaces the Chrome URL endpoint</td></tr>
+<tr><td>HTML &rarr; PDF (wkhtmltopdf)</td><td>Low</td><td>Replace with IronPDF Chrome renderer &mdash; better output quality</td></tr>
+<tr><td>Merge</td><td>Low</td><td><code>PdfDocument.Merge()</code> replaces the PdfSharp merge endpoint</td></tr>
+<tr><td>Office &rarr; PDF (LibreOffice)</td><td>High / N/A</td><td>No direct IronPDF equivalent. Use LibreOffice headless locally or a separate service</td></tr>
+<tr><td>Password protection</td><td>Low</td><td>IronPDF <code>SecuritySettings</code> replaces the password endpoint</td></tr>
+<tr><td>Bookmarks</td><td>Medium</td><td>IronPDF supports bookmarks &mdash; verify API for your needs</td></tr>
+<tr><td>Barcode generation</td><td>N/A</td><td>Not a PDF feature &mdash; use a dedicated barcode library (e.g., IronBarcode, ZXing.NET)</td></tr>
+<tr><td>File deletion (security)</td><td>N/A</td><td>Not needed &mdash; files never leave your server</td></tr>
+<tr><td>Thumbnail generation</td><td>Medium</td><td>IronPDF can rasterize pages &mdash; verify method in docs</td></tr>
+<tr><td>HTML &rarr; DOCX/XLSX</td><td>N/A</td><td>Not an IronPDF feature &mdash; use a dedicated library</td></tr>
+</tbody>
+</table>
+
+<h3>Core API Mapping</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>Api2pdf</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML &rarr; PDF</td><td><code>a2pClient.Chrome.HtmlToPdf(request)</code> &rarr; URL</td><td><code>renderer.RenderHtmlAsPdf(html)</code> &rarr; <code>PdfDocument</code></td></tr>
+<tr><td>URL &rarr; PDF</td><td><code>a2pClient.Chrome.UrlToPdf(request)</code> &rarr; URL</td><td><code>renderer.RenderUrlAsPdf(url)</code> &rarr; <code>PdfDocument</code></td></tr>
+<tr><td>Save to file</td><td><code>result.SaveFile("path")</code></td><td><code>pdf.SaveAs("path")</code></td></tr>
+<tr><td>Merge</td><td><code>a2pClient.PdfSharp.Merge(urls)</code> &rarr; URL</td><td><code>PdfDocument.Merge(pdf1, pdf2)</code> &rarr; <code>PdfDocument</code></td></tr>
+<tr><td>Get page count</td><td>N/A (not exposed via API)</td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Access specific page</td><td>N/A</td><td><code>pdf.Pages[index]</code> (0-based)</td></tr>
+<tr><td>Add watermark</td><td>Not directly supported</td><td><code>pdf.ApplyWatermark(html)</code></td></tr>
+<tr><td>Set password</td><td><code>a2pClient.PdfSharp.AddPassword(url, password)</code></td><td><code>pdf.SecuritySettings.UserPassword = "..."</code></td></tr>
+<tr><td>Split / extract</td><td>Not directly supported</td><td><code>pdf.CopyPages(start, end)</code></td></tr>
+</tbody>
+</table>
+
+<h2>What Are the Most Common Questions About This Migration?</h2>
+
+<p><strong>How do I handle async rendering after migrating?</strong></p>
+
+<p><strong>Answer:</strong></p>
+
+<p>Api2pdf calls are inherently async because they are HTTP requests. IronPDF rendering is synchronous by default but offers async variants. Replace your awaited HTTP calls with:</p>
+
+<pre><code>var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+</code></pre>
+
+<p>Your existing async/await patterns carry over cleanly. The difference is that the async operation is now local CPU-bound work, not a network call.</p>
+
+<p><strong>How does error handling change?</strong></p>
+
+<p><strong>Answer:</strong></p>
+
+<p>Api2pdf returns <code>result.Success</code> and <code>result.Error</code> on every call. IronPDF throws exceptions. You need to replace your conditional checks with try/catch blocks:</p>
+
+<pre><code>// Api2pdf pattern
+if (!result.Success) { log(result.Error); return; }
+
+// IronPDF pattern
+try { var pdf = renderer.RenderHtmlAsPdf(html); }
+catch (Exception ex) { log(ex.Message); return; }
+</code></pre>
+
+<p>This is a structural change that affects every call site. Plan for it during your migration pass.</p>
+
+<p><strong>What about LibreOffice Office-to-PDF conversion?</strong></p>
+
+<p><strong>Answer:</strong></p>
+
+<p>If you use Api2pdf's LibreOffice endpoint for Office-to-PDF conversion, IronPDF does not replace this. Run LibreOffice headless locally (<code>libreoffice --headless --convert-to pdf input.docx</code>) or use a dedicated service. Alternatively, the <a href="https://ironsoftware.com">IronWord library from Iron Software</a> handles DOCX-to-PDF within .NET.</p>
+
+<p><strong>Will my wkhtmltopdf HTML render the same in IronPDF's Chrome engine?</strong></p>
+
+<p><strong>Answer:</strong></p>
+
+<p>If your existing Api2pdf integration uses wkhtmltopdf (not Chrome), switching to IronPDF's Chrome engine may produce different output for the same HTML. Chrome's rendering is more modern and accurate, but you should test your templates and adjust CSS if needed. This is a rendering engine change, not just an API change.</p>
+
+<p><strong>How do I reuse the renderer for performance?</strong></p>
+
+<p><strong>Answer:</strong></p>
+
+<p>Create a single <code>ChromePdfRenderer</code> instance and reuse it. The renderer is stateless and safe to share. Dispose of individual <code>PdfDocument</code> objects when you are done with them:</p>
+
+<pre><code>private static readonly ChromePdfRenderer _renderer = new ChromePdfRenderer();
+
+// In your method:
+using var pdf = _renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+</code></pre>
+
+<p>This avoids the overhead of spinning up a new Chrome process for each render.</p>
+
+<h2>When Should You Actually Migrate?</h2>
+
+<table>
+<thead>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>High-volume HTML-to-PDF with latency concerns</td><td>Migrate &mdash; in-process rendering eliminates network overhead</td></tr>
+<tr><td>Regulated industry with data residency requirements</td><td>Migrate &mdash; HTML never leaves your infrastructure</td></tr>
+<tr><td>Low-volume, diverse format conversion (Office, email, images)</td><td>Stay or partial migrate &mdash; keep Api2pdf for Office conversion, use IronPDF for HTML-to-PDF</td></tr>
+<tr><td>Air-gapped or on-premise deployment</td><td>Migrate &mdash; Api2pdf requires internet</td></tr>
+</tbody>
+</table>
+
+<p>The core win in this migration is architectural: your PDF pipeline moves from a remote service dependency to an in-process operation. Your HTML never leaves your server, your files never sit on a temporary URL with a 24-hour countdown, and your rendering is not gated by network latency or third-party availability.</p>
+
+<p>Start with the dependency swap, replace your highest-volume call site first, and verify the output matches. The rest of the migration follows the same pattern. Get a trial key from <a href="https://ironpdf.com/get-started/license-keys/">IronPDF's license page</a> to test with your own templates before committing.</p>

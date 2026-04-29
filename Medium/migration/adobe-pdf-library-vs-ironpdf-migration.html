@@ -1,0 +1,658 @@
+<h1>Migrating from Adobe PDF Library to IronPDF: A Working Migration in an Afternoon</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>We were four months into a compliance overhaul when the invoice came. Not the Datalogics renewal itself — we expected that — but the line item for the Forms Extension add-on that nobody remembered purchasing, attached to a server that had been decommissioned in Q2. The Adobe PDF Library SDK had been part of our stack for six years, and somewhere in those six years, the gap between what we needed (turn HTML into PDFs, stamp them, encrypt them, ship them) and what we were paying for (a low-level PDF construction toolkit built on Acrobat source code) had become a canyon.</p>
+
+<p>This is not a story about the Adobe PDF Library being bad software. It is, by any measure, the most comprehensive low-level PDF SDK on the market — it literally shares source code with Acrobat. This is a story about what happens when a team that writes HTML all day is forced to think in PDF content streams, page description operators, and coordinate geometry just to generate a report.</p>
+
+<p>This guide walks through the migration to <a href="https://ironpdf.com/">IronPDF</a>. Eighty percent of the content is transferable: dependency auditing, API surface mapping, testing strategies. The remaining twenty percent is IronPDF-specific. Whether you end up using IronPDF, Puppeteer Sharp, or something else entirely, the framework applies.</p>
+
+<h2>Why Migrate from Adobe PDF Library to IronPDF?</h2>
+
+<p>The Adobe PDF Library is the nuclear reactor of PDF SDKs. It will do anything. The question is whether you need fission when all you want is a light bulb. Here are the triggers that push teams to evaluate.</p>
+
+<p><strong>Paradigm mismatch.</strong> Your team writes HTML and CSS. APDFL thinks in content streams, coordinate pairs, and font resource dictionaries. Every "simple" task requires understanding PDF internals.</p>
+
+<p><strong>Licensing complexity.</strong> APDFL is licensed through Adobe via Datalogics on a per-deployment, OEM, or ISV basis. The process involves sales conversations, not a "buy now" button. For smaller teams or startups, the procurement overhead is a real cost.</p>
+
+<p><strong>No native HTML-to-PDF.</strong> APDFL is not an HTML renderer. If you need HTML-to-PDF, you either pair it with another tool (headless Chrome, wkhtmltopdf) or use an APDFL add-on — adding another dependency and another license.</p>
+
+<p><strong>NuGet package sprawl.</strong> A working APDFL installation requires the core SDK, ICU data, platform runtime packages, and optionally the Forms Extension. Getting the right combination of packages for your target platform takes trial and error.</p>
+
+<p><strong>Learning curve.</strong> APDFL's API mirrors the PDF specification. That is an advantage for PDF specialists and a barrier for everyone else. The difference between a <code>PDEElement</code>, a <code>PDEContainer</code>, and a <code>PDEContent</code> is not obvious to a C# developer who just wants to add a watermark.</p>
+
+<p><strong>Native dependency management.</strong> APDFL includes significant native C++ code. Platform-specific binaries must be present at runtime. Docker builds need the right base image and runtime packages.</p>
+
+<p><strong>Forms Extension is a separate purchase.</strong> If you work with PDF forms — especially XFA forms — the Forms Extension is an add-on with its own license and NuGet package.</p>
+
+<p><strong>COS-level debugging.</strong> When something goes wrong with APDFL, the error messages reference COS objects and PDF internal structures. Debugging requires a PDF specification alongside your C# debugger.</p>
+
+<p><strong>.NET version support cadence.</strong> Datalogics dropped .NET 6 support in early 2025, moving to .NET 8 as the minimum. Teams on .NET 6 LTS face forced upgrades.</p>
+
+<p><strong>Overkill for generation workflows.</strong> If 90% of your PDF work is "take this HTML, produce a PDF, stamp it, encrypt it, email it," you are paying for — and maintaining dependencies on — a full PDF manipulation SDK when a focused HTML-to-PDF library would do.</p>
+
+<table>
+<tr><th>Aspect</th><th>Adobe PDF Library SDK (Datalogics)</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>Full PDF specification manipulation, rendering, compliance</td><td>HTML-first PDF generation + manipulation</td></tr>
+<tr><td>Pricing</td><td>Enterprise license via Adobe/Datalogics, per-deployment</td><td>Per-developer, perpetual licenses available</td></tr>
+<tr><td>API Style</td><td>Low-level: COS objects, PDE elements, content streams</td><td>High-level: HTML to PDF, property-based manipulation</td></tr>
+<tr><td>Learning Curve</td><td>High — requires PDF specification knowledge</td><td>Low — HTML/CSS developers productive quickly</td></tr>
+<tr><td>HTML Rendering</td><td>Not native; requires external tool or add-on</td><td>Built-in Chrome rendering engine</td></tr>
+<tr><td>Page Indexing</td><td>0-based</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Library-level initialization required</td><td><code>ChromePdfRenderer</code> stateless, safe to share</td></tr>
+<tr><td>Namespace</td><td><code>Datalogics.APDFL</code></td><td><code>IronPdf</code></td></tr>
+</table>
+
+<h2>How Much Effort Does Each Feature Require to Migrate?</h2>
+
+<p>Not every feature migrates at the same difficulty. I have mapped out the effort by feature so you can plan your sprint accordingly.</p>
+
+<table>
+<tr><th>Feature</th><th>Complexity</th><th>Notes</th></tr>
+<tr><td>HTML to PDF</td><td>Low</td><td>APDFL doesn't do this natively; IronPDF is purpose-built for it</td></tr>
+<tr><td>Programmatic PDF construction</td><td>High</td><td>APDFL's PDE-level construction has no direct IronPDF equivalent; rethink as HTML templates</td></tr>
+<tr><td>Merge</td><td>Low</td><td>Both offer merge; API shape differs significantly</td></tr>
+<tr><td>Split / extract pages</td><td>Low</td><td>Different API, same concept</td></tr>
+<tr><td>Watermark</td><td>Medium</td><td>APDFL uses PDE layer drawing; IronPDF uses HTML overlay</td></tr>
+<tr><td>Password / encryption</td><td>Medium</td><td>APDFL uses <code>PDDocSetPermissions</code>; IronPDF uses <code>SecuritySettings</code></td></tr>
+<tr><td>Form filling (AcroForms)</td><td>Medium</td><td>Both support AcroForms; IronPDF uses <code>FormField</code> collection</td></tr>
+<tr><td>XFA forms</td><td>High / N/A</td><td>APDFL + Forms Extension supports dynamic XFA; IronPDF does not handle XFA — verify in docs</td></tr>
+<tr><td>PDF/A compliance</td><td>Medium-High</td><td>APDFL has deep PDF/A support; IronPDF supports PDF/A export — verify version coverage</td></tr>
+<tr><td>PDF/X, PDF/UA</td><td>High</td><td>APDFL's strength; IronPDF support varies — verify in docs</td></tr>
+<tr><td>Text extraction</td><td>Low</td><td>Both offer text extraction with different APIs</td></tr>
+<tr><td>Image extraction / rendering</td><td>Medium</td><td>APDFL renders pages to images natively; verify IronPDF rasterization support</td></tr>
+</table>
+
+<h3>Decision Matrix</h3>
+
+<table>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+<tr><td>Primarily HTML-to-PDF generation with basic manipulation</td><td>Migrate — IronPDF eliminates the paradigm mismatch</td></tr>
+<tr><td>Deep PDF/A, PDF/X, or PDF/UA compliance workflows</td><td>Evaluate carefully — APDFL's compliance coverage is the industry standard</td></tr>
+<tr><td>XFA forms processing</td><td>Stay or find a dedicated XFA tool — IronPDF does not handle XFA</td></tr>
+<tr><td>Programmatic PDF construction (drawing, coordinate layout)</td><td>Rethink as HTML templates in IronPDF, or keep APDFL for those specific workflows</td></tr>
+</table>
+
+<h2>How Do I Find and Replace APDFL References in My Codebase?</h2>
+
+<p>Before writing any new code, you need an inventory. Here is how I find every touchpoint.</p>
+
+<h3>Finding APDFL References</h3>
+
+<pre><code># Find all APDFL using statements
+rg -l "Datalogics\.APDFL|using Datalogics" --glob "*.cs"
+
+# Find PDE/COS API usage (indicates deep PDF manipulation)
+rg -c "PDEElement|PDEContent|PDEText|CosObj|CosDict" --glob "*.cs"
+
+# Find project references
+rg -l "Datalogics" --glob "*.csproj"</code></pre>
+
+<p>If you don't have <code>rg</code>:</p>
+
+<pre><code>grep -rl "Datalogics\|APDFL\|PDEElement" --include="*.cs" .</code></pre>
+
+<p><strong>Key insight:</strong> If the <code>rg -c "PDEElement|CosObj"</code> count is high, you have significant low-level PDF construction code. This code cannot be mechanically translated — it needs to be rethought as HTML templates. If the count is low or zero, your codebase is mostly using APDFL for tasks that IronPDF handles directly, and migration will be straightforward.</p>
+
+<h3>Swapping NuGet Packages</h3>
+
+<pre><code># Remove APDFL packages
+dotnet remove package Datalogics.APDFL
+dotnet remove package Datalogics.APDFL.ICU.Data
+dotnet remove package Datalogics.APDFL.Runtime.Windows  # verify package name
+# Remove any other Datalogics.* packages
+
+# Install IronPDF
+dotnet add package IronPdf</code></pre>
+
+<h2>How Do I Migrate License Configuration and Namespaces?</h2>
+
+<p>The very first thing that changes is how you initialize the library. APDFL requires a <code>Library</code> object to be alive for the duration of all PDF operations. IronPDF has no such requirement.</p>
+
+<h3>Before: APDFL License and Initialization</h3>
+
+<pre><code>using Datalogics.APDFL.Document; // verify namespace
+using Datalogics.APDFL.Library;  // verify namespace
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // APDFL requires library initialization before any operations
+        // The library object manages the lifecycle
+        using var lib = new Library(); // verify — initializes APDFL runtime
+
+        // License is typically configured via license file or
+        // environment settings during Library initialization
+        // Exact mechanism varies — verify in Datalogics documentation
+
+        Console.WriteLine("APDFL Library initialized.");
+
+        // All APDFL operations must happen within the Library scope
+        // ...
+    }
+}</code></pre>
+
+<h3>After: IronPDF License Configuration</h3>
+
+<pre><code>using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        // No library initialization ceremony
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        Console.WriteLine($"IronPDF licensed: {License.IsLicensed}");
+        // Start using IronPDF immediately — no scope restrictions
+    }
+}</code></pre>
+
+<p>The <code>Library</code> initialization object and its lifecycle scope go away entirely.</p>
+
+<h3>Namespace Mapping</h3>
+
+<p>Here is the before and after for your <code>using</code> statements.</p>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>using Datalogics.APDFL.Library;       // verify — core library init
+using Datalogics.APDFL.Document;      // verify — Document class
+using Datalogics.APDFL.Document.Page; // verify — Page operations
+using Datalogics.APDFL.EditModel;     // verify — PDE layer
+using Datalogics.APDFL.Rendering;     // verify — rendering</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;    // watermarks, headers, footers
+using IronPdf.Rendering;  // render options</code></pre>
+
+<table>
+<tr><th>APDFL Namespace</th><th>IronPDF Namespace</th><th>Purpose</th></tr>
+<tr><td><code>Datalogics.APDFL.Library</code></td><td>N/A (no init needed)</td><td>Library lifecycle management</td></tr>
+<tr><td><code>Datalogics.APDFL.Document</code></td><td><code>IronPdf</code></td><td>Document creation and manipulation</td></tr>
+<tr><td><code>Datalogics.APDFL.EditModel</code></td><td><code>IronPdf.Editing</code></td><td>Content modification</td></tr>
+</table>
+
+<h2>How Do I Convert Basic PDF Creation from APDFL to IronPDF?</h2>
+
+<p>This is where the paradigm shift hits hardest. APDFL constructs PDFs from the inside out — fonts, text runs, content streams, page objects. IronPDF starts from the outside — HTML that your team already writes — and converts it to PDF.</p>
+
+<h3>Before: APDFL Programmatic Construction (~25 Lines)</h3>
+
+<pre><code>using Datalogics.APDFL.Library;   // verify
+using Datalogics.APDFL.Document;  // verify
+using Datalogics.APDFL.EditModel; // verify
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        using var lib = new Library(); // verify — required initialization
+
+        // Create a new document
+        using var doc = new Document(); // verify class name
+
+        // Add a page with specific dimensions (points: 612x792 = Letter)
+        var pageRect = new Rect(0, 0, 612, 792); // verify Rect class
+        using var page = doc.CreatePage(
+            Document.BeforeFirstPage, // verify constant
+            pageRect
+        );
+
+        // To add text, you work with PDE elements
+        // This is the PDF specification way of doing things:
+        // 1. Get or create a font
+        // 2. Create a text element
+        // 3. Set the text run
+        // 4. Add to page content
+        var font = new Font("Helvetica"); // verify constructor
+        var textElement = new TextRun("Monthly Report", font, 24); // verify — approximate API
+        // ... position with matrix transforms, add to page content ...
+        // The actual APDFL API is more verbose — verify in docs
+
+        doc.Save(SaveFlags.Full, "report_apdfl.pdf"); // verify save flags
+        Console.WriteLine("Saved with APDFL.");
+    }
+}</code></pre>
+
+<h3>After: IronPDF HTML-First Approach (12 Lines)</h3>
+
+<pre><code>using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.Letter;
+
+        // Your "PDF construction" is now HTML
+        var pdf = renderer.RenderHtmlAsPdf(@"
+            &lt;h1 style='font-family:Helvetica;font-size:24pt;'&gt;Monthly Report&lt;/h1&gt;
+            &lt;p&gt;Generated on " + DateTime.Now.ToString("yyyy-MM-dd") + @"&lt;/p&gt;");
+
+        pdf.SaveAs("report_ironpdf.pdf");
+        Console.WriteLine("Saved with IronPDF.");
+    }
+}</code></pre>
+
+<p>The <a href="https://ironpdf.com/tutorials/html-to-pdf/">IronPDF HTML-to-PDF tutorial</a> covers rendering options in depth.</p>
+
+<h2>How Do I Migrate HTML-to-PDF Generation?</h2>
+
+<p>APDFL does not natively convert HTML to PDF. The common pattern is shelling out to <code>wkhtmltopdf</code> or headless Chrome as an external process, then optionally post-processing with APDFL. IronPDF eliminates that entire pipeline.</p>
+
+<h3>Before: APDFL with External wkhtmltopdf Process</h3>
+
+<pre><code>// APDFL does not natively convert HTML to PDF.
+// Common pattern: use a headless browser to generate HTML to PDF,
+// then optionally post-process with APDFL.
+
+// Option A: wkhtmltopdf (external process)
+using System;
+using System.Diagnostics;
+
+class HtmlToPdfApdfl
+{
+    static void Main()
+    {
+        // Step 1: Convert HTML using external tool
+        var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = "wkhtmltopdf",  // must be installed on server
+                Arguments = "--page-size Letter " +
+                            "--margin-top 20 --margin-bottom 20 " +
+                            "input.html report_apdfl.pdf",
+                RedirectStandardOutput = true,
+                UseShellExecute = false
+            }
+        };
+        process.Start();
+        process.WaitForExit();
+
+        if (process.ExitCode != 0)
+        {
+            Console.WriteLine("wkhtmltopdf failed: " + process.ExitCode);
+            return;
+        }
+
+        // Step 2 (optional): Post-process with APDFL for compliance, etc.
+        // using var lib = new Library();
+        // using var doc = new Document("report_apdfl.pdf");
+        // ... add metadata, encrypt, etc. ...
+
+        Console.WriteLine("Generated with wkhtmltopdf + (optional) APDFL post-processing.");
+    }
+}</code></pre>
+
+<h3>After: IronPDF Built-In HTML Rendering</h3>
+
+<pre><code>using IronPdf;
+
+class HtmlToPdfIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.Letter;
+        renderer.RenderingOptions.MarginTop = 20;
+        renderer.RenderingOptions.MarginBottom = 20;
+        renderer.RenderingOptions.PrintHtmlBackgrounds = true;
+        renderer.RenderingOptions.CssMediaType = IronPdf.Rendering.PdfCssMediaType.Screen;
+
+        string html = @"
+            &lt;html&gt;
+            &lt;head&gt;&lt;style&gt;
+                body { font-family: 'Segoe UI', sans-serif; margin: 0; }
+                .header { background: linear-gradient(135deg, #667eea, #764ba2);
+                           color: white; padding: 40px; }
+                .content { padding: 30px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                th { background: #f8f9fa; text-align: left; }
+                td, th { padding: 12px; border-bottom: 1px solid #e9ecef; }
+            &lt;/style&gt;&lt;/head&gt;
+            &lt;body&gt;
+                &lt;div class='header'&gt;
+                    &lt;h1&gt;Quarterly Compliance Report&lt;/h1&gt;
+                    &lt;p&gt;Generated: " + DateTime.Now.ToString("MMMM dd, yyyy") + @"&lt;/p&gt;
+                &lt;/div&gt;
+                &lt;div class='content'&gt;
+                    &lt;table&gt;
+                        &lt;tr&gt;&lt;th&gt;Control&lt;/th&gt;&lt;th&gt;Status&lt;/th&gt;&lt;th&gt;Last Audit&lt;/th&gt;&lt;/tr&gt;
+                        &lt;tr&gt;&lt;td&gt;SOC 2 Type II&lt;/td&gt;&lt;td&gt;Compliant&lt;/td&gt;&lt;td&gt;2025-12-15&lt;/td&gt;&lt;/tr&gt;
+                        &lt;tr&gt;&lt;td&gt;PCI DSS&lt;/td&gt;&lt;td&gt;Compliant&lt;/td&gt;&lt;td&gt;2025-11-20&lt;/td&gt;&lt;/tr&gt;
+                        &lt;tr&gt;&lt;td&gt;HIPAA&lt;/td&gt;&lt;td&gt;Review Needed&lt;/td&gt;&lt;td&gt;2025-10-01&lt;/td&gt;&lt;/tr&gt;
+                    &lt;/table&gt;
+                &lt;/div&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("compliance_report.pdf");
+        Console.WriteLine("Saved with IronPDF.");
+    }
+}</code></pre>
+
+<p>The external process dependency disappears. No <code>wkhtmltopdf</code> installation, no <code>Process.Start</code>, no exit-code checking. CSS gradients, web fonts, and modern layouts render natively.</p>
+
+<h2>How Do I Migrate PDF Merging?</h2>
+
+<p>Merge is one of the simplest operations to port. APDFL uses <code>InsertPages</code> with index arithmetic and flags. IronPDF provides a static <code>Merge</code> method.</p>
+
+<h3>Before: APDFL InsertPages Merge</h3>
+
+<pre><code>using Datalogics.APDFL.Library;  // verify
+using Datalogics.APDFL.Document; // verify
+using System;
+
+class MergeApdfl
+{
+    static void Main()
+    {
+        using var lib = new Library(); // verify — required
+
+        using var doc1 = new Document("part1.pdf"); // verify
+        using var doc2 = new Document("part2.pdf"); // verify
+
+        // Insert all pages from doc2 into doc1
+        // APDFL uses InsertPages — verify exact method signature
+        doc1.InsertPages(
+            doc1.NumPages - 1,        // after last page of doc1, verify
+            doc2,                      // source document
+            0,                         // start page in doc2
+            doc2.NumPages,             // number of pages to insert, verify
+            PageInsertFlags.All        // verify flag name
+        );
+
+        doc1.Save(SaveFlags.Full, "merged_apdfl.pdf"); // verify
+        Console.WriteLine("Merged with APDFL.");
+    }
+}</code></pre>
+
+<h3>After: IronPDF Static Merge</h3>
+
+<pre><code>using IronPdf;
+
+class MergeIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf1 = PdfDocument.FromFile("part1.pdf");
+        var pdf2 = PdfDocument.FromFile("part2.pdf");
+
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged.pdf");
+        Console.WriteLine("Merged with IronPDF.");
+    }
+}</code></pre>
+
+<p>No page-index arithmetic. No insert flags. See the <a href="https://ironpdf.com/examples/merge-pdfs/">IronPDF merge documentation</a>.</p>
+
+<h2>How Do I Migrate Watermarking?</h2>
+
+<p>In APDFL, watermarking means working with PDE text elements, font objects, graphic states, and transformation matrices — for every page. In IronPDF, it is a single method call with an HTML string.</p>
+
+<h3>Before: APDFL PDE-Level Text Drawing</h3>
+
+<pre><code>using Datalogics.APDFL.Library;   // verify
+using Datalogics.APDFL.Document;  // verify
+using Datalogics.APDFL.EditModel; // verify
+using System;
+
+class WatermarkApdfl
+{
+    static void Main()
+    {
+        using var lib = new Library(); // verify
+
+        using var doc = new Document("input.pdf"); // verify
+
+        // For each page, add a watermark using PDE text elements
+        for (int i = 0; i &lt; doc.NumPages; i++)
+        {
+            using var page = doc.GetPage(i); // verify
+            var content = page.Content;       // verify — gets PDE content
+
+            // Create font, text run, graphics state, transformation matrix
+            // This is PDF specification-level work:
+            var font = new Font("Helvetica"); // verify
+            var gs = new GraphicState();       // verify
+            gs.FillColor = new Color(0.8, 0.8, 0.8); // verify — light gray
+
+            // Create text element at page center with rotation
+            // Actual APDFL API involves matrix transforms — verify exact calls
+            var textElement = new TextRun("CONFIDENTIAL", font, gs, 48, new Matrix()); // verify — approximate
+            // ... position via transformation matrix, add to content ...
+
+            content.AddElement(textElement); // verify
+            page.UpdateContent();            // verify
+        }
+
+        doc.Save(SaveFlags.Full, "watermarked_apdfl.pdf"); // verify
+        Console.WriteLine("Watermarked with APDFL.");
+    }
+}</code></pre>
+
+<h3>After: IronPDF HTML Watermark</h3>
+
+<pre><code>using IronPdf;
+
+class WatermarkIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.ApplyWatermark(
+            "&lt;h1 style='color:rgba(200,200,200,0.5);font-size:48px;font-family:Helvetica;'&gt;CONFIDENTIAL&lt;/h1&gt;",
+            rotation: 45
+        );
+
+        pdf.SaveAs("watermarked.pdf");
+        Console.WriteLine("Watermarked with IronPDF.");
+    }
+}</code></pre>
+
+<p>Fonts, graphic states, transformation matrices, page content loops — all replaced by one CSS-styled HTML string.</p>
+
+<h2>How Do I Migrate Password Protection?</h2>
+
+<p>APDFL uses a security params object and save flags. IronPDF uses named properties with typed enums on the <code>SecuritySettings</code> object.</p>
+
+<h3>Before: APDFL Security Params</h3>
+
+<pre><code>using Datalogics.APDFL.Library;  // verify
+using Datalogics.APDFL.Document; // verify
+using System;
+
+class PasswordApdfl
+{
+    static void Main()
+    {
+        using var lib = new Library(); // verify
+
+        using var doc = new Document("input.pdf"); // verify
+
+        // Set permissions and passwords
+        // APDFL uses PDDocSetPermissions or similar — verify exact API
+        var securityParams = new SecurityParams(); // verify class name
+        securityParams.OwnerPassword = "owner123"; // verify
+        securityParams.UserPassword = "user456";   // verify
+        securityParams.Permissions = PermissionFlags.None; // verify — restrict all
+
+        // Apply security — verify method name
+        // doc.SetSecurity(securityParams);
+        // OR: doc.Save with encryption options — verify
+
+        doc.Save(SaveFlags.Full, "protected_apdfl.pdf"); // verify
+        Console.WriteLine("Protected with APDFL.");
+    }
+}</code></pre>
+
+<h3>After: IronPDF SecuritySettings</h3>
+
+<pre><code>using IronPdf;
+
+class PasswordIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.SecuritySettings.OwnerPassword = "owner123";
+        pdf.SecuritySettings.UserPassword = "user456";
+        pdf.SecuritySettings.AllowUserPrinting = IronPdf.Security.PdfPrintSecurity.NoPrint;
+        pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+        pdf.SecuritySettings.AllowUserEdits = IronPdf.Security.PdfEditSecurity.NoEdit;
+
+        pdf.SaveAs("protected.pdf");
+        Console.WriteLine("Protected with IronPDF.");
+    }
+}</code></pre>
+
+<p>See the <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">IronPDF security documentation</a> for the full list of permission options.</p>
+
+<h2>What Are the Core API Mappings Between APDFL and IronPDF?</h2>
+
+<p>Here are the class-level and method-level mappings I used during our migration. Keep these tables open in a second monitor.</p>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr><th>APDFL Class</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td><code>Library</code></td><td>N/A</td><td>APDFL requires global init; IronPDF does not</td></tr>
+<tr><td><code>Document</code></td><td><code>PdfDocument</code></td><td>The PDF document object</td></tr>
+<tr><td><code>Page</code></td><td><code>pdf.Pages[n]</code></td><td>Page access (both 0-based)</td></tr>
+<tr><td><code>Font</code> / <code>PDEFont</code></td><td>CSS <code>font-family</code> in HTML</td><td>Font handling — IronPDF uses web fonts via CSS</td></tr>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<tr><th>Operation</th><th>APDFL</th><th>IronPDF</th></tr>
+<tr><td>Open from file</td><td><code>new Document("file.pdf")</code></td><td><code>PdfDocument.FromFile("file.pdf")</code></td></tr>
+<tr><td>Open with password</td><td><code>new Document("file.pdf", "password")</code></td><td><code>PdfDocument.FromFile("file.pdf", "pass")</code></td></tr>
+<tr><td>Create new empty</td><td><code>new Document()</code></td><td><code>renderer.RenderHtmlAsPdf("&lt;html&gt;...&lt;/html&gt;")</code></td></tr>
+<tr><td>Save</td><td><code>doc.Save(SaveFlags.Full, "output.pdf")</code></td><td><code>pdf.SaveAs("output.pdf")</code></td></tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>APDFL</th><th>IronPDF</th></tr>
+<tr><td>Get page count</td><td><code>doc.NumPages</code></td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Get specific page</td><td><code>doc.GetPage(index)</code> (0-based)</td><td><code>pdf.Pages[index]</code> (0-based)</td></tr>
+<tr><td>Create page</td><td><code>doc.CreatePage(position, rect)</code></td><td>Render HTML content (pages auto-created)</td></tr>
+<tr><td>Delete page</td><td><code>doc.DeletePage(index)</code></td><td><code>pdf.RemovePage(index)</code></td></tr>
+</table>
+
+<h3>Merge / Split Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>APDFL</th><th>IronPDF</th></tr>
+<tr><td>Merge documents</td><td><code>doc.InsertPages(...)</code></td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
+<tr><td>Extract pages</td><td><code>doc.DeletePage</code> loop or page copy</td><td><code>pdf.CopyPages(start, end)</code></td></tr>
+</table>
+
+<h2>What Are the Critical Edge Cases and Performance Considerations?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>The most important thing to understand about this migration is the paradigm shift. APDFL constructs PDFs by assembling low-level elements — it is a PDF assembler. IronPDF converts web content to PDFs — it is a PDF compiler, where HTML is the source language. If your codebase has significant <code>PDEElement</code>, <code>PDEText</code>, <code>CosObj</code>, or content stream code, you cannot simply translate it to IronPDF API calls. You need to express the same visual output as HTML/CSS and let IronPDF's Chrome engine render it.</p>
+
+<p><strong>Library initialization scope.</strong> APDFL requires a <code>Library</code> object to be alive for the duration of all PDF operations. Forgetting to keep it in scope or disposing it early causes crashes. IronPDF has no such requirement — call any API at any time after setting the license key.</p>
+
+<p><strong>Save flags.</strong> APDFL's <code>Save</code> method takes <code>SaveFlags</code> that control incremental vs. full saves. IronPDF's <code>SaveAs</code> always performs a full save. If you relied on incremental saves for performance with large documents, test the IronPDF <code>SaveAs</code> performance for your file sizes.</p>
+
+<p><strong>Font handling.</strong> In APDFL, you explicitly create <code>Font</code> objects and embed them. In IronPDF, fonts come from CSS. If you use custom fonts, ensure they are installed on the server or loaded via <code>@font-face</code> in your HTML. IronPDF's Chrome engine handles font embedding automatically during render.</p>
+
+<p><strong>Eliminating the external process.</strong> If your APDFL setup used <code>wkhtmltopdf</code> or headless Chrome as a subprocess for HTML-to-PDF, migrating to IronPDF eliminates that process boundary. The rendering engine runs in-process, which removes process startup/teardown overhead per render, temp file I/O between the subprocess and your .NET code, and port or file-handle management for the external process.</p>
+
+<h3>Renderer Reuse</h3>
+
+<pre><code>// Create once, reuse across all requests
+private static readonly ChromePdfRenderer _renderer = new ChromePdfRenderer();
+
+public PdfDocument RenderReport(string html)
+{
+    return _renderer.RenderHtmlAsPdf(html);
+}</code></pre>
+
+<h3>Disposal</h3>
+
+<pre><code>using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");</code></pre>
+
+<p><strong>PDF/A output:</strong> APDFL has deep PDF/A-1a, 1b, 2a, 2b, 3a, 3b support. IronPDF supports PDF/A export — verify which conformance levels are covered for your requirements.</p>
+
+<p><strong>XFA forms:</strong> If you use APDFL's Forms Extension for dynamic XFA, there is no IronPDF equivalent. AcroForms (static forms) are supported. Consider flattening XFA to AcroForms before migration, or maintaining APDFL for that specific workflow.</p>
+
+<p><strong>Print-quality rendering:</strong> APDFL can render PDFs to TIFF at 300+ DPI for print workflows. If you use this, verify IronPDF's rasterization capabilities meet your DPI requirements.</p>
+
+<p><strong>COS-level manipulation:</strong> If your code directly manipulates the COS object tree (the raw PDF internal structure), this cannot be ported. Evaluate whether the same outcome can be achieved through IronPDF's higher-level API or HTML-based generation.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I migrate incrementally, keeping APDFL and IronPDF side by side?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes, and I recommend it. Both libraries can coexist in the same solution since they have completely separate namespaces (<code>Datalogics.APDFL</code> vs. <code>IronPdf</code>). Migrate one workflow at a time — start with HTML-to-PDF generation since that is the lowest-complexity swap. Keep APDFL for any XFA or COS-level workflows until you have verified replacements.</p>
+
+<p>The key constraint is that APDFL's <code>Library</code> initialization must remain alive for any code path still using APDFL. IronPDF has no such constraint, so adding it alongside existing code introduces no lifecycle complications.</p>
+
+<h3>What happens to my XFA form workflows?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF does not handle XFA forms. If you rely on APDFL's Forms Extension for dynamic XFA processing, you have three options: keep APDFL for that specific workflow, flatten XFA forms to AcroForms before migration (IronPDF supports AcroForms via the <code>FormField</code> collection), or find a dedicated XFA tool.</p>
+
+<p>This is the one area where APDFL has no direct IronPDF replacement. Do not attempt to force-fit XFA processing into IronPDF.</p>
+
+<h3>Will IronPDF match APDFL's PDF/A compliance output?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>APDFL has the deepest PDF/A support in the industry, covering PDF/A-1a, 1b, 2a, 2b, 3a, and 3b conformance levels. IronPDF supports PDF/A export, but you should verify which specific conformance levels are covered for your requirements. If you need PDF/X or PDF/UA, evaluate carefully — these are APDFL's strengths and IronPDF support varies by version.</p>
+
+<p>I recommend validating output with a tool like veraPDF before committing to the migration for compliance-critical workflows.</p>
+
+<h3>How does the performance compare when replacing the wkhtmltopdf subprocess?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>If your current pipeline shells out to <code>wkhtmltopdf</code> alongside APDFL, migrating to IronPDF eliminates that entire process boundary. You remove process startup and teardown overhead per render, temp file I/O between the subprocess and your .NET code, and port or file-handle management. IronPDF's Chrome engine runs in-process. Reuse the <code>ChromePdfRenderer</code> instance across requests — it is stateless and safe to share.</p>
+
+<p>Beyond the architectural improvement, you also stop depending on wkhtmltopdf, which is a deprecated WebKit-based renderer with known security vulnerabilities that stopped receiving updates.</p>
+
+<h3>What is the minimum .NET version required for IronPDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF supports .NET 6+ and .NET Framework 4.6.2+. This is worth noting because Datalogics dropped .NET 6 support in early 2025, moving to .NET 8 as the minimum. If your team is on .NET 6 LTS and facing a forced framework upgrade just for APDFL, IronPDF removes that pressure. Get started with a <a href="https://ironpdf.com/get-started/license-keys/">trial key</a> to test compatibility with your target framework.</p>
+
+<h2>Wrapping Up</h2>
+
+<p>Six years of APDFL taught our team a lot about the PDF specification. That knowledge does not go away — it makes you better at debugging any PDF library's output. But the daily reality of constructing compliance reports in content streams when we could express the same thing in HTML and CSS was a cost we no longer needed to pay.</p>
+
+<p>If your situation is similar — if most of your PDF work is generation from web content with some manipulation bolted on — the migration to an HTML-first library saves real engineering hours. If your situation involves deep PDF specification work (XFA, PDF/UA tagging, COS-level surgery), APDFL earns its complexity.</p>
+
+<p>If you are currently shelling out to <code>wkhtmltopdf</code> alongside APDFL, you are running a deprecated, WebKit-based renderer that has known security vulnerabilities and stopped receiving updates. Regardless of where you migrate, replacing that subprocess should be a priority.</p>

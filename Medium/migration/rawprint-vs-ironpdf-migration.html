@@ -1,0 +1,514 @@
+<h1>Migrating from RawPrint to IronPDF: The Decision Guide for .NET Teams</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Would a Team Migrate from RawPrint .NET to IronPDF?</h2>
+
+<p>I see this pattern regularly. A team started with RawPrint .NET because they needed to send bytes to a physical printer. Win32 APIs, <code>DOCINFO</code> structs, <code>StartDocPrinter</code>, <code>WritePrinter</code> — the whole P/Invoke stack. It solved a real problem. But somewhere along the way, the requirement shifted from "print this document" to "generate a PDF file and archive/email/display it."</p>
+
+<p>That shift is what makes this migration worth considering. RawPrint .NET wraps Win32 printer APIs. IronPDF generates and manipulates PDF documents. They solve different problems, and if your problem has changed, so should your tooling.</p>
+
+<p>Here are the reasons teams typically make this move:</p>
+
+<p><strong>Windows-only dependency.</strong> RawPrint .NET uses Win32 printer APIs. Cross-platform or Linux deployment is impossible.</p>
+
+<p><strong>Install footprint.</strong> Win32 printer drivers, spooler configuration, and printer-name management add operational complexity.</p>
+
+<p><strong>Shifted requirements.</strong> What started as "print this document" has become "generate a PDF file and archive/email/display it."</p>
+
+<p><strong>No HTML input.</strong> Raw printing sends pre-formed bytes (ZPL, PCL, PostScript). HTML-to-PDF requires a completely different pipeline.</p>
+
+<p><strong>No PDF manipulation.</strong> Merge, watermark, security, and page extraction aren't part of a raw printing workflow.</p>
+
+<p><strong>Printer availability dependency.</strong> Raw print requires a named printer to be configured. Development and test environments must have matching printer setup.</p>
+
+<p><strong>Silent failures.</strong> Win32 printer API errors are difficult to diagnose. Errors often surface as empty output or spooler failures.</p>
+
+<p><strong>Docker incompatibility.</strong> Win32 printer APIs aren't available in Linux containers.</p>
+
+<p><strong>No PDF preview.</strong> Raw print jobs go directly to the printer. There's no intermediate PDF artifact for review or archival.</p>
+
+<p><strong>Driver compatibility.</strong> PCL/PostScript output may behave differently across printer models. A PDF is model-independent.</p>
+
+<h2>How Does the Migration Effort Break Down?</h2>
+
+<p>This isn't a line-by-line library swap. It's a workflow change. The effort depends on which features you need in the new pipeline.</p>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>RawPrint .NET</th><th>IronPDF Equivalent</th><th>Complexity</th></tr>
+</thead>
+<tbody>
+<tr><td>Send bytes to printer</td><td><code>RawPrinterHelper.SendBytesToPrinter()</code></td><td>N/A — IronPDF is not a raw printer API</td><td>N/A</td></tr>
+<tr><td>Generate PDF from HTML</td><td>Not applicable</td><td><code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code></td><td>Low</td></tr>
+<tr><td>Generate PDF from URL</td><td>Not applicable</td><td><code>ChromePdfRenderer.RenderUrlAsPdfAsync()</code></td><td>Low</td></tr>
+<tr><td>Print a generated PDF</td><td>Requires separate print API</td><td>Verify IronPDF print methods in docs</td><td>Medium</td></tr>
+<tr><td>Merge PDFs</td><td>Not applicable</td><td><code>PdfDocument.Merge()</code></td><td>Medium</td></tr>
+<tr><td>Watermark</td><td>Not applicable</td><td><code>TextStamper</code> / <code>ImageStamper</code></td><td>Medium</td></tr>
+<tr><td>Password protection</td><td>Not applicable</td><td><code>pdf.SecuritySettings</code></td><td>Medium</td></tr>
+<tr><td>Cross-platform support</td><td>No — Windows only</td><td>Yes — Linux/Docker</td><td>Low (inherit)</td></tr>
+<tr><td>Save PDF to file/stream</td><td>Not applicable</td><td><code>pdf.SaveAs()</code> / <code>pdf.Stream</code></td><td>Low</td></tr>
+</tbody>
+</table>
+
+<p>Most of the "low complexity" items are things RawPrint .NET simply didn't do. You're not replacing functionality — you're adding it.</p>
+
+<h2>What Does the Decision Criteria Look Like in Practice?</h2>
+
+<p>The key question is whether your requirement is still "send bytes to a printer" or whether it has become "produce a PDF file." Here's how that breaks down by scenario.</p>
+
+<table>
+<thead>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>Still need raw print jobs sent to physical printers</td><td>RawPrint .NET serves this; IronPDF doesn't replace raw printer API</td></tr>
+<tr><td>Need PDF files for email, archive, or web display</td><td>Switch — IronPDF generates PDF files; RawPrint .NET doesn't</td></tr>
+<tr><td>Need to print PDF files to a printer</td><td>Both may be needed; IronPDF generates PDF, printer API sends it</td></tr>
+<tr><td>Moving from Windows to Linux/Docker deployment</td><td>Switch — RawPrint .NET can't run on Linux</td></tr>
+</tbody>
+</table>
+
+<h3>Setting Up IronPDF After Removing RawPrint</h3>
+
+<pre><code># Remove RawPrint package (verify exact package name at NuGet)
+dotnet remove package RawPrint  # verify name
+
+# Install IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+</code></pre>
+
+<h3>License Configuration</h3>
+
+<pre><code>using IronPdf;
+
+// https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY")
+    ?? throw new InvalidOperationException("IRONPDF_LICENSE_KEY not set");
+</code></pre>
+
+<h3>Namespace Swap — Before</h3>
+
+<pre><code>// Verify actual RawPrint namespace
+using RawPrint;   // illustrative — verify
+using System.Runtime.InteropServices;  // for P/Invoke if used directly
+</code></pre>
+
+<h3>Namespace Swap — After</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+</code></pre>
+
+<h3>Basic PDF Generation — Before (RawPrint .NET)</h3>
+
+<pre><code>using System;
+using System.IO;
+// VERIFY: RawPrint .NET API — all below is illustrative
+
+class Program
+{
+    static void Main()
+    {
+        // RawPrint sends pre-formed document bytes to a named Windows printer
+        // The bytes must already be in a format the printer understands (ZPL, PCL, PDF, etc.)
+
+        var pdfBytes = File.ReadAllBytes("document.pdf"); // pre-generated PDF
+        var printerName = "PrinterOnNetwork";
+
+        // VERIFY: actual RawPrint .NET method signature
+        // RawPrinterHelper.SendBytesToPrinter(printerName, pdfBytes, "DocumentName");
+
+        Console.WriteLine("Verify RawPrint .NET API before using — and note it sends to a printer, not a file");
+    }
+}
+</code></pre>
+
+<h3>Basic PDF Generation — After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+// Generate the PDF document
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Document&lt;/h1&gt;&lt;p&gt;Content here.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// Save to file — or use pdf.BinaryData for in-memory/email/API
+pdf.SaveAs("document.pdf");
+
+Console.WriteLine($"Generated document.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+
+// If you still need to print the PDF:
+// Use System.Drawing.Printing, PrintDocument, or verify IronPDF print methods in docs
+</code></pre>
+
+<h3>HTML to PDF — Before (RawPrint .NET Pattern)</h3>
+
+<pre><code>using System;
+using System.IO;
+// VERIFY: RawPrint .NET API — all names are illustrative
+
+class PrintWorkflowBefore
+{
+    static void Main()
+    {
+        // In a RawPrint .NET workflow:
+        // 1. A PDF must already exist (generated by another system/tool)
+        // 2. The bytes are sent to a named printer
+
+        var html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Delivery Note #12345&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
+
+        // Option A: Use another system to generate the PDF first
+        // Option B: Shell out to a CLI tool (wkhtmltopdf, Prince, etc.)
+
+        var pdfBytes = SomeExternalSystem.GeneratePdf(html); // illustrative
+
+        // Send to printer via RawPrint
+        // VERIFY: actual method name
+        // RawPrinterHelper.SendBytesToPrinter("DefaultPrinter", pdfBytes, "DeliveryNote");
+
+        Console.WriteLine("RawPrint requires an external PDF generation step before printing");
+    }
+}
+</code></pre>
+
+<h3>HTML to PDF — After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var html = @"
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .header { font-size: 20px; font-weight: bold; border-bottom: 2px solid #333; }
+        .detail { margin-top: 20px; font-size: 12px; }
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;div class='header'&gt;Delivery Note #12345&lt;/div&gt;
+        &lt;div class='detail'&gt;
+            &lt;p&gt;Customer: Acme Corp&lt;/p&gt;
+            &lt;p&gt;Items: Widget x10, Gadget x5&lt;/p&gt;
+        &lt;/div&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("delivery-note.pdf");
+
+Console.WriteLine($"Generated delivery-note.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+
+// To print: use System.Drawing.Printing.PrintDocument or verify IronPDF print API in docs
+</code></pre>
+
+<h3>Merge PDFs — Before (RawPrint .NET)</h3>
+
+<pre><code>using System;
+// RawPrint .NET: PDF merge is not part of this library's scope.
+// It sends bytes to a printer. Merge must happen before the print job.
+// Teams typically used a secondary library to merge PDFs before sending to RawPrint.
+
+class MergeBefore
+{
+    static void Main()
+    {
+        // Pseudo-code pattern:
+        // var pdf1 = GenerateSomehow("section1.html");
+        // var pdf2 = GenerateSomehow("section2.html");
+        // var merged = SomePdfLib.Merge(pdf1, pdf2);
+        // RawPrinterHelper.SendBytesToPrinter("Printer", merged, "DocumentName");
+
+        Console.WriteLine("Merge was done before raw printing — multiple library deps required");
+    }
+}
+</code></pre>
+
+<h3>Merge PDFs — After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+
+var results = await Task.WhenAll(
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 1: Summary&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"),
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 2: Details&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;")
+);
+
+// https://ironpdf.com/how-to/merge-or-split-pdfs/
+var merged = PdfDocument.Merge(results[0], results[1]);
+merged.SaveAs("full-document.pdf");
+
+Console.WriteLine($"Merged: {merged.PageCount} pages");
+</code></pre>
+
+<h3>Watermark — Before (RawPrint .NET)</h3>
+
+<pre><code>using System;
+// Watermarking with RawPrint .NET:
+// The watermark must be embedded in the source document before printing.
+// RawPrint just sends bytes — it doesn't modify the document.
+
+class WatermarkBefore
+{
+    static void Main()
+    {
+        // CSS-based watermark in HTML before generating the PDF:
+        var html = @"
+            &lt;html&gt;
+            &lt;head&gt;
+            &lt;style&gt;
+                body::after {
+                    content: 'COPY';
+                    position: fixed; top: 50%; left: 50%;
+                    transform: translate(-50%, -50%) rotate(-45deg);
+                    font-size: 80px; color: rgba(200,0,0,0.15);
+                    pointer-events: none;
+                }
+            &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;&lt;h1&gt;Document&lt;/h1&gt;&lt;/body&gt;
+            &lt;/html&gt;";
+
+        // Generate PDF with watermark baked in, then send to printer
+        // Watermark baked into HTML is fragile — CSS behavior varies by renderer
+        Console.WriteLine("Pre-print watermark must be in source HTML/document");
+    }
+}
+</code></pre>
+
+<h3>Watermark — After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Document&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// Post-render watermark — applied consistently on all pages
+// https://ironpdf.com/how-to/custom-watermark/
+var watermark = new TextStamper
+{
+    Text = "COPY",
+    FontColor = IronPdf.Imaging.Color.Red,
+    Opacity = 0.15,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs("copy-watermarked.pdf");
+Console.WriteLine("Watermark applied");
+</code></pre>
+
+<h3>Password Protection — Before (RawPrint .NET)</h3>
+
+<pre><code>using System;
+// Password protection and raw printing are not related workflows.
+// Raw printing sends bytes to a printer; PDF encryption is applied
+// to a PDF file, not to a print job.
+
+class PasswordBefore
+{
+    static void Main()
+    {
+        // If the PDF being printed was password-protected, RawPrint .NET
+        // would have to send bytes that the printer could already interpret.
+        // Most physical printers don't decrypt PDFs.
+
+        // PDF password protection is for file distribution, not printing.
+        // This is a new capability that wasn't part of the raw print workflow.
+
+        Console.WriteLine("Password protection is a PDF file feature — not part of raw printing");
+    }
+}
+</code></pre>
+
+<h3>Password Protection — After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Secured Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// https://ironpdf.com/how-to/pdf-permissions-passwords/
+pdf.SecuritySettings.UserPassword = "open123";
+pdf.SecuritySettings.OwnerPassword = "admin456";
+
+pdf.SaveAs("secured-report.pdf");
+Console.WriteLine("Saved secured-report.pdf");
+</code></pre>
+
+<h2>How Do the Two Libraries Compare Feature by Feature?</h2>
+
+<p>This table gives you the full picture. Remember — these libraries serve fundamentally different purposes, so many rows show "Not applicable" on the RawPrint side.</p>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>RawPrint .NET</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>Send raw bytes to Windows printers</td><td>PDF generation and manipulation</td></tr>
+<tr><td>Pricing</td><td>Small package — verify license at NuGet</td><td>Commercial license — verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>Win32 wrapper; printer name + byte array</td><td>.NET objects; HTML or existing PDF input</td></tr>
+<tr><td>Learning Curve</td><td>Low for print; high for PDF generation</td><td>Low for .NET developers</td></tr>
+<tr><td>HTML Rendering</td><td>Not applicable</td><td>Embedded Chromium</td></tr>
+<tr><td>Page Indexing</td><td>N/A</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>N/A for printer API</td><td>Verify IronPDF concurrent instance guidance</td></tr>
+<tr><td>Namespace</td><td><code>RawPrint</code></td><td><code>IronPdf</code></td></tr>
+</tbody>
+</table>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<thead>
+<tr><th>RawPrint .NET</th><th>IronPDF</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>RawPrint</code></td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td><code>System.Runtime.InteropServices</code> (P/Invoke)</td><td>N/A — removed</td><td>No Win32 P/Invoke needed</td></tr>
+<tr><td>N/A</td><td><code>IronPdf.Editing</code></td><td>Watermark / stamp</td></tr>
+</tbody>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<thead>
+<tr><th>RawPrint .NET Concept</th><th>IronPDF Class</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>Printer helper class</td><td>N/A — different purpose</td><td>IronPDF generates PDFs, doesn't send to printers</td></tr>
+<tr><td>Byte array (pre-formed document)</td><td><code>ChromePdfRenderer</code></td><td>Generates PDF from HTML</td></tr>
+<tr><td>Printer name string</td><td>N/A</td><td>IronPDF outputs to file or stream</td></tr>
+<tr><td>N/A</td><td><code>PdfDocument</code></td><td>PDF object — save, merge, manipulate</td></tr>
+</tbody>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>RawPrint .NET</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Generate PDF from HTML</td><td>Not applicable</td><td><code>renderer.RenderHtmlAsPdfAsync(html)</code></td></tr>
+<tr><td>Generate PDF from URL</td><td>Not applicable</td><td><code>renderer.RenderUrlAsPdfAsync(url)</code></td></tr>
+<tr><td>Load existing PDF</td><td>N/A</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+<tr><td>Save to stream</td><td>N/A</td><td><code>pdf.Stream</code></td></tr>
+</tbody>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>RawPrint .NET</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Page count</td><td>N/A</td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Remove page</td><td>N/A</td><td><code>pdf.RemovePage(index)</code> — verify</td></tr>
+<tr><td>Extract text</td><td>N/A</td><td><code>pdf.ExtractAllText()</code></td></tr>
+<tr><td>Rotate</td><td>N/A</td><td>Verify in IronPDF docs</td></tr>
+</tbody>
+</table>
+
+<h3>Merge / Split Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>RawPrint .NET</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Merge</td><td>Not applicable</td><td><code>PdfDocument.Merge(doc1, doc2)</code></td></tr>
+<tr><td>Split</td><td>Not applicable</td><td><a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Guide</a></td></tr>
+</tbody>
+</table>
+
+<h2>What Questions Come Up Most During This Migration?</h2>
+
+<p><strong>Q: Can IronPDF replace RawPrint .NET for sending bytes directly to a physical printer?</strong></p>
+
+<p><strong>Answer:</strong></p>
+
+<p>No. These libraries solve different problems. RawPrint .NET sends pre-formed bytes (ZPL, PCL, PostScript, or PDF) directly to a named Windows printer via Win32 APIs. IronPDF generates and manipulates PDF documents.</p>
+
+<p>If you still need raw printing to physical devices after migration, handle that via <code>System.Drawing.Printing.PrintDocument</code> or a similar Windows print API — separately from PDF generation.</p>
+
+<p><strong>Q: What happens to my Win32 P/Invoke declarations after migrating?</strong></p>
+
+<p><strong>Answer:</strong></p>
+
+<p>They can be removed entirely. Raw printing code often includes direct Win32 P/Invoke declarations for <code>winspool.drv</code>, <code>StartDocPrinter</code>, <code>WritePrinter</code>, and related functions. After migration, these are dead code. Search for remaining references before deleting:</p>
+
+<pre><code># Find P/Invoke declarations that can be removed
+rg "DllImport.*winspool|AddPrinter|StartDocPrinter|WritePrinter|EndDocPrinter|ClosePrinter" --type cs -n
+
+# Verify each has no remaining call sites before deleting
+</code></pre>
+
+<p><strong>Q: Will my PDFs look the same as the original print output?</strong></p>
+
+<p><strong>Answer:</strong></p>
+
+<p>Not automatically. The original print output may have been generated by a separate system (ERP, report server) and sent as PCL or PostScript. IronPDF generates PDFs from HTML — the visual output depends on your HTML template, not on reverse-engineering the original printer data format. This is a template design task, not a bug. Start by screenshotting the original print output and recreating the layout in HTML/CSS.</p>
+
+<p><strong>Q: Does IronPDF work on Linux and Docker, unlike RawPrint?</strong></p>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. IronPDF runs on Linux and macOS. Moving PDF generation to IronPDF enables Linux/Docker deployment that was impossible with RawPrint's Windows-only Win32 API dependency. For Docker, use a supported 64-bit base image (not Alpine) and install the required system libraries for Chromium-based rendering:</p>
+
+<pre><code># Use a supported base image — verify IronPDF Linux requirements in their docs
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
+
+# Common Linux deps for Chromium-based rendering:
+RUN apt-get update &amp;&amp; apt-get install -y \
+    libnss3 \
+    libatk-bridge2.0-0 \
+    libdrm2 \
+    libxkbcommon0 \
+    libgbm1 \
+    # Verify complete list in IronPDF docs
+    &amp;&amp; rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /app/out .
+ENTRYPOINT ["dotnet", "YourApp.dll"]
+</code></pre>
+
+<h2>How Should I Decide Whether to Migrate?</h2>
+
+<p>This decision comes down to one question: has your requirement shifted from "send bytes to a printer" to "generate a PDF file"?</p>
+
+<p>If it has, the migration makes sense. You're replacing a multi-step pipeline — generate document elsewhere, configure printer, send bytes — with a single-step pipeline: render HTML to PDF. The footprint reduction is real. You remove Win32 P/Invoke declarations, printer-name configuration, and Windows-only API dependencies. What replaces it is HTML templates and a <a href="https://ironpdf.com/how-to/html-string-to-pdf/">renderer call</a>.</p>
+
+<p>If you still need raw printing to physical devices, that requirement should be handled separately from PDF generation. IronPDF and a printer API can coexist — IronPDF generates the PDF, and a separate print API sends it to the device.</p>
+
+<p>The interesting benchmark in this migration is not render time. It's the comparison between the complexity of the old end-to-end pipeline versus the new single-step pipeline. For teams that have already made this shift in requirements, the <a href="https://ironpdf.com/how-to/license-keys/">IronPDF setup</a> takes minutes and the <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">additional capabilities</a> — merge, watermark, <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">password protection</a> — come included in one library instead of requiring multiple dependencies.</p>

@@ -1,0 +1,369 @@
+<h1>PdfPig vs IronPDF: Solving Common .NET PDF Pain Points</h1>
+
+<p>Last September, we inherited a legacy document processing pipeline that used PdfPig to "generate" monthly reports. The code looked reasonable — instantiate <code>PdfDocumentBuilder</code>, add some text, save the file — until someone asked for an invoice template with the company logo and a proper table layout. That's when we discovered PdfPig wasn't designed for this. It's a parser that happens to have basic creation capabilities tacked on, not a generation tool. We spent two weeks building coordinate calculators and custom table renderers before realizing we were solving a problem that better tools had already solved.</p>
+
+<p>PdfPig is a .NET port of Apache PDFBox, built specifically for reading existing PDFs and extracting their contents. It excels at pulling text with positional data, analyzing document layouts, and exposing internal PDF structure. The library operates at a low level — you work with <code>Letter</code> objects, bounding boxes, and PDF operators directly. For document analysis, data mining, and content extraction, PdfPig is excellent. For PDF generation, it provides basic primitives but no layout engine, no HTML rendering, and no abstraction over coordinate math.</p>
+
+<h2>What Is IronPDF?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p><a href="https://ironpdf.com">IronPDF</a> approaches PDF generation from the opposite direction: it assumes you have web content (HTML/CSS/JavaScript) and want a PDF that looks exactly like it would in a browser. The library embeds a Chromium rendering engine, so your templates — whether they're Bootstrap dashboards, Tailwind invoices, or vanilla HTML — render pixel-perfect without manual positioning. You write HTML, call <code>RenderHtmlAsPdf()</code>, and get a PDF. No coordinate calculations, no font metrics, no page break logic.</p>
+
+<p>The core architecture is straightforward: <code>ChromePdfRenderer</code> manages the Chromium process, <code>PdfDocument</code> represents the output, and rendering options let you configure paper size, margins, headers, and footers. For reading existing PDFs, IronPDF uses <code>PdfDocument.FromFile()</code> and exposes text extraction, page manipulation, and metadata editing. Installation is a single NuGet package with no external service dependencies — Chromium is bundled and lifecycle-managed internally.</p>
+
+<h2>How Does Text Extraction Compare Between PdfPig and IronPDF?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Text extraction is PdfPig's core strength, but it exposes multiple approaches that require understanding PDF internals. Raw <code>page.Text</code> gives wrong reading order; you must use <code>ContentOrderTextExtractor</code> for correct results. Getting structured text requires understanding bounding boxes and layout analysis. IronPDF simplifies this to a single method call.</p>
+
+<h3>PdfPig — Text Extraction</h3>
+
+<pre><code>// Install-Package PdfPig
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
+
+public class PdfTextExtractor
+{
+    public void ExtractText()
+    {
+        using (PdfDocument document = PdfDocument.Open(@"C:\reports\invoice.pdf"))
+        {
+            foreach (Page page in document.GetPages())
+            {
+                // Method 1: Raw text (wrong order, not recommended)
+                // string rawText = page.Text;
+
+                // Method 2: Content-order text extraction (correct approach)
+                string text = ContentOrderTextExtractor.GetText(page);
+                Console.WriteLine($"Page {page.Number}:");
+                Console.WriteLine(text);
+
+                // Alternative: Access letters for positional data
+                IReadOnlyList&lt;Letter&gt; letters = page.Letters;
+                Console.WriteLine($"Found {letters.Count} letters");
+
+                // Get words with position information
+                IEnumerable&lt;Word&gt; words = page.GetWords();
+                foreach (var word in words)
+                {
+                    Console.WriteLine($"'{word.Text}' at ({word.BoundingBox.Left}, {word.BoundingBox.Bottom})");
+                }
+            }
+        }
+    }
+}
+</code></pre>
+
+<h3>IronPDF — Text Extraction</h3>
+
+<pre><code>// Install-Package IronPdf
+
+using System;
+using IronPdf;
+
+public class PdfTextExtractor
+{
+    public void ExtractText()
+    {
+        var pdf = PdfDocument.FromFile(@"C:\reports\invoice.pdf");
+
+        // Extract all text (automatically handles reading order)
+        string allText = pdf.ExtractAllText();
+        Console.WriteLine(allText);
+
+        // Extract text from specific pages (0-based indexing)
+        string firstPageText = pdf.ExtractTextFromPage(0);
+        Console.WriteLine($"Page 1: {firstPageText}");
+    }
+}
+</code></pre>
+
+<p>PdfPig's strength is exposing positional data for advanced analysis. For straightforward text extraction from PDFs, see <a href="https://ironsoftware.com/suite/blog/using-ironsuite/csharp-create-pdf-ironpdf-tutorial/">IronPDF's text extraction capabilities</a>.</p>
+
+<h2>How Does PDF Creation Differ Between Coordinate Math and HTML?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>This is where the libraries diverge most sharply. PdfPig requires manual coordinate calculation for every text element — X/Y positioning, line spacing, page breaks, and font registration are all your responsibility. IronPDF lets you write HTML and CSS, which the embedded Chromium engine renders pixel-perfect.</p>
+
+<h3>PdfPig — Basic PDF Creation</h3>
+
+<pre><code>// Install-Package PdfPig
+
+using System;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
+using UglyToad.PdfPig.Fonts.Standard14Fonts;
+using UglyToad.PdfPig.Writer;
+
+public class PdfCreator
+{
+    public void CreateSimpleDocument()
+    {
+        var builder = new PdfDocumentBuilder();
+
+        // Register font (required before use)
+        var font = builder.AddStandard14Font(Standard14Font.Helvetica);
+
+        // Add page with explicit size
+        PdfPageBuilder page = builder.AddPage(PageSize.A4);
+
+        // Calculate positions manually (A4 width = 595 points, height = 842 points)
+        double leftMargin = 50;
+        double topMargin = 792; // 842 - 50
+
+        // Draw text at specific coordinates
+        page.AddText("Invoice #2026-001", 24, new PdfPoint(leftMargin, topMargin), font);
+
+        // Calculate next line position (manual line spacing)
+        double lineHeight = 30;
+        double currentY = topMargin - lineHeight;
+
+        page.AddText("Date: February 11, 2026", 12, new PdfPoint(leftMargin, currentY), font);
+        currentY -= 20;
+
+        page.AddText("Customer: Acme Corp", 12, new PdfPoint(leftMargin, currentY), font);
+        currentY -= 40;
+
+        page.AddText("Item: Consulting Services", 12, new PdfPoint(leftMargin, currentY), font);
+        currentY -= 20;
+
+        page.AddText("Amount: $5,000.00", 12, new PdfPoint(leftMargin, currentY), font);
+
+        // Save document
+        byte[] documentBytes = builder.Build();
+        System.IO.File.WriteAllBytes(@"C:\output\invoice.pdf", documentBytes);
+    }
+}
+</code></pre>
+
+<h3>IronPDF — HTML-Based Creation</h3>
+
+<pre><code>// Install-Package IronPdf
+
+using IronPdf;
+
+public class PdfCreator
+{
+    public void CreateSimpleDocument()
+    {
+        var htmlContent = @"
+            &lt;html&gt;
+            &lt;head&gt;
+                &lt;style&gt;
+                    body { font-family: Arial; margin: 50px; }
+                    h1 { font-size: 24px; margin-bottom: 10px; }
+                    .invoice-info { margin: 20px 0; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                    th, td { padding: 10px; border: 1px solid #ccc; text-align: left; }
+                    th { background-color: #f5f5f5; }
+                &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+                &lt;h1&gt;Invoice #2026-001&lt;/h1&gt;
+                &lt;div class='invoice-info'&gt;
+                    &lt;p&gt;Date: February 11, 2026&lt;/p&gt;
+                    &lt;p&gt;Customer: Acme Corp&lt;/p&gt;
+                &lt;/div&gt;
+                &lt;table&gt;
+                    &lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Amount&lt;/th&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;Consulting Services&lt;/td&gt;&lt;td&gt;$5,000.00&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        pdf.SaveAs(@"C:\output\invoice.pdf");
+    }
+}
+</code></pre>
+
+<p>For teams with existing HTML templates or web development skills, <a href="https://ironsoftware.com/suite/blog/using-ironsuite/html-to-pdf-ironpdf-tutorial/">IronPDF eliminates coordinate math entirely</a>. You write HTML, you get a PDF.</p>
+
+<h2>How Does Document Structure Analysis Compare?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>PdfPig excels at granular document inspection — useful for PDF forensics, data extraction pipelines, and layout analysis. It exposes page dimensions, images, hyperlinks, metadata, and raw PDF structure. IronPDF focuses on generation workflows with basic reading capabilities.</p>
+
+<h3>PdfPig — Document Analysis</h3>
+
+<pre><code>// Install-Package PdfPig
+
+using System;
+using System.Linq;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
+using UglyToad.PdfPig.DocumentLayoutAnalysis;
+
+public class PdfAnalyzer
+{
+    public void AnalyzeDocument()
+    {
+        using (PdfDocument document = PdfDocument.Open(@"C:\docs\report.pdf"))
+        {
+            Console.WriteLine($"Pages: {document.NumberOfPages}");
+            Console.WriteLine($"Version: {document.Version}");
+
+            foreach (Page page in document.GetPages())
+            {
+                // Get page dimensions
+                var size = page.Size;
+                Console.WriteLine($"Page {page.Number}: {size.Width} x {size.Height} points");
+
+                // Extract images
+                var images = page.GetImages();
+                Console.WriteLine($"Images: {images.Count()}");
+
+                // Get hyperlinks
+                var links = page.GetHyperlinks();
+                foreach (var link in links)
+                {
+                    Console.WriteLine($"Link: {link.Uri}");
+                }
+
+                // Access metadata
+                var info = document.Information;
+                Console.WriteLine($"Title: {info.Title}");
+                Console.WriteLine($"Author: {info.Author}");
+                Console.WriteLine($"Created: {info.CreationDate}");
+
+                // Access raw PDF structure (advanced)
+                var structure = document.Structure;
+                var catalog = structure.Catalog;
+            }
+        }
+    }
+}
+</code></pre>
+
+<h3>IronPDF — Document Inspection</h3>
+
+<pre><code>// Install-Package IronPdf
+
+using System;
+using IronPdf;
+
+public class PdfAnalyzer
+{
+    public void AnalyzeDocument()
+    {
+        var pdf = PdfDocument.FromFile(@"C:\docs\report.pdf");
+
+        // Basic properties
+        Console.WriteLine($"Pages: {pdf.PageCount}");
+        Console.WriteLine($"Title: {pdf.MetaData.Title}");
+        Console.WriteLine($"Author: {pdf.MetaData.Author}");
+
+        // Extract all text for content analysis
+        string fullText = pdf.ExtractAllText();
+        int wordCount = fullText.Split(' ').Length;
+        Console.WriteLine($"Approximate words: {wordCount}");
+
+        // Access per-page info
+        for (int i = 0; i &lt; pdf.PageCount; i++)
+        {
+            string pageText = pdf.ExtractTextFromPage(i);
+            Console.WriteLine($"Page {i + 1} length: {pageText.Length} chars");
+        }
+    }
+}
+</code></pre>
+
+<h2>What Does the Feature Comparison Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr><th>Aspect</th><th>PdfPig</th><th>IronPDF</th></tr>
+<tr><td><strong>Current Status</strong></td><td>Active (pre-1.0, API unstable)</td><td>Active (stable releases)</td></tr>
+<tr><td><strong>HTML Support</strong></td><td>None (external tools needed)</td><td>Full Chromium engine</td></tr>
+<tr><td><strong>Rendering Quality</strong></td><td>Manual coordinate-based</td><td>Browser-grade pixel-perfect</td></tr>
+<tr><td><strong>Installation</strong></td><td>Single NuGet package</td><td>Single NuGet package</td></tr>
+<tr><td><strong>Support</strong></td><td>Community (GitHub/Stack Overflow)</td><td>Commercial available</td></tr>
+<tr><td><strong>Future Viability</strong></td><td>Maintained for parsing use cases</td><td>Regular feature releases</td></tr>
+</table>
+
+<h2>What Does the Comprehensive Feature Breakdown Reveal?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr><th>Feature Category</th><th>PdfPig</th><th>IronPDF</th></tr>
+<tr><td colspan="3"><strong>Status &amp; Support</strong></td></tr>
+<tr><td>Product Status</td><td>Active (pre-1.0)</td><td>Active (stable)</td></tr>
+<tr><td>API Stability</td><td>Unstable until 1.0</td><td>Stable</td></tr>
+<tr><td>Official Support</td><td>Community only</td><td>Commercial available</td></tr>
+<tr><td>Documentation</td><td>GitHub README + API ref</td><td>Full docs + tutorials</td></tr>
+<tr><td>License Model</td><td>Apache 2.0 (open source)</td><td>Commercial with trial</td></tr>
+<tr><td colspan="3"><strong>Content Creation</strong></td></tr>
+<tr><td>HTML to PDF</td><td>No</td><td>Yes (Chromium engine)</td></tr>
+<tr><td>CSS Support</td><td>No</td><td>CSS3 full support</td></tr>
+<tr><td>JavaScript Execution</td><td>No</td><td>Yes</td></tr>
+<tr><td>Table Layouts</td><td>Manual coordinate math</td><td>Automatic HTML tables</td></tr>
+<tr><td>Multi-column</td><td>Manual</td><td>CSS columns</td></tr>
+<tr><td>Images</td><td>Manual positioning</td><td>HTML &lt;img&gt; tags</td></tr>
+<tr><td>Fonts</td><td>Manual TrueType loading</td><td>Automatic (@font-face)</td></tr>
+<tr><td>Templates</td><td>No built-in</td><td>HTML/CSS templates</td></tr>
+<tr><td colspan="3"><strong>PDF Operations</strong></td></tr>
+<tr><td>Read PDFs</td><td>Yes (core feature)</td><td>Yes</td></tr>
+<tr><td>Create PDFs</td><td>Basic (text/paths)</td><td>Full (HTML rendering)</td></tr>
+<tr><td>Merge PDFs</td><td>No</td><td>PdfDocument.Merge()</td></tr>
+<tr><td>Split PDFs</td><td>No</td><td>CopyPages()</td></tr>
+<tr><td>Text Extraction</td><td>Yes (detailed, positional)</td><td>Yes (simplified)</td></tr>
+<tr><td>Metadata</td><td>Read-only</td><td>Read/write</td></tr>
+<tr><td colspan="3"><strong>Analysis &amp; Inspection</strong></td></tr>
+<tr><td>Letter-level Access</td><td>Yes</td><td>No</td></tr>
+<tr><td>Bounding Boxes</td><td>Yes</td><td>No</td></tr>
+<tr><td>Layout Analysis</td><td>Yes (multiple algorithms)</td><td>No</td></tr>
+<tr><td>Document Structure</td><td>Low-level access</td><td>High-level only</td></tr>
+<tr><td>Form Field Reading</td><td>Yes (read-only)</td><td>Verify in docs</td></tr>
+<tr><td colspan="3"><strong>Development</strong></td></tr>
+<tr><td>Primary Use Case</td><td>Reading/analyzing PDFs</td><td>Creating PDFs from HTML</td></tr>
+<tr><td>Learning Curve</td><td>Steep (PDF internals)</td><td>Moderate (web skills)</td></tr>
+<tr><td>Code Verbosity</td><td>High (coordinate math)</td><td>Low (HTML/CSS)</td></tr>
+<tr><td>.NET Support</td><td>.NET Standard 2.0+</td><td>.NET 6+ and Framework 4.6.2+</td></tr>
+<tr><td>Cross-Platform</td><td>Yes</td><td>Yes</td></tr>
+</table>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Is PdfPig suitable for PDF generation?</h3>
+
+<p>PdfPig's documentation explicitly states "for HTML to PDF, use wkhtmltopdf." Its document creation is deliberately minimal — limited to drawing text and geometric shapes at explicit coordinates. There are no built-in table layouts, no automatic text wrapping, no multi-column support. The library is designed for reading and analyzing PDFs, not generating them. Teams that need styled invoices, branded reports, or template-based documents are fighting the library's design intent.</p>
+
+<h3>What is the API stability situation with PdfPig?</h3>
+
+<p>PdfPig is pre-1.0 (current version 0.1.x), meaning the public API can change without warning. The GitHub readme explicitly states "SemVer will not be followed until 1.0.0 is reached." For production code targeting long-lived .NET applications, depending on a library that reserves the right to break your build in minor releases requires careful version pinning and upgrade testing.</p>
+
+<h3>Can IronPDF also read and extract text from existing PDFs?</h3>
+
+<p>Yes. <a href="https://ironpdf.com">IronPDF</a> uses <code>PdfDocument.FromFile()</code> and exposes <code>ExtractAllText()</code> and <code>ExtractTextFromPage()</code> for text extraction. It also supports metadata reading and writing, page manipulation, and merging. However, IronPDF does not expose letter-level positional data or bounding boxes — if you need low-level PDF forensics, PdfPig's granular access is the better fit.</p>
+
+<h3>What commonly reported issues affect PdfPig generation workflows?</h3>
+
+<p>Teams using PdfPig for PDF generation (not its intended purpose) commonly report: coordinate calculation errors with off-by-one positioning, font rendering inconsistencies between embedded and non-embedded fonts, multi-page layout complexity becoming unmaintainable as documents grow, no table support requiring custom layout engines, and API instability with breaking changes in minor versions.</p>
+
+<h3>How does installation compare between the two libraries?</h3>
+
+<p>Both install via a single NuGet package. PdfPig requires multiple <code>using</code> statements depending on the task — <code>UglyToad.PdfPig</code>, <code>UglyToad.PdfPig.Writer</code>, <code>UglyToad.PdfPig.Fonts.Standard14Fonts</code>, and <code>UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor</code> for advanced layout analysis. <a href="https://ironsoftware.com/suite/blog/using-ironsuite/html-to-pdf-ironpdf-tutorial/">IronPDF</a> needs only <code>using IronPdf;</code> for most workflows.</p>
+
+<h2>When Should You Use PdfPig vs IronPDF?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p><strong>Choose PdfPig</strong> when your primary need is reading PDF documents and extracting structured data. For document analysis, text mining, content extraction, or PDF forensics, PdfPig's low-level access to PDF internals — letter-level positioning, bounding boxes, multiple layout analysis algorithms — is exactly what you need. The Apache 2.0 license and active development make it a solid choice for parsing workflows where you're ingesting PDFs and pulling out data for processing.</p>
+
+<p><strong>Choose <a href="https://ironpdf.com/docs/">IronPDF</a></strong> when your actual need is PDF generation from web content. If you're spending more time implementing layout engines than solving business problems, maintaining coordinate-based positioning code that breaks with every design change, or needing features PdfPig explicitly doesn't provide — HTML rendering, CSS styling, JavaScript execution, template support, merge and split operations — IronPDF addresses these mechanically. The embedded Chromium engine handles modern HTML/CSS/JavaScript, eliminating coordinate calculations and layout logic. For teams already using HTML templates for web UIs, reusing those templates for PDF generation avoids maintaining two separate rendering approaches.</p>
+
+<p>The decision isn't about PdfPig being inadequate — it's about matching tool capabilities to actual requirements. PdfPig fills a specific niche for reading and analysis. IronPDF fills the generation niche with browser-grade rendering.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

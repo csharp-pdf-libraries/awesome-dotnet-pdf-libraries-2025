@@ -1,0 +1,370 @@
+<h1>PDFSharp vs IronPDF in C#: Which Should Your Team Choose?</h1>
+
+<p>We benchmarked PDFSharp last quarter for a reporting system generating 10,000 monthly invoices. The test was simple: loop through order data, create PDF invoices, save to disk. PDFSharp clocked 47ms per invoice — impressive until we calculated the development cost. Each invoice required 200+ lines of positioning code: calculate header coordinates, draw company logo at (x, y), position each table cell, handle page breaks manually. When the client requested a layout change (add tax breakdown, move footer), we recalculated every coordinate downstream. The "fast" library cost us 40 hours of layout math per UI iteration.</p>
+
+<p>PDFSharp is a low-level PDF construction library built for maximum control. You position every element using X/Y coordinates in points (1/72 inch). <a href="https://ironpdf.com">IronPDF</a> trades explicit control for development velocity — you write HTML/CSS templates and let Chromium handle layout, text wrapping, pagination, and font rendering. This comparison walks through what each library does, how they differ, and which one fits your team's workflow.</p>
+
+<h2>What Is PDFSharp?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>PDFSharp is a low-level PDF construction library that gives you pixel-perfect precision through X/Y coordinate positioning. You place every element manually using points (1/72 inch). This gives maximum control but requires understanding PDF coordinate systems, font metrics, and layout algorithms. The library excels when you're building visualizations, rendering CAD drawings, or creating geometric designs where explicit positioning is the point.</p>
+
+<p>It is open-source under the MIT license and actively maintained. Version 6.2.3 (December 2025) added .NET 9/10 support. Commercial support is available from empira Software GmbH. For document generation from templates, however, you are implementing a layout engine from scratch.</p>
+
+<h2>How Does IronPDF Differ from PDFSharp?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p><a href="https://ironpdf.com">IronPDF</a> shifts the performance characteristic entirely. Instead of calculating coordinates, you write HTML/CSS templates and let the embedded Chromium engine handle layout, text wrapping, pagination, and font rendering. The architecture is straightforward: <code>ChromePdfRenderer</code> wraps a Chromium process, HTML/CSS determines layout, <code>PdfDocument</code> handles the result.</p>
+
+<p>Installation is one NuGet package with Chromium bundled. The library runs cross-platform and supports modern CSS (Flexbox, Grid, media queries). For performance-critical batch operations, renderer reuse and async methods help amortize Chromium startup costs. For teams with web development skills, this is often a net win — you ship features instead of debugging coordinate math.</p>
+
+<h2>How Does HTML-to-PDF Generation Compare?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>PDFSharp has no HTML-to-PDF rendering — it is a graphics API, not a template engine. No CSS support, no JavaScript execution, no web fonts. You cannot reuse web designs or HTML templates. There are no built-in table layouts (you draw rectangles and text manually), no automatic text wrapping (calculate line breaks yourself), and no pagination engine (track height, insert page breaks manually).</p>
+
+<p>IronPDF handles all of this through Chromium. Here is the contrast in code.</p>
+
+<h3>PDFSharp — Coordinate-Based Invoice</h3>
+
+<pre><code>// Install-Package PDFsharp
+
+using System;
+using PdfSharp.Pdf;
+using PdfSharp.Drawing;
+
+public class InvoiceGenerator
+{
+    public void GenerateInvoice()
+    {
+        // Create document
+        PdfDocument document = new PdfDocument();
+        PdfPage page = document.AddPage();
+        XGraphics gfx = XGraphics.FromPdfPage(page);
+
+        // Define fonts (explicit sizing)
+        XFont fontTitle = new XFont("Arial", 24, XFontStyle.Bold);
+        XFont fontNormal = new XFont("Arial", 12, XFontStyle.Regular);
+        XFont fontBold = new XFont("Arial", 12, XFontStyle.Bold);
+
+        // Calculate positions (points from top-left)
+        double leftMargin = 50;
+        double topMargin = 50;
+        double currentY = topMargin;
+
+        // Draw title
+        gfx.DrawString("INVOICE #2026-001", fontTitle, XBrushes.Black, leftMargin, currentY);
+        currentY += 40;
+
+        // Draw invoice info
+        gfx.DrawString($"Date: {DateTime.Now:yyyy-MM-dd}", fontNormal, XBrushes.Black, leftMargin, currentY);
+        currentY += 20;
+        gfx.DrawString("Customer: Acme Corp", fontNormal, XBrushes.Black, leftMargin, currentY);
+        currentY += 40;
+
+        // Draw table header (manual rectangle + text positioning)
+        double tableTop = currentY;
+        double col1X = leftMargin;
+        double col2X = leftMargin + 300;
+        double rowHeight = 25;
+
+        // Header background
+        XRect headerRect = new XRect(col1X, tableTop, page.Width - 100, rowHeight);
+        gfx.DrawRectangle(new XSolidBrush(XColor.FromArgb(240, 240, 240)), headerRect);
+
+        // Header text
+        gfx.DrawString("Description", fontBold, XBrushes.Black, col1X + 5, tableTop + 17);
+        gfx.DrawString("Amount", fontBold, XBrushes.Black, col2X + 5, tableTop + 17);
+        currentY += rowHeight;
+
+        // Draw table row
+        gfx.DrawString("Consulting Services", fontNormal, XBrushes.Black, col1X + 5, currentY + 17);
+        gfx.DrawString("$5,000.00", fontNormal, XBrushes.Black, col2X + 5, currentY + 17);
+        currentY += rowHeight;
+
+        // Draw line
+        gfx.DrawLine(XPens.Black, col1X, currentY, col2X + 100, currentY);
+        currentY += 10;
+
+        // Total
+        gfx.DrawString("Total:", fontBold, XBrushes.Black, col1X + 5, currentY + 17);
+        gfx.DrawString("$5,000.00", fontBold, XBrushes.Black, col2X + 5, currentY + 17);
+
+        // Save
+        document.Save("invoice_pdfsharp.pdf");
+    }
+}
+</code></pre>
+
+<p>Performance characteristics: fast execution with minimal overhead (~10-50ms per document), but high development cost at 40+ lines of positioning code per page. Memory efficient with streaming writes and low heap allocation. No startup delay. Every layout change requires coordinate recalculation.</p>
+
+<h3>IronPDF — HTML Template Invoice</h3>
+
+<pre><code>// Install-Package IronPdf
+
+using IronPdf;
+
+public class InvoiceGenerator
+{
+    public void GenerateInvoice()
+    {
+        var htmlTemplate = @"
+            &lt;html&gt;
+            &lt;head&gt;
+                &lt;style&gt;
+                    body { font-family: Arial; margin: 50px; }
+                    h1 { font-size: 24px; font-weight: bold; }
+                    .info { margin: 20px 0; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                    th { background-color: #f0f0f0; padding: 10px; text-align: left; font-weight: bold; }
+                    td { padding: 10px; border-bottom: 1px solid #ccc; }
+                    .total { font-weight: bold; margin-top: 10px; }
+                &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+                &lt;h1&gt;INVOICE #2026-001&lt;/h1&gt;
+                &lt;div class='info'&gt;
+                    &lt;p&gt;Date: 2026-02-11&lt;/p&gt;
+                    &lt;p&gt;Customer: Acme Corp&lt;/p&gt;
+                &lt;/div&gt;
+                &lt;table&gt;
+                    &lt;tr&gt;&lt;th&gt;Description&lt;/th&gt;&lt;th&gt;Amount&lt;/th&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;Consulting Services&lt;/td&gt;&lt;td&gt;$5,000.00&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;
+                &lt;p class='total'&gt;Total: $5,000.00&lt;/p&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(htmlTemplate);
+        pdf.SaveAs("invoice_ironpdf.pdf");
+    }
+}
+</code></pre>
+
+<p>Performance characteristics: higher per-document overhead with Chromium process startup adding ~200-500ms on first render (amortized with renderer reuse), but lower development cost at 25 lines of HTML/CSS. Layout changes are CSS edits. Designers update HTML/CSS without touching C# code.</p>
+
+<h3>IronPDF Batch Optimization</h3>
+
+<pre><code>// Reuse renderer for batch operations
+var renderer = new ChromePdfRenderer();
+
+foreach (var order in orders) // 10,000 orders
+{
+    var html = GenerateInvoiceHtml(order);
+    var pdf = renderer.RenderHtmlAsPdf(html); // Renderer reuse amortizes startup
+    pdf.SaveAs($"invoice_{order.Id}.pdf");
+}
+// Chromium process started once, not 10,000 times
+</code></pre>
+
+<p>For batch performance patterns, see <a href="https://ironsoftware.com/suite/blog/using-ironsuite/pdf-sdk-guide/">IronPDF performance optimization</a>.</p>
+
+<h2>How Do Merging and Signing Operations Compare?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Both libraries support PDF merging, but the API surface differs significantly. PDFSharp requires iterating through each page and copying individually. IronPDF provides a single-call merge method.</p>
+
+<h3>PDFSharp — Manual Merge Implementation</h3>
+
+<pre><code>// Install-Package PDFsharp
+
+using System;
+using System.IO;
+using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
+
+public class PdfMerger
+{
+    public void MergePdfs()
+    {
+        // Create output document
+        using PdfDocument outputDocument = new PdfDocument();
+
+        string[] inputFiles = { "report1.pdf", "report2.pdf", "report3.pdf" };
+
+        foreach (string file in inputFiles)
+        {
+            // Open input document
+            using PdfDocument inputDocument = PdfReader.Open(file, PdfDocumentOpenMode.Import);
+
+            // Copy each page
+            for (int pageIndex = 0; pageIndex &lt; inputDocument.PageCount; pageIndex++)
+            {
+                PdfPage page = inputDocument.Pages[pageIndex];
+                outputDocument.AddPage(page);
+            }
+        }
+
+        // Save merged document
+        outputDocument.Save("merged.pdf");
+    }
+}
+</code></pre>
+
+<p>Performance characteristics: fast merge with direct page copying and minimal overhead (~5-20ms per page). Memory efficient, streams pages without loading entire documents. No re-rendering — preserves original page content.</p>
+
+<h3>IronPDF — Single-Call Merge</h3>
+
+<pre><code>// Install-Package IronPdf
+
+using IronPdf;
+
+public class PdfMerger
+{
+    public void MergePdfs()
+    {
+        var pdf1 = PdfDocument.FromFile("report1.pdf");
+        var pdf2 = PdfDocument.FromFile("report2.pdf");
+        var pdf3 = PdfDocument.FromFile("report3.pdf");
+
+        var merged = PdfDocument.Merge(pdf1, pdf2, pdf3);
+        merged.SaveAs("merged.pdf");
+    }
+}
+</code></pre>
+
+<p>PDFSharp uses lower overhead with more verbose code (~15 lines vs 5 lines). IronPDF provides a higher-level API with similar performance for merge operations. For advanced merge scenarios, see <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">PDF merge documentation</a>.</p>
+
+<h2>What Does the Feature Comparison Table Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr><th>Aspect</th><th>PDFSharp</th><th>IronPDF</th></tr>
+<tr><td><strong>Current Status</strong></td><td>Active (MIT open-source)</td><td>Active (commercial)</td></tr>
+<tr><td><strong>HTML Support</strong></td><td>None (coordinate-based API)</td><td>Full Chromium engine</td></tr>
+<tr><td><strong>Rendering Quality</strong></td><td>Precise coordinate control</td><td>Browser-grade layout</td></tr>
+<tr><td><strong>Installation</strong></td><td>Single package (multiple builds)</td><td>Single package</td></tr>
+<tr><td><strong>Support</strong></td><td>Community + paid plans</td><td>Commercial</td></tr>
+<tr><td><strong>Future Viability</strong></td><td>Strong OSS maintenance</td><td>Regular commercial updates</td></tr>
+</table>
+
+<table>
+<tr><th>Feature</th><th>PDFSharp</th><th>IronPDF</th></tr>
+<tr><td colspan="3"><strong>Status &amp; Licensing</strong></td></tr>
+<tr><td>License</td><td>MIT (open-source)</td><td>Commercial</td></tr>
+<tr><td>Product Status</td><td>Active maintenance</td><td>Active development</td></tr>
+<tr><td>Source Code</td><td>Available (GitHub)</td><td>Binary only</td></tr>
+<tr><td>.NET Support</td><td>.NET 4.6.2+, .NET 6/8/9/10</td><td>.NET 4.6.2+, .NET 6/8/9/10</td></tr>
+<tr><td>Platform</td><td>Windows/Linux/macOS</td><td>Windows/Linux/macOS</td></tr>
+<tr><td>Commercial Use</td><td>Yes (MIT)</td><td>Requires license</td></tr>
+<tr><td colspan="3"><strong>Content Creation</strong></td></tr>
+<tr><td>HTML to PDF</td><td>No</td><td>Yes (Chromium)</td></tr>
+<tr><td>CSS Support</td><td>No</td><td>CSS3</td></tr>
+<tr><td>JavaScript</td><td>No</td><td>Yes</td></tr>
+<tr><td>Coordinate Drawing</td><td>Yes (core feature)</td><td>No</td></tr>
+<tr><td>Text Drawing</td><td>Manual positioning</td><td>Automatic layout</td></tr>
+<tr><td>Images</td><td>Manual XImage placement</td><td>HTML <code>&lt;img&gt;</code></td></tr>
+<tr><td>Tables</td><td>Manual cell drawing</td><td>HTML tables</td></tr>
+<tr><td>Fonts</td><td>TrueType/Type1/Standard14</td><td>Web fonts</td></tr>
+<tr><td colspan="3"><strong>PDF Operations</strong></td></tr>
+<tr><td>Create PDFs</td><td>Yes (low-level)</td><td>Yes (HTML-based)</td></tr>
+<tr><td>Read PDFs</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Merge PDFs</td><td>Yes (page copy)</td><td>Yes (<code>Merge()</code> method)</td></tr>
+<tr><td>Split PDFs</td><td>Yes (page extraction)</td><td>Yes (<code>CopyPages()</code>)</td></tr>
+<tr><td>Edit PDFs</td><td>Limited (add content)</td><td>Limited</td></tr>
+<tr><td>Rotate Pages</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Extract Text</td><td>Basic</td><td>Yes</td></tr>
+<tr><td>Extract Images</td><td>Yes</td><td>Verify in docs</td></tr>
+<tr><td colspan="3"><strong>Performance Profile</strong></td></tr>
+<tr><td>Startup Time</td><td>&lt;10ms</td><td>~200-500ms (Chromium)</td></tr>
+<tr><td>Per-Doc Overhead</td><td>Low (~10-50ms)</td><td>Moderate (~100-300ms)</td></tr>
+<tr><td>Memory Footprint</td><td>Low (~10-20MB)</td><td>Moderate (~50-100MB)</td></tr>
+<tr><td>Batch Scaling</td><td>Linear</td><td>Amortized with reuse</td></tr>
+<tr><td>Development Time</td><td>High (layout code)</td><td>Low (HTML/CSS)</td></tr>
+<tr><td>Maintenance Cost</td><td>High (coordinate changes)</td><td>Low (template edits)</td></tr>
+</table>
+
+<h2>What Does the API Mapping Between PDFSharp and IronPDF Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr><th>PDFSharp Class/Method</th><th>IronPDF Equivalent</th></tr>
+<tr><td><code>new PdfDocument()</code></td><td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code> (different approach)</td></tr>
+<tr><td><code>document.AddPage()</code></td><td>HTML page-break CSS</td></tr>
+<tr><td><code>XGraphics.FromPdfPage()</code></td><td>Not applicable — HTML rendering</td></tr>
+<tr><td><code>gfx.DrawString()</code></td><td>HTML text elements</td></tr>
+<tr><td><code>gfx.DrawRectangle()</code></td><td>CSS backgrounds/borders</td></tr>
+<tr><td><code>gfx.DrawLine()</code></td><td>CSS borders or <code>&lt;hr&gt;</code></td></tr>
+<tr><td><code>gfx.DrawImage()</code></td><td>HTML <code>&lt;img&gt;</code> tags</td></tr>
+<tr><td><code>XFont()</code></td><td>CSS font properties</td></tr>
+<tr><td><code>PdfReader.Open()</code></td><td><code>PdfDocument.FromFile()</code></td></tr>
+<tr><td><code>document.Pages[i]</code></td><td><code>pdf.CopyPage(i)</code></td></tr>
+<tr><td><code>document.Save()</code></td><td><code>pdf.SaveAs()</code></td></tr>
+<tr><td>MigraDoc document model</td><td>HTML/CSS document structure</td></tr>
+<tr><td>Page size constants</td><td>CSS <code>@page { size: }</code></td></tr>
+</table>
+
+<h2>How Do You Install Each Library?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>PDFSharp Installation</h3>
+
+<pre><code># Core build (cross-platform, requires font resolver)
+dotnet add package PDFsharp
+
+# GDI+ build (Windows, includes GDI+ imaging)
+dotnet add package PDFsharp-gdi
+
+# WPF build (Windows, includes WPF imaging)
+dotnet add package PDFsharp-wpf
+
+# MigraDoc (document model, optional)
+dotnet add package PDFsharp-MigraDoc
+</code></pre>
+
+<pre><code>using PdfSharp.Pdf;
+using PdfSharp.Drawing;
+using MigraDoc.DocumentObjectModel; // If using MigraDoc
+</code></pre>
+
+<h3>IronPDF Installation</h3>
+
+<pre><code>dotnet add package IronPdf
+</code></pre>
+
+<pre><code>using IronPdf;
+</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Is PDFSharp still actively maintained?</h3>
+
+<p>Yes. PDFSharp is open-source under the MIT license with active maintenance. Version 6.2.3 (December 2025) added .NET 9/10 support. Commercial support is available from empira Software GmbH for enterprises needing SLAs. Pre-version-6 APIs differ significantly, but migration guides are available.</p>
+
+<h3>Can PDFSharp render HTML to PDF?</h3>
+
+<p>No. PDFSharp is a graphics API, not a template engine. There is no HTML-to-PDF rendering, no CSS support, no JavaScript execution, and no web fonts. You cannot reuse web designs or HTML templates. MigraDoc (a separate library) adds document abstractions but still lacks HTML rendering.</p>
+
+<h3>Why would I choose PDFSharp over IronPDF?</h3>
+
+<p>PDFSharp excels when you need pixel-perfect coordinate-level control — data visualizations, CAD output, or geometrically precise documents where explicit positioning is essential. The MIT license and zero per-document overhead (~10-50ms) also make it attractive for high-volume batch operations where development time is not a concern.</p>
+
+<h3>What triggers teams to migrate from PDFSharp to IronPDF?</h3>
+
+<p>Coordinate math burnout is the most common trigger. Teams start with simple single-page documents, then requirements expand to multi-column layouts, dynamic tables, and responsive page breaks. When the 10th "just move the footer down 5 points" ticket lands, developers evaluate alternatives. HTML skills reuse also drives migration for web-first teams — if your team knows CSS Grid and Flexbox, rewriting those layouts in coordinate-based code feels backwards.</p>
+
+<h3>How does batch performance compare between the two?</h3>
+
+<p>PDFSharp has lower per-document overhead (~10-50ms) with linear scaling and no startup delay. <a href="https://ironpdf.com">IronPDF</a> has higher first-render overhead (~200-500ms for Chromium startup) but amortizes this with renderer reuse. For most teams, the development time savings — 4-8 hours for an HTML/CSS template versus 40+ hours of coordinate coding — dwarf per-document execution time differences.</p>
+
+<h3>Does IronPDF support modern CSS features that PDFSharp cannot?</h3>
+
+<p>Yes. IronPDF supports CSS3, Flexbox, Grid, media queries, modern JavaScript, and web fonts through its embedded Chromium engine. PDFSharp has no CSS support at all — it is a coordinate-based drawing API. For teams building modern document designs, PDFSharp's lack of CSS hits a ceiling quickly. For HTML template patterns and performance optimization, see <a href="https://ironsoftware.com/suite/blog/using-ironsuite/html-to-pdf-ironpdf-tutorial/">IronPDF HTML rendering guide</a>.</p>
+
+<h2>Which Should Your Team Choose?</h2>
+
+<p>PDFSharp delivers on its promise: complete control over PDF construction at the coordinate level. For teams building data visualizations, CAD output, or geometrically precise documents, this control is essential. The MIT license and active maintenance make it a sustainable open-source choice. If your documents are programmatically generated graphics — charts, diagrams, technical drawings — PDFSharp's API is designed for you.</p>
+
+<p>Migration becomes necessary when coordinate-based positioning has become a maintenance burden exceeding any per-document performance gains, when your team's core competency is web development and rewriting HTML layouts in coordinates feels wasteful, when template-driven document generation (invoices, reports, letters) dominates your workload, or when design iteration speed matters more than raw execution speed.</p>
+
+<p><a href="https://ironpdf.com">IronPDF</a> trades per-document performance for development velocity: HTML/CSS eliminates coordinate math, Chromium handles modern layout, templates enable designer collaboration. The performance profile shifts from "fastest per-document" to "fastest to market." For teams where developer hours cost more than server milliseconds, this is often the right trade. For PDF operations performance, review the <a href="https://ironsoftware.com/suite/blog/using-ironsuite/pdf-sdk-guide/">PDF SDK documentation</a>.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

@@ -1,0 +1,518 @@
+<h1>Migrating from HTMLDOC to IronPDF: Solving Common Migration Pain Points</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Migrate from HTMLDOC to IronPDF?</h2>
+
+<p>You're upgrading your stack to .NET 8 and the PDF generation pipeline just became a problem. HTMLDOC is a command-line tool from the early 2000s. The shell-out wrapper your team wrote years ago is getting less tenable as the surrounding infrastructure modernises. The ASP.NET app targeting .NET 8, the Docker images, the deployment pipeline — they've all moved forward. The PDF generator hasn't.</p>
+
+<p>This is a practical guide to replacing an HTMLDOC-based pipeline with <a href="https://ironpdf.com/">IronPDF</a>. Even if you end up with a different library, the audit steps and migration pattern here transfer.</p>
+
+<p>Here are the neutral triggers I see most often for this migration:</p>
+
+<p><strong>.NET version upgrade.</strong> .NET 8+ targets and the HTMLDOC subprocess wrapper starts feeling like technical debt. The architecture mismatch becomes visible.</p>
+
+<p><strong>Modern CSS support.</strong> HTMLDOC's HTML engine predates CSS Grid, Flexbox, and most CSS3. Templates designed with modern HTML/CSS won't render correctly.</p>
+
+<p><strong>Subprocess management overhead.</strong> Error handling, process cleanup, stderr capture, timeout management, retry logic for a CLI tool is non-trivial code. In-process rendering eliminates this class of problem.</p>
+
+<p><strong>Docker image complexity.</strong> Installing HTMLDOC in container images means managing OS-level package installs, which differ by base image and create maintenance overhead.</p>
+
+<p><strong>Async PDF generation.</strong> Spawning synchronous processes fits awkwardly with async/await patterns. An in-process library integrates cleanly.</p>
+
+<p><strong>No PDF manipulation.</strong> HTMLDOC generates PDFs but doesn't merge, split, watermark, or encrypt them. Teams end up adding secondary libraries.</p>
+
+<p><strong>Output quality on complex documents.</strong> HTMLDOC's renderer has known limitations with tables, page breaks, and multi-column layouts.</p>
+
+<p><strong>CI/CD portability.</strong> HTMLDOC binary availability varies by OS and image. A NuGet package is more portable across build environments.</p>
+
+<h2>Problem 1: How Do I Replace the HTMLDOC Shell-Out Pattern with In-Process Rendering?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>The subprocess-to-in-process architectural shift is the most significant change in this migration. Your current code writes HTML to a temp file, shells out to the <code>htmldoc</code> binary, captures stderr, handles exit codes, reads the output file, and cleans up. All of that collapses into a few lines with IronPDF's <code>ChromePdfRenderer</code>.</p>
+
+<p>First, install IronPDF and remove the HTMLDOC dependency.</p>
+
+<h3>Remove HTMLDOC, Install IronPDF</h3>
+
+<pre><code># Install IronPDF via NuGet
+dotnet add package IronPdf
+dotnet restore
+
+# Remove from Docker image (update your Dockerfile):
+# Remove lines like:
+#   RUN apt-get install -y htmldoc
+#   COPY htmldoc /usr/local/bin/
+
+# Remove from CI/CD pipeline:
+# Find and remove htmldoc install steps in Azure DevOps / GitHub Actions
+rg "htmldoc" .github/ azure-pipelines.yml Dockerfile -l 2&gt;/dev/null
+</code></pre>
+
+<p>Next, set up your license key once at application startup.</p>
+
+<h3>License Configuration</h3>
+
+<p>Before (HTMLDOC — no license, subprocess call):</p>
+
+<pre><code>using System;
+using System.Diagnostics;
+
+// Typical HTMLDOC wrapper pattern
+static string GetHtmlDocPath() =&gt; "/usr/bin/htmldoc"; // or from config
+// No license key — open source CLI tool
+</code></pre>
+
+<p>After (IronPDF):</p>
+
+<pre><code>using IronPdf;
+
+// Set once at application startup
+IronPdf.License.LicenseKey = "YOUR_IRONPDF_LICENSE_KEY";
+// Guide: https://ironpdf.com/how-to/license-keys/
+</code></pre>
+
+<p>Now here is the core migration. This is a realistic production HTMLDOC wrapper that handles temp files, timeouts, error codes, and cleanup.</p>
+
+<h3>Before: HTMLDOC Subprocess Wrapper</h3>
+
+<pre><code>using System;
+using System.Diagnostics;
+using System.IO;
+using System.Threading;
+
+class HtmlToPdfService
+{
+    private readonly string _htmlDocPath;
+
+    public HtmlToPdfService(string htmlDocPath = "htmldoc")
+        =&gt; _htmlDocPath = htmlDocPath;
+
+    public byte[] Render(string html, string margins = "1cm")
+    {
+        var tempHtml = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.html");
+        var tempPdf  = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.pdf");
+
+        try
+        {
+            File.WriteAllText(tempHtml, html, System.Text.Encoding.UTF8);
+
+            var args = $"--webpage -t pdf --outfile \"{tempPdf}\" " +
+                       $"--top {margins} --bottom {margins} " +
+                       $"--left {margins} --right {margins} \"{tempHtml}\"";
+
+            var psi = new ProcessStartInfo(_htmlDocPath, args)
+            {
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var proc = new Process { StartInfo = psi };
+            proc.Start();
+            if (!proc.WaitForExit(60_000))
+            {
+                proc.Kill();
+                throw new TimeoutException("htmldoc timed out after 60 seconds");
+            }
+
+            if (proc.ExitCode != 0)
+                throw new InvalidOperationException(
+                    $"htmldoc exit {proc.ExitCode}: {proc.StandardError.ReadToEnd()}"
+                );
+
+            return File.ReadAllBytes(tempPdf);
+        }
+        finally
+        {
+            if (File.Exists(tempHtml)) File.Delete(tempHtml);
+            if (File.Exists(tempPdf))  File.Delete(tempPdf);
+        }
+    }
+}
+</code></pre>
+
+<h3>After: IronPDF In-Process Rendering</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.MarginTop    = 10; // mm
+renderer.RenderingOptions.MarginBottom = 10;
+renderer.RenderingOptions.MarginLeft   = 10;
+renderer.RenderingOptions.MarginRight  = 10;
+
+var pdf = renderer.RenderHtmlAsPdf("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+pdf.SaveAs("invoice.pdf");
+// Rendering options: https://ironpdf.com/how-to/rendering-options/
+</code></pre>
+
+<p>No temp files. No process management. No stderr capture. The entire subprocess wrapper class is replaced by a few lines. Error handling also changes — you replace exit code checks with standard try/catch:</p>
+
+<h3>Error Handling Migration</h3>
+
+<pre><code>// Replace: if (proc.ExitCode != 0) throw ...
+// With:
+try
+{
+    var pdf = renderer.RenderHtmlAsPdf(html);
+    pdf.SaveAs("output.pdf");
+}
+catch (IronPdf.Exceptions.IronPdfException ex)
+{
+    // Log and handle
+}
+</code></pre>
+
+<h2>Problem 2: How Do I Consolidate Merge, Watermark, and Security Operations into One Library?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>HTMLDOC generates PDFs but cannot merge, watermark, or encrypt them. Most teams I talk to have added PdfSharp or iTextSharp alongside HTMLDOC to cover these gaps. With IronPDF, all of these operations are native, so you can drop the secondary libraries entirely.</p>
+
+<p>Here is the merge pattern. HTMLDOC has no merge feature, so teams typically use PdfSharp.</p>
+
+<h3>Before: Merge with PdfSharp (HTMLDOC Cannot Merge)</h3>
+
+<pre><code>using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
+using System;
+using System.IO;
+
+class MergePdfsExample
+{
+    static void Main()
+    {
+        // HTMLDOC has no merge feature
+        // Teams add PdfSharp or iTextSharp alongside it
+        using var outputDoc = new PdfDocument();
+
+        foreach (string path in new[] { "section1.pdf", "section2.pdf", "section3.pdf" })
+        {
+            if (!File.Exists(path))
+                throw new FileNotFoundException($"PDF not found: {path}");
+
+            using var input = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+            foreach (PdfPage page in input.Pages)
+                outputDoc.AddPage(page);
+        }
+
+        outputDoc.Save("merged.pdf");
+        Console.WriteLine("Merged to: merged.pdf");
+    }
+}
+</code></pre>
+
+<h3>After: Merge with IronPDF</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var merged = PdfDocument.Merge(
+    PdfDocument.FromFile("section1.pdf"),
+    PdfDocument.FromFile("section2.pdf"),
+    PdfDocument.FromFile("section3.pdf")
+);
+merged.SaveAs("merged.pdf");
+// Guide: https://ironpdf.com/how-to/merge-or-split-pdfs/
+</code></pre>
+
+<p>Here is the watermark pattern. HTMLDOC cannot watermark PDFs, so teams typically use iTextSharp.</p>
+
+<h3>Before: Watermark with iTextSharp (HTMLDOC Cannot Watermark)</h3>
+
+<pre><code>using iTextSharp.text;
+using iTextSharp.text.pdf;
+using System.IO;
+using System;
+
+class WatermarkExample
+{
+    static void Main()
+    {
+        // HTMLDOC cannot watermark PDFs
+        // Common pattern: generate via HTMLDOC, then stamp via iTextSharp
+        using var reader  = new PdfReader("generated.pdf");
+        using var fs      = new FileStream("watermarked.pdf", FileMode.Create);
+        using var stamper = new PdfStamper(reader, fs);
+
+        var font = BaseFont.CreateFont(BaseFont.HELVETICA_BOLD, BaseFont.CP1252, false);
+
+        for (int page = 1; page &lt;= reader.NumberOfPages; page++)
+        {
+            var cb = stamper.GetOverContent(page);
+            cb.SaveState();
+            cb.BeginText();
+            cb.SetFontAndSize(font, 60);
+            cb.SetColorFill(new BaseColor(200, 200, 200));
+            cb.ShowTextAligned(Element.ALIGN_CENTER, "DRAFT", 297, 420, 45);
+            cb.EndText();
+            cb.RestoreState();
+        }
+
+        Console.WriteLine("Watermarked: watermarked.pdf");
+    }
+}
+</code></pre>
+
+<h3>After: Watermark with IronPDF</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("generated.pdf");
+var stamper = new TextStamper
+{
+    Text = "DRAFT",
+    FontColor = IronSoftware.Drawing.Color.LightGray,
+    FontSize = 60,
+    Opacity = 30,
+    Rotation = 45,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center
+};
+pdf.ApplyStamp(stamper);
+pdf.SaveAs("watermarked.pdf");
+// Guide: https://ironpdf.com/how-to/custom-watermark/
+</code></pre>
+
+<p>And here is the password protection pattern.</p>
+
+<h3>Before: Password Protection with iTextSharp (HTMLDOC Has No Encryption)</h3>
+
+<pre><code>using iTextSharp.text.pdf;
+using System.IO;
+using System.Text;
+
+class SecurityExample
+{
+    static void Main()
+    {
+        // HTMLDOC has no PDF encryption
+        // Secondary library required
+        byte[] userPass  = Encoding.ASCII.GetBytes("viewonly");
+        byte[] ownerPass = Encoding.ASCII.GetBytes("adminaccess");
+
+        using var reader  = new PdfReader("generated.pdf");
+        using var fs      = new FileStream("secured.pdf", FileMode.Create);
+        using var stamper = new PdfStamper(reader, fs, '\0', false);
+
+        stamper.SetEncryption(
+            userPass, ownerPass,
+            PdfWriter.ALLOW_PRINTING,
+            PdfWriter.ENCRYPTION_AES_128
+        );
+    }
+}
+</code></pre>
+
+<h3>After: Password Protection with IronPDF</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Security;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Confidential Report&lt;/h1&gt;");
+
+pdf.SecuritySettings.UserPassword  = "viewonly";
+pdf.SecuritySettings.OwnerPassword = "adminaccess";
+pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+pdf.SecuritySettings.AllowUserPrinting = PdfPrintSecurity.FullPrintRights;
+pdf.SaveAs("secured.pdf");
+// Guide: https://ironpdf.com/how-to/pdf-permissions-passwords/
+</code></pre>
+
+<h2>Problem 3: How Do I Handle Performance, Concurrency, and Docker Differences After Migrating?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>The architectural shift from a CLI tool to an in-process Chromium-based renderer changes how performance, concurrency, and containerisation work. Here is what I recommend you plan for.</p>
+
+<p><strong>Process startup overhead is gone.</strong> HTMLDOC incurs process spawn overhead per call — roughly 50-200ms depending on the system. IronPDF's in-process renderer amortises startup cost across calls when you reuse the instance:</p>
+
+<h3>Reusing the Renderer Instance</h3>
+
+<pre><code>// Process spawn cost: ~50-200ms per call (system dependent)
+// In-process renderer: startup amortized across calls when reusing instance
+var renderer = new ChromePdfRenderer(); // instantiate once
+for (int i = 0; i &lt; 1000; i++)
+{
+    using var pdf = renderer.RenderHtmlAsPdf(GetHtml(i));
+    pdf.SaveAs($"output_{i}.pdf");
+}
+</code></pre>
+
+<p><strong>Concurrent rendering works differently.</strong> HTMLDOC achieves parallelism naturally through separate processes. IronPDF requires separate renderer instances per thread:</p>
+
+<h3>Parallel Rendering with IronPDF</h3>
+
+<pre><code>Parallel.ForEach(htmlItems, new ParallelOptions { MaxDegreeOfParallelism = 4 }, html =&gt;
+{
+    var renderer = new ChromePdfRenderer(); // one per thread
+    using var pdf = renderer.RenderHtmlAsPdf(html);
+    pdf.SaveAs($"{Guid.NewGuid()}.pdf");
+});
+</code></pre>
+
+<p><strong>Memory footprint is higher.</strong> A Chromium-based in-process renderer has a higher baseline memory footprint than spawning a lightweight CLI tool. Profile this in your environment before sizing containers.</p>
+
+<p><strong>Docker images change.</strong> You remove the HTMLDOC binary install and IronPDF handles its Chromium binaries via NuGet:</p>
+
+<h3>Dockerfile Changes</h3>
+
+<pre><code># Remove from Dockerfile:
+# RUN apt-get install -y htmldoc
+
+# IronPDF installs its Chromium binaries via NuGet
+# Verify IronPDF Docker setup at: https://ironpdf.com/how-to/azure/
+</code></pre>
+
+<p><strong>Render output will differ.</strong> HTMLDOC uses an HTML 4.01-era rendering engine. IronPDF uses Chromium. The output will not be byte-for-byte identical, and for simple HTML it likely won't be visually identical either. Plan for a visual review of all templates. For most teams this is an improvement, but don't assume — verify.</p>
+
+<h2>How Do HTMLDOC and IronPDF Compare Feature by Feature?</h2>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>HTMLDOC</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>HTML-to-PDF/PS via CLI</td><td>HTML-to-PDF + full PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Open source (LGPL)</td><td>Commercial license — verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>CLI flags via subprocess</td><td>In-process .NET library</td></tr>
+<tr><td>Learning Curve</td><td>Low for basic use; shell-out overhead</td><td>Medium — larger API surface</td></tr>
+<tr><td>HTML Rendering</td><td>Custom engine, HTML 4.01 era</td><td>Chromium-based</td></tr>
+<tr><td>Page Indexing</td><td>N/A (generation only)</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Process isolation (naturally parallel)</td><td>Renderer instance reuse — see async docs</td></tr>
+<tr><td>Namespace</td><td>N/A (CLI)</td><td><code>IronPdf</code></td></tr>
+</tbody>
+</table>
+
+<h3>Migration Effort by Feature</h3>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>HTMLDOC Approach</th><th>Effort to Migrate</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string to PDF</td><td>Write to temp file, shell out</td><td>Low</td></tr>
+<tr><td>HTML file to PDF</td><td>Shell out with file arg</td><td>Low</td></tr>
+<tr><td>URL to PDF</td><td>Shell out with URL arg</td><td>Low</td></tr>
+<tr><td>Custom margins</td><td>CLI flags <code>--top</code>, <code>--bottom</code>, etc.</td><td>Low</td></tr>
+<tr><td>Headers / footers</td><td>CLI flags <code>--header</code>, <code>--footer</code></td><td>Medium</td></tr>
+<tr><td>Table of contents</td><td>CLI <code>--toc</code> flag</td><td>Medium — verify IronPDF equivalent</td></tr>
+<tr><td>Merge PDFs</td><td>Not HTMLDOC feature — external lib</td><td>Low (native in IronPDF)</td></tr>
+<tr><td>Watermark</td><td>Not HTMLDOC feature — external lib</td><td>Low</td></tr>
+<tr><td>Password protection</td><td>Not HTMLDOC feature — external lib</td><td>Low</td></tr>
+<tr><td>Modern CSS support</td><td>Not supported</td><td>Low to benefit — automatic</td></tr>
+<tr><td>Async integration</td><td>Subprocess: awkward</td><td>Low — native async API</td></tr>
+</tbody>
+</table>
+
+<h3>API Mapping: Document Loading</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>HTMLDOC</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string</td><td>Write to file, pass file arg</td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td>HTML file</td><td><code>--outfile output.pdf input.html</code></td><td><code>renderer.RenderHtmlFileAsPdf(path)</code></td></tr>
+<tr><td>URL</td><td><code>htmldoc --webpage url</code></td><td><code>renderer.RenderUrlAsPdf(url)</code></td></tr>
+<tr><td>Existing PDF</td><td>N/A (not HTMLDOC feature)</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+</tbody>
+</table>
+
+<h3>API Mapping: Page Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>HTMLDOC</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Paper size</td><td><code>--size A4</code></td><td><code>ChromePdfRenderOptions.PaperSize</code></td></tr>
+<tr><td>Margins</td><td><code>--top 1cm --bottom 1cm</code></td><td><code>ChromePdfRenderOptions.Margin*</code></td></tr>
+<tr><td>Orientation</td><td><code>--landscape</code></td><td><code>ChromePdfRenderOptions.PaperOrientation</code></td></tr>
+<tr><td>DPI</td><td><code>--jpeg</code> / <code>--resolution</code></td><td><code>ChromePdfRenderOptions.DPI</code></td></tr>
+</tbody>
+</table>
+
+<h3>API Mapping: Merge and Split</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>HTMLDOC</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Merge</td><td>External library (not HTMLDOC)</td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
+<tr><td>Split</td><td>External library</td><td><code>pdf.CopyPages(startIndex, endIndex)</code></td></tr>
+</tbody>
+</table>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Is HTMLDOC still maintained?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>HTMLDOC is open source under the LGPL license. It is a command-line tool from the early 2000s with an HTML 4.01-era rendering engine. It does what it does for simple HTML, but it does not support modern CSS features like Grid, Flexbox, or CSS3.</p>
+
+<p>For teams on .NET 8+ with modern HTML templates, the architecture mismatch becomes visible. If your templates work with HTMLDOC's rendering and you don't need PDF manipulation features, it may still serve your needs.</p>
+
+<h3>How difficult is the migration from HTMLDOC to IronPDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Most core operations — HTML string to PDF, HTML file to PDF, URL to PDF, and custom margins — are low effort to migrate. Headers/footers and table of contents are medium effort.</p>
+
+<p>The biggest architectural change is moving from subprocess management (temp files, exit codes, stderr capture, timeout handling) to in-process rendering with standard try/catch error handling. If your team also uses secondary libraries like PdfSharp or iTextSharp for merge, watermark, or encryption, those can be consolidated into IronPDF as well, which simplifies the overall dependency graph.</p>
+
+<h3>Will my PDF output look the same after migrating?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>No. HTMLDOC uses a custom HTML 4.01-era rendering engine. IronPDF uses Chromium. The output will not be byte-for-byte identical, and for simple HTML it likely won't be visually identical either.</p>
+
+<p>Plan for a visual review of all templates. Pay close attention to tables, column layouts, page breaks, and fonts. For most teams this is an improvement — modern CSS features that didn't work at all in HTMLDOC will render correctly — but don't assume. Verify.</p>
+
+<h3>What about Docker and CI/CD pipeline changes?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>HTMLDOC requires OS-level binary installs in your Docker images and CI/CD pipelines. These differ by base image and create maintenance overhead. IronPDF distributes via NuGet and manages its Chromium binaries through the package, which eliminates the binary management problem.</p>
+
+<p>Remove the <code>apt-get install htmldoc</code> lines from your Dockerfile and the corresponding install steps from your CI/CD pipelines. Be aware that the Chromium-based renderer has a higher baseline memory footprint than the lightweight HTMLDOC CLI, so profile your environment before sizing containers.</p>
+
+<h3>Can I use IronPDF with async/await patterns?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. HTMLDOC spawns synchronous processes, which fits awkwardly with async/await patterns. IronPDF provides a native async API that integrates cleanly with modern .NET async pipelines.</p>
+
+<p>For concurrent rendering, create separate <code>ChromePdfRenderer</code> instances per thread rather than sharing a single instance. HTMLDOC achieved parallelism naturally through separate processes; IronPDF requires renderer instance management but avoids the process spawn overhead of roughly 50-200ms per call.</p>
+
+<h2>When Should You Migrate from HTMLDOC to IronPDF?</h2>
+
+<p>Here is my decision matrix based on the scenarios I see most often:</p>
+
+<table>
+<thead>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>Open source + simple HTML only + no modern CSS needed</td><td>HTMLDOC may still serve; evaluate output quality</td></tr>
+<tr><td>Modern CSS templates (Grid, Flexbox, CSS3)</td><td>Switch to Chromium-based renderer — IronPDF, PuppeteerSharp, or others</td></tr>
+<tr><td>Air-gapped with no commercial license approval</td><td>HTMLDOC, wkhtmltopdf, or PuppeteerSharp (all open source)</td></tr>
+<tr><td>.NET 8+ target + Docker + CI/CD portability</td><td>NuGet-distributed library eliminates binary management</td></tr>
+</tbody>
+</table>
+
+<p>The subprocess-to-in-process architectural shift is the most significant change here, not the API surface. Error handling, logging, retry logic, and Docker image management all change character when you go from a CLI tool to a library. If your team is on .NET 8+, uses modern CSS in templates, or needs native merge/watermark/encryption without bolting on secondary libraries, that is the right time to make the switch.</p>

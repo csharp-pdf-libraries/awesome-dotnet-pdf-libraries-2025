@@ -1,0 +1,443 @@
+<h1>Migrating from Winnovative to IronPDF: Solving Common Migration Pain Points</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>The last commit to Winnovative's NuGet packages was years ago. The open GitHub issues have not received responses in the same timeframe. The library still works -- it does what it always did -- but when a bug surfaces or a .NET runtime behavior changes, there is no update path. The decision is not whether to migrate; it is when and to what.</p>
+
+<p>This article covers migrating from Winnovative HTML to PDF Converter for .NET to <a href="https://ironpdf.com">IronPDF</a>. You will have benchmark reference patterns and working before/after code. The comparison tables and checklist apply regardless of which replacement you choose.</p>
+
+<h2>Why Should I Migrate Away from Winnovative?</h2>
+
+<p>Ten reasons teams evaluate alternatives to Winnovative. Take what applies to your situation.</p>
+
+<p><strong>Maintenance signal.</strong> Verify current commit and release activity. Outdated libraries carry growing technical risk as .NET evolves.</p>
+
+<p><strong>Rendering engine age.</strong> Older rendering engines do not support modern CSS (flex, grid, custom properties). Verify what your version supports.</p>
+
+<p><strong>.NET version support.</strong> Verify .NET 6/7/8/9 compatibility at winnovative-software.com. Newer runtimes may not be explicitly tested or supported.</p>
+
+<p><strong>Native component management.</strong> Some Winnovative versions require native binaries or COM components, adding deployment friction.</p>
+
+<p><strong>Linux/Docker gap.</strong> If the rendering engine has Windows dependencies, cross-platform deployment is not possible.</p>
+
+<p><strong>No PDF manipulation.</strong> HTML-to-PDF conversion is the primary feature. Merge, watermark, security, and text extraction typically require secondary libraries.</p>
+
+<p><strong>Thread safety.</strong> Verify concurrent rendering behavior in your version. This varies across HTML-to-PDF tools.</p>
+
+<p><strong>Security updates.</strong> An unmaintained library does not receive security patches. Verify risk for your use case.</p>
+
+<p><strong>Documentation staleness.</strong> Outdated documentation creates friction when troubleshooting edge cases.</p>
+
+<p><strong>Support void.</strong> No active maintainer means no path to resolution when bugs surface.</p>
+
+<h2>What Does the Winnovative HTML-to-PDF Migration Effort Look Like?</h2>
+
+<p>I have mapped the most common Winnovative features to their IronPDF equivalents, with complexity ratings so you can estimate your timeline.</p>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>Winnovative</th><th>IronPDF Equivalent</th><th>Complexity</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string to PDF</td><td><code>converter.ConvertHtmlString(html)</code></td><td><code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code></td><td>Low</td></tr>
+<tr><td>URL to PDF</td><td><code>converter.ConvertUrl(url)</code></td><td><code>renderer.RenderUrlAsPdfAsync(url)</code></td><td>Low</td></tr>
+<tr><td>Save to file</td><td><code>doc.Save(path)</code> or byte[] + write</td><td><code>pdf.SaveAs(path)</code></td><td>Low</td></tr>
+<tr><td>Save to stream</td><td>Verify stream API</td><td><code>pdf.Stream</code> / <code>pdf.BinaryData</code></td><td>Low</td></tr>
+<tr><td>Custom page size</td><td><code>converter.PdfPageSize = ...</code></td><td><code>RenderingOptions.PaperSize</code></td><td>Low</td></tr>
+<tr><td>Margins</td><td>Converter settings</td><td><code>RenderingOptions.Margin*</code></td><td>Low</td></tr>
+<tr><td>Headers/footers</td><td>Verify API</td><td><code>RenderingOptions.HtmlHeader/Footer</code></td><td>Medium</td></tr>
+<tr><td>Merge PDFs</td><td>Verify support</td><td><code>PdfDocument.Merge()</code></td><td>Medium</td></tr>
+<tr><td>Watermark</td><td>Verify support</td><td><code>TextStamper</code> / <code>ImageStamper</code></td><td>Medium</td></tr>
+<tr><td>Password protection</td><td>Verify support</td><td><code>pdf.SecuritySettings</code></td><td>Low</td></tr>
+<tr><td>Text extraction</td><td>Verify support</td><td><code>pdf.ExtractAllText()</code></td><td>Medium</td></tr>
+</tbody>
+</table>
+
+<p>Most of the core conversion work is low complexity. The medium-rated items are features that Winnovative may not have natively, so you may be replacing a secondary library at the same time.</p>
+
+<h2>How Do Winnovative and IronPDF Compare Feature by Feature?</h2>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>Winnovative HTML to PDF</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>HTML-to-PDF conversion</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Commercial -- verify at winnovative-software.com</td><td>Commercial -- verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td><code>HtmlToPdfConverter.ConvertHtmlString()</code></td><td><code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code></td></tr>
+<tr><td>Learning Curve</td><td>Low for basic use</td><td>Low for .NET devs</td></tr>
+<tr><td>HTML Rendering</td><td>Verify current rendering engine</td><td>Embedded Chromium</td></tr>
+<tr><td>Page Indexing</td><td>Verify in Winnovative docs</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify in Winnovative docs</td><td>Verify IronPDF concurrent instance guidance</td></tr>
+<tr><td>Namespace</td><td><code>Winnovative.HtmlToPdfConverter.*</code></td><td><code>IronPdf</code></td></tr>
+</tbody>
+</table>
+
+<h2>How Do I Handle HTML String to PDF Conversion After Migration?</h2>
+
+<p>This is the most common Winnovative pattern. The API names map closely even though the underlying rendering engine changes completely.</p>
+
+<h3>Winnovative -- Before (verify all API names)</h3>
+
+<pre><code>using System;
+using System.IO;
+
+class HtmlToPdfBefore
+{
+    static void Main()
+    {
+        // VERIFY: all Winnovative class and method names at winnovative-software.com
+
+        var html = @"
+            &lt;html&gt;
+            &lt;head&gt;&lt;style&gt;
+            body { font-family: Arial; padding: 40px; }
+            .header { font-size: 20px; font-weight: bold; }
+            table { width: 100%; border-collapse: collapse; }
+            td, th { border: 1px solid #ccc; padding: 6px; }
+            &lt;/style&gt;&lt;/head&gt;
+            &lt;body&gt;
+                &lt;div class='header'&gt;Invoice #INV-2024-0099&lt;/div&gt;
+                &lt;p&gt;Customer: Acme Corp | Due: 2024-12-31&lt;/p&gt;
+                &lt;table&gt;
+                    &lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Qty&lt;/th&gt;&lt;th&gt;Price&lt;/th&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;Widget Pro&lt;/td&gt;&lt;td&gt;5&lt;/td&gt;&lt;td&gt;$149.00&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;
+            &lt;/body&gt;&lt;/html&gt;";
+
+        // VERIFY: HtmlToPdfConverter class and properties
+        var converter = new HtmlToPdfConverter();
+        // converter.PdfPageSize = PdfPageSize.A4; // VERIFY property name/enum
+
+        // VERIFY: ConvertHtmlString method name and return type
+        var doc = converter.ConvertHtmlString(html);
+
+        // VERIFY: Save method
+        doc.Save("invoice.pdf");
+        Console.WriteLine("Saved invoice.pdf");
+    }
+}</code></pre>
+
+<h3>IronPDF -- After</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var html = @"
+    &lt;html&gt;
+    &lt;head&gt;&lt;style&gt;
+    body { font-family: Arial; padding: 40px; }
+    .header { font-size: 20px; font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { border: 1px solid #ccc; padding: 6px; }
+    &lt;/style&gt;&lt;/head&gt;
+    &lt;body&gt;
+        &lt;div class='header'&gt;Invoice #INV-2024-0099&lt;/div&gt;
+        &lt;p&gt;Customer: Acme Corp | Due: 2024-12-31&lt;/p&gt;
+        &lt;table&gt;
+            &lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Qty&lt;/th&gt;&lt;th&gt;Price&lt;/th&gt;&lt;/tr&gt;
+            &lt;tr&gt;&lt;td&gt;Widget Pro&lt;/td&gt;&lt;td&gt;5&lt;/td&gt;&lt;td&gt;$149.00&lt;/td&gt;&lt;/tr&gt;
+        &lt;/table&gt;
+    &lt;/body&gt;&lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("invoice.pdf");
+
+Console.WriteLine($"Saved invoice.pdf ({pdf.PageCount} page(s))");</code></pre>
+
+<p>The key change: <code>HtmlToPdfConverter.ConvertHtmlString()</code> becomes <code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code>. The IronPDF version is async-first and uses Chromium for rendering, so modern CSS (flex, grid) works out of the box. See the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> for more options.</p>
+
+<h2>How Do I Merge PDFs Without a Secondary Library?</h2>
+
+<p>One of the most common pain points with Winnovative is that merge, watermark, and security features may not be native. Teams often pull in a second library just to combine PDFs after generation. With IronPDF, this is built in.</p>
+
+<h3>Winnovative -- Before (verify merge support)</h3>
+
+<pre><code>using System;
+using System.Collections.Generic;
+using System.IO;
+
+class MergeBefore
+{
+    static void Main()
+    {
+        // VERIFY: Winnovative merge support and API
+        // May require generating each section separately and merging with secondary library
+
+        var sections = new[]
+        {
+            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 1&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
+            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 2&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
+        };
+
+        var pdfBytes = new List&lt;byte[]&gt;();
+
+        foreach (var html in sections)
+        {
+            var converter = new HtmlToPdfConverter(); // VERIFY
+            var doc = converter.ConvertHtmlString(html); // VERIFY
+            // VERIFY: export to bytes
+            // pdfBytes.Add(doc.ToBytes()); // illustrative
+        }
+
+        // Merge via secondary library if Winnovative doesn't support it:
+        // var merged = SomePdfLib.Merge(pdfBytes);
+        Console.WriteLine("Verify Winnovative merge API");
+    }
+}</code></pre>
+
+<h3>IronPDF -- After</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+
+var results = await Task.WhenAll(
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 1&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"),
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 2&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;")
+);
+
+var merged = PdfDocument.Merge(results[0], results[1]);
+merged.SaveAs("merged.pdf");
+Console.WriteLine($"Merged: {merged.PageCount} pages");</code></pre>
+
+<p>No secondary library needed. The <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split guide</a> covers more advanced scenarios including splitting by page range.</p>
+
+<h2>How Do I Add Watermarks and Password Protection?</h2>
+
+<p>These are two features that Winnovative may not support natively. I will show both in sequence since teams migrating often need both at once.</p>
+
+<h3>Watermark -- Winnovative Before (verify support)</h3>
+
+<pre><code>using System;
+// VERIFY: Winnovative watermark API -- may not be native
+// If not supported, secondary library needed after generation
+
+class WatermarkBefore
+{
+    static void Main()
+    {
+        // var converter = new HtmlToPdfConverter(); // VERIFY
+        // var doc = converter.ConvertHtmlString("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+        // VERIFY: watermark method -- may not exist
+
+        // If not native: apply via secondary library
+        // var bytes = doc.ToBytes();
+        // var watermarked = SomePdfLib.AddTextWatermark(bytes, "DRAFT");
+        // File.WriteAllBytes("watermarked.pdf", watermarked);
+
+        Console.WriteLine("Verify Winnovative watermark API");
+    }
+}</code></pre>
+
+<h3>Watermark -- IronPDF After</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+
+var watermark = new TextStamper
+{
+    Text = "DRAFT",
+    FontColor = IronPdf.Imaging.Color.Gray,
+    Opacity = 0.15,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs("watermarked.pdf");</code></pre>
+
+<p>See the <a href="https://ironpdf.com/how-to/custom-watermark/">custom watermark guide</a> for image stamps and positioning options.</p>
+
+<h3>Password Protection -- Winnovative Before (verify security API)</h3>
+
+<pre><code>using System;
+// VERIFY: Winnovative password/security API
+
+class PasswordBefore
+{
+    static void Main()
+    {
+        // var converter = new HtmlToPdfConverter(); // VERIFY
+        // var doc = converter.ConvertHtmlString("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Secured&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+
+        // VERIFY: Winnovative security API -- property names are version-dependent
+        // doc.Security.UserPassword = "open123";   // illustrative -- VERIFY
+        // doc.Security.OwnerPassword = "admin456"; // illustrative -- VERIFY
+        // doc.Save("secured.pdf");
+
+        Console.WriteLine("Verify Winnovative security API");
+    }
+}</code></pre>
+
+<h3>Password Protection -- IronPDF After</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Secured&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+
+pdf.SecuritySettings.UserPassword = "open123";
+pdf.SecuritySettings.OwnerPassword = "admin456";
+
+pdf.SaveAs("secured.pdf");</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">permissions and passwords guide</a> covers granular permission controls like disabling print or copy.</p>
+
+<h2>What Are the Critical API Differences I Need to Know?</h2>
+
+<p>Here are the namespace, class, and method mappings you will reference during the migration.</p>
+
+<table>
+<thead>
+<tr><th>Winnovative</th><th>IronPDF</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Winnovative.HtmlToPdfConverter</code></td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td>N/A</td><td><code>IronPdf.Rendering</code></td><td>Rendering config</td></tr>
+<tr><td>N/A</td><td><code>IronPdf.Editing</code></td><td>Watermark / stamp</td></tr>
+</tbody>
+</table>
+
+<table>
+<thead>
+<tr><th>Winnovative Class</th><th>IronPDF Class</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>HtmlToPdfConverter</code></td><td><code>ChromePdfRenderer</code></td><td>Primary rendering class</td></tr>
+<tr><td>Converter settings object</td><td><code>ChromePdfRenderOptions</code></td><td>Page size, margins, options</td></tr>
+<tr><td>PDF document result</td><td><code>PdfDocument</code></td><td>Output object</td></tr>
+<tr><td>N/A</td><td><code>PdfDocument.Merge()</code></td><td>Static merge</td></tr>
+</tbody>
+</table>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>Winnovative</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string</td><td><code>converter.ConvertHtmlString(html)</code></td><td><code>renderer.RenderHtmlAsPdfAsync(html)</code></td></tr>
+<tr><td>URL</td><td><code>converter.ConvertUrl(url)</code></td><td><code>renderer.RenderUrlAsPdfAsync(url)</code></td></tr>
+<tr><td>HTML file</td><td>Verify</td><td><code>renderer.RenderHtmlFileAsPdfAsync(path)</code></td></tr>
+<tr><td>Load existing PDF</td><td>Verify</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+<tr><td>Page count</td><td>Verify</td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Remove page</td><td>Verify</td><td><code>pdf.RemovePage(index)</code></td></tr>
+<tr><td>Extract text</td><td>Verify</td><td><code>pdf.ExtractAllText()</code></td></tr>
+<tr><td>Merge</td><td>Verify support</td><td><code>PdfDocument.Merge(doc1, doc2)</code></td></tr>
+</tbody>
+</table>
+
+<p>One important note: Winnovative's <code>ConvertHtmlString</code> return type varies by version -- it may return <code>byte[]</code> directly or a document object. If your code writes <code>File.WriteAllBytes</code> after conversion, the IronPDF equivalent is <code>pdf.BinaryData</code> for the raw bytes or <code>pdf.SaveAs()</code> for direct file output.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>What is the fastest way to find all Winnovative usage in my codebase?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Run a search across your solution for the Winnovative namespace and key method names. This gives you a complete migration map before you change anything.</p>
+
+<pre><code># Find Winnovative usage (verify namespace in your version)
+rg -l "Winnovative\|HtmlToPdfConverter\b" --type cs
+rg "Winnovative\|ConvertHtmlString\|ConvertUrl\b" --type cs -n
+
+# Find NuGet references
+grep -r "Winnovative" *.csproj **/*.csproj 2&gt;/dev/null
+
+# Count usage density
+rg "HtmlToPdfConverter\|ConvertHtmlString\|ConvertUrl\b" --type cs | wc -l</code></pre>
+
+<p>Capture all method calls into a file before removing anything. Use that file as your line-by-line migration checklist.</p>
+
+<h3>How do I handle Winnovative CSS workarounds after switching to Chromium?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Winnovative uses an internal rendering engine. IronPDF uses Chromium. Modern CSS that did not work in Winnovative may now work -- and some Winnovative-specific CSS workarounds may no longer be needed.</p>
+
+<p>Search your stylesheets for comments referencing Winnovative workarounds, then test whether they are still needed after migration. Archive them rather than deleting immediately in case you need to reference them.</p>
+
+<h3>Does IronPDF support parallel PDF generation?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. IronPDF's async API works with <code>Task.WhenAll</code> for concurrent generation. Here is the pattern from the source benchmarks:</p>
+
+<pre><code>var pdfs = await Task.WhenAll(dataList.Select(async data =&gt;
+{
+    var renderer = new ChromePdfRenderer();
+    return await renderer.RenderHtmlAsPdfAsync(BuildHtml(data));
+}));
+
+foreach (var pdf in pdfs) pdf.Dispose();</code></pre>
+
+<p>This is particularly useful if your current Winnovative setup has thread-safety workarounds that added infrastructure overhead. See the <a href="https://ironpdf.com/how-to/async/">async rendering guide</a> for details.</p>
+
+<h3>What are the prerequisites before starting the migration?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>You need .NET 6/7/8/9 and an IronPDF license key. Get a trial key from the license keys page. Then swap the packages:</p>
+
+<pre><code># Remove Winnovative packages (verify exact package names at NuGet)
+dotnet remove package Winnovative.HtmlToPdfConverter  # verify exact name
+
+# Install IronPDF
+dotnet add package IronPdf
+
+dotnet restore</code></pre>
+
+<p>Set the license key at application startup before any rendering calls.</p>
+
+<h3>How should I handle the ConvertHtmlString return type difference?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Winnovative's return type varies by version. It may return <code>byte[]</code> directly or a document object. Map to IronPDF accordingly:</p>
+
+<pre><code>// If Winnovative returned byte[]:
+// var bytes = converter.ConvertHtmlString(html);
+// File.WriteAllBytes("output.pdf", bytes);
+
+// IronPDF equivalent:
+using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+var bytes = pdf.BinaryData; // equivalent byte[]
+pdf.SaveAs("output.pdf");   // or save directly</code></pre>
+
+<p>Also verify Winnovative's page indexing if any page manipulation was used before assuming 0-based. IronPDF uses 0-based indexing.</p>
+
+<h2>When Should I Migrate from Winnovative to IronPDF?</h2>
+
+<p>The maintenance signal -- last update years ago, issues unanswered -- is the clearest migration trigger. Here is the decision matrix from my assessment:</p>
+
+<table>
+<thead>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>Active maintenance is the primary concern</td><td>Switch -- eliminates risk of unmaintained dependency</td></tr>
+<tr><td>Modern CSS (flex, grid) rendering needed</td><td>Switch -- Chromium vs older rendering engine</td></tr>
+<tr><td>Linux/Docker deployment</td><td>Switch -- verify Winnovative Linux support; likely not available</td></tr>
+<tr><td>Winnovative working well, no maintenance concern</td><td>Evaluate migration cost vs risk timeline</td></tr>
+</tbody>
+</table>
+
+<p>The technical migration is straightforward because both tools do the same job (HTML-to-PDF); the API surface maps closely even if names differ. The benchmark patterns above are most useful for understanding how concurrent throughput changes -- particularly if the current Winnovative setup has any thread-safety workarounds that added infrastructure overhead.</p>

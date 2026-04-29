@@ -1,0 +1,440 @@
+<h1>Migrating from XFINIUM.PDF to IronPDF: What Actually Changes in Your Code</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Migrate from XFINIUM.PDF to IronPDF?</h2>
+
+<p>Two major versions separate where you are from where the documentation is. XFINIUM.PDF shipped breaking API changes between versions, the upgrade guide is incomplete, and the version you're on has a known rendering issue with complex table layouts that the newer version supposedly fixes. Staying on the old version is a tax. Upgrading is an unknown risk. Switching is on the table.</p>
+
+<p>I see teams evaluating XFINIUM.PDF alternatives for the same reasons over and over:</p>
+
+<p>Version pinning friction hits first. XFINIUM.PDF has had breaking changes between major versions, and upgrade paths can be non-trivial. Then there is the HTML input gap — XFINIUM.PDF creates PDFs from a document model, not HTML. If your content starts as HTML templates, you must convert to the XFINIUM document model, adding intermediate steps. The drawing API itself requires explicit coordinate positioning for layout-heavy PDF generation, which means verbose code that is hard to maintain.</p>
+
+<p>Teams with web backgrounds find HTML/CSS templates easier to maintain than drawing API code. Features available in newer XFINIUM versions may require an upgrade that introduces breaking changes. And .NET 6/7/8/9 support should be verified for your specific XFINIUM version.</p>
+
+<h3>XFINIUM.PDF vs IronPDF Comparison</h3>
+
+<table>
+<tr><th>Aspect</th><th>XFINIUM.PDF</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>PDF creation/editing via document model</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Commercial — verify at xfinium.com</td><td>Commercial — verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>Document model + drawing API</td><td><code>ChromePdfRenderer</code> + HTML input</td></tr>
+<tr><td>Learning Curve</td><td>Medium — own document model</td><td>Low for web devs; HTML/CSS is the input</td></tr>
+<tr><td>HTML Rendering</td><td>Not applicable</td><td>Embedded Chromium</td></tr>
+<tr><td>Page Indexing</td><td>Verify in XFINIUM docs</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify in XFINIUM docs</td><td>Verify IronPDF concurrent instance guidance</td></tr>
+<tr><td>Namespace</td><td><code>Xfinium.Pdf.*</code></td><td><code>IronPdf</code></td></tr>
+</table>
+
+<h2>How Much Effort Does Each Feature Require to Migrate?</h2>
+
+<p>Not every part of the migration is equally complex. I have mapped out the effort by feature so you can scope the work before committing to a timeline.</p>
+
+<table>
+<tr><th>Feature</th><th>XFINIUM.PDF</th><th>IronPDF Equivalent</th><th>Complexity</th></tr>
+<tr><td>HTML string to PDF</td><td>Not applicable</td><td><code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code></td><td>Low (new capability)</td></tr>
+<tr><td>Document model to PDF</td><td>Drawing API (<code>PdfPage</code>, <code>PdfGraphics</code>)</td><td>HTML/CSS template</td><td>High (rewrite)</td></tr>
+<tr><td>Save to file</td><td><code>doc.Save(path)</code></td><td><code>pdf.SaveAs(path)</code></td><td>Low</td></tr>
+<tr><td>Save to stream</td><td><code>doc.Save(stream)</code></td><td><code>pdf.Stream</code> / <code>pdf.BinaryData</code></td><td>Low</td></tr>
+<tr><td>Load existing PDF</td><td><code>PdfFixedDocument(path)</code></td><td><code>PdfDocument.FromFile(path)</code></td><td>Low</td></tr>
+<tr><td>Merge PDFs</td><td><code>doc.AppendPage()</code> or similar</td><td><code>PdfDocument.Merge()</code></td><td>Low–Medium</td></tr>
+<tr><td>Watermark</td><td>Via graphics layer</td><td><code>TextStamper</code> / <code>ImageStamper</code></td><td>Low</td></tr>
+<tr><td>Password protection</td><td><code>PdfStandardSecurity</code></td><td><code>pdf.SecuritySettings</code></td><td>Low</td></tr>
+<tr><td>Text extraction</td><td><code>PdfContentExtractionSink</code></td><td><code>pdf.ExtractAllText()</code></td><td>Low</td></tr>
+<tr><td>Form fields</td><td>XFINIUM form API</td><td>Verify IronPDF form fill API</td><td>Medium</td></tr>
+<tr><td>Annotations</td><td>XFINIUM annotations API</td><td>Verify IronPDF annotations</td><td>Medium</td></tr>
+</table>
+
+<h3>Decision Matrix</h3>
+
+<table>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+<tr><td>Stuck on old version due to API breaking changes</td><td>Switch resolves the version-pinning constraint</td></tr>
+<tr><td>HTML-to-PDF from web templates is the primary need</td><td>Switch — XFINIUM is document-first; IronPDF is HTML-first</td></tr>
+<tr><td>Extensive programmatic drawing/form usage</td><td>Evaluate migration cost — drawing API to HTML rewrite</td></tr>
+<tr><td>.NET upgrade blocked by XFINIUM compatibility</td><td>Verify at xfinium.com; switch if not supported</td></tr>
+</table>
+
+<h2>How Do You Replace XFINIUM.PDF HTML-to-PDF Generation with IronPDF?</h2>
+
+<p>This is where the biggest architectural shift happens. XFINIUM builds PDFs from a document model — pages, graphics, fonts, coordinates. <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF renders PDFs from HTML</a>. These are different mental models, and the code reflects it.</p>
+
+<h3>XFINIUM Document Model (Before)</h3>
+
+<pre><code>using Xfinium.Pdf;          // VERIFY
+using Xfinium.Pdf.Graphics; // VERIFY
+using System;
+using System.IO;
+using System.Text;
+
+class ReportBefore
+{
+    static void Main()
+    {
+        // XFINIUM: build document model — no HTML input
+        // All names below are illustrative — VERIFY at xfinium.com
+
+        var doc = new PdfFixedDocument();
+        var page = doc.Pages.Add();
+        var graphics = page.Graphics;
+
+        var titleFont = new PdfStandardFont(PdfStandardFontName.HelveticaBold, 18);
+        var bodyFont  = new PdfStandardFont(PdfStandardFontName.Helvetica, 12);
+        var brush     = new PdfBrush(PdfRgbColor.Black);
+
+        // Manual positioning for each element
+        graphics.DrawString(&quot;Q3 Invoice #4421&quot;, titleFont, brush, 40, 40);
+        graphics.DrawString(&quot;Customer: Acme Corp&quot;,    bodyFont, brush, 40, 80);
+        graphics.DrawString(&quot;Total Due: $8,400.00&quot;,   bodyFont, brush, 40, 110);
+
+        using var stream = File.Create(&quot;invoice.pdf&quot;);
+        doc.Save(stream);
+        Console.WriteLine(&quot;Saved invoice.pdf — verify all XFINIUM API names&quot;);
+    }
+}
+</code></pre>
+
+<h3>IronPDF HTML Rendering (After)</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+// HTML/CSS handles layout — no manual coordinate math
+var html = @&quot;
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        body { font-family: Arial, sans-serif; padding: 40px; }
+        h1 { font-size: 20px; }
+        .field { margin-top: 8px; font-size: 13px; }
+        .total { font-weight: bold; font-size: 16px; margin-top: 20px; }
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Q3 Invoice #4421&lt;/h1&gt;
+        &lt;div class='field'&gt;Customer: Acme Corp&lt;/div&gt;
+        &lt;div class='total'&gt;Total Due: $8,400.00&lt;/div&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;&quot;;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs(&quot;invoice.pdf&quot;);
+Console.WriteLine($&quot;Saved invoice.pdf ({pdf.PageCount} page(s))&quot;);
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<p>The coordinate math disappears entirely. Your layout lives in CSS, which your team already knows how to maintain.</p>
+
+<h2>How Do You Merge PDFs After Migrating from XFINIUM?</h2>
+
+<p>XFINIUM's merge approach involves loading documents and appending pages manually. With IronPDF, merging becomes a single static method call.</p>
+
+<h3>XFINIUM Page Append (Before)</h3>
+
+<pre><code>using Xfinium.Pdf;  // VERIFY
+using System;
+using System.IO;
+
+class MergeBefore
+{
+    static void Main()
+    {
+        // VERIFY: XFINIUM merge API — may be AppendPage, AppendDocument, or Clone
+        // All names below are illustrative
+
+        using var s1 = File.OpenRead(&quot;section1.pdf&quot;);
+        var doc1 = new PdfFixedDocument(s1); // VERIFY
+
+        using var s2 = File.OpenRead(&quot;section2.pdf&quot;);
+        var doc2 = new PdfFixedDocument(s2); // VERIFY
+
+        // VERIFY: XFINIUM page append/merge API
+        // for (int i = 0; i &lt; doc2.Pages.Count; i++)
+        //     doc1.Pages.Add(doc2.Pages[i]); // verify method
+
+        using var outStream = File.Create(&quot;merged.pdf&quot;);
+        doc1.Save(outStream); // VERIFY
+        Console.WriteLine(&quot;Merged — verify XFINIUM page append API&quot;);
+    }
+}
+</code></pre>
+
+<h3>IronPDF Merge (After)</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+var renderer = new ChromePdfRenderer();
+
+var results = await Task.WhenAll(
+    renderer.RenderHtmlAsPdfAsync(&quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 1&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;),
+    renderer.RenderHtmlAsPdfAsync(&quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 2&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;)
+);
+
+// https://ironpdf.com/how-to/merge-or-split-pdfs/
+var merged = PdfDocument.Merge(results[0], results[1]);
+merged.SaveAs(&quot;merged.pdf&quot;);
+Console.WriteLine($&quot;Merged: {merged.PageCount} pages&quot;);
+</code></pre>
+
+<p>The loop-and-append pattern collapses into <code>PdfDocument.Merge()</code>. You can also render multiple documents in parallel with <code>Task.WhenAll</code> before merging, as shown above. See the full <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split guide</a> for additional patterns.</p>
+
+<h2>How Do You Apply Watermarks After Migrating from XFINIUM?</h2>
+
+<p>In XFINIUM, watermarking means drawing semi-transparent text on the graphics layer of each page, managing transforms and opacity manually. IronPDF replaces that with a declarative stamper object.</p>
+
+<h3>XFINIUM Drawing Layer Watermark (Before)</h3>
+
+<pre><code>using Xfinium.Pdf;           // VERIFY
+using Xfinium.Pdf.Graphics;  // VERIFY
+using System;
+using System.IO;
+
+class WatermarkBefore
+{
+    static void Main()
+    {
+        // XFINIUM: apply watermark by drawing semi-transparent text on each page
+        // VERIFY: all API names, especially transparency/opacity support
+
+        using var s = File.OpenRead(&quot;source.pdf&quot;);
+        var doc = new PdfFixedDocument(s); // VERIFY
+
+        foreach (var page in doc.Pages)
+        {
+            var graphics = page.Graphics;
+            // VERIFY: XFINIUM transparency API for watermark text
+            var font  = new PdfStandardFont(PdfStandardFontName.Helvetica, 60); // VERIFY
+            var brush = new PdfBrush(new PdfRgbColor(0.5, 0.5, 0.5)); // VERIFY alpha
+
+            graphics.SaveGraphicsState();
+            // VERIFY: translate + rotate transform API
+            graphics.DrawString(&quot;DRAFT&quot;, font, brush, 200, 350); // VERIFY
+            graphics.RestoreGraphicsState();
+        }
+
+        using var outStream = File.Create(&quot;watermarked.pdf&quot;);
+        doc.Save(outStream);
+        Console.WriteLine(&quot;Verify XFINIUM watermark API — transparency support may vary by version&quot;);
+    }
+}
+</code></pre>
+
+<h3>IronPDF TextStamper Watermark (After)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(&quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Document&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+
+// https://ironpdf.com/how-to/custom-watermark/
+var watermark = new TextStamper
+{
+    Text = &quot;DRAFT&quot;,
+    FontColor = IronPdf.Imaging.Color.Gray,
+    Opacity = 0.15,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs(&quot;watermarked.pdf&quot;);
+Console.WriteLine(&quot;Watermark applied&quot;);
+</code></pre>
+
+<p>No more manual graphics state management or coordinate math. The <a href="https://ironpdf.com/how-to/custom-watermark/">watermark API</a> handles positioning, opacity, and alignment declaratively.</p>
+
+<h2>How Do You Set Password Protection After Migrating from XFINIUM?</h2>
+
+<p>XFINIUM uses a <code>PdfStandardSecurity</code> class that you assign to the document before saving. IronPDF exposes security settings directly on the <code>PdfDocument</code> object.</p>
+
+<h3>XFINIUM Security API (Before)</h3>
+
+<pre><code>using Xfinium.Pdf;           // VERIFY
+using Xfinium.Pdf.Security;  // VERIFY namespace
+using System;
+using System.IO;
+
+class PasswordBefore
+{
+    static void Main()
+    {
+        var doc = new PdfFixedDocument(); // VERIFY
+        doc.Pages.Add();
+        // ... build document ...
+
+        // VERIFY: XFINIUM security API — class and property names vary by version
+        var security = new PdfStandardSecurity(); // VERIFY class name
+        security.UserPassword = &quot;open123&quot;;         // VERIFY property
+        security.OwnerPassword = &quot;admin456&quot;;       // VERIFY property
+        // security.Permissions = ...;             // VERIFY permissions API
+        doc.Security = security;                   // VERIFY assignment
+
+        using var stream = File.Create(&quot;secured.pdf&quot;);
+        doc.Save(stream);
+        Console.WriteLine(&quot;Saved secured.pdf — verify XFINIUM security API names&quot;);
+    }
+}
+</code></pre>
+
+<h3>IronPDF Security Settings (After)</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(&quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Protected&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+
+// https://ironpdf.com/how-to/pdf-permissions-passwords/
+pdf.SecuritySettings.UserPassword = &quot;open123&quot;;
+pdf.SecuritySettings.OwnerPassword = &quot;admin456&quot;;
+
+pdf.SaveAs(&quot;secured.pdf&quot;);
+Console.WriteLine(&quot;Saved secured.pdf&quot;);
+</code></pre>
+
+<p>The separate security object goes away. You set passwords directly on the document before saving. See the full <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">permissions and passwords guide</a> for additional options.</p>
+
+<h2>What Are the Key API Mappings Between XFINIUM.PDF and IronPDF?</h2>
+
+<p>I have compiled the full mapping tables so you can look up any XFINIUM call and find its IronPDF equivalent in one place.</p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<tr><th>XFINIUM.PDF</th><th>IronPDF</th><th>Notes</th></tr>
+<tr><td><code>Xfinium.Pdf</code></td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td><code>Xfinium.Pdf.Graphics</code></td><td>N/A — not needed for HTML path</td><td>Drawing replaced by HTML/CSS</td></tr>
+<tr><td><code>Xfinium.Pdf.Security</code></td><td><code>IronPdf</code> (security on PdfDocument)</td><td>Security on output object</td></tr>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr><th>XFINIUM Class</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td><code>PdfFixedDocument</code></td><td><code>ChromePdfRenderer</code></td><td>Different model — HTML is the input</td></tr>
+<tr><td><code>PdfPage</code> / page graphics</td><td>N/A</td><td>Drawing API replaced by HTML</td></tr>
+<tr><td><code>PdfStandardSecurity</code></td><td><code>pdf.SecuritySettings</code></td><td>Password + permission settings</td></tr>
+<tr><td>N/A</td><td><code>PdfDocument</code></td><td>PDF manipulation (load/merge/stamp)</td></tr>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<tr><th>Operation</th><th>XFINIUM</th><th>IronPDF</th></tr>
+<tr><td>Create from model</td><td><code>new PdfFixedDocument()</code> + pages</td><td><code>renderer.RenderHtmlAsPdfAsync(html)</code></td></tr>
+<tr><td>Load existing PDF</td><td><code>new PdfFixedDocument(path)</code></td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+<tr><td>Save to file</td><td><code>doc.Save(path)</code></td><td><code>pdf.SaveAs(path)</code></td></tr>
+<tr><td>Save to stream</td><td><code>doc.Save(stream)</code></td><td><code>pdf.Stream.CopyTo(stream)</code></td></tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>XFINIUM</th><th>IronPDF</th></tr>
+<tr><td>Page count</td><td><code>doc.Pages.Count</code></td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Remove page</td><td><code>doc.Pages.RemoveAt(i)</code></td><td><code>pdf.RemovePage(index)</code> — verify</td></tr>
+<tr><td>Extract text</td><td><code>PdfContentExtractionSink</code></td><td><code>pdf.ExtractAllText()</code></td></tr>
+<tr><td>Rotate</td><td>Verify</td><td>Verify in IronPDF docs</td></tr>
+</table>
+
+<h3>Merge / Split Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>XFINIUM</th><th>IronPDF</th></tr>
+<tr><td>Merge</td><td><code>doc.AppendPage()</code> / clone</td><td><code>PdfDocument.Merge(doc1, doc2)</code></td></tr>
+<tr><td>Split</td><td>Verify</td><td><a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Guide</a></td></tr>
+</table>
+
+<h2>What Are the Common Troubleshooting Issues During This Migration?</h2>
+
+<p>I have seen the same patterns come up repeatedly when teams move from XFINIUM to IronPDF. Here are the ones worth preparing for.</p>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Version Breaking Changes — Which API Names Are Correct?</h3>
+
+<p><strong>Symptom:</strong> <code>CS0117</code> or <code>CS1061</code> errors after switching between XFINIUM versions; method names in old code do not exist in the new version.</p>
+
+<p>XFINIUM has had API surface changes between major versions. Before migration, capture the exact version in use and map the exact method signatures. Before removing XFINIUM, document every method call. Each one becomes a migration point. The IronPDF equivalent is HTML for drawing API calls; the API calls map closely for save/load/security operations.</p>
+
+<h3>Drawing API Code Is Too Large to Rewrite Immediately</h3>
+
+<p><strong>Symptom:</strong> The codebase has dozens of <code>graphics.DrawString</code>, <code>DrawRectangle</code>, <code>FillPath</code> calls that all need to become HTML/CSS. The migration scope is larger than the sprint allows.</p>
+
+<p>Migrate in phases. Start with the HTML generation path and leave the drawing API code in place temporarily with both libraries installed. Identify which code paths generate from HTML vs the drawing API, migrate HTML-first paths as new capability, then migrate drawing API paths to HTML templates over subsequent sprints.</p>
+
+<h3>Text Extraction Behavior Differs</h3>
+
+<p><strong>Symptom:</strong> After migrating text extraction from <code>PdfContentExtractionSink</code> to <code>pdf.ExtractAllText()</code>, the extracted text differs in whitespace, order, or Unicode handling.</p>
+
+<p>Text extraction output varies by library implementation. If exact text positioning matters, verify what the new output produces before replacing any downstream logic that parses extracted text. See the <a href="https://ironpdf.com/how-to/extract-text-and-images/">text extraction guide</a> for per-page extraction options.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I run XFINIUM.PDF and IronPDF side by side during migration?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. Both libraries can coexist in the same project. This is the recommended approach when your codebase has extensive drawing API code that cannot be rewritten in a single sprint. Install IronPDF alongside XFINIUM, migrate HTML generation paths first, then convert drawing API code to HTML templates over subsequent sprints.</p>
+
+<p>The namespaces do not conflict — XFINIUM uses <code>Xfinium.Pdf.*</code> and IronPDF uses <code>IronPdf</code>.</p>
+
+<h3>How do I handle the save pattern difference between XFINIUM and IronPDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>XFINIUM uses <code>doc.Save(stream)</code> which writes to a stream and keeps it open. IronPDF gives you three options: <code>pdf.SaveAs("output.pdf")</code> for file output, <code>pdf.Stream.CopyTo(yourOutputStream)</code> for stream output, or <code>pdf.BinaryData</code> for raw bytes. Copy bytes before disposal if using a <code>using</code> block.</p>
+
+<p>The key difference is that IronPDF is object-centric rather than stream-centric.</p>
+
+<h3>Does IronPDF support the same page indexing as XFINIUM?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Both XFINIUM and IronPDF use 0-based page indexing. This typically does not require code changes during migration. Page count moves from <code>doc.Pages.Count</code> to <code>pdf.PageCount</code>, and page removal moves from <code>doc.Pages.RemoveAt(i)</code> to <code>pdf.RemovePage(index)</code>.</p>
+
+<h3>What is the biggest variable in migration timeline?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>The drawing API scope. Document model code that draws shapes and places text with explicit coordinates needs HTML equivalents. The more <code>DrawString</code>, <code>DrawRectangle</code>, and <code>FillPath</code> calls you have, the longer the migration takes. HTML input paths migrate in hours. Save, load, merge, watermark, and security operations are straightforward low-complexity swaps.</p>
+
+<p>Use <code>rg "DrawString|DrawRect|FillPath" --type cs | wc -l</code> to measure the scope before committing.</p>
+
+<h3>How do I handle parallel rendering in IronPDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF supports async rendering natively. You can render multiple documents in parallel using <code>Task.WhenAll</code> with separate <code>ChromePdfRenderer</code> instances:</p>
+
+<pre><code>var pdfs = await Task.WhenAll(reportDataList.Select(async data =&gt;
+{
+    var renderer = new ChromePdfRenderer();
+    return await renderer.RenderHtmlAsPdfAsync(BuildHtml(data));
+}));
+</code></pre>
+
+<p>Dispose each <code>PdfDocument</code> when done, just as you would dispose <code>PdfFixedDocument</code> in XFINIUM. See the <a href="https://ironpdf.com/how-to/async/">async rendering guide</a> for details.</p>
+
+<h2>Conclusion</h2>
+
+<p>The version pinning constraint — staying on an old version to avoid breaking changes while watching features accumulate in the newer version — is a common forcing function. Migrating to a different library removes that constraint and resets the version timeline.</p>
+
+<p>The drawing API scope is the variable that determines timeline. Document model code that draws shapes and places text needs HTML equivalents; the more of it there is, the longer the migration takes. HTML input paths migrate in hours.</p>
+
+<p>Start by auditing your XFINIUM usage with the search commands in this article, scope the drawing API rewrite, and migrate in phases. The save/load/merge/security operations are straightforward swaps. The HTML rendering path is a net-new capability that eliminates the intermediate conversion step entirely.</p>

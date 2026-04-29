@@ -1,0 +1,465 @@
+<h1>Migrating from Ghostscript to IronPDF in C#: The Complete Guide</h1>
+
+<p>Ghostscript is a powerful PostScript/PDF interpreter, but it's not a .NET library. It's a native C binary that you invoke via subprocess, P/Invoke, or a third-party wrapper like <code>Ghostscript.NET</code>. If you've been running it in production .NET applications, you know the drill: platform-specific binary paths, argument string construction, stderr parsing for error detection, and native package management in every container and CI runner.</p>
+
+<p>I built <a href="https://ironpdf.com/">IronPDF</a> as a managed .NET library that eliminates that entire layer of subprocess complexity. The migration isn't just swapping one PDF tool for another — it's replacing a native binary dependency with a NuGet package. In this guide, I'll walk you through why teams make this move, what the effort looks like for each feature, and show you complete before/after code for every common operation.</p>
+
+<h2>Why Should I Migrate from Ghostscript to IronPDF?</h2>
+
+<p>Teams using Ghostscript in .NET applications encounter a familiar set of issues depending on their use case and deployment environment.</p>
+
+<p><strong>GPL/AGPL license obligations</strong> — Ghostscript under GPL requires derivative works to also be GPL unless a commercial license is purchased. This alone drives migration for commercial software.</p>
+
+<p><strong>No first-party .NET library</strong> — Ghostscript requires subprocess invocation or third-party wrappers. Both add fragility. Path resolution, process management, and argument escaping are error-prone across environments.</p>
+
+<p><strong>Native binary dependency</strong> — Ghostscript must be installed on every machine, container, and CI runner. Version mismatches cause subtle failures. <code>gswin64c.exe</code> vs. <code>gs</code> adds conditional logic to process invocations.</p>
+
+<p><strong>No HTML-to-PDF capability</strong> — Ghostscript doesn't render HTML. If you've added a web-based report layer, you're already using a second tool.</p>
+
+<p><strong>Error handling and thread safety</strong> — Ghostscript returns exit codes and stderr output. Structured error handling requires parsing text. Running multiple Ghostscript processes concurrently requires process management that a managed library handles natively.</p>
+
+<p><strong>Container overhead</strong> — <code>apt-get install ghostscript</code> in Dockerfiles pulls native dependencies. Image sizes grow and dependency audits become more complex.</p>
+
+<h2>How Do the Two Libraries Compare Feature by Feature?</h2>
+
+<table>
+<tr><th>Aspect</th><th>Ghostscript (via .NET wrapper/subprocess)</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>PostScript/PDF interpretation, rasterization, conversion</td><td>HTML-to-PDF rendering + document manipulation</td></tr>
+<tr><td>Pricing</td><td>GPL (free with AGPL conditions) or commercial license</td><td>Commercial license</td></tr>
+<tr><td>API Style</td><td>Subprocess args / P/Invoke / wrapper library</td><td>Fluent .NET library</td></tr>
+<tr><td>Learning Curve</td><td>High — PostScript model, arg-based configuration</td><td>Medium — .NET-native API</td></tr>
+<tr><td>HTML Rendering</td><td>Not supported</td><td>Primary capability (Chromium-based)</td></tr>
+<tr><td>Page Indexing</td><td>1-based in most CLI contexts</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Process-per-operation (subprocess) or verify wrapper</td><td>Renderer-per-thread recommended</td></tr>
+<tr><td>Namespace</td><td><code>Ghostscript.NET</code> (third-party) or System.Diagnostics.Process</td><td><code>IronPdf</code></td></tr>
+</table>
+
+<p>The key takeaway: Ghostscript is a PostScript interpreter you call from .NET. IronPDF is a .NET library you call from .NET. The integration model is fundamentally different.</p>
+
+<h2>What Is the Migration Effort for Each Feature?</h2>
+
+<table>
+<tr><th>Feature</th><th>Effort</th><th>Notes</th></tr>
+<tr><td>HTML to PDF</td><td>Low (IronPDF)</td><td>Ghostscript can't do this; IronPDF is new capability</td></tr>
+<tr><td>PDF to image (rasterize)</td><td>Medium-High</td><td>Ghostscript strength; verify IronPDF rasterization</td></tr>
+<tr><td>PDF merge</td><td>Low</td><td>IronPDF supports; Ghostscript merge via <code>-sDEVICE=pdfwrite</code></td></tr>
+<tr><td>PDF split</td><td>Medium</td><td>Both support; different API shape</td></tr>
+<tr><td>PDF compression</td><td>Medium</td><td>Ghostscript <code>-dPDFSETTINGS</code> vs IronPDF compression options</td></tr>
+<tr><td>PostScript to PDF</td><td>N/A for IronPDF</td><td>Ghostscript-only; no IronPDF equivalent</td></tr>
+<tr><td>Font embedding</td><td>Medium</td><td>Handled differently in Chromium-based rendering</td></tr>
+<tr><td>Password protection</td><td>Low</td><td>IronPDF supports natively</td></tr>
+<tr><td>Watermarking</td><td>Low</td><td>IronPDF supports natively</td></tr>
+<tr><td>Batch processing</td><td>Medium</td><td>Subprocess batching → managed async pattern</td></tr>
+</table>
+
+<p>Be honest with yourself about PostScript processing. If your pipeline processes <code>.ps</code> input files, IronPDF cannot replace that. You have two options: retain Ghostscript for that single step, or restructure the input pipeline to start from HTML/PDF.</p>
+
+<h2>How Do I Set Up My Project for IronPDF?</h2>
+
+<h3>Remove Ghostscript and Install IronPDF</h3>
+
+<pre><code>// Remove Ghostscript.NET wrapper (if used — verify package name)
+dotnet remove package Ghostscript.NET
+
+// Add IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+</code></pre>
+
+<p>The Ghostscript native binary installation is separate from any NuGet wrapper. If you remove all Ghostscript usages, you can also remove the native binary from container images, Dockerfiles, and CI provisioning scripts.</p>
+
+<h3>Configure Your License Key</h3>
+
+<p><strong>Before (Ghostscript — no .NET license initialization):</strong></p>
+
+<pre><code>// Ghostscript doesn't have a .NET license initialization step.
+// Licensing is handled at the OS/binary level.
+// GPL usage is governed by Ghostscript's AGPL license terms — verify legal compliance.
+using System.Diagnostics;
+
+// Typical Ghostscript process setup:
+var psi = new ProcessStartInfo
+{
+    FileName  = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                    ? "gswin64c.exe"
+                    : "gs",
+    Arguments = "-dNOPAUSE -dBATCH ...", // varies per operation
+    RedirectStandardOutput = true,
+    RedirectStandardError  = true,
+    UseShellExecute = false
+};
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+// See: https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = "YOUR_IRONPDF_KEY";
+// One line. No binary path resolution. No platform branching.
+</code></pre>
+
+<p>One line replaces an entire <code>ProcessStartInfo</code> block with platform branching. That's the difference between a native binary and a managed library. You can get your <a href="https://ironpdf.com/how-to/license-keys/">IronPDF license key here</a>.</p>
+
+<h3>Update Namespace Imports</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>using System.Diagnostics;
+using System.Runtime.InteropServices;
+// If using Ghostscript.NET wrapper:
+// using Ghostscript.NET;
+// using Ghostscript.NET.Processor;
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+using IronPdf.Editing;
+</code></pre>
+
+<h2>How Do I Migrate HTML-to-PDF Generation?</h2>
+
+<p>This is the most common reason teams migrate. Ghostscript does not render HTML to PDF. If you have an HTML-to-PDF requirement with Ghostscript in your stack, you're likely using a second tool — wkhtmltopdf, headless Chrome, or some intermediate PostScript conversion.</p>
+
+<h3>Ghostscript Approach (Not Applicable)</h3>
+
+<pre><code>// Ghostscript does not render HTML to PDF.
+// If you have an HTML-to-PDF requirement with Ghostscript in your stack,
+// you're likely using a second tool (wkhtmltopdf, headless Chrome, etc.)
+// or converting HTML→PostScript→PDF via an intermediate step.
+
+// Ghostscript can convert PostScript to PDF:
+// gs -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -sOutputFile=out.pdf in.ps
+// But this is PostScript, not HTML.
+
+Console.WriteLine("Ghostscript cannot render HTML; this is new capability in IronPDF");
+</code></pre>
+
+<h3>IronPDF HTML-to-PDF Rendering</h3>
+
+<pre><code>using IronPdf;
+
+// See: https://ironpdf.com/how-to/html-string-to-pdf/
+IronPdf.License.LicenseKey = "YOUR_KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+string html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;p&gt;Generated via IronPDF.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;";
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+Console.WriteLine($"Created {pdf.PageCount} page(s)");
+</code></pre>
+
+<p>With IronPDF, you get full Chromium rendering. Your HTML templates look exactly like they do in a browser. Learn more about <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF conversion</a>.</p>
+
+<h2>How Do I Migrate PDF Merging?</h2>
+
+<p>PDF merging is one of the most common Ghostscript operations in .NET. The Ghostscript approach uses <code>-sDEVICE=pdfwrite</code> with multiple input files. It works, but it's a lot of subprocess ceremony for what should be a simple operation.</p>
+
+<h3>Ghostscript Merge via Subprocess</h3>
+
+<pre><code>using System.Diagnostics;
+using System.Runtime.InteropServices;
+
+class MergeExample
+{
+    static void Main(string[] args)
+    {
+        string[] inputFiles = { "file1.pdf", "file2.pdf", "file3.pdf" };
+        string outputFile   = "merged.pdf";
+
+        string gs = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                        ? "gswin64c.exe" : "gs";
+
+        // Escape and join input paths
+        string inputs = string.Join(" ", inputFiles.Select(f =&gt; $"\"{f}\""));
+
+        var psi = new ProcessStartInfo
+        {
+            FileName  = gs,
+            Arguments = $"-dNOPAUSE -dBATCH -sDEVICE=pdfwrite " +
+                        $"-dCompatibilityLevel=1.7 " +
+                        $"-sOutputFile=\"{outputFile}\" {inputs}",
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            UseShellExecute        = false
+        };
+
+        using var proc = Process.Start(psi)!;
+        string stderr = proc.StandardError.ReadToEnd();
+        proc.WaitForExit();
+
+        if (proc.ExitCode != 0)
+            throw new Exception($"Ghostscript merge failed (exit {proc.ExitCode}): {stderr}");
+
+        Console.WriteLine($"Merged to {outputFile}");
+    }
+}
+</code></pre>
+
+<h3>IronPDF Merge</h3>
+
+<pre><code>using IronPdf;
+
+// See: https://ironpdf.com/how-to/merge-or-split-pdfs/
+IronPdf.License.LicenseKey = "YOUR_KEY";
+
+var docs = new[] { "file1.pdf", "file2.pdf", "file3.pdf" }
+              .Select(PdfDocument.FromFile)
+              .ToList();
+
+using var merged = PdfDocument.Merge(docs);
+merged.SaveAs("merged.pdf");
+foreach (var d in docs) d.Dispose();
+Console.WriteLine($"Merged: {merged.PageCount} pages");
+</code></pre>
+
+<p>Three lines of actual logic replace 25+ lines of subprocess management. No binary path resolution, no argument string construction, no exit code parsing. See the full <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split documentation</a>.</p>
+
+<h2>How Do I Migrate Watermarking?</h2>
+
+<p>Ghostscript watermarking requires injecting PostScript content via a stamp/overlay file. It's a non-trivial approach that involves creating a temporary PostScript file, defining font and positioning commands, then merging it with the target PDF. IronPDF replaces all of that with a <code>TextStamper</code> object.</p>
+
+<h3>Ghostscript Watermark via PostScript Injection</h3>
+
+<pre><code>using System.Diagnostics;
+using System.IO;
+
+class WatermarkExample
+{
+    static void Main(string[] args)
+    {
+        // Ghostscript watermarking requires injecting PostScript content
+        // via a stamp/overlay file — a non-trivial approach
+
+        // Step 1: Create a PostScript watermark file
+        string watermarkPs = Path.GetTempFileName() + ".ps";
+        File.WriteAllText(watermarkPs, @"
+            /watermark {
+                gsave
+                0.3 setgray
+                /Helvetica-Bold 40 selectfont
+                200 400 moveto
+                45 rotate
+                (CONFIDENTIAL) show
+                grestore
+            } def
+        ");
+
+        // Step 2: Apply via Ghostscript — exact args vary
+        // This is a simplified illustration; real implementation is more involved
+        string gs = System.Runtime.InteropServices.RuntimeInformation
+                         .IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows)
+                         ? "gswin64c.exe" : "gs";
+
+        var psi = new ProcessStartInfo
+        {
+            FileName  = gs,
+            Arguments = $"-dNOPAUSE -dBATCH -sDEVICE=pdfwrite " +
+                        $"-sOutputFile=\"watermarked.pdf\" " +
+                        $"\"{watermarkPs}\" \"input.pdf\"",
+            UseShellExecute = false
+        };
+        using var proc = Process.Start(psi)!;
+        proc.WaitForExit();
+        File.Delete(watermarkPs);
+    }
+}
+</code></pre>
+
+<h3>IronPDF Watermark</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = "YOUR_KEY";
+
+using var pdf = PdfDocument.FromFile("input.pdf");
+
+var stamp = new TextStamper
+{
+    Text                = "CONFIDENTIAL",
+    FontSize            = 40,
+    Opacity             = 0.3,
+    Rotation            = -45,
+    VerticalAlignment   = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center
+};
+
+pdf.ApplyStamp(stamp);
+pdf.SaveAs("watermarked.pdf");
+</code></pre>
+
+<p>No temporary PostScript files. No PostScript language knowledge. A <code>TextStamper</code> object with readable properties replaces an entire PostScript code block and subprocess invocation.</p>
+
+<h2>How Do I Migrate Password Protection?</h2>
+
+<p>Ghostscript handles encryption via command-line arguments: <code>-sOwnerPassword</code>, <code>-sUserPassword</code>, <code>-dEncryptionR</code>, and a permission bitmask that requires looking up the PDF spec. IronPDF replaces all of that with typed properties.</p>
+
+<h3>Ghostscript Password Protection</h3>
+
+<pre><code>using System.Diagnostics;
+using System.Runtime.InteropServices;
+
+class SecurityExample
+{
+    static void Main(string[] args)
+    {
+        string gs = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                        ? "gswin64c.exe" : "gs";
+
+        // Ghostscript password protection via -sOwnerPassword / -sUserPassword
+        var psi = new ProcessStartInfo
+        {
+            FileName  = gs,
+            Arguments = "-dNOPAUSE -dBATCH -sDEVICE=pdfwrite " +
+                        "-dEncryptionR=3 -dKeyLength=128 " +
+                        "-sOwnerPassword=owner456 " +
+                        "-sUserPassword=user123 " +
+                        "-dPermissions=-3904 " +      // permission bitmask — verify values
+                        "-sOutputFile=\"protected.pdf\" \"input.pdf\"",
+            RedirectStandardError = true,
+            UseShellExecute       = false
+        };
+
+        using var proc = Process.Start(psi)!;
+        proc.WaitForExit();
+
+        if (proc.ExitCode != 0)
+            throw new Exception($"Ghostscript encryption failed: {proc.StandardError.ReadToEnd()}");
+
+        Console.WriteLine("Protected PDF created");
+    }
+}
+</code></pre>
+
+<h3>IronPDF Password Protection</h3>
+
+<pre><code>using IronPdf;
+
+// See: https://ironpdf.com/how-to/pdf-permissions-passwords/
+IronPdf.License.LicenseKey = "YOUR_KEY";
+
+using var pdf = PdfDocument.FromFile("input.pdf");
+
+pdf.SecuritySettings.UserPassword  = "user123";
+pdf.SecuritySettings.OwnerPassword = "owner456";
+pdf.SecuritySettings.AllowUserPrinting         = PdfPrintSecurity.FullPrintRights;
+pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+
+pdf.SaveAs("protected.pdf");
+</code></pre>
+
+<p>No permission bitmask. No encryption revision numbers. Typed boolean properties tell you exactly what each setting does. See the full <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">permissions and passwords documentation</a>.</p>
+
+<h2>What Are the Critical Migration Gotchas?</h2>
+
+<p>There are three things that will catch you if you don't plan for them.</p>
+
+<h3>Page Indexing: 1-Based to 0-Based</h3>
+
+<p>Ghostscript CLI uses 1-based page numbering (<code>-dFirstPage=1</code>). IronPDF uses 0-based indexing. Every page number calculation in your codebase needs adjustment.</p>
+
+<pre><code>// Ghostscript: -dFirstPage=1 -dLastPage=3 extracts pages 1, 2, 3
+// IronPDF equivalent:
+int[] pageIndices = { 0, 1, 2 }; // 0-based: first three pages
+using var extracted = pdf.CopyPages(pageIndices);
+</code></pre>
+
+<h3>Error Handling: Exit Codes to Exceptions</h3>
+
+<p>Ghostscript returns exit codes. IronPDF raises exceptions. Remove all <code>ExitCode != 0</code> checks and replace with try/catch.</p>
+
+<pre><code>// Replace exit code checks:
+// if (proc.ExitCode != 0) throw new Exception(...)
+
+// With exception handling:
+try
+{
+    using var pdf = PdfDocument.FromFile("input.pdf");
+    // operations
+}
+catch (IronPdf.Exceptions.PdfException ex)
+{
+    // Structured exception with message, no stderr parsing
+    Console.Error.WriteLine(ex.Message);
+}
+</code></pre>
+
+<h3>No PostScript Support</h3>
+
+<p>IronPDF cannot interpret PostScript (<code>.ps</code>) files. If your pipeline processes <code>.ps</code> input, you have two options: convert PostScript to PDF first (retain Ghostscript for that step only), or restructure the input pipeline to start from HTML/PDF.</p>
+
+<h2>How Does Parallel Processing Compare?</h2>
+
+<p>Ghostscript parallel processing requires managing multiple OS processes. IronPDF parallel processing uses standard .NET <code>Task</code>/<code>Parallel</code> patterns with one <code>ChromePdfRenderer</code> per task.</p>
+
+<pre><code>var results = await Task.WhenAll(
+    htmlDocuments.Select(async html =&gt;
+    {
+        var r = new ChromePdfRenderer();
+        using var pdf = await r.RenderHtmlAsPdfAsync(html);
+        return pdf.BinaryData;
+    })
+);
+</code></pre>
+
+<p>Removing Ghostscript from Docker images also reduces the native dependency footprint. IronPDF adds Chromium binaries, so measure net image size before and after.</p>
+
+<pre><code>// Before: Ghostscript in Dockerfile
+// RUN apt-get update &amp;&amp; apt-get install -y ghostscript
+
+// After: remove above line; IronPDF handles Chromium deps automatically
+</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can IronPDF replace Ghostscript for PostScript processing?</h3>
+
+<p><strong>Answer:</strong> No. IronPDF cannot interpret PostScript (<code>.ps</code>) files. If your pipeline requires PostScript interpretation, retain Ghostscript for that specific step. You can migrate all other PDF operations — merging, splitting, watermarking, password protection, HTML-to-PDF — to IronPDF while keeping a minimal Ghostscript deployment for PostScript only.</p>
+
+<p>Alternatively, restructure your input pipeline so PostScript files are converted to PDF upstream, then IronPDF handles everything from that point forward.</p>
+
+<h3>How do I handle the page indexing difference between Ghostscript and IronPDF?</h3>
+
+<p><strong>Answer:</strong> Ghostscript CLI uses 1-based page numbering (<code>-dFirstPage=1</code>). IronPDF uses 0-based indexing. Audit every page number calculation in your codebase and subtract 1. For example, Ghostscript's <code>-dFirstPage=1 -dLastPage=3</code> becomes <code>pdf.CopyPages(new[] { 0, 1, 2 })</code> in IronPDF.</p>
+
+<p>This is the most common source of off-by-one bugs during migration. Add explicit unit tests for page extraction to catch these early.</p>
+
+<h3>What happens to my Ghostscript error handling code?</h3>
+
+<p><strong>Answer:</strong> Ghostscript returns exit codes and writes errors to stderr. IronPDF raises structured <code>IronPdf.Exceptions.PdfException</code> exceptions. Remove all <code>proc.ExitCode != 0</code> checks and stderr parsing. Replace them with standard try/catch blocks.</p>
+
+<p>The exception messages from IronPDF are descriptive — no need to parse text output to determine what went wrong.</p>
+
+<h3>Is IronPDF suitable for PDF-to-image rasterization?</h3>
+
+<p><strong>Answer:</strong> IronPDF supports rasterization, but this is Ghostscript's core strength. If rasterization quality and performance are critical to your workflow, benchmark IronPDF's output against Ghostscript's before committing to the migration for that specific feature.</p>
+
+<p>The effort rating for this migration path is Medium-High. Test with your actual documents and verify the output meets your requirements.</p>
+
+<h3>Do I need to change my Docker configuration?</h3>
+
+<p><strong>Answer:</strong> Yes. Remove <code>apt-get install ghostscript</code> from your Dockerfiles. IronPDF handles its Chromium dependencies automatically. The native Ghostscript binary, any wrapper configurations, and CI runner setup scripts that install Ghostscript can all be removed once you've verified the migration is complete.</p>
+
+<p>Measure your container image size before and after — Ghostscript and IronPDF have different dependency footprints.</p>
+
+<h3>What licensing considerations should I be aware of?</h3>
+
+<p><strong>Answer:</strong> Ghostscript under GPL/AGPL requires derivative works to also be GPL unless a commercial license is purchased from Artifex Software. This is a significant concern for commercial software distribution. IronPDF uses a straightforward commercial license — one line of code sets your key and you're done.</p>
+
+<p>Verify your current Ghostscript licensing situation with your legal team before and during the migration. If GPL compliance is driving the migration, document the removal of all Ghostscript references for your compliance audit.</p>
+
+<h2>What Is the Bottom Line on This Migration?</h2>
+
+<p>The Ghostscript migration is often the most impactful from an architecture perspective, because Ghostscript isn't a .NET library — it's a native binary invoked via subprocess. Replacing it with a managed NuGet package removes an entire category of deployment complexity: binary path resolution, platform-specific process names, stderr parsing for error detection, and native package management in containers.</p>
+
+<p>The capability gaps are real. PostScript interpretation and certain rasterization workflows don't have direct IronPDF equivalents. For those, retaining a minimal Ghostscript deployment or restructuring the pipeline is the honest answer.</p>
+
+<p>For everything else — HTML-to-PDF rendering, PDF merging, watermarking, password protection, and page manipulation — the migration path is well-defined and the code reduction is dramatic. Start by auditing your Ghostscript subprocess calls, identify which argument patterns map to IronPDF operations, and migrate feature by feature.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

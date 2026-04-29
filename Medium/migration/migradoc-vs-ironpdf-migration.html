@@ -1,0 +1,457 @@
+<h1>Migrating from MigraDoc to IronPDF: Solving Common Migration Pain Points</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>The pipeline worked fine on your dev machine. Then it went into the CI container and started failing with font-related errors on every build. MigraDoc's renderer depends on GDI+ internals that behave differently on Linux &mdash; in Alpine-based containers particularly, the <code>libgdiplus</code> dependency either isn't present, isn't the right version, or produces rendering artefacts that don't show up locally.</p>
+
+<p>I wrote this guide to walk through the real failure modes you will hit migrating from MigraDoc to <a href="https://ironpdf.com/">IronPDF</a>, with a troubleshooting-first structure: the problems that commonly surface, how to diagnose them, and the code changes that resolve them.</p>
+
+<h2>Why Should I Migrate from MigraDoc to IronPDF?</h2>
+
+<p>Beyond CI/CD failures, here are the common reasons teams make this switch:</p>
+
+<p><strong><code>System.Drawing.Common</code> deprecation on Linux</strong> &mdash; breaking change in .NET 7+ that affects MigraDoc versions with this dependency.</p>
+
+<p><strong>Programmatic vs HTML-first</strong> &mdash; MigraDoc requires building documents in code. Teams with HTML templates don't have a natural migration path within MigraDoc.</p>
+
+<p><strong>CSS/modern layout not supported</strong> &mdash; MigraDoc has its own style system, not CSS. Web-first teams find the mental model mismatch expensive.</p>
+
+<p><strong>No HTML renderer</strong> &mdash; converting existing HTML templates requires either converting them to MigraDoc's DOM or adding a second library.</p>
+
+<p><strong>Limited manipulation features</strong> &mdash; MigraDoc's strength is document generation; merging, watermarking, and encrypting existing PDFs requires PDFsharp directly or additional libraries.</p>
+
+<p><strong>Licensing trajectory</strong> &mdash; verify current licensing status; ensure commercial use terms haven't changed.</p>
+
+<p><strong>Debug difficulty</strong> &mdash; visual debugging of layout issues is harder via a DOM API than via HTML preview in a browser.</p>
+
+<p><strong>Limited async support</strong> &mdash; verify current async API surface in your MigraDoc version.</p>
+
+<h2>How Do I Diagnose CI/CD Failures Before Migrating?</h2>
+
+<p>Before touching migration code, understand exactly what's breaking in your pipeline. The failure mode shapes the fix.</p>
+
+<h3>Symptom: TypeInitializationException or DllNotFoundException referencing libgdi+</h3>
+
+<pre><code># Check if libgdiplus is present in your container
+docker run --rm your-image ldconfig -p | grep gdi
+
+# If missing, the quick fix for Debian/Ubuntu base images:
+RUN apt-get update &amp;&amp; apt-get install -y libgdiplus</code></pre>
+
+<p>This is a temporary fix. It adds an OS-level dependency to your image and must be validated each time the base image updates.</p>
+
+<h3>Symptom: Fonts render differently in CI than locally</h3>
+
+<p>MigraDoc relies on font resolution that can differ between Windows (dev) and Linux (CI).</p>
+
+<pre><code># List available fonts in your container
+docker run --rm your-image fc-list
+
+# If font-config not installed:
+RUN apt-get install -y fontconfig
+
+# Install specific fonts if needed (e.g., liberation fonts)
+RUN apt-get install -y fonts-liberation</code></pre>
+
+<h3>Symptom: Works in .NET 6 but breaks in .NET 7+</h3>
+
+<p><code>System.Drawing.Common</code> was restricted to Windows in .NET 6 (with a warning) and throws <code>PlatformNotSupportedException</code> on Linux in .NET 7+ by default. MigraDoc versions that depend on <code>System.Drawing.Common</code> will fail.</p>
+
+<pre><code># Check if your MigraDoc version has this dependency
+dotnet list package --include-transitive | grep -i drawing</code></pre>
+
+<p>If it does, you need either a newer MigraDoc version or a different library.</p>
+
+<h2>How Do I Convert MigraDoc Tables to HTML for IronPDF?</h2>
+
+<p>MigraDoc tables use an explicit column/row/cell model with precise width control. HTML tables are more flexible but require CSS for the same level of control. This is the conversion pattern I see teams struggle with most.</p>
+
+<h3>MigraDoc table (before)</h3>
+
+<pre><code>using MigraDoc.DocumentObjectModel;
+using MigraDoc.DocumentObjectModel.Tables;
+using MigraDoc.Rendering;
+using PdfSharp.Pdf;
+
+class TableExample
+{
+    static void Main()
+    {
+        var doc = new Document();
+        var section = doc.AddSection();
+
+        var table = section.AddTable();
+        table.Borders.Width = 0.75;
+
+        // Define columns with explicit widths
+        table.AddColumn("3cm");
+        table.AddColumn("5cm");
+        table.AddColumn("3cm");
+
+        // Header row
+        var row = table.AddRow();
+        row.Shading.Color = MigraDoc.DocumentObjectModel.Colors.LightGray;
+        row.Cells[0].AddParagraph("Product");
+        row.Cells[1].AddParagraph("Description");
+        row.Cells[2].AddParagraph("Price");
+
+        // Data row
+        row = table.AddRow();
+        row.Cells[0].AddParagraph("Widget A");
+        row.Cells[1].AddParagraph("Standard widget");
+        row.Cells[2].AddParagraph("$50.00");
+
+        var renderer = new PdfDocumentRenderer(unicode: true);
+        renderer.Document = doc;
+        renderer.RenderDocument();
+        renderer.PdfDocument.Save("table.pdf");
+    }
+}</code></pre>
+
+<h3>IronPDF HTML/CSS table (after)</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+string html = @"
+&lt;html&gt;&lt;head&gt;&lt;style&gt;
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #999; padding: 6px 10px; }
+  th { background: #d3d3d3; font-weight: bold; }
+  .col-product { width: 27%; }
+  .col-desc    { width: 46%; }
+  .col-price   { width: 27%; }
+&lt;/style&gt;&lt;/head&gt;&lt;body&gt;
+  &lt;table&gt;
+    &lt;tr&gt;
+      &lt;th class='col-product'&gt;Product&lt;/th&gt;
+      &lt;th class='col-desc'&gt;Description&lt;/th&gt;
+      &lt;th class='col-price'&gt;Price&lt;/th&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Widget A&lt;/td&gt;
+      &lt;td&gt;Standard widget&lt;/td&gt;
+      &lt;td&gt;$50.00&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/table&gt;
+&lt;/body&gt;&lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("table.pdf");</code></pre>
+
+<p><strong>Answer:</strong> The key change is replacing MigraDoc's programmatic <code>Table</code> / <code>Row</code> / <code>Cell</code> model with standard HTML <code>&lt;table&gt;</code> elements styled with CSS. Map MigraDoc's explicit column widths (e.g., <code>"3cm"</code>, <code>"5cm"</code>) to CSS percentage widths or fixed units. The advantage is you can preview the HTML table in a browser before rendering to PDF.</p>
+
+<p>Here is the style mapping reference for the conversion:</p>
+
+<table>
+<tr><th>MigraDoc Concept</th><th>HTML/CSS Equivalent</th></tr>
+<tr><td><code>Style.Font.Size = 12</code></td><td><code>font-size: 12pt</code></td></tr>
+<tr><td><code>Style.Font.Bold = true</code></td><td><code>font-weight: bold</code></td></tr>
+<tr><td><code>Style.Font.Color = Colors.Red</code></td><td><code>color: red</code></td></tr>
+<tr><td><code>ParagraphFormat.SpaceBefore</code></td><td><code>margin-top</code></td></tr>
+<tr><td><code>ParagraphFormat.Alignment = Center</code></td><td><code>text-align: center</code></td></tr>
+<tr><td><code>Section.PageSetup.LeftMargin</code></td><td><code>ChromePdfRenderOptions.MarginLeft</code></td></tr>
+</table>
+
+<h2>How Do I Migrate Headers, Footers, and Document Generation?</h2>
+
+<p>MigraDoc uses <code>HeaderFooter</code> objects attached to sections. IronPDF uses <code>HtmlHeaderFooter</code>, which gives you the same HTML/CSS control you have in the document body.</p>
+
+<h3>Headers and footers migration</h3>
+
+<pre><code>// MigraDoc header pattern:
+// section.Headers.Primary.AddParagraph("Page Header");
+
+// IronPDF equivalent:
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    HtmlFragment = "&lt;div style='text-align:right;font-size:9pt;'&gt;Page Header&lt;/div&gt;",
+    DrawDividerLine = false
+};
+// Headers/footers guide: https://ironpdf.com/how-to/headers-and-footers/</code></pre>
+
+<h3>Full document generation (before)</h3>
+
+<pre><code>using MigraDoc.DocumentObjectModel;
+using MigraDoc.Rendering;
+using System;
+
+class DocumentGenerationExample
+{
+    static void Main()
+    {
+        var doc = new Document();
+        doc.Info.Title = "Invoice #1234";
+
+        var style = doc.Styles["Normal"];
+        style.Font.Name = "Arial";
+        style.Font.Size = 10;
+
+        var section = doc.AddSection();
+        section.PageSetup.TopMargin = "2cm";
+        section.PageSetup.BottomMargin = "2cm";
+
+        var title = section.AddParagraph("Invoice #1234");
+        title.Format.Font.Size = 18;
+        title.Format.Font.Bold = true;
+        title.Format.SpaceAfter = "0.5cm";
+
+        var content = section.AddParagraph("Amount Due: $500.00");
+        content.Format.Font.Size = 12;
+
+        var pdfRenderer = new PdfDocumentRenderer(unicode: true)
+        {
+            Document = doc
+        };
+        pdfRenderer.RenderDocument();
+        pdfRenderer.PdfDocument.Save("invoice.pdf");
+        Console.WriteLine("Saved: invoice.pdf");
+    }
+}</code></pre>
+
+<h3>Full document generation (after)</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+string html = @"
+&lt;html&gt;&lt;head&gt;&lt;style&gt;
+  body { font-family: Arial, sans-serif; font-size: 10pt;
+         margin: 2cm 2cm 2cm 2cm; }
+  h1   { font-size: 18pt; margin-bottom: 0.5cm; }
+  .amount { font-size: 12pt; }
+&lt;/style&gt;&lt;/head&gt;&lt;body&gt;
+  &lt;h1&gt;Invoice #1234&lt;/h1&gt;
+  &lt;p class='amount'&gt;Amount Due: $500.00&lt;/p&gt;
+&lt;/body&gt;&lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("invoice.pdf");
+// Rendering options: https://ironpdf.com/how-to/rendering-options/</code></pre>
+
+<p><strong>Answer:</strong> The core architectural change is replacing MigraDoc's Document DOM (sections, paragraphs, styles) with HTML templates and CSS. You define structure in HTML, styling in CSS, and render with <code>ChromePdfRenderer</code>. The HTML approach is typically more maintainable long-term &mdash; you can preview in a browser before rendering, and your web team already knows the styling language.</p>
+
+<p>For the document model migration strategy: list every document type your system generates, create an HTML/CSS template for each (browser-preview it first), wire up your data model to populate the template (Razor, Handlebars.NET, string interpolation), then render via <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF's HTML-to-PDF renderer</a>.</p>
+
+<h2>How Do I Migrate Merge, Watermark, and Password Protection?</h2>
+
+<p>These features required PDFsharp alongside MigraDoc. In IronPDF, they are native to the library.</p>
+
+<h3>PDF merge (before &mdash; PDFsharp)</h3>
+
+<pre><code>using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
+using System;
+
+class MergePdfsExample
+{
+    static void Main()
+    {
+        using var outputDoc = new PdfDocument();
+
+        foreach (string path in new[] { "section1.pdf", "section2.pdf" })
+        {
+            using var input = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+            foreach (PdfPage page in input.Pages)
+                outputDoc.AddPage(page);
+        }
+
+        outputDoc.Save("merged.pdf");
+        Console.WriteLine("Merged to: merged.pdf");
+    }
+}</code></pre>
+
+<h3>PDF merge (after &mdash; IronPDF)</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var merged = PdfDocument.Merge(
+    PdfDocument.FromFile("section1.pdf"),
+    PdfDocument.FromFile("section2.pdf")
+);
+merged.SaveAs("merged.pdf");
+// Guide: https://ironpdf.com/how-to/merge-or-split-pdfs/</code></pre>
+
+<h3>Watermark (before &mdash; PDFsharp)</h3>
+
+<pre><code>using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
+using PdfSharp.Drawing;
+using System.IO;
+using System;
+
+class WatermarkExample
+{
+    static void Main()
+    {
+        using var document = PdfReader.Open("input.pdf", PdfDocumentOpenMode.Modify);
+
+        foreach (PdfPage page in document.Pages)
+        {
+            using var gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
+            var font = new XFont("Arial", 60, XFontStyle.Bold);
+            gfx.TranslateTransform(page.Width / 2, page.Height / 2);
+            gfx.RotateTransform(-45);
+            gfx.DrawString(
+                "CONFIDENTIAL",
+                font,
+                new XBrush[] { XBrushes.LightGray }[0],
+                new XPoint(0, 0)
+            );
+        }
+
+        document.Save("watermarked.pdf");
+        Console.WriteLine("Watermarked.");
+    }
+}</code></pre>
+
+<h3>Watermark (after &mdash; IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("input.pdf");
+var stamper = new TextStamper
+{
+    Text = "CONFIDENTIAL",
+    FontColor = IronSoftware.Drawing.Color.LightGray,
+    FontSize = 60,
+    Opacity = 35,
+    Rotation = 45,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center
+};
+pdf.ApplyStamp(stamper);
+pdf.SaveAs("watermarked.pdf");
+// Guide: https://ironpdf.com/how-to/custom-watermark/</code></pre>
+
+<h3>Password protection (before &mdash; PDFsharp)</h3>
+
+<pre><code>using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
+using PdfSharp.Pdf.Security;
+using System;
+
+class SecurityExample
+{
+    static void Main()
+    {
+        using var document = PdfReader.Open("input.pdf", PdfDocumentOpenMode.Modify);
+
+        var security = document.SecuritySettings;
+        security.UserPassword  = "readpass";
+        security.OwnerPassword = "adminpass";
+        security.PermitPrint   = true;
+        security.PermitModifyDocument = false;
+
+        document.Save("secured.pdf");
+        Console.WriteLine("Encrypted: secured.pdf");
+    }
+}</code></pre>
+
+<h3>Password protection (after &mdash; IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Security;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("input.pdf");
+pdf.SecuritySettings.UserPassword  = "readpass";
+pdf.SecuritySettings.OwnerPassword = "adminpass";
+pdf.SecuritySettings.AllowUserPrinting = PdfPrintSecurity.FullPrintRights;
+pdf.SecuritySettings.AllowUserAnnotations = false;
+pdf.SaveAs("secured.pdf");
+// Guide: https://ironpdf.com/how-to/pdf-permissions-passwords/</code></pre>
+
+<p><strong>Answer:</strong> All three operations &mdash; merge, watermark, and password protection &mdash; required PDFsharp as a separate library alongside MigraDoc. In IronPDF, they are first-class operations on <code>PdfDocument</code>. Merge uses <code>PdfDocument.Merge()</code>, watermarking uses <code>TextStamper</code> with <code>ApplyStamp()</code>, and security uses <code>pdf.SecuritySettings</code> directly. No second library needed.</p>
+
+<h2>How Do MigraDoc and IronPDF Compare Feature by Feature?</h2>
+
+<table>
+<tr><th>Aspect</th><th>MigraDoc</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>Programmatic document construction</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Open source (MIT)</td><td>Commercial &mdash; verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>Document DOM (Sections, Paragraphs, Tables)</td><td>HTML renderer + document model</td></tr>
+<tr><td>Learning Curve</td><td>Medium-High (proprietary document model)</td><td>Medium</td></tr>
+<tr><td>HTML Rendering</td><td>None natively &mdash; DOM-only</td><td>Chromium-based</td></tr>
+<tr><td>Page Indexing</td><td>N/A (generation only)</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify in MigraDoc docs</td><td>Renderer instance reuse &mdash; see async docs</td></tr>
+<tr><td>Namespace</td><td><code>MigraDoc.DocumentObjectModel</code></td><td><code>IronPdf</code></td></tr>
+</table>
+
+<p>And here is the migration effort by feature:</p>
+
+<table>
+<tr><th>Feature</th><th>MigraDoc Approach</th><th>Effort to Migrate</th></tr>
+<tr><td>Basic document generation</td><td>Document DOM then render</td><td>High &mdash; rewrite as HTML template</td></tr>
+<tr><td>Tables</td><td><code>Table</code> class with <code>Row</code>/<code>Cell</code></td><td>High &mdash; rewrite as HTML <code>&lt;table&gt;</code></td></tr>
+<tr><td>Paragraph styles</td><td><code>ParagraphFormat</code> / <code>Style</code></td><td>Medium &mdash; convert to CSS</td></tr>
+<tr><td>Images</td><td><code>Image</code> element</td><td>Medium &mdash; <code>&lt;img&gt;</code> tag in HTML</td></tr>
+<tr><td>Page headers / footers</td><td><code>HeaderFooter</code> class</td><td>Medium &mdash; verify IronPDF API</td></tr>
+<tr><td>Merge PDFs</td><td>PDFsharp required</td><td>Low (native in IronPDF)</td></tr>
+<tr><td>Watermark</td><td>PDFsharp required</td><td>Low</td></tr>
+<tr><td>Password protection</td><td>PDFsharp required</td><td>Low</td></tr>
+<tr><td>Custom page size</td><td><code>PageSetup</code></td><td>Low &mdash; <code>ChromePdfRenderOptions.PaperSize</code></td></tr>
+<tr><td>Bookmarks / outline</td><td><code>BookmarkField</code></td><td>Medium &mdash; verify IronPDF equivalent</td></tr>
+<tr><td>PDF/A output</td><td>Verify in MigraDoc/PDFsharp</td><td>Low in IronPDF</td></tr>
+</table>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I run IronPDF and MigraDoc side by side during migration?</h3>
+
+<p><strong>Answer:</strong> Yes, and I recommend it. Install IronPDF via NuGet alongside your existing MigraDoc packages. Run both libraries generating the same PDF, then compare outputs visually before removing MigraDoc. This lets you catch rendering differences &mdash; especially table column widths, font rendering, and spacing &mdash; early in the migration process.</p>
+
+<h3>How do I handle batch rendering performance after migration?</h3>
+
+<p><strong>Answer:</strong> Reuse a single <code>ChromePdfRenderer</code> instance across multiple renders. Creating one per document adds startup overhead from Chromium process initialization. IronPDF bundles Chromium binaries, so the package is larger than MigraDoc + PDFsharp, but you eliminate the OS-level <code>libgdiplus</code> dependency. For web workloads, use the async API: <code>await renderer.RenderHtmlAsPdfAsync(html)</code>.</p>
+
+<pre><code>var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+foreach (var data in documentDataSet)
+{
+    string html = BuildHtml(data); // your template engine
+    using var pdf = renderer.RenderHtmlAsPdf(html);
+    pdf.SaveAs($"doc_{data.Id}.pdf");
+}</code></pre>
+
+<h3>What about font handling differences between MigraDoc and IronPDF?</h3>
+
+<p><strong>Answer:</strong> MigraDoc lets you specify fonts by name from the system font list. IronPDF's Chromium renderer does the same via CSS <code>font-family</code>. Verify that fonts your templates reference are installed in your deployment environment. IronPDF has more predictable cross-platform rendering behavior, but system fonts still need to be present for custom font usage. In Docker, add fonts explicitly:</p>
+
+<pre><code># In your Dockerfile &mdash; add fonts before build
+RUN apt-get install -y fonts-liberation fonts-dejavu
+
+# Verify fonts are accessible inside the container
+docker run --rm your-image fc-list | grep -i liberation</code></pre>
+
+<h3>What is the page indexing difference I need to watch for?</h3>
+
+<p><strong>Answer:</strong> IronPDF uses 0-based page indexing. MigraDoc doesn't expose a post-render page model, but PDFsharp (used for manipulation) uses 0-based as well &mdash; verify your specific version. This is the most common silent bug in PDF library migrations: it won't throw an error, it will just operate on the wrong page. Audit all page index references during migration.</p>
+
+<h3>How do I choose an HTML templating approach for the migration?</h3>
+
+<p><strong>Answer:</strong> You have three main options: Razor templates for teams already in ASP.NET, Handlebars.NET for logic-light templates, or simple string interpolation for straightforward documents. The choice depends on your document complexity. Teams with complex multi-section reports with precise column widths and custom styles should budget a day or two per document type. Teams with simple invoices or letters can typically move faster.</p>
+
+<h2>When Does It Make Sense to Migrate from MigraDoc?</h2>
+
+<table>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+<tr><td>CI/CD failing due to <code>System.Drawing.Common</code> on .NET 7+</td><td>Urgent migration signal; evaluate IronPDF or PuppeteerSharp</td></tr>
+<tr><td>HTML templates already exist for the document types</td><td>IronPDF fits naturally; minimal logic rewrite</td></tr>
+<tr><td>Existing document DOM code is extensive and tested</td><td>Budget higher effort; or fix MigraDoc deps and stay</td></tr>
+<tr><td>Open source budget constraint</td><td>MigraDoc is MIT; IronPDF is commercial &mdash; evaluate wkhtmltopdf or PuppeteerSharp</td></tr>
+</table>
+
+<p>The CI/CD failures are usually the immediate trigger, but the real migration work is the document DOM-to-HTML-template conversion. The HTML approach is typically more maintainable long-term, and the initial conversion takes time proportional to template complexity. Start with your simplest document type, validate the output, and build from there.</p>

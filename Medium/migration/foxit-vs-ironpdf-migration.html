@@ -1,0 +1,420 @@
+<h1>Migrating from Foxit PDF SDK to IronPDF: Solving Common Migration Pain Points</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>The licensing email arrives on a Tuesday. Renewal quote attached. Your team's Foxit PDF SDK contract is up, and the number has moved. You open the renewal, scan the per-server clause, and a quiet audit begins: how deeply is this SDK embedded, and what would it take to swap it out?</p>
+
+<p>Whether you renew, migrate, or build a hybrid approach is entirely your call. What follows is the technical map for one specific path: replacing Foxit PDF SDK with <a href="https://ironpdf.com/">IronPDF</a> in a .NET application. You'll walk away with working before/after code, API mapping tables, and a printable checklist — regardless of which direction you go.</p>
+
+<h2>Why Migrate from Foxit PDF SDK to IronPDF?</h2>
+
+<p>Migration decisions rarely come from a single trigger. More often it's an accumulation of friction points that finally tip the scale. Here are the most common ones I see from teams making the switch.</p>
+
+<p>Licensing model friction — per-server or per-CPU pricing becomes a variable cost at scale. Native DLL deployment complexity — redistributing platform-specific binaries adds CI/CD overhead. And if your primary workload is HTML-to-PDF, a dedicated Chromium-based renderer like IronPDF may outperform a general-purpose SDK that treats HTML rendering as a secondary concern.</p>
+
+<p>Beyond pricing, there's API verbosity. Document-centric APIs often require more boilerplate for simple tasks. Thread safety ambiguity is another: you need to verify your Foxit version's concurrency guarantees before assuming safe parallel use. Container and Linux support gets complicated when native dependency chains are involved. And version lock — tight coupling to a specific SDK version makes .NET upgrades riskier.</p>
+
+<table>
+<tr><th>Aspect</th><th>Foxit PDF SDK</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>Full document lifecycle (view, edit, sign, form, annotate)</td><td>HTML-to-PDF rendering + document manipulation</td></tr>
+<tr><td>Pricing</td><td>Commercial license; per-server/CPU tiers</td><td>Commercial license; OEM/SaaS options</td></tr>
+<tr><td>API Style</td><td>Object-oriented, document-centric</td><td>Fluent, renderer-centric</td></tr>
+<tr><td>Learning Curve</td><td>Medium-High — broad surface area</td><td>Medium — focused on rendering tasks</td></tr>
+<tr><td>HTML Rendering</td><td>Available; not primary design goal</td><td>Primary design goal (Chromium-based)</td></tr>
+<tr><td>Page Indexing</td><td>0-based</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify in current SDK docs</td><td>Renderer instance per thread recommended</td></tr>
+<tr><td>Namespace</td><td><code>Foxit.PDF.*</code></td><td><code>IronPdf</code></td></tr>
+</table>
+
+<h2>What Are the Biggest Pain Points When Migrating HTML-to-PDF and Merge Operations?</h2>
+
+<p>The first pain point teams hit is the HTML-to-PDF conversion path. Foxit PDF SDK doesn't expose a simple HTML-string-to-PDF method in all versions — it may require intermediate steps, temp files, or a separate converter. IronPDF was built for exactly this use case.</p>
+
+<h3>Before: HTML to PDF with Foxit (Pseudo-Code)</h3>
+
+<pre><code>// NOTE: Foxit PDF SDK's HTML-to-PDF path varies by version and platform.
+// The below is illustrative — verify against your Foxit SDK docs.
+
+using Foxit.PDF; // verify
+using System.IO;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        // Initialize Foxit library — exact call varies
+        // var lib = new Library(sn: "SN", key: "KEY"); // verify
+
+        string htmlContent = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;p&gt;Content here.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;";
+
+        // Foxit may require writing HTML to temp file or using a separate converter
+        string tempHtml = Path.GetTempFileName() + ".html";
+        File.WriteAllText(tempHtml, htmlContent);
+
+        // Conversion step — verify API name and parameters
+        // var converter = new HtmlToPdfConverter(); // verify
+        // converter.Convert(tempHtml, "output.pdf"); // verify
+
+        File.Delete(tempHtml);
+        Console.WriteLine("PDF created — verify this matches your Foxit version");
+    }
+}</code></pre>
+
+<h3>After: HTML to PDF with IronPDF</h3>
+
+<pre><code>using IronPdf;
+
+// See: https://ironpdf.com/how-to/html-string-to-pdf/
+IronPdf.License.LicenseKey = "YOUR_KEY";
+
+var renderer = new ChromePdfRenderer();
+
+// Optional: configure rendering
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 10;
+
+string html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;p&gt;Content here.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;";
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+Console.WriteLine($"Pages: {pdf.PageCount}");</code></pre>
+
+<p>The difference is stark. No temp files, no converter objects, no ambiguity about the API surface. One renderer, one method call, done. You can learn more about <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF conversion</a> in the IronPDF docs.</p>
+
+<p>The second common pain point is merging PDFs. Foxit's merge typically involves importing pages from one document into another via loop iteration. IronPDF provides a static <code>PdfDocument.Merge()</code> call.</p>
+
+<h3>Before: Merge PDFs with Foxit (Pseudo-Code)</h3>
+
+<pre><code>using Foxit.PDF; // verify
+using System.Collections.Generic;
+
+class MergeExample
+{
+    static void Main(string[] args)
+    {
+        // Foxit merge — verify API; some versions use PDFDoc import methods
+        // var doc1 = new PDFDoc("file1.pdf"); // verify
+        // var doc2 = new PDFDoc("file2.pdf"); // verify
+
+        // Import pages from doc2 into doc1 — verify method name/signature
+        // int pageCount = doc2.GetPageCount(); // verify
+        // for (int i = 0; i &lt; pageCount; i++)
+        // {
+        //     doc1.ImportPages(doc2, i, i, doc1.GetPageCount()); // verify
+        // }
+
+        // doc1.Save("merged.pdf"); // verify
+
+        Console.WriteLine("Merge complete — verify against your Foxit SDK docs");
+    }
+}</code></pre>
+
+<h3>After: Merge PDFs with IronPDF</h3>
+
+<pre><code>using IronPdf;
+
+// See: https://ironpdf.com/how-to/merge-or-split-pdfs/
+IronPdf.License.LicenseKey = "YOUR_KEY";
+
+using var doc1 = PdfDocument.FromFile("file1.pdf");
+using var doc2 = PdfDocument.FromFile("file2.pdf");
+
+// Static merge — returns a new PdfDocument
+using var merged = PdfDocument.Merge(doc1, doc2);
+merged.SaveAs("merged.pdf");
+Console.WriteLine($"Merged: {merged.PageCount} pages");</code></pre>
+
+<p>No page-by-page import loops. No verifying method signatures across SDK versions. The <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split guide</a> covers additional patterns including page extraction.</p>
+
+<h2>How Do I Handle Watermarking and Password Protection After Migration?</h2>
+
+<p>Watermarking in Foxit typically involves content stream manipulation or a dedicated Watermark API that varies significantly by version. In IronPDF, you use a <code>TextStamper</code> with declarative properties — no content stream wrangling required.</p>
+
+<h3>Before: Watermark with Foxit (Pseudo-Code)</h3>
+
+<pre><code>using Foxit.PDF;         // verify
+using Foxit.PDF.Objects; // verify
+using System.Drawing;
+
+class WatermarkExample
+{
+    static void Main(string[] args)
+    {
+        // var doc = new PDFDoc("input.pdf"); // verify
+
+        // Foxit watermarking typically uses content stream manipulation
+        // or a dedicated Watermark API — verify in current SDK docs
+
+        // for (int i = 0; i &lt; doc.GetPageCount(); i++) // verify
+        // {
+        //     var page = doc.GetPage(i); // verify
+        //     // Add text content to page — API varies significantly by version
+        // }
+
+        // doc.Save("watermarked.pdf"); // verify
+        Console.WriteLine("Watermark applied — verify Foxit SDK API for your version");
+    }
+}</code></pre>
+
+<h3>After: Watermark with IronPDF</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = "YOUR_KEY";
+
+using var pdf = PdfDocument.FromFile("input.pdf");
+
+// Create a text stamp
+var stamp = new TextStamper
+{
+    Text = "CONFIDENTIAL",
+    FontSize = 36,
+    Opacity = 0.4,
+    Rotation = -45,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center
+};
+
+pdf.ApplyStamp(stamp);
+pdf.SaveAs("watermarked.pdf");</code></pre>
+
+<p>Password protection follows the same pattern: Foxit uses a SecurityHandler approach with method calls you need to verify per version, while IronPDF exposes straightforward property assignments.</p>
+
+<h3>Before: Password Protection with Foxit (Pseudo-Code)</h3>
+
+<pre><code>using Foxit.PDF;          // verify
+using Foxit.PDF.Security; // verify namespace
+
+class SecurityExample
+{
+    static void Main(string[] args)
+    {
+        // var doc = new PDFDoc("input.pdf"); // verify
+
+        // Foxit security — verify exact API; typically a SecurityHandler approach
+        // var secHandler = new StdSecurityHandler(); // verify class name
+        // secHandler.SetPassword(userPwd: "user123", ownerPwd: "owner456"); // verify
+        // secHandler.SetPermissions(...); // verify permission flags
+        // doc.SetSecurityHandler(secHandler); // verify
+
+        // doc.Save("protected.pdf"); // verify
+        Console.WriteLine("Password set — verify Foxit security API for your version");
+    }
+}</code></pre>
+
+<h3>After: Password Protection with IronPDF</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Security;
+
+// See: https://ironpdf.com/how-to/pdf-permissions-passwords/
+IronPdf.License.LicenseKey = "YOUR_KEY";
+
+using var pdf = PdfDocument.FromFile("input.pdf");
+
+// Set user and owner passwords with permissions
+pdf.SecuritySettings.UserPassword = "user123";
+pdf.SecuritySettings.OwnerPassword = "owner456";
+
+// Restrict permissions
+pdf.SecuritySettings.AllowUserPrinting = IronPdf.Security.PdfPrintSecurity.FullPrintRights;
+pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+pdf.SecuritySettings.AllowUserAnnotations = false;
+
+pdf.SaveAs("protected.pdf");</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">permissions and passwords guide</a> covers all the security options available.</p>
+
+<h2>What Does the Full API Mapping Look Like Between Foxit and IronPDF?</h2>
+
+<p><strong>Answer:</strong> I've compiled the complete namespace, class, and operation mappings below. These tables give you a reference for every common operation you'll need to translate during migration.</p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<tr><th>Foxit Namespace</th><th>IronPDF Namespace</th><th>Purpose</th></tr>
+<tr><td><code>Foxit.PDF</code></td><td><code>IronPdf</code></td><td>Core types</td></tr>
+<tr><td><code>Foxit.PDF.Objects</code></td><td><code>IronPdf.Rendering</code></td><td>Rendering options</td></tr>
+<tr><td><code>Foxit.PDF.Security</code></td><td><code>IronPdf</code> (PdfDocument methods)</td><td>Security/encryption</td></tr>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr><th>Foxit Class</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td><code>PDFDoc</code></td><td><code>PdfDocument</code></td><td>Main document object</td></tr>
+<tr><td>HTML Converter</td><td><code>ChromePdfRenderer</code></td><td>HTML-to-PDF rendering</td></tr>
+<tr><td><code>PDFPage</code></td><td><code>PdfDocument.Pages[n]</code></td><td>Page access</td></tr>
+<tr><td>Security handler</td><td><code>PdfDocument</code> security methods</td><td>Encryption/passwords</td></tr>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<tr><th>Operation</th><th>Foxit</th><th>IronPDF</th></tr>
+<tr><td>Load from file</td><td><code>new PDFDoc(path)</code></td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+<tr><td>Load from bytes</td><td>verify in docs</td><td><code>PdfDocument.FromBytes(bytes)</code></td></tr>
+<tr><td>Load from stream</td><td>verify in docs</td><td><code>PdfDocument.FromStream(stream)</code></td></tr>
+<tr><td>Render from HTML string</td><td>verify in docs</td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>Foxit</th><th>IronPDF</th></tr>
+<tr><td>Page count</td><td><code>doc.GetPageCount()</code></td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Get page</td><td><code>doc.GetPage(index)</code></td><td><code>pdf.Pages[index]</code></td></tr>
+<tr><td>Page size</td><td>verify in docs</td><td><code>page.Width</code>, <code>page.Height</code></td></tr>
+<tr><td>Rotate page</td><td>verify in docs</td><td><code>page.Rotation</code></td></tr>
+</table>
+
+<h3>Merge/Split Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>Foxit</th><th>IronPDF</th></tr>
+<tr><td>Merge documents</td><td>verify in docs</td><td><code>PdfDocument.Merge(docs)</code></td></tr>
+<tr><td>Extract pages</td><td>verify in docs</td><td><code>pdf.CopyPages(indices)</code></td></tr>
+</table>
+
+<h3>Migration Effort by Feature</h3>
+
+<table>
+<tr><th>Feature</th><th>Effort</th><th>Notes</th></tr>
+<tr><td>HTML string to PDF</td><td>Low</td><td>Near 1:1 conceptual mapping</td></tr>
+<tr><td>URL to PDF</td><td>Low</td><td>Both support URL rendering</td></tr>
+<tr><td>PDF merge</td><td>Low</td><td>Both expose merge APIs</td></tr>
+<tr><td>PDF split</td><td>Medium</td><td>Verify page extraction API</td></tr>
+<tr><td>Text extraction</td><td>Medium</td><td>API surface differs</td></tr>
+<tr><td>Form filling</td><td>Medium-High</td><td>Form field APIs vary significantly</td></tr>
+<tr><td>Digital signatures</td><td>High</td><td>Certificate chain handling differs</td></tr>
+<tr><td>Annotations</td><td>Medium-High</td><td>Annotation model differs</td></tr>
+<tr><td>Watermarking</td><td>Low</td><td>Both support stamping</td></tr>
+<tr><td>Password protection</td><td>Low</td><td>Straightforward mapping</td></tr>
+<tr><td>PDF/A compliance</td><td>Medium</td><td>Verify IronPDF PDF/A output options</td></tr>
+</table>
+
+<h2>What Performance Considerations Should I Know About?</h2>
+
+<p><strong>Answer:</strong> There are three areas that will affect your production deployment: renderer reuse, disposal patterns, and parallel rendering. Getting these right from the start saves you from performance regressions after migration.</p>
+
+<p><code>ChromePdfRenderer</code> is relatively expensive to initialize. In throughput scenarios, reuse the same instance across requests rather than constructing per-call.</p>
+
+<h3>Renderer Reuse Pattern</h3>
+
+<pre><code>// Good: single renderer instance reused
+var renderer = new ChromePdfRenderer();
+
+foreach (var htmlItem in htmlQueue)
+{
+    using var pdf = renderer.RenderHtmlAsPdf(htmlItem);
+    pdf.SaveAs(GetOutputPath(htmlItem));
+}</code></pre>
+
+<p><code>PdfDocument</code> implements <code>IDisposable</code>. Always dispose — especially in loops. And for parallel workloads, use one <code>ChromePdfRenderer</code> per thread or use the async API.</p>
+
+<h3>Parallel Rendering Pattern</h3>
+
+<pre><code>// Parallel — one renderer per task
+var results = await Task.WhenAll(htmlItems.Select(async html =&gt;
+{
+    var renderer = new ChromePdfRenderer(); // per-task instance
+    using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+    return pdf.BinaryData;
+}));</code></pre>
+
+<p>A few edge cases to flag: very large HTML documents are memory-intensive for Chromium-based rendering. HTML with cross-origin fonts or images may require timeout configuration — see the <a href="https://ironpdf.com/how-to/rendering-options/">rendering options guide</a>. And custom fonts should be embedded in HTML/CSS rather than relying on system font resolution.</p>
+
+<h2>What Critical Differences Will Break My Code If I Miss Them?</h2>
+
+<p><strong>Answer:</strong> Three things will catch you if you're not paying attention: error handling patterns, unit conversions, and page indexing edge cases.</p>
+
+<p>Foxit PDF SDK APIs often return integer status codes. IronPDF raises exceptions on failure. If your existing code checks return values, you need to wrap IronPDF calls in try/catch blocks instead.</p>
+
+<h3>IronPDF Error Handling Pattern</h3>
+
+<pre><code>// IronPDF exception pattern
+try
+{
+    using var pdf = PdfDocument.FromFile("input.pdf");
+    // operations...
+}
+catch (IronPdf.Exceptions.PdfException ex)
+{
+    Console.Error.WriteLine($"PDF error: {ex.Message}");
+}
+catch (System.IO.FileNotFoundException ex)
+{
+    Console.Error.WriteLine($"File not found: {ex.Message}");
+}</code></pre>
+
+<p>Unit conversions are the other silent breaker. IronPDF margins and sizes use millimeters (mm) by default. Foxit uses points (1/72 inch) in many contexts. The conversion formula: <code>mm = points x 0.353</code>.</p>
+
+<h3>IronPDF Margin Configuration</h3>
+
+<pre><code>// IronPDF margin in mm
+renderer.RenderingOptions.MarginTop    = 25.4; // 1 inch
+renderer.RenderingOptions.MarginBottom = 25.4;
+renderer.RenderingOptions.MarginLeft   = 25.4;
+renderer.RenderingOptions.MarginRight  = 25.4;</code></pre>
+
+<p>Both Foxit and IronPDF use 0-based page indexing in most contexts — but verify this holds for your specific Foxit SDK version, as some Foxit APIs use 1-based indexing in certain contexts.</p>
+
+<pre><code>// IronPDF: 0-based
+var firstPage = pdf.Pages[0];
+var lastPage  = pdf.Pages[pdf.PageCount - 1];</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Is IronPDF a full replacement for Foxit PDF SDK?</h3>
+
+<p><strong>Answer:</strong> For HTML-to-PDF rendering, merging, watermarking, and password protection — yes, it's a direct replacement with a simpler API. For advanced annotation workflows, form-heavy applications, or in-process PDF viewing, Foxit SDK has broader coverage in those areas. If your application performs both PDF generation and PDF viewing/annotation in-process, your architecture may need to separate the rendering path from the viewing/annotation path.</p>
+
+<h3>How complex is the migration for a typical .NET project?</h3>
+
+<p><strong>Answer:</strong> For projects where the primary use case is HTML-to-PDF, the migration is low-risk and low-effort. The core rendering and manipulation operations — HTML-to-PDF, merge, watermark, password protection — map nearly 1:1. The complexity concentrates in features that rely on Foxit's deeper document model: advanced annotation APIs, form workflows, and digital signing, where the mapping is less direct and warrants careful evaluation.</p>
+
+<h3>What .NET versions does IronPDF support?</h3>
+
+<p><strong>Answer:</strong> IronPDF supports .NET 6, 7, and 8 projects. Foxit PDF SDK for .NET wraps the native Foxit PDF Engine and targets .NET Framework 4.x and .NET Standard 2.0. If you're on a modern .NET version, IronPDF's support is straightforward. You can get started by obtaining a <a href="https://ironpdf.com/how-to/license-keys/">license key</a>.</p>
+
+<h3>How do I find all Foxit references in my codebase before starting?</h3>
+
+<p><strong>Answer:</strong> Run these commands to inventory your Foxit usage before touching any code:</p>
+
+<pre><code># Find all Foxit using directives
+rg "using Foxit" --type cs
+
+# Find all Foxit type references
+rg "Foxit\." --type cs -l
+
+# Find NuGet package references
+rg "Foxit" *.csproj **/*.csproj</code></pre>
+
+<p>Then remove the Foxit package and add IronPDF:</p>
+
+<pre><code># Remove Foxit package (package name — verify in your .csproj)
+dotnet remove package FoxitPDFSDKForNet
+
+# Add IronPDF
+dotnet add package IronPdf
+
+# Restore
+dotnet restore</code></pre>
+
+<h3>What about deployment differences — do I still need native DLLs?</h3>
+
+<p><strong>Answer:</strong> One of the advantages of migrating is simplifying your deployment pipeline. Foxit PDF SDK requires platform-specific native DLLs and redistributables, which adds CI/CD overhead — especially in containerized environments. IronPDF installs via a single NuGet package. After migration, you can remove Foxit native DLL steps from your deployment scripts and update Docker images accordingly.</p>
+
+<h2>When Should I Migrate — and When Should I Stay?</h2>
+
+<p>Here is the honest decision matrix from the source material.</p>
+
+<table>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+<tr><td>Primary use case is HTML-to-PDF</td><td>IronPDF migration is low-risk</td></tr>
+<tr><td>Heavy annotation/form workflows</td><td>Evaluate carefully; test before committing</td></tr>
+<tr><td>Signing workflows with HSM</td><td>Verify IronPDF signing capabilities first</td></tr>
+<tr><td>Full document viewer needed</td><td>IronPDF is not a viewer — Foxit SDK may be the better fit</td></tr>
+</table>
+
+<p>If your application's primary workload is generating PDFs from HTML and CSS, the migration path is well-trodden and low-risk. If you're deep in annotation, form, or viewer territory, evaluate carefully before committing. The right answer depends entirely on what your code actually does — not on which vendor's marketing page you read last.</p>

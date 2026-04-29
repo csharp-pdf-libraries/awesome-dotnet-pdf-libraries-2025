@@ -1,0 +1,603 @@
+<h1>Migrating from Apryse to IronPDF: The Decision Guide for .NET Teams</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>The renewal email arrived on a Tuesday. Attached was a PDF — ironic, given the context — outlining the new licensing structure for the Apryse SDK, formerly PDFTron. The per-platform, per-feature, add-on pricing model had been reorganized. Again. Our legal team had questions. Our procurement team had questions. Our engineering team had one question: how much of this SDK do we actually use?</p>
+
+<p>The answer, after two days of grepping, was humbling. We used <code>HTML2PDF</code> to convert Razor templates into reports. We used <code>PDFDoc.MergePages</code> to combine those reports into bundles. We used <code>SecurityHandler</code> to set passwords. That was it. Three features out of an SDK with a hundred.</p>
+
+<p>Apryse builds enterprise document infrastructure. It is a serious platform for serious document workflows. But if your use case is "HTML in, encrypted PDF out," the licensing, API surface, and deployment weight of a full document platform create friction that compounds over time. This guide walks through migrating to <a href="https://ironpdf.com/">IronPDF</a> — a library focused specifically on the workflow we actually needed.</p>
+
+<h2>Why Migrate from Apryse to IronPDF?</h2>
+
+<p>Migration decisions rarely come from a single trigger. Here are the reasons I see most often from teams making this move.</p>
+
+<p>Feature-to-usage ratio is the primary trigger. You are licensed for an enterprise document platform. You use three features. The delta between what you pay for and what you use is what starts the conversation.</p>
+
+<p>Licensing complexity is the second driver. Apryse uses per-platform, per-module licensing with add-ons for OCR, redaction, digital signatures, CAD conversion, and more. Understanding what you are licensed for — and what you are not — requires reading contract attachments.</p>
+
+<p>Pricing at scale compounds the issue. Apryse SDK pricing is enterprise-tier. For teams that need HTML-to-PDF and basic manipulation, the cost-per-feature is high relative to focused libraries.</p>
+
+<p>API surface area creates cognitive overhead. PDFNet's API covers PDF internals, annotations, appearance objects, widget types, and content streams. For a team that just wants <code>RenderHtmlAsPdf()</code>, navigating the full SDK is real friction.</p>
+
+<p>The HTML2PDF module has its own limitations. Apryse's <code>HTML2PDF</code> module uses its own rendering engine. Teams report issues with CSS fidelity compared to Chrome-based renderers, particularly with modern CSS grid, flexbox, and web fonts.</p>
+
+<p>Native binary footprint adds deployment weight. Apryse ships platform-specific native libraries. Docker images grow, and ensuring the right binaries are present for each target platform requires careful configuration.</p>
+
+<p>The PDFTron rebrand created a migration-within-a-migration. The rebrand from PDFTron to Apryse introduced package name and namespace changes. Teams on older PDFTron versions face a migration just to stay on the current Apryse SDK — which creates an opportunity to re-evaluate the dependency entirely.</p>
+
+<p>Add-on fragmentation increases cost and complexity. Need OCR? That is a module. Need redaction? Another module. Need the WebViewer? Another license. Each add-on increases the licensing surface and the deployment footprint.</p>
+
+<p>Documentation can be overwhelming. Apryse documentation is extensive but covers multiple platforms and languages. Multiple users report that finding the right entry point for a specific task takes trial and error.</p>
+
+<p>Vendor consolidation introduces uncertainty. Apryse acquired ActivePDF and iText, bringing multiple PDF products under one corporate umbrella. For teams concerned about long-term product strategy — which product line gets investment, which gets sunset — this consolidation raises questions.</p>
+
+<table>
+<tr><th>Aspect</th><th>Apryse PDF SDK (PDFTron)</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>Enterprise document platform (PDF + 30 formats)</td><td>HTML-first PDF generation + manipulation</td></tr>
+<tr><td>Pricing</td><td>Enterprise, per-platform, add-on modules</td><td>Per-developer, perpetual licenses available</td></tr>
+<tr><td>API Style</td><td>Low-level PDFNet + higher-level convenience classes</td><td>Fluent, HTML-centric, property-based</td></tr>
+<tr><td>Learning Curve</td><td>High — large API surface, multiple modules</td><td>Low — focused API, HTML/CSS developers productive quickly</td></tr>
+<tr><td>HTML Rendering</td><td><code>HTML2PDF</code> module (proprietary engine, verify)</td><td>Chrome rendering engine</td></tr>
+<tr><td>Page Indexing</td><td>1-based via PageIterator</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>PDFNet requires <code>PDFNet.Initialize()</code> call; verify threading model</td><td><code>ChromePdfRenderer</code> stateless, safe to share</td></tr>
+<tr><td>Namespace</td><td><code>pdftron.PDF</code> / <code>pdftron.SDF</code></td><td><code>IronPdf</code></td></tr>
+</table>
+
+<h2>How Complex Is the Migration from Apryse to IronPDF?</h2>
+
+<p>The honest answer depends entirely on which Apryse features your codebase actually calls. Here is the effort breakdown by feature.</p>
+
+<table>
+<tr><th>Feature</th><th>Complexity</th><th>Notes</th></tr>
+<tr><td>HTML to PDF</td><td>Low</td><td>Replace <code>HTML2PDF</code> module with <code>ChromePdfRenderer</code> — likely better CSS fidelity</td></tr>
+<tr><td>Merge</td><td>Low</td><td>Both support merge; different API patterns</td></tr>
+<tr><td>Split / extract pages</td><td>Low</td><td>Different API, same concept</td></tr>
+<tr><td>Watermark</td><td>Medium</td><td>Apryse uses stamper/appearance; IronPDF uses HTML overlay</td></tr>
+<tr><td>Password / encryption</td><td>Medium</td><td>Apryse uses <code>SecurityHandler</code>; IronPDF uses <code>SecuritySettings</code></td></tr>
+<tr><td>Digital signatures</td><td>Medium-High</td><td>Different signing APIs; verify IronPDF coverage</td></tr>
+<tr><td>Annotation</td><td>High / N/A</td><td>Apryse has deep annotation support; IronPDF does not focus on annotations</td></tr>
+<tr><td>Redaction</td><td>N/A</td><td>No IronPDF equivalent — Apryse-specific feature</td></tr>
+<tr><td>OCR</td><td>N/A</td><td>Not an IronPDF feature — consider IronOCR separately</td></tr>
+<tr><td>WebViewer</td><td>N/A</td><td>No IronPDF equivalent — browser-based viewer is an Apryse product</td></tr>
+<tr><td>CAD / Office conversion</td><td>N/A</td><td>Not an IronPDF feature; use dedicated converters</td></tr>
+</table>
+
+<p>The key insight: if your <code>Annot|Redactor|OCR|WebViewer</code> usage count is zero but your <code>HTML2PDF|PDFDoc|SecurityHandler</code> count is non-zero, you are using 10% of the SDK. That is the ideal migration profile.</p>
+
+<h3>Find Your Apryse/PDFTron References</h3>
+
+<pre><code># Find all Apryse/PDFTron using statements
+rg -l "pdftron|PDFTron|PDFNet|PDFDoc|HTML2PDF|SecurityHandler" --glob "*.cs"
+
+# Count usage of advanced features (annotation, redaction, OCR)
+rg -c "Annot|Redactor|OCR|WebViewer|ContentReplacer" --glob "*.cs"
+
+# Count HTML2PDF usage (the feature you're likely migrating)
+rg -c "HTML2PDF" --glob "*.cs"
+
+# Find project references
+rg -l "PDFTron|pdftron|Apryse" --glob "*.csproj"</code></pre>
+
+<h3>Swap NuGet Packages</h3>
+
+<pre><code># Remove Apryse/PDFTron packages — verify your exact package names
+dotnet remove package PDFTron.SDK
+dotnet remove package PDFTron.NETCore  # if present
+
+# Install IronPDF
+dotnet add package IronPdf</code></pre>
+
+<h2>What Does the Step-by-Step Migration Look Like in Code?</h2>
+
+<p><strong>Answer:</strong> I will walk through the three foundational steps — license configuration, namespace imports, and basic HTML-to-PDF — then show four complete before/after migrations covering the most common operations.</p>
+
+<h3>Step 1: License Configuration</h3>
+
+<p>Apryse requires a global initialization and termination lifecycle. IronPDF has none.</p>
+
+<h3>Before: Apryse License Setup</h3>
+
+<pre><code>using pdftron;      // verify namespace
+using pdftron.PDF;  // verify namespace
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // PDFNet requires global initialization before any operations
+        PDFNet.Initialize("your-pdftron-license-key"); // verify method
+
+        // Some configurations require setting resource paths
+        // PDFNet.SetResourcesPath("path/to/resources"); // verify if needed
+
+        Console.WriteLine("PDFNet initialized.");
+
+        // All PDFNet operations must happen after Initialize
+        // ...
+
+        PDFNet.Terminate(); // verify — cleanup
+    }
+}</code></pre>
+
+<h3>After: IronPDF License Setup</h3>
+
+<pre><code>using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        // No global initialization. No terminate. No resource paths.
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        Console.WriteLine($"IronPDF licensed: {License.IsLicensed}");
+    }
+}</code></pre>
+
+<p>The <code>PDFNet.Initialize()</code> / <code>PDFNet.Terminate()</code> lifecycle goes away entirely.</p>
+
+<h3>Step 2: Namespace Imports</h3>
+
+<p>Apryse spreads across multiple namespaces. IronPDF consolidates into one primary namespace with optional sub-namespaces.</p>
+
+<h3>Before: Apryse Namespaces</h3>
+
+<pre><code>using pdftron;           // verify — core
+using pdftron.PDF;       // verify — PDF operations
+using pdftron.SDF;       // verify — low-level document structure
+using pdftron.Common;    // verify — common types</code></pre>
+
+<h3>After: IronPDF Namespaces</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;    // watermarks, headers, footers
+using IronPdf.Rendering;  // render options</code></pre>
+
+<h3>Step 3: HTML to PDF — Before (Apryse HTML2PDF)</h3>
+
+<pre><code>using pdftron;      // verify
+using pdftron.PDF;  // verify
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        PDFNet.Initialize("your-license-key"); // verify
+
+        using var doc = new PDFDoc(); // verify class name
+
+        // HTML2PDF converter — verify exact API
+        var converter = new HTML2PDF(); // verify
+        converter.SetPaperSize(
+            PrinterMode.PaperSize.e_letter // verify enum
+        );
+
+        // Insert HTML content
+        converter.InsertFromHtmlString(
+            "&lt;h1&gt;Quarterly Report&lt;/h1&gt;&lt;p&gt;Generated by Apryse HTML2PDF&lt;/p&gt;"
+        ); // verify method name
+
+        bool success = converter.Convert(doc); // verify
+        if (!success)
+        {
+            Console.WriteLine("Conversion failed: " + converter.GetHttpErrorCode()); // verify
+            PDFNet.Terminate();
+            return;
+        }
+
+        doc.Save("report_apryse.pdf", SDFDoc.SaveOptions.e_linearized); // verify save options
+        Console.WriteLine("Saved with Apryse HTML2PDF.");
+
+        PDFNet.Terminate(); // verify — cleanup
+    }
+}</code></pre>
+
+<h3>Step 3: HTML to PDF — After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.Letter;
+
+        var pdf = renderer.RenderHtmlAsPdf(
+            "&lt;h1&gt;Quarterly Report&lt;/h1&gt;&lt;p&gt;Generated by IronPDF&lt;/p&gt;");
+
+        pdf.SaveAs("report_ironpdf.pdf");
+        Console.WriteLine("Saved with IronPDF.");
+    }
+}</code></pre>
+
+<p>No initialization. No termination. No converter object. No success-check boilerplate. The Chrome engine renders modern CSS faithfully. See the <a href="https://ironpdf.com/tutorials/html-to-pdf/">IronPDF HTML-to-PDF tutorial</a> for more details.</p>
+
+<h2>How Do I Migrate HTML-to-PDF, Merge, Watermark, and Password Protection?</h2>
+
+<p><strong>Answer:</strong> These are the four operations that cover 90% of what teams actually use from Apryse. Here are the complete before/after migrations for each one.</p>
+
+<h3>Before: HTML to PDF with Apryse (Full Example)</h3>
+
+<pre><code>using pdftron;      // verify
+using pdftron.PDF;  // verify
+using System;
+
+class HtmlToPdfApryse
+{
+    static void Main()
+    {
+        PDFNet.Initialize("your-license-key"); // verify
+
+        using var doc = new PDFDoc(); // verify
+        var converter = new HTML2PDF(); // verify
+
+        converter.SetPaperSize(PrinterMode.PaperSize.e_letter); // verify
+        converter.SetMargins("20", "20", "20", "20"); // verify — string margins in mm?
+
+        string html = @"
+            &lt;html&gt;&lt;head&gt;&lt;style&gt;
+                body { font-family: 'Segoe UI', sans-serif; }
+                .banner { background: #1b5e20; color: white; padding: 30px; }
+                .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; }
+                .card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; }
+            &lt;/style&gt;&lt;/head&gt;&lt;body&gt;
+                &lt;div class='banner'&gt;&lt;h1&gt;Environment Impact Report&lt;/h1&gt;&lt;/div&gt;
+                &lt;div class='metrics'&gt;
+                    &lt;div class='card'&gt;&lt;h3&gt;Carbon Offset&lt;/h3&gt;&lt;p&gt;1,242 tons&lt;/p&gt;&lt;/div&gt;
+                    &lt;div class='card'&gt;&lt;h3&gt;Energy Saved&lt;/h3&gt;&lt;p&gt;85,000 kWh&lt;/p&gt;&lt;/div&gt;
+                &lt;/div&gt;
+            &lt;/body&gt;&lt;/html&gt;";
+
+        converter.InsertFromHtmlString(html); // verify
+
+        if (!converter.Convert(doc)) // verify
+        {
+            Console.WriteLine("HTML2PDF failed");
+            PDFNet.Terminate();
+            return;
+        }
+
+        doc.Save("report_apryse.pdf", SDFDoc.SaveOptions.e_linearized); // verify
+        PDFNet.Terminate();
+        Console.WriteLine("Saved with Apryse.");
+    }
+}</code></pre>
+
+<h3>After: HTML to PDF with IronPDF (Full Example)</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+class HtmlToPdfIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.Letter;
+        renderer.RenderingOptions.MarginTop = 20;
+        renderer.RenderingOptions.MarginBottom = 20;
+        renderer.RenderingOptions.PrintHtmlBackgrounds = true;
+        renderer.RenderingOptions.CssMediaType = IronPdf.Rendering.PdfCssMediaType.Screen;
+
+        string html = @"
+            &lt;html&gt;&lt;head&gt;&lt;style&gt;
+                body { font-family: 'Segoe UI', sans-serif; }
+                .banner { background: #1b5e20; color: white; padding: 30px; }
+                .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; }
+                .card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; }
+            &lt;/style&gt;&lt;/head&gt;&lt;body&gt;
+                &lt;div class='banner'&gt;&lt;h1&gt;Environment Impact Report&lt;/h1&gt;&lt;/div&gt;
+                &lt;div class='metrics'&gt;
+                    &lt;div class='card'&gt;&lt;h3&gt;Carbon Offset&lt;/h3&gt;&lt;p&gt;1,242 tons&lt;/p&gt;&lt;/div&gt;
+                    &lt;div class='card'&gt;&lt;h3&gt;Energy Saved&lt;/h3&gt;&lt;p&gt;85,000 kWh&lt;/p&gt;&lt;/div&gt;
+                &lt;/div&gt;
+            &lt;/body&gt;&lt;/html&gt;";
+
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("report_ironpdf.pdf");
+        Console.WriteLine("Saved with IronPDF.");
+    }
+}</code></pre>
+
+<p>CSS grid renders correctly because IronPDF uses a real Chrome engine. Apryse's HTML2PDF module may not fully support CSS grid — verify with your templates.</p>
+
+<h3>Before: Merge PDFs with Apryse</h3>
+
+<pre><code>using pdftron;      // verify
+using pdftron.PDF;  // verify
+using System;
+
+class MergeApryse
+{
+    static void Main()
+    {
+        PDFNet.Initialize("your-license-key"); // verify
+
+        using var doc1 = new PDFDoc("part1.pdf"); // verify
+        using var doc2 = new PDFDoc("part2.pdf"); // verify
+
+        // Insert all pages from doc2 into doc1
+        // Verify exact method signature for your Apryse version
+        doc1.InsertPages(
+            doc1.GetPageCount() + 1, // insert position (1-based, verify)
+            doc2,
+            1,                        // start page
+            doc2.GetPageCount(),      // end page
+            PDFDoc.InsertFlag.e_none  // verify flag
+        );
+
+        doc1.Save("merged_apryse.pdf", SDFDoc.SaveOptions.e_linearized); // verify
+        PDFNet.Terminate();
+        Console.WriteLine("Merged with Apryse.");
+    }
+}</code></pre>
+
+<h3>After: Merge PDFs with IronPDF</h3>
+
+<pre><code>using IronPdf;
+
+class MergeIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf1 = PdfDocument.FromFile("part1.pdf");
+        var pdf2 = PdfDocument.FromFile("part2.pdf");
+
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged.pdf");
+        Console.WriteLine("Merged with IronPDF.");
+    }
+}</code></pre>
+
+<p>No page-count arithmetic. No insert position. No flags. See <a href="https://ironpdf.com/examples/merge-pdfs/">IronPDF merge documentation</a> for additional patterns.</p>
+
+<h3>Before: Watermark with Apryse (Stamper-Based)</h3>
+
+<pre><code>using pdftron;      // verify
+using pdftron.PDF;  // verify
+using System;
+
+class WatermarkApryse
+{
+    static void Main()
+    {
+        PDFNet.Initialize("your-license-key"); // verify
+
+        using var doc = new PDFDoc("input.pdf"); // verify
+
+        // Apryse Stamper API — verify exact class and method names
+        using var stamper = new Stamper(
+            Stamper.SizeType.e_font_size,  // verify
+            48,                             // font size
+            0                               // unused param, verify
+        );
+
+        stamper.SetAlignment(
+            Stamper.HorizontalAlignment.e_horizontal_center, // verify
+            Stamper.VerticalAlignment.e_vertical_center       // verify
+        );
+        stamper.SetFontColor(new ColorPt(0.8, 0.8, 0.8)); // verify — light gray
+        stamper.SetRotation(45);                             // verify
+        stamper.SetAsBackground(false);                      // verify — overlay
+
+        var pgSet = new PageSet(1, doc.GetPageCount()); // verify
+        stamper.StampText(doc, "CONFIDENTIAL", pgSet);  // verify
+
+        doc.Save("watermarked_apryse.pdf", SDFDoc.SaveOptions.e_linearized); // verify
+        PDFNet.Terminate();
+        Console.WriteLine("Watermarked with Apryse.");
+    }
+}</code></pre>
+
+<h3>After: Watermark with IronPDF</h3>
+
+<pre><code>using IronPdf;
+
+class WatermarkIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.ApplyWatermark(
+            "&lt;h1 style='color:rgba(200,200,200,0.5);font-size:48px;font-family:Helvetica;'&gt;CONFIDENTIAL&lt;/h1&gt;",
+            rotation: 45
+        );
+
+        pdf.SaveAs("watermarked.pdf");
+        Console.WriteLine("Watermarked with IronPDF.");
+    }
+}</code></pre>
+
+<p>Stamper objects, ColorPt values, PageSet ranges, and alignment enums reduce to one HTML string.</p>
+
+<h3>Before: Password Protection with Apryse (SecurityHandler)</h3>
+
+<pre><code>using pdftron;      // verify
+using pdftron.PDF;  // verify
+using pdftron.SDF;  // verify
+using System;
+
+class PasswordApryse
+{
+    static void Main()
+    {
+        PDFNet.Initialize("your-license-key"); // verify
+
+        using var doc = new PDFDoc("input.pdf"); // verify
+
+        // Create security handler — verify exact API
+        var handler = new SecurityHandler(
+            SecurityHandler.AlgorithmType.e_AES, // verify
+            128                                    // key length
+        );
+
+        handler.ChangeUserPassword("user456");  // verify method
+        handler.ChangeMasterPassword("owner123"); // verify method
+
+        // Set permissions — verify method names
+        handler.SetPermission(
+            SecurityHandler.Permission.e_print,  // verify
+            false
+        );
+        handler.SetPermission(
+            SecurityHandler.Permission.e_doc_modify, // verify
+            false
+        );
+
+        doc.SetSecurityHandler(handler); // verify
+        doc.Save("protected_apryse.pdf", SDFDoc.SaveOptions.e_linearized); // verify
+
+        PDFNet.Terminate();
+        Console.WriteLine("Protected with Apryse.");
+    }
+}</code></pre>
+
+<h3>After: Password Protection with IronPDF</h3>
+
+<pre><code>using IronPdf;
+
+class PasswordIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.SecuritySettings.OwnerPassword = "owner123";
+        pdf.SecuritySettings.UserPassword = "user456";
+        pdf.SecuritySettings.AllowUserPrinting = IronPdf.Security.PdfPrintSecurity.NoPrint;
+        pdf.SecuritySettings.AllowUserEdits = IronPdf.Security.PdfEditSecurity.NoEdit;
+        pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+
+        pdf.SaveAs("protected.pdf");
+        Console.WriteLine("Protected with IronPDF.");
+    }
+}</code></pre>
+
+<p>No <code>SecurityHandler</code> construction, no algorithm type enum, no permission flag method calls. See <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">IronPDF security documentation</a> for all available options.</p>
+
+<h2>What Does the Full API Mapping Look Like Between Apryse and IronPDF?</h2>
+
+<p><strong>Answer:</strong> I have compiled the complete namespace, class, and operation mappings below. These tables give you a reference for every common operation you will need to translate during migration.</p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<tr><th>Apryse Namespace</th><th>IronPDF Namespace</th><th>Purpose</th></tr>
+<tr><td><code>pdftron</code></td><td>N/A (no global init)</td><td>SDK initialization</td></tr>
+<tr><td><code>pdftron.PDF</code></td><td><code>IronPdf</code></td><td>PDF document operations</td></tr>
+<tr><td><code>pdftron.SDF</code></td><td>N/A</td><td>Low-level document structure (not needed in IronPDF)</td></tr>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr><th>Apryse Class</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td><code>PDFNet</code></td><td><code>IronPdf.License</code></td><td>Global initialization / licensing</td></tr>
+<tr><td><code>PDFDoc</code></td><td><code>PdfDocument</code></td><td>The PDF document object</td></tr>
+<tr><td><code>HTML2PDF</code></td><td><code>ChromePdfRenderer</code></td><td>HTML-to-PDF conversion</td></tr>
+<tr><td><code>SecurityHandler</code></td><td><code>pdf.SecuritySettings</code></td><td>Encryption and password protection</td></tr>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<tr><th>Operation</th><th>Apryse</th><th>IronPDF</th></tr>
+<tr><td>Open from file</td><td><code>new PDFDoc("file.pdf")</code></td><td><code>PdfDocument.FromFile("file.pdf")</code></td></tr>
+<tr><td>Open with password</td><td><code>new PDFDoc("file.pdf"); doc.InitStdSecurityHandler("pass")</code></td><td><code>PdfDocument.FromFile("file.pdf", "pass")</code></td></tr>
+<tr><td>Create new</td><td><code>new PDFDoc()</code></td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td>Save</td><td><code>doc.Save("out.pdf", saveOptions)</code></td><td><code>pdf.SaveAs("out.pdf")</code></td></tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>Apryse</th><th>IronPDF</th></tr>
+<tr><td>Get page count</td><td><code>doc.GetPageCount()</code></td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Get page</td><td><code>doc.GetPage(pageNum)</code> (1-based, verify)</td><td><code>pdf.Pages[index]</code> (0-based)</td></tr>
+<tr><td>Delete page</td><td><code>doc.PageRemove(pageIterator)</code></td><td><code>pdf.RemovePage(index)</code></td></tr>
+<tr><td>Insert pages</td><td><code>doc.InsertPages(...)</code></td><td><code>PdfDocument.Merge()</code> or page copy</td></tr>
+</table>
+
+<h3>Merge / Split Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>Apryse</th><th>IronPDF</th></tr>
+<tr><td>Merge</td><td><code>doc.InsertPages()</code> or <code>doc.MergePages()</code></td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
+<tr><td>Extract pages</td><td>Page iterator + new doc</td><td><code>pdf.CopyPages(start, end)</code></td></tr>
+</table>
+
+<h2>What Critical Differences Will Break My Code If I Miss Them?</h2>
+
+<p><strong>Answer:</strong> Five things will catch you if you are not paying attention: the initialization lifecycle, page indexing, save options, the HTML rendering engine, and features that do not migrate at all.</p>
+
+<p>The <code>PDFNet.Initialize()</code> / <code>PDFNet.Terminate()</code> lifecycle goes away entirely. Apryse requires <code>PDFNet.Initialize()</code> before any SDK call and <code>PDFNet.Terminate()</code> at shutdown. Forgetting either causes crashes or resource leaks. IronPDF has no global lifecycle — set the license key and start working.</p>
+
+<p>Page indexing changes from 1-based to 0-based. Apryse uses 1-based page numbering in most operations. IronPDF uses 0-based indexing. Audit every page reference in your codebase.</p>
+
+<p>Apryse's <code>Save</code> method takes <code>SDFDoc.SaveOptions</code> flags — linearized, incremental, remove unused, and more. IronPDF's <code>SaveAs</code> performs a standard full save. If you relied on linearized output for web streaming, verify IronPDF's output meets your needs.</p>
+
+<p>The HTML rendering engines are fundamentally different. Apryse's <code>HTML2PDF</code> module uses a proprietary rendering engine. IronPDF uses Chrome. The same HTML may render differently — particularly for CSS grid, flexbox, <code>@font-face</code>, and JavaScript-dependent content. Test your templates and expect IronPDF's Chrome output to be closer to what you see in a desktop browser.</p>
+
+<p>Be explicit about features that do not migrate: annotation, redaction, OCR, WebViewer, CAD conversion, real-time collaboration. If any of these exist in your codebase — even unused — document them before removing the Apryse dependency.</p>
+
+<h3>Renderer Reuse</h3>
+
+<pre><code>private static readonly ChromePdfRenderer _renderer = new ChromePdfRenderer();</code></pre>
+
+<h3>Disposal Pattern</h3>
+
+<pre><code>using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");</code></pre>
+
+<p>Additional edge cases worth flagging: linearized PDF output may require verification if your use case depends on web-optimized loading. Annotation preservation works in the sense that IronPDF can open Apryse-annotated files, but annotations cannot be programmatically modified. And if you are still on older PDFTron package names, you face a namespace migration regardless — this is a natural point to evaluate whether IronPDF better fits your actual usage.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Is IronPDF a full replacement for Apryse?</h3>
+
+<p><strong>Answer:</strong> For HTML-to-PDF rendering, merging, watermarking, and password protection — yes, it is a direct replacement with a simpler API. For deep annotation, redaction, OCR, and WebViewer features, Apryse's document platform features have no IronPDF equivalent. If your application performs both PDF generation and annotation collaboration, your architecture may need to separate those concerns.</p>
+
+<h3>What .NET versions does IronPDF support for this migration?</h3>
+
+<p><strong>Answer:</strong> IronPDF supports .NET 6+ and .NET Framework 4.6.2+. Apryse SDK targets multiple platforms with platform-specific binaries. If you are on a modern .NET version, IronPDF's support is straightforward. You can get started by obtaining a <a href="https://ironpdf.com/get-started/license-keys/">license key</a>.</p>
+
+<h3>How do I handle the PDFTron-to-Apryse rebrand during migration?</h3>
+
+<p><strong>Answer:</strong> Teams on older PDFTron versions face a namespace migration just to stay on the current Apryse SDK. The rebrand introduced package name and namespace changes. If you are already facing that migration, it is the ideal time to evaluate whether Apryse is the right target or whether IronPDF better fits your actual usage. You avoid migrating twice.</p>
+
+<h3>What about performance differences between Apryse HTML2PDF and IronPDF?</h3>
+
+<p><strong>Answer:</strong> Apryse's <code>HTML2PDF</code> module and IronPDF's Chrome engine are fundamentally different renderers. In our experience, IronPDF's Chrome engine handles modern CSS more faithfully because it is, essentially, Chrome. Apryse's engine may render simpler HTML faster. Test with your specific templates. For throughput scenarios, reuse the <code>ChromePdfRenderer</code> instance across requests rather than constructing per-call.</p>
+
+<h2>When Should I Migrate — and When Should I Stay?</h2>
+
+<p>Here is the honest decision framework.</p>
+
+<table>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+<tr><td>HTML-to-PDF + merge + encrypt, no viewer/annotation/OCR</td><td>Migrate — IronPDF covers this at a fraction of the API surface and cost</td></tr>
+<tr><td>Deep annotation, redaction, or collaboration features</td><td>Stay — Apryse's document platform features have no IronPDF equivalent</td></tr>
+<tr><td>WebViewer embedded in your application</td><td>Stay for the viewer; optionally use IronPDF for server-side generation</td></tr>
+<tr><td>Evaluating during PDFTron to Apryse rebrand migration</td><td>Good time to right-size — migrate the parts you use to IronPDF</td></tr>
+</table>
+
+<p>Two days of grepping revealed that our six-figure document platform was a three-feature PDF library with extra weight. The migration to IronPDF took a week — most of that was testing HTML templates in the Chrome engine against the Apryse HTML2PDF output to verify CSS fidelity.</p>
+
+<p>The lesson is not "Apryse is bad." It is "right-size your dependencies." If you need annotation, redaction, OCR, and a WebViewer, Apryse earns its place. If you need HTML to PDF to merge to encrypt, a focused library eliminates licensing conversations, reduces your API surface, and simplifies your deployment.</p>
+
+<p>Worth knowing even without IronPDF: if you decide to stay with Apryse but want better HTML rendering, you can replace just the <code>HTML2PDF</code> module by rendering with Puppeteer Sharp or Playwright first, then loading the resulting PDF into Apryse for post-processing. This gives you Chrome-quality HTML rendering while keeping Apryse's annotation and manipulation features.</p>

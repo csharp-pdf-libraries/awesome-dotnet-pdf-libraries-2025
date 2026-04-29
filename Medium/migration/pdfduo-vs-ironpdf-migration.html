@@ -1,0 +1,609 @@
+<h1>Migrating from PDF Duo to IronPDF: The Decision Guide for .NET Teams</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Consider Migrating from PDF Duo?</h2>
+
+<p>Renewal season has a way of making you look at the dependency list with fresh eyes. The PDF generation library works, but "works" is doing a lot of heavy lifting &mdash; you have got a workaround for the encoding issue, a secondary library handling merge, and a comment in the code about a rendering quirk that nobody has touched in months.</p>
+
+<p>Here are eight neutral reasons teams change PDF libraries at renewal time.</p>
+
+<p><strong>Cost structure reassessment.</strong> At renewal, the per-developer or per-deployment cost is compared against alternatives. Do this evaluation yourself with current pricing from both vendors.</p>
+
+<p><strong>Maintenance signal.</strong> Verify current PDF Duo maintenance status before citing this reason. If commits have slowed and issues go unanswered, it is a legitimate concern.</p>
+
+<p><strong>Feature gaps.</strong> PDF/A compliance, digital signatures, advanced manipulation &mdash; verify what is missing in PDF Duo versus what <a href="https://ironpdf.com">IronPDF</a> provides.</p>
+
+<p><strong>Dependency sprawl.</strong> If PDF Duo handles generation and you have added two more libraries for manipulation, consolidation is a valid motivation.</p>
+
+<p><strong>Rendering engine.</strong> If your templates have CSS fidelity issues, the underlying rendering engine matters. IronPDF uses Chromium. Verify what PDF Duo uses.</p>
+
+<p><strong>Native binary management.</strong> If PDF Duo requires native binaries, those add deployment overhead.</p>
+
+<p><strong>.NET version compatibility.</strong> Verify PDF Duo's trajectory with your target .NET version.</p>
+
+<p><strong>Vendor lock-in.</strong> Thin wrappers around external services create API-contract coupling. An in-process library removes this risk.</p>
+
+<h2>What Does the Migration Effort Actually Look Like?</h2>
+
+<p>I want to give you a realistic picture of the effort involved. Here is a feature-by-feature breakdown so you can scope the work before writing a single line of migration code.</p>
+
+<h3>Effort by Feature</h3>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>PDF Duo Approach</th><th>Effort to Migrate</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string to PDF</td><td>Verify</td><td>Low</td></tr>
+<tr><td>URL to PDF</td><td>Verify</td><td>Low</td></tr>
+<tr><td>HTML file to PDF</td><td>Verify</td><td>Low</td></tr>
+<tr><td>Custom margins</td><td>Verify</td><td>Low</td></tr>
+<tr><td>Headers / footers</td><td>Verify</td><td>Medium</td></tr>
+<tr><td>Merge PDFs</td><td>Verify &mdash; native or secondary library</td><td>Low</td></tr>
+<tr><td>Watermark</td><td>Verify &mdash; native or secondary library</td><td>Low</td></tr>
+<tr><td>Password protection</td><td>Verify</td><td>Low</td></tr>
+<tr><td>Async rendering</td><td>Verify</td><td>Medium</td></tr>
+<tr><td>PDF/A compliance</td><td>Verify</td><td>Low in IronPDF</td></tr>
+<tr><td>Digital signatures</td><td>Verify</td><td>Medium</td></tr>
+</tbody>
+</table>
+
+<h2>How Do You Decide Whether to Migrate?</h2>
+
+<p>Not every team should migrate. Here is a decision matrix I use when advising teams on whether the switch makes sense for their situation.</p>
+
+<table>
+<thead>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>Cost is only trigger, PDF Duo works well</td><td>Evaluate total cost of migration vs renewal &mdash; migration has hidden costs</td></tr>
+<tr><td>Dependency sprawl (secondary libraries)</td><td>IronPDF may consolidate &mdash; evaluate feature set overlap</td></tr>
+<tr><td>Maintenance/end-of-life concern</td><td>Verify before acting; if confirmed, plan migration before forced upgrade</td></tr>
+<tr><td>Open source budget requirement</td><td>IronPDF is commercial &mdash; evaluate wkhtmltopdf wrappers, PuppeteerSharp</td></tr>
+</tbody>
+</table>
+
+<p>Before you begin, audit your actual usage. Build an inventory of every PDF operation in your codebase.</p>
+
+<h3>Inventory Your PDF Duo Usage</h3>
+
+<pre><code># What PDF operations does your codebase perform?
+rg "PdfDuo\|pdfduo" --type cs -i -n
+
+# Find all PDF-generating code paths
+rg "class.*Pdf\|\.pdf\|GeneratePdf\|CreatePdf\|RenderPdf" --type cs -n -i
+
+# Find secondary libraries added alongside PDF Duo
+grep -r "iTextSharp\|PdfSharp\|wkhtmltopdf\|MuPdf" **/*.csproj *.csproj 2&gt;/dev/null
+</code></pre>
+
+<p>Build a table like this before writing migration code:</p>
+
+<table>
+<thead>
+<tr><th>PDF Operation</th><th>Used By</th><th>Secondary Library?</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML-to-PDF</td><td>OrderService.cs, ReportService.cs</td><td>No</td></tr>
+<tr><td>Merge</td><td>InvoiceBundle.cs</td><td>Yes &mdash; PdfSharp</td></tr>
+<tr><td>Watermark</td><td>DraftPdf.cs</td><td>Yes &mdash; iTextSharp</td></tr>
+<tr><td>Password</td><td>SecureReport.cs</td><td>No</td></tr>
+</tbody>
+</table>
+
+<p>This table tells you the actual migration scope and whether you can simplify the dependency tree.</p>
+
+<h3>Finding PDF Duo References</h3>
+
+<pre><code># Find all PDF Duo usage &mdash; replace "PdfDuo" with actual namespace
+rg -l "PdfDuo\|PdfDuoClient\|DuoPdf" --type cs -i
+
+# Find class instantiation &mdash; replace with actual class names after verifying
+rg "new.*Pdf.*Converter\|new.*HtmlToPdf" --type cs -n | grep -i duo
+
+# Find using directives
+rg "using PdfDuo\|using Pdf\.Duo" --type cs -n
+
+# Find NuGet references
+grep -r -i "pdfduo\|pdf-duo\|pdf\.duo" **/*.csproj *.csproj 2&gt;/dev/null
+</code></pre>
+
+<h3>Removing PDF Duo and Installing IronPDF</h3>
+
+<pre><code># Remove PDF Duo &mdash; verify exact package name first on NuGet
+dotnet remove package PdfDuo     # replace with actual name
+# dotnet remove package Pdf.Duo  # alternate &mdash; verify
+
+# Install IronPDF
+dotnet add package IronPdf
+dotnet restore
+</code></pre>
+
+<h3>Step 1: License Configuration</h3>
+
+<p><strong>Before (PDF Duo &mdash; verify license setup in docs):</strong></p>
+
+<pre><code>// PDF Duo license setup &mdash; verify exact class and method in official docs
+// using PdfDuo; // verify namespace
+
+// Pattern is illustrative &mdash; verify before use:
+// PdfDuoLicense.Set("YOUR_PDF_DUO_KEY"); // hypothetical
+// or: var client = new PdfDuoClient("YOUR_KEY"); // hypothetical
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+// Set once at application startup
+IronPdf.License.LicenseKey = "YOUR_IRONPDF_LICENSE_KEY";
+// License guide: https://ironpdf.com/how-to/license-keys/
+</code></pre>
+
+<h3>Step 2: Namespace Imports</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>// Verify actual namespaces from PDF Duo documentation
+using PdfDuo;         // verify
+using PdfDuo.Options; // verify &mdash; may not exist with this name
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+using IronPdf.Editing;
+using IronPdf.Security;
+</code></pre>
+
+<h3>Step 3: Basic HTML-to-PDF</h3>
+
+<p><strong>Before (PDF Duo &mdash; structural pattern, verify all names):</strong></p>
+
+<pre><code>// IMPORTANT: Placeholder code &mdash; verify every name against PDF Duo docs
+// Do not use in production without verification
+
+using System;
+using System.IO;
+// using PdfDuo; // verify namespace
+
+class BasicConversionExample
+{
+    static void Main()
+    {
+        // VERIFY: Class name, constructor, method signatures, and property names
+        // var converter = new PdfDuoConverter(); // hypothetical
+        // var options = new PdfDuoOptions
+        // {
+        //     PageSize = "A4",    // verify property name and value
+        //     MarginTop = 10      // verify type (int, string, etc.)
+        // };
+        // byte[] result = converter.FromHtml(
+        //     "&lt;h1&gt;Hello World&lt;/h1&gt;", options  // verify method name
+        // );
+        // File.WriteAllBytes("output.pdf", result);
+
+        Console.WriteLine("Replace with actual PDF Duo API &mdash; verify in docs");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Hello World&lt;/h1&gt;");
+pdf.SaveAs("output.pdf");
+// Guide: https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h2>What Does Each Before/After Migration Look Like in Practice?</h2>
+
+<p>Let me walk through four complete migration examples so you can see exactly what changes in real code.</p>
+
+<h3>HTML to PDF with Full Options</h3>
+
+<p><strong>Before (PDF Duo &mdash; structural pattern, verify all names):</strong></p>
+
+<pre><code>using System;
+using System.IO;
+// using PdfDuo; // verify namespace
+
+class HtmlToPdfExample
+{
+    static void Main()
+    {
+        // VERIFY: All class names, method names, and option properties below
+        // are placeholders. Consult PDF Duo documentation before implementing.
+
+        // Typical pattern for a .NET HTML-to-PDF library:
+        // var converter = new PdfDuoConverter(); // hypothetical
+        // var options = new PdfDuoOptions        // hypothetical
+        // {
+        //     PageFormat = "A4",                 // verify property and value type
+        //     TopMargin   = 10,                  // verify
+        //     BottomMargin = 10,                 // verify
+        //     LeftMargin   = 15,                 // verify
+        //     RightMargin  = 15                  // verify
+        // };
+        // byte[] pdf = converter.ConvertFromHtml(
+        //     "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #1234&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
+        //     options
+        // );
+        // File.WriteAllBytes("invoice.pdf", pdf);
+
+        Console.WriteLine("Replace with verified PDF Duo API");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize    = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop    = 10;
+renderer.RenderingOptions.MarginBottom = 10;
+renderer.RenderingOptions.MarginLeft   = 15;
+renderer.RenderingOptions.MarginRight  = 15;
+
+var pdf = renderer.RenderHtmlAsPdf(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #1234&lt;/h1&gt;&lt;p&gt;Amount: $500&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+pdf.SaveAs("invoice.pdf");
+// Full guide: https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h3>Merge PDFs</h3>
+
+<p><strong>Before (PDF Duo &mdash; verify support; PdfSharp pattern if secondary library):</strong></p>
+
+<pre><code>using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
+using System;
+
+class MergePdfsExample
+{
+    static void Main()
+    {
+        // Verify: Does PDF Duo support merge natively?
+        // If not, secondary library pattern:
+        using var output = new PdfDocument();
+        foreach (string path in new[] { "part1.pdf", "part2.pdf" })
+        {
+            using var input = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+            foreach (PdfPage page in input.Pages)
+                output.AddPage(page);
+        }
+        output.Save("merged.pdf");
+        Console.WriteLine("Merged: merged.pdf");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF native):</strong></p>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var merged = PdfDocument.Merge(
+    PdfDocument.FromFile("part1.pdf"),
+    PdfDocument.FromFile("part2.pdf")
+);
+merged.SaveAs("merged.pdf");
+// Guide: https://ironpdf.com/how-to/merge-or-split-pdfs/
+</code></pre>
+
+<h3>Watermark</h3>
+
+<p><strong>Before (PDF Duo &mdash; verify native support; iTextSharp if secondary):</strong></p>
+
+<pre><code>using iTextSharp.text;
+using iTextSharp.text.pdf;
+using System.IO;
+using System;
+
+class WatermarkExample
+{
+    static void Main()
+    {
+        // Verify PDF Duo watermark capability &mdash; if not native, iTextSharp typical
+        using var reader  = new PdfReader("input.pdf");
+        using var fs      = new FileStream("watermarked.pdf", FileMode.Create);
+        using var stamper = new PdfStamper(reader, fs);
+
+        var font = BaseFont.CreateFont(BaseFont.HELVETICA_BOLD, BaseFont.CP1252, false);
+        for (int i = 1; i &lt;= reader.NumberOfPages; i++)
+        {
+            var cb = stamper.GetOverContent(i);
+            cb.SaveState();
+            cb.SetGState(new PdfGState { FillOpacity = 0.3f });
+            cb.BeginText();
+            cb.SetFontAndSize(font, 60);
+            cb.SetColorFill(BaseColor.GRAY);
+            cb.ShowTextAligned(Element.ALIGN_CENTER, "DRAFT", 297, 420, 45);
+            cb.EndText();
+            cb.RestoreState();
+        }
+        Console.WriteLine("Watermarked.");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("input.pdf");
+var stamper = new TextStamper
+{
+    Text = "DRAFT",
+    FontColor = IronSoftware.Drawing.Color.Gray,
+    FontSize = 60,
+    Opacity = 30,
+    Rotation = 45,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center
+};
+pdf.ApplyStamp(stamper);
+pdf.SaveAs("watermarked.pdf");
+// Guide: https://ironpdf.com/how-to/custom-watermark/
+</code></pre>
+
+<h3>Password Protection</h3>
+
+<p><strong>Before (PDF Duo &mdash; verify security API):</strong></p>
+
+<pre><code>using System;
+// using PdfDuo; // verify namespace
+
+class SecurityExample
+{
+    static void Main()
+    {
+        // VERIFY: PDF Duo security API &mdash; class names and method signatures
+        // Pattern below is a placeholder
+
+        // Hypothetical:
+        // var protector = new PdfDuoSecurityHelper(); // verify
+        // protector.SetUserPassword("userpass");       // verify
+        // protector.SetOwnerPassword("ownerpass");     // verify
+        // protector.Apply("input.pdf", "secured.pdf"); // verify
+
+        Console.WriteLine("Replace with verified PDF Duo security API");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Security;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("input.pdf");
+pdf.SecuritySettings.UserPassword  = "userpass";
+pdf.SecuritySettings.OwnerPassword = "ownerpass";
+pdf.SecuritySettings.AllowUserPrinting = PdfPrintSecurity.FullPrintRights;
+pdf.SecuritySettings.AllowUserAnnotations = false;
+pdf.SaveAs("secured.pdf");
+// Guide: https://ironpdf.com/how-to/pdf-permissions-passwords/
+</code></pre>
+
+<h2>How Do the Two Libraries Compare Feature by Feature?</h2>
+
+<p>Here are the full mapping tables I use when planning a migration. These cover the overall comparison, namespaces, core classes, document loading, page operations, and merge/split.</p>
+
+<h3>Overall Comparison</h3>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>PDF Duo</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>Verify &mdash; HTML-to-PDF library</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Verify at pdfduo.com</td><td>Commercial &mdash; verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>Verify</td><td>In-process .NET library</td></tr>
+<tr><td>Learning Curve</td><td>Verify</td><td>Medium</td></tr>
+<tr><td>HTML Rendering</td><td>Verify rendering engine</td><td>Chromium-based</td></tr>
+<tr><td>Page Indexing</td><td>Verify</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify</td><td>Renderer instance reuse &mdash; see async docs</td></tr>
+<tr><td>Namespace</td><td>Verify</td><td><code>IronPdf</code></td></tr>
+</tbody>
+</table>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<thead>
+<tr><th>PDF Duo</th><th>IronPDF</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>PdfDuo</code></td><td><code>IronPdf</code></td><td>Core</td></tr>
+<tr><td>Options namespace</td><td><code>IronPdf.Rendering</code></td><td>Configuration types</td></tr>
+<tr><td>N/A</td><td><code>IronPdf.Editing</code></td><td>Manipulation</td></tr>
+</tbody>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<thead>
+<tr><th>PDF Duo Class</th><th>IronPDF Class</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>Converter class</td><td><code>ChromePdfRenderer</code></td><td>HTML-to-PDF entry point</td></tr>
+<tr><td>Options class</td><td><code>ChromePdfRenderOptions</code></td><td>Render configuration</td></tr>
+<tr><td>N/A</td><td><code>PdfDocument</code></td><td>PDF document model</td></tr>
+<tr><td>N/A</td><td><code>PdfDocument</code> static</td><td>Merge, split, load</td></tr>
+</tbody>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>PDF Duo</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string</td><td>Verify method</td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td>URL</td><td>Verify method</td><td><code>renderer.RenderUrlAsPdf(url)</code></td></tr>
+<tr><td>HTML file</td><td>Verify method</td><td><code>renderer.RenderHtmlFileAsPdf(path)</code></td></tr>
+<tr><td>Existing PDF</td><td>Verify</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+</tbody>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>PDF Duo</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Paper size</td><td>Verify</td><td><code>ChromePdfRenderOptions.PaperSize</code></td></tr>
+<tr><td>Margins</td><td>Verify</td><td><code>ChromePdfRenderOptions.Margin*</code></td></tr>
+<tr><td>Orientation</td><td>Verify</td><td><code>ChromePdfRenderOptions.PaperOrientation</code></td></tr>
+<tr><td>Page count</td><td>Verify</td><td><code>pdf.PageCount</code></td></tr>
+</tbody>
+</table>
+
+<h3>Merge/Split Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>PDF Duo</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Merge</td><td>Verify</td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
+<tr><td>Split</td><td>Verify</td><td><code>pdf.CopyPages(startIndex, endIndex)</code></td></tr>
+</tbody>
+</table>
+
+<h2>What Are the Frequently Asked Questions?</h2>
+
+<p><strong>Answer:</strong> I get these four questions on almost every PDF Duo migration I advise on. Here they are with direct answers.</p>
+
+<h3>Will My PDFs Look Exactly the Same After Migration?</h3>
+
+<p><strong>Answer:</strong> Renderer changes will affect CSS rendering. If PDF Duo uses a different engine than Chromium, you should expect differences. Systematic approach: render all templates with PDF Duo as baseline, render again with IronPDF, and diff visually.</p>
+
+<p>Priority areas to check after a renderer change:</p>
+
+<table>
+<thead>
+<tr><th>CSS Feature</th><th>Risk Level</th></tr>
+</thead>
+<tbody>
+<tr><td>Flexbox / Grid</td><td>High if switching from WebKit to Chromium</td></tr>
+<tr><td>CSS variables</td><td>Medium</td></tr>
+<tr><td><code>@media print</code></td><td>Medium</td></tr>
+<tr><td>Background colors</td><td>Medium (requires explicit browser flag in WebKit)</td></tr>
+<tr><td>Custom fonts</td><td>Medium &mdash; font resolution differs</td></tr>
+<tr><td>Table layout</td><td>Low-Medium &mdash; test complex tables</td></tr>
+<tr><td><code>page-break-*</code> CSS</td><td>Low &mdash; standard behavior</td></tr>
+</tbody>
+</table>
+
+<p>IronPDF uses 0-based page indexing for all manipulation operations. Verify PDF Duo's convention and adjust any downstream consumers accordingly.</p>
+
+<h3>How Do I Handle Encoding Issues That Follow Me to the New Library?</h3>
+
+<p><strong>Answer:</strong> Encoding problems in PDF generation are often in the HTML source or the rendering pipeline, not the library. Ensure your HTML is explicitly UTF-8 and verify encoding at file read time.</p>
+
+<pre><code>// Ensure HTML is explicitly UTF-8
+string html = @"&lt;html&gt;
+&lt;head&gt;&lt;meta charset='utf-8' /&gt;&lt;/head&gt;
+&lt;body&gt;&lt;p&gt;Content with special chars: &#241;, &#252;, &#20013;&#25991;&lt;/p&gt;&lt;/body&gt;
+&lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(html);
+// Chromium handles UTF-8 natively &mdash; no special encoding flag needed
+
+// If rendering from a file, verify encoding at read time:
+// string html = File.ReadAllText("template.html", System.Text.Encoding.UTF8);
+</code></pre>
+
+<h3>What About the Output Model Change from byte[] to PdfDocument?</h3>
+
+<p><strong>Answer:</strong> PDF Duo likely returned <code>byte[]</code>. IronPDF returns a <code>PdfDocument</code> object. You will need to update downstream consumers that expect raw bytes.</p>
+
+<pre><code>// PDF Duo likely returned byte[] &mdash; update downstream consumers
+
+// Old pattern: byte[] pdfBytes = duoConverter.Convert(html);
+
+// IronPDF returns PdfDocument:
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf"); // to disk
+
+// To byte[]:
+using var ms = new MemoryStream();
+pdf.Stream.CopyTo(ms);
+byte[] pdfBytes = ms.ToArray();
+// Memory stream guide: https://ironpdf.com/how-to/pdf-memory-stream/
+
+// To HTTP response (ASP.NET):
+return File(pdf.Stream, "application/pdf", "document.pdf");
+</code></pre>
+
+<h3>What About Performance and Concurrent Rendering?</h3>
+
+<p><strong>Answer:</strong> Reuse a single renderer instance for batch work. For web applications, use the async API. If you were using secondary libraries alongside PDF Duo, removing them simplifies the dependency graph and can improve startup time.</p>
+
+<pre><code>// One renderer, many renders &mdash; efficient for batch processing
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+foreach (var (id, html) in documentQueue)
+{
+    using var pdf = renderer.RenderHtmlAsPdf(html);
+    pdf.SaveAs($"output_{id}.pdf");
+}
+</code></pre>
+
+<pre><code>// Async for web applications
+[HttpPost("generate")]
+public async Task&lt;IActionResult&gt; GeneratePdf([FromBody] string html)
+{
+    var renderer = new ChromePdfRenderer();
+    using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+    return File(pdf.Stream, "application/pdf", "document.pdf");
+    // Async guide: https://ironpdf.com/how-to/async/
+}
+</code></pre>
+
+<h2>What Is the Decision Framework for Your Team?</h2>
+
+<p><strong>Answer:</strong> Here is the migration checklist I recommend. Work through it in order: pre-migration assessment, code migration, testing, and post-migration cleanup.</p>
+
+<h3>Pre-Migration</h3>
+
+<p>Verify PDF Duo NuGet package name and current maintenance status. Build usage inventory table covering operations, files, and secondary libraries. Document all current workarounds and what they address. Pull all HTML templates for render comparison testing. Find all secondary libraries added alongside PDF Duo. Verify <a href="https://ironpdf.com/how-to/license-keys/">IronPDF .NET target framework compatibility</a>. Confirm commercial license requirements. Set up IronPDF trial license in dev environment.</p>
+
+<h3>Code Migration</h3>
+
+<p>Remove PDF Duo NuGet package. Remove secondary libraries if they only supplemented PDF Duo. Add the <code>IronPdf</code> NuGet package. Replace PDF Duo namespace imports. Replace license initialization. Replace HTML-to-PDF calls with <code>ChromePdfRenderer</code>. Replace merge operations with <code>PdfDocument.Merge()</code>. Replace watermark operations with <code>pdf.ApplyStamp()</code>. Replace security operations with <code>pdf.SecuritySettings</code>. Update output handling from <code>byte[]</code> to <code>PdfDocument</code> model. Add IronPDF license key to config.</p>
+
+<h3>Testing</h3>
+
+<p>Render each HTML template and visually compare against PDF Duo output. Focus on CSS features your templates rely on. Verify workarounds that were in the old code are no longer needed. Test merge with representative document sets. Test watermark on multi-page documents. Test password protection with correct and incorrect credentials. Load test concurrent rendering at expected peak.</p>
+
+<h3>Post-Migration</h3>
+
+<p>Remove PDF Duo license key from config and secrets. Remove secondary libraries from project if no longer needed. Update deployment documentation. Monitor first production week for any regression.</p>
+
+<p>The renewal-trigger migration often reveals how many secondary workarounds have accumulated around a library over time. The migration audit &mdash; finding the workarounds, understanding what they address, verifying whether they follow you to the new library &mdash; is frequently the most valuable part of the process, independent of which library you end up with.</p>

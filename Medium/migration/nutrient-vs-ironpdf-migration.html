@@ -1,0 +1,553 @@
+<h1>Migrating from Nutrient to IronPDF in C#: The Complete Guide</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Migrate from Nutrient to IronPDF?</h2>
+
+<p>You added a second pod. The PDF rendering service handled it fine. You added a third, and that's when it surfaced: concurrent render requests were stepping on each other in ways that hadn't been visible at lower traffic. Sometimes a PDF would come back blank. Occasionally two renders would produce outputs that were swapped. The root cause investigation led to a shared renderer state that the scaling documentation hadn't addressed clearly.</p>
+
+<p>If your team is in that exact position -- scaling up and finding that your Nutrient.io integration's concurrency model doesn't match your traffic pattern -- here are the key reasons I see teams evaluate alternatives:</p>
+
+<p><strong>Concurrency model mismatch</strong> -- SDK designed for client-side or single-user scenarios may not fit server-side concurrent generation at scale.</p>
+
+<p><strong>Pricing tier</strong> -- Nutrient is a premium commercial SDK; if your use case is primarily HTML-to-PDF generation, a more focused library may be more cost-effective at scale.</p>
+
+<p><strong>API surface breadth</strong> -- Nutrient covers many PDF use cases. If you only need HTML-to-PDF plus basic manipulation, you're paying for and managing features you don't use.</p>
+
+<p><strong>HTTP API dependency</strong> -- if your Nutrient integration is API-based, every render involves a network call. In-process rendering eliminates latency and dependency.</p>
+
+<p><strong>Docker/Kubernetes constraints</strong> -- verify Nutrient's container deployment requirements against your infrastructure.</p>
+
+<p><strong>CSS fidelity requirements</strong> -- verify Nutrient's HTML rendering approach if your templates use modern CSS.</p>
+
+<p><strong>Feature set consolidation</strong> -- teams with secondary libraries for merge, watermark, and similar operations evaluate whether a single library can handle all PDF operations.</p>
+
+<h2>What Does a Side-by-Side Comparison Look Like?</h2>
+
+<table>
+<tr><th>Aspect</th><th>Nutrient.io (.NET)</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>Full PDF SDK (view, edit, annotate, generate)</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Commercial -- verify at nutrient.io</td><td>Commercial -- verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>Verify -- library or HTTP client</td><td>In-process .NET library</td></tr>
+<tr><td>Learning Curve</td><td>Medium-High (broad SDK)</td><td>Medium</td></tr>
+<tr><td>HTML Rendering</td><td>Verify rendering approach</td><td>Chromium-based</td></tr>
+<tr><td>Page Indexing</td><td>Verify</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify for your specific integration</td><td>Renderer instance reuse -- see async docs</td></tr>
+<tr><td>Namespace</td><td>Verify -- PSPDFKit or Nutrient namespace</td><td>IronPdf</td></tr>
+</table>
+
+<h2>How Much Effort Does Each Feature Require to Migrate?</h2>
+
+<table>
+<tr><th>Feature</th><th>Nutrient Approach</th><th>Effort to Migrate</th></tr>
+<tr><td>HTML to PDF generation</td><td>Verify Nutrient API</td><td>Low-Medium</td></tr>
+<tr><td>PDF viewing / annotations</td><td>Nutrient core feature</td><td>N/A -- IronPDF doesn't replace viewer</td></tr>
+<tr><td>Merge PDFs</td><td>Verify Nutrient API</td><td>Low (native in IronPDF)</td></tr>
+<tr><td>Watermark / stamp</td><td>Verify Nutrient API</td><td>Low</td></tr>
+<tr><td>Password protection</td><td>Verify Nutrient API</td><td>Low</td></tr>
+<tr><td>Digital signatures</td><td>Verify Nutrient API</td><td>Medium -- verify IronPDF signing</td></tr>
+<tr><td>Form filling</td><td>Verify Nutrient API</td><td>Medium -- verify IronPDF form API</td></tr>
+<tr><td>OCR / text extraction</td><td>Verify Nutrient API</td><td>Medium -- verify IronPDF extraction</td></tr>
+<tr><td>Concurrent rendering</td><td>Problematic in some configurations</td><td>Low -- explicit per-thread pattern</td></tr>
+<tr><td>HTTP API round trips</td><td>Per-render latency</td><td>Eliminated -- in-process</td></tr>
+</table>
+
+<p>And here is the decision matrix for common scenarios:</p>
+
+<table>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+<tr><td>Need PDF viewer in browser</td><td>Nutrient's viewer has no IronPDF equivalent -- partial migration</td></tr>
+<tr><td>Server-side generation only</td><td>IronPDF fits well; evaluate feature coverage</td></tr>
+<tr><td>Concurrency at scale is the trigger</td><td>IronPDF's per-thread renderer pattern is explicit and predictable</td></tr>
+<tr><td>Annotation / form workflows</td><td>Verify IronPDF coverage before committing</td></tr>
+</table>
+
+<h2>How Do I Diagnose Concurrency Problems Before Migrating?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Before looking at library options, make sure you've identified the exact failure mode. Concurrency problems in PDF generation come from a few distinct sources: shared renderer state (if a renderer object is instantiated once and shared across threads without thread-safe access), shared output stream (if multiple render calls write to the same buffer without locking), and resource exhaustion (if the underlying renderer has per-process limits you're hitting).</p>
+
+<p>Add logging around your render calls to surface timing issues:</p>
+
+<h3>Diagnosis Pattern for Concurrent Rendering Failures</h3>
+
+<pre><code>// Add logging around render calls to surface timing issues
+var sw = System.Diagnostics.Stopwatch.StartNew();
+try
+{
+    // your render call here
+    sw.Stop();
+    _logger.LogInformation("Render completed in {ms}ms on thread {tid}",
+        sw.ElapsedMilliseconds, System.Threading.Thread.CurrentThread.ManagedThreadId);
+}
+catch (Exception ex)
+{
+    _logger.LogError(ex, "Render failed after {ms}ms on thread {tid}",
+        sw.ElapsedMilliseconds, System.Threading.Thread.CurrentThread.ManagedThreadId);
+}
+</code></pre>
+
+<p>If you see failures clustering on specific thread IDs or time-overlapping requests, shared state is likely the cause.</p>
+
+<h2>How Do I Run the Quick Start Migration in 3 Steps?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>First, remove the Nutrient NuGet package and install IronPDF:</p>
+
+<h3>Step 1: License Configuration</h3>
+
+<pre><code>// Before (Nutrient -- verify license initialization in SDK docs)
+// The namespace may be PSPDFKit or Nutrient depending on SDK version
+// using PSPDFKit; // or: using Nutrient;
+
+// License pattern -- verify before using:
+// NutrientLicense.SetKey("YOUR_NUTRIENT_KEY"); // hypothetical
+// PSPDFKit.License.SetKey("YOUR_KEY");          // hypothetical
+
+// After (IronPDF)
+using IronPdf;
+
+// Set once at application startup
+IronPdf.License.LicenseKey = "YOUR_IRONPDF_LICENSE_KEY";
+// License guide: https://ironpdf.com/how-to/license-keys/
+</code></pre>
+
+<h3>Step 2: Namespace Imports</h3>
+
+<pre><code>// Before
+// using PSPDFKit;  // verify
+// using Nutrient; // alternate -- verify
+
+// After
+using IronPdf;
+using IronPdf.Rendering;
+using IronPdf.Editing;
+using IronPdf.Security;
+</code></pre>
+
+<h3>Step 3: Basic HTML-to-PDF with Thread-Safe Pattern</h3>
+
+<pre><code>// Before (Nutrient -- verify API; illustrative pattern only)
+// VERIFY all class and method names against Nutrient.io SDK docs
+class PdfService
+{
+    // Verify: is this the right pattern for concurrent Nutrient usage?
+    private readonly object _lock = new();
+
+    public byte[] GeneratePdf(string html)
+    {
+        lock (_lock) // Are you doing this because concurrent calls fail?
+        {
+            // var converter = new NutrientPdfConverter(); // hypothetical
+            // return converter.HtmlToPdf(html);           // hypothetical
+            throw new NotImplementedException("Replace with verified Nutrient API");
+        }
+    }
+}
+
+// After (IronPDF -- explicit thread-safe pattern)
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+// Thread-safe: each render gets its own renderer instance
+class PdfService
+{
+    public PdfDocument GeneratePdf(string html)
+    {
+        // No locking needed -- renderer instances are independent
+        var renderer = new ChromePdfRenderer();
+        return renderer.RenderHtmlAsPdf(html);
+    }
+
+    // For high-throughput: use async
+    public async Task&lt;PdfDocument&gt; GeneratePdfAsync(string html)
+    {
+        var renderer = new ChromePdfRenderer();
+        return await renderer.RenderHtmlAsPdfAsync(html);
+    }
+}
+// Async guide: https://ironpdf.com/how-to/async/
+</code></pre>
+
+<h2>What Are the IronPDF Concurrency Patterns in Detail?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>This is the section that addresses the opening scenario. Here's the explicit <a href="https://ironpdf.com/how-to/async/">IronPDF concurrency approach</a> with three patterns depending on your use case.</p>
+
+<h3>Pattern 1: Per-Request Renderer (Recommended for Web Apps)</h3>
+
+<pre><code>// ASP.NET controller -- new renderer per request
+// Each renderer is independent -- no shared state issues
+[HttpGet("generate")]
+public async Task&lt;IActionResult&gt; GeneratePdf([FromQuery] string templateId)
+{
+    string html = await _templateService.GetHtmlAsync(templateId);
+
+    var renderer = new ChromePdfRenderer();
+    renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+    using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+    return File(pdf.Stream, "application/pdf", $"{templateId}.pdf");
+}
+</code></pre>
+
+<h3>Pattern 2: Parallel Batch Rendering</h3>
+
+<pre><code>using System.Threading.Tasks;
+using IronPdf;
+
+// Render a batch in parallel -- each task gets its own renderer
+async Task&lt;PdfDocument[]&gt; RenderBatchAsync(IEnumerable&lt;string&gt; htmlItems)
+{
+    return await Task.WhenAll(
+        htmlItems.Select(async html =&gt;
+        {
+            // One renderer per concurrent task -- explicitly safe
+            var renderer = new ChromePdfRenderer();
+            return await renderer.RenderHtmlAsPdfAsync(html);
+        })
+    );
+}
+// Parallel examples: https://ironpdf.com/examples/parallel/
+</code></pre>
+
+<h3>Pattern 3: Bounded Concurrency with SemaphoreSlim</h3>
+
+<pre><code>using System.Threading;
+using System.Threading.Tasks;
+using IronPdf;
+
+class BoundedPdfRenderer
+{
+    private readonly SemaphoreSlim _semaphore;
+
+    // Limit concurrent renders to avoid memory pressure
+    public BoundedPdfRenderer(int maxConcurrent = 4)
+        =&gt; _semaphore = new SemaphoreSlim(maxConcurrent);
+
+    public async Task&lt;PdfDocument&gt; RenderAsync(string html)
+    {
+        await _semaphore.WaitAsync();
+        try
+        {
+            var renderer = new ChromePdfRenderer();
+            return await renderer.RenderHtmlAsPdfAsync(html);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+}
+</code></pre>
+
+<h2>How Do I Map Nutrient Classes and Methods to IronPDF?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>The namespace and class mapping is straightforward. Here are the core equivalences:</p>
+
+<table>
+<tr><th>Nutrient/PSPDFKit</th><th>IronPDF</th><th>Notes</th></tr>
+<tr><td>PSPDFKit / Nutrient</td><td>IronPdf</td><td>Core</td></tr>
+<tr><td>SDK sub-namespaces</td><td>IronPdf.Rendering</td><td>Render config</td></tr>
+<tr><td>SDK sub-namespaces</td><td>IronPdf.Editing</td><td>Manipulation</td></tr>
+</table>
+
+<table>
+<tr><th>Nutrient Class</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td>HTML-to-PDF converter</td><td>ChromePdfRenderer</td><td>Render entry point</td></tr>
+<tr><td>Options/config class</td><td>ChromePdfRenderOptions</td><td>Render configuration</td></tr>
+<tr><td>PDF document class</td><td>PdfDocument</td><td>Document representation</td></tr>
+<tr><td>N/A</td><td>PdfDocument static methods</td><td>Merge, split</td></tr>
+</table>
+
+<p>And here is how the document loading and page operations map:</p>
+
+<table>
+<tr><th>Operation</th><th>Nutrient</th><th>IronPDF</th></tr>
+<tr><td>HTML string</td><td>Verify method</td><td>renderer.RenderHtmlAsPdf(html)</td></tr>
+<tr><td>URL</td><td>Verify method</td><td>renderer.RenderUrlAsPdf(url)</td></tr>
+<tr><td>HTML file</td><td>Verify method</td><td>renderer.RenderHtmlFileAsPdf(path)</td></tr>
+<tr><td>Existing PDF</td><td>Verify method</td><td>PdfDocument.FromFile(path)</td></tr>
+<tr><td>Page count</td><td>Verify</td><td>pdf.PageCount</td></tr>
+<tr><td>Paper size</td><td>Verify</td><td>ChromePdfRenderOptions.PaperSize</td></tr>
+<tr><td>Margins</td><td>Verify</td><td>ChromePdfRenderOptions.Margin*</td></tr>
+<tr><td>Orientation</td><td>Verify</td><td>ChromePdfRenderOptions.PaperOrientation</td></tr>
+<tr><td>Merge</td><td>Verify Nutrient API</td><td>PdfDocument.Merge(pdf1, pdf2)</td></tr>
+<tr><td>Split</td><td>Verify Nutrient API</td><td>pdf.CopyPages(startIndex, endIndex)</td></tr>
+</table>
+
+<h2>How Do I Migrate HTML-to-PDF, Merge, Watermark, and Password Protection?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>These are the four most common operations teams need to migrate. Let me walk through each one with complete before/after code.</p>
+
+<h3>HTML to PDF</h3>
+
+<pre><code>// Before (Nutrient -- verify all API names before implementing)
+// VERIFY: All class names and method signatures in Nutrient.io SDK docs
+using System;
+// using PSPDFKit; // or: using Nutrient; -- verify namespace
+
+class HtmlToPdfExample
+{
+    static async System.Threading.Tasks.Task Main()
+    {
+        // Verify: correct class name, constructor, and method signatures
+        // var converter = new NutrientHtmlConverter(); // hypothetical
+        // var options = new HtmlConvertOptions
+        // {
+        //     PaperSize = "A4",         // verify property names
+        //     MarginTop = "10mm",        // verify
+        // };
+        // byte[] pdf = await converter.ConvertAsync(html, options); // hypothetical
+
+        Console.WriteLine("Replace with verified Nutrient.io SDK API");
+    }
+}
+
+// After (IronPDF -- thread-safe single-render pattern)
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize  = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop    = 10;
+renderer.RenderingOptions.MarginBottom = 10;
+
+var pdf = renderer.RenderHtmlAsPdf(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #1234&lt;/h1&gt;&lt;p&gt;Amount: $500&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+pdf.SaveAs("invoice.pdf");
+// Guide: https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h3>Merge PDFs</h3>
+
+<pre><code>// Before (Nutrient -- verify merge API)
+// Verify: does Nutrient support PDF merge via the .NET SDK?
+// If not, a secondary library is typically used
+
+// Common secondary library pattern (PdfSharp):
+// using PdfSharp.Pdf;
+// using PdfSharp.Pdf.IO;
+// using var output = new PdfDocument();
+// foreach (string path in inputPaths)
+// {
+//     using var input = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+//     foreach (PdfPage page in input.Pages)
+//         output.AddPage(page);
+// }
+// output.Save(outputPath);
+
+// After (IronPDF native)
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var merged = PdfDocument.Merge(
+    PdfDocument.FromFile("section1.pdf"),
+    PdfDocument.FromFile("section2.pdf")
+);
+merged.SaveAs("merged.pdf");
+// Guide: https://ironpdf.com/how-to/merge-or-split-pdfs/
+</code></pre>
+
+<h3>Watermark</h3>
+
+<pre><code>// Before (Nutrient -- verify watermark API)
+// VERIFY: Does Nutrient support watermarking via .NET SDK?
+// If not natively supported, iTextSharp pattern is typical
+
+// After (IronPDF)
+using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("input.pdf");
+var stamper = new TextStamper
+{
+    Text = "CONFIDENTIAL",
+    FontColor = IronSoftware.Drawing.Color.LightGray,
+    FontSize = 60,
+    Opacity = 30,
+    Rotation = 45,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center
+};
+pdf.ApplyStamp(stamper);
+pdf.SaveAs("watermarked.pdf");
+// Guide: https://ironpdf.com/how-to/custom-watermark/
+</code></pre>
+
+<h3>Password Protection</h3>
+
+<pre><code>// Before (Nutrient -- verify security API)
+// VERIFY: Nutrient likely supports PDF security -- verify exact .NET API
+// using PSPDFKit; // or using Nutrient; -- verify
+
+// Hypothetical Nutrient security pattern:
+// var doc = await NutrientPdf.OpenAsync("input.pdf"); // verify
+// doc.SetPassword("userpass", "ownerpass");            // verify
+// await doc.SaveAsync("secured.pdf");                  // verify
+
+// After (IronPDF)
+using IronPdf;
+using IronPdf.Security;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("input.pdf");
+pdf.SecuritySettings.UserPassword  = "userpass";
+pdf.SecuritySettings.OwnerPassword = "ownerpass";
+pdf.SecuritySettings.AllowUserPrinting = PdfPrintSecurity.FullPrintRights;
+pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+pdf.SaveAs("secured.pdf");
+// Guide: https://ironpdf.com/how-to/pdf-permissions-passwords/
+</code></pre>
+
+<h2>What Are the Critical Migration Notes I Should Know?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>There are three things that catch teams off guard during this migration.</p>
+
+<p><strong>Viewer functionality:</strong> If your application uses Nutrient's PDF viewer component (browser-side PDF rendering), that's out of scope for an IronPDF migration. IronPDF is a server-side generation and manipulation library. You can migrate the server-side component while keeping the viewer, or plan a separate viewer replacement.</p>
+
+<p><strong>Page indexing:</strong> IronPDF uses 0-based page indexing. Verify Nutrient's convention in their documentation, then audit all page index references:</p>
+
+<pre><code>// IronPDF: 0-based
+var firstPage = pdf.Pages[0];  // first
+var lastPage  = pdf.Pages[pdf.PageCount - 1]; // last
+</code></pre>
+
+<p><strong>Output model:</strong> Verify whether Nutrient's .NET SDK returns <code>byte[]</code>, <code>Stream</code>, or a document object. IronPDF returns <code>PdfDocument</code> -- update call sites accordingly.</p>
+
+<h3>DI Registration in ASP.NET</h3>
+
+<pre><code>// If registering as singleton for performance:
+builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;(sp =&gt;
+{
+    var renderer = new ChromePdfRenderer();
+    renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+    return renderer;
+});
+
+// NOTE: If sharing a single instance, ensure thread safety by not
+// modifying RenderingOptions after registration.
+// For per-request options variation: use transient registration instead.
+builder.Services.AddTransient&lt;ChromePdfRenderer&gt;();
+</code></pre>
+
+<h2>How Do I Benchmark Concurrency Performance After Migration?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>The opening scenario was concurrent rendering failures. Before finalizing the migration, benchmark IronPDF's concurrent behavior under your specific load:</p>
+
+<h3>Concurrency Benchmark</h3>
+
+<pre><code>using System;
+using System.Diagnostics;
+using System.Threading.Tasks;
+using System.Linq;
+using IronPdf;
+
+class ConcurrencyBenchmark
+{
+    static async Task Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR_KEY";
+        const int concurrentRequests = 10;
+        const int totalRequests = 100;
+        string html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Test&lt;/h1&gt;&lt;p&gt;Content&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;";
+
+        var sw = Stopwatch.StartNew();
+        int completed = 0;
+
+        // Simulate concurrent rendering
+        await Task.WhenAll(
+            Enumerable.Range(0, totalRequests).Select(async i =&gt;
+            {
+                var renderer = new ChromePdfRenderer(); // one per task
+                using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+                System.Threading.Interlocked.Increment(ref completed);
+                if (completed % 10 == 0)
+                    Console.WriteLine($"{completed}/{totalRequests} completed");
+            })
+        );
+
+        sw.Stop();
+        Console.WriteLine($"Total: {sw.ElapsedMilliseconds}ms for {totalRequests} renders");
+        Console.WriteLine($"Throughput: {totalRequests / sw.Elapsed.TotalSeconds:F1} renders/sec");
+    }
+}
+</code></pre>
+
+<p>Always dispose <code>PdfDocument</code> after use in long-running services. Watch for cold start overhead on first render (Chromium initialization), memory footprint under concurrent load, and HTTP response streaming versus buffering to memory.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I keep Nutrient's PDF viewer while migrating server-side generation to IronPDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. The viewer and the server-side generator are separate concerns. Nutrient's PDF viewer component handles browser-side PDF rendering, which is out of scope for IronPDF. You can migrate the server-side generation component while keeping Nutrient's viewer in place.</p>
+
+<p>Verify that Nutrient's viewer still functions correctly with IronPDF-generated output as part of your testing phase.</p>
+
+<h3>Does IronPDF eliminate the HTTP API round trips that Nutrient requires?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>If your Nutrient integration is API-based, every render involves a network call. <a href="https://ironpdf.com/">IronPDF</a> is an in-process .NET library, so rendering happens locally without network latency. This eliminates the per-render latency and the dependency on an external service being available.</p>
+
+<p>For teams running high-throughput generation, this architectural difference can significantly improve both latency and reliability.</p>
+
+<h3>How does IronPDF handle thread safety differently from Nutrient?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF's per-request renderer pattern makes the threading model visible in the code. Each <code>ChromePdfRenderer</code> instance is independent -- no shared state issues. You don't need locking or synchronization. For web apps, create a new renderer per request. For batch jobs, create one per parallel task.</p>
+
+<p>Check the <a href="https://ironpdf.com/how-to/async/">IronPDF async documentation</a> for the recommended patterns under concurrent load.</p>
+
+<h3>What .NET framework version do I need for IronPDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF requires .NET 6+ as the target framework. Before starting the migration, verify your project's target framework is compatible. Also confirm that your Nutrient SDK documentation is available for your specific version so you can map features accurately.</p>
+
+<p>Run <code>dotnet add package IronPdf</code> after removing the Nutrient NuGet package and then <code>dotnet restore</code> to confirm everything resolves cleanly.</p>
+
+<h3>Will IronPDF handle my existing Nutrient merge and watermark workflows?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. Merging is a single static call: <code>PdfDocument.Merge(pdf1, pdf2)</code>. Watermarking uses a dedicated <a href="https://ironpdf.com/how-to/custom-watermark/">stamp API</a> with precise control over text, opacity, rotation, and alignment. Both are native to IronPDF -- no secondary libraries needed.</p>
+
+<p>If you were previously using a secondary library like PdfSharp or iTextSharp alongside Nutrient for merge or watermark operations, you can consolidate down to IronPDF alone.</p>
+
+<h3>How should I benchmark Nutrient against IronPDF for my specific workload?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Run the concurrency benchmark from this article with your actual HTML templates and realistic traffic levels. Focus on concurrent rendering under load -- that's where the differences surface. First-render latency with IronPDF will be higher due to Chromium startup, but sustained throughput and memory behavior under concurrent load are what matter for server workloads.</p>
+
+<p>Profile memory for at least 24 hours under production load. Watch Gen 2 GC frequency, working set trend (should be stable, not growing), and thread pool queue depth under burst load.</p>
+
+<h2>When Should You Migrate?</h2>
+
+<p>The thread safety story in server-side PDF generation is underspecified in most library documentation. The explicit per-request renderer pattern in <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF</a> makes the threading model visible in the code rather than hidden in documentation footnotes.</p>
+
+<p>If concurrency at scale is your trigger, IronPDF's per-thread renderer pattern is explicit and predictable. If you need server-side generation only, IronPDF fits well. If you need Nutrient's PDF viewer in the browser, plan a partial migration -- keep the viewer, replace the generation layer.</p>
+
+<p>The migration is mechanical for the core operations: HTML-to-PDF, merge, watermark, and password protection all have direct IronPDF equivalents. Benchmark before committing, verify feature coverage for your specific use case, and run the concurrency tests at production traffic levels before deploying.</p>

@@ -1,0 +1,547 @@
+<h1>ExpertPdf vs IronPDF in C#: Which PDF Library Should Your Team Choose?</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>Performance bottlenecks in PDF generation typically manifest as invisible costs -- until they don't. A .NET team integrating ExpertPdf for invoice generation might process 100 invoices per hour without issue. Six months later, when the client count reaches 500, that same workflow takes four hours. No error messages, no failures, just linear scaling that doesn't match exponential growth.</p>
+
+<p>The question for .NET teams isn't "which library is fastest" but rather "what performance characteristics matter for my workload?" Throughput for batch jobs differs from latency for real-time API responses. Memory footprint matters differently in serverless functions than in long-running services. Understanding these characteristics drives practical tool selection.</p>
+
+<h2>What Is ExpertPdf?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>ExpertPdf is an HTML-to-PDF converter with separate toolkit components for different PDF operations. It uses a Chromium/Blink rendering engine and supports .NET Framework 2.0+, .NET Core, and .NET 5-8 via .NET Standard 2.0 targeting. Platform support remains Windows-only.</p>
+
+<p>ExpertPdf maintains active development with v19.0.0 (HtmlToPdf) and v20.1.0 (PdfCreator) releases. Installation involves multiple NuGet packages (ExpertPdf.HtmlToPdf, ExpertPdf.PdfCreator), and may require a separate Chromium binaries package. Multiple components are sold separately -- teams needing HTML conversion, merging, splitting, text extraction, and security operations must license each component individually and coordinate versioning across multiple NuGet packages.</p>
+
+<h2>What Is IronPDF?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF wraps a Chromium rendering engine optimized for server-side PDF generation at scale. The library handles concurrent rendering requests through an internal thread pool that manages browser process lifecycle. For batch operations, the same <code>ChromePdfRenderer</code> instance can process multiple documents sequentially, amortizing initialization overhead.</p>
+
+<p>Memory management uses stream-based operations where possible, allowing PDFs to be generated directly to response streams without intermediate file system storage. The <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> covers async/await patterns for high-concurrency scenarios and resource pooling strategies for sustained throughput.</p>
+
+<h2>How Does ExpertPdf Differ from IronPDF?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>The differences fall into several key areas. ExpertPdf requires Windows for operation, which limits deployment options for teams using Linux containers, Azure App Service Linux plans, or AWS Lambda on non-Windows runtimes. IronPDF runs cross-platform on Windows, Linux, and macOS.</p>
+
+<p>ExpertPdf sells separate components for different operations (HtmlToPdf, PdfCreator, PdfMerge, PdfSplit, etc.). Teams needing multiple operations must license each component separately. IronPDF ships as a single NuGet package with all features included.</p>
+
+<p>On thread safety, IronPDF's <code>ChromePdfRenderer</code> is thread-safe by design, allowing concurrent calls from multiple threads without locking or separate instances. ExpertPdf's thread safety model should be verified in its documentation -- some .NET PDF libraries require locking or separate instances per thread, impacting throughput in multi-threaded scenarios.</p>
+
+<h2>How Do You Convert HTML to PDF with Each Library?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>ExpertPdf -- Simple HTML to PDF</h3>
+
+<pre><code>using ExpertPdf.HtmlToPdf;
+using System;
+using System.Diagnostics;
+
+namespace PerformanceBaseline
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var stopwatch = Stopwatch.StartNew();
+
+            try
+            {
+                // Initialize converter
+                PdfConverter pdfConverter = new PdfConverter();
+
+                // Configure basic options
+                pdfConverter.PdfDocumentOptions.PdfPageSize = PdfPageSize.A4;
+                pdfConverter.PdfDocumentOptions.PdfPageOrientation = PdfPageOrientation.Portrait;
+
+                // Simple HTML content
+                string html = @"
+                    &lt;html&gt;
+                    &lt;body&gt;
+                        &lt;h1&gt;Performance Test Document&lt;/h1&gt;
+                        &lt;p&gt;This is a simple test paragraph.&lt;/p&gt;
+                    &lt;/body&gt;
+                    &lt;/html&gt;";
+
+                // Convert to PDF
+                byte[] pdfBytes = pdfConverter.GetPdfBytesFromHtmlString(html);
+                System.IO.File.WriteAllBytes("simple.pdf", pdfBytes);
+
+                stopwatch.Stop();
+                Console.WriteLine($"Conversion time: {stopwatch.ElapsedMilliseconds}ms");
+                Console.WriteLine($"PDF size: {pdfBytes.Length / 1024}KB");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+            }
+        }
+    }
+}</code></pre>
+
+<p>Performance baseline characteristics: cold start includes renderer initialization overhead. Single-threaded sequential processing serves as the reference point.</p>
+
+<h3>IronPDF -- Simple HTML to PDF</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.Diagnostics;
+
+var stopwatch = Stopwatch.StartNew();
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(@"
+    &lt;html&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Performance Test Document&lt;/h1&gt;
+        &lt;p&gt;This is a simple test paragraph.&lt;/p&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;");
+pdf.SaveAs("simple.pdf");
+
+stopwatch.Stop();
+Console.WriteLine($"Conversion time: {stopwatch.ElapsedMilliseconds}ms");
+Console.WriteLine($"PDF size: {new FileInfo(\"simple.pdf\").Length / 1024}KB");</code></pre>
+
+<p>For async operations with better concurrency characteristics, see the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML String to PDF guide</a> which covers <code>RenderHtmlAsPdfAsync</code> patterns.</p>
+
+<h2>How Do You Handle Batch Processing and Concurrent PDF Generation?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>ExpertPdf -- Batch Processing Pattern</h3>
+
+<pre><code>using ExpertPdf.HtmlToPdf;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+
+namespace BatchProcessing
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            int documentCount = 100;
+            var stopwatch = Stopwatch.StartNew();
+            long totalBytes = 0;
+
+            try
+            {
+                // Single converter instance for batch
+                PdfConverter pdfConverter = new PdfConverter();
+                pdfConverter.PdfDocumentOptions.PdfPageSize = PdfPageSize.Letter;
+
+                List&lt;string&gt; htmlTemplates = GenerateHtmlBatch(documentCount);
+
+                for (int i = 0; i &lt; htmlTemplates.Count; i++)
+                {
+                    byte[] pdfBytes = pdfConverter.GetPdfBytesFromHtmlString(htmlTemplates[i]);
+                    System.IO.File.WriteAllBytes($"batch_{i}.pdf", pdfBytes);
+                    totalBytes += pdfBytes.Length;
+                }
+
+                stopwatch.Stop();
+
+                Console.WriteLine($"Total documents: {documentCount}");
+                Console.WriteLine($"Total time: {stopwatch.ElapsedMilliseconds}ms");
+                Console.WriteLine($"Average time per doc: {stopwatch.ElapsedMilliseconds / documentCount}ms");
+                Console.WriteLine($"Throughput: {documentCount / (stopwatch.ElapsedMilliseconds / 1000.0):F2} docs/sec");
+                Console.WriteLine($"Total output: {totalBytes / 1024 / 1024}MB");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Batch processing failed: {ex.Message}");
+            }
+        }
+
+        static List&lt;string&gt; GenerateHtmlBatch(int count)
+        {
+            var templates = new List&lt;string&gt;();
+            for (int i = 0; i &lt; count; i++)
+            {
+                templates.Add($@"
+                    &lt;html&gt;
+                    &lt;head&gt;
+                        &lt;style&gt;
+                            body {{ font-family: Arial; margin: 40px; }}
+                            .invoice {{ border: 1px solid #ddd; padding: 20px; }}
+                        &lt;/style&gt;
+                    &lt;/head&gt;
+                    &lt;body&gt;
+                        &lt;div class='invoice'&gt;
+                            &lt;h1&gt;Invoice #{i + 1}&lt;/h1&gt;
+                            &lt;p&gt;Date: {DateTime.Now.ToString("yyyy-MM-dd")}&lt;/p&gt;
+                            &lt;p&gt;Customer: Customer {i + 1}&lt;/p&gt;
+                            &lt;p&gt;Amount: ${(i + 1) * 100:N2}&lt;/p&gt;
+                        &lt;/div&gt;
+                    &lt;/body&gt;
+                    &lt;/html&gt;");
+            }
+            return templates;
+        }
+    }
+}</code></pre>
+
+<h3>IronPDF -- Batch Processing Pattern</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+
+var documentCount = 100;
+var stopwatch = Stopwatch.StartNew();
+
+var renderer = new ChromePdfRenderer();
+var htmlTemplates = Enumerable.Range(1, documentCount)
+    .Select(i =&gt; $@"
+        &lt;html&gt;
+        &lt;head&gt;
+            &lt;style&gt;
+                body {{ font-family: Arial; margin: 40px; }}
+                .invoice {{ border: 1px solid #ddd; padding: 20px; }}
+            &lt;/style&gt;
+        &lt;/head&gt;
+        &lt;body&gt;
+            &lt;div class='invoice'&gt;
+                &lt;h1&gt;Invoice #{i}&lt;/h1&gt;
+                &lt;p&gt;Date: {DateTime.Now:yyyy-MM-dd}&lt;/p&gt;
+                &lt;p&gt;Customer: Customer {i}&lt;/p&gt;
+                &lt;p&gt;Amount: ${i * 100:N2}&lt;/p&gt;
+            &lt;/div&gt;
+        &lt;/body&gt;
+        &lt;/html&gt;")
+    .ToList();
+
+for (int i = 0; i &lt; htmlTemplates.Count; i++)
+{
+    var pdf = renderer.RenderHtmlAsPdf(htmlTemplates[i]);
+    pdf.SaveAs($"batch_{i}.pdf");
+}
+
+stopwatch.Stop();
+Console.WriteLine($"Total time: {stopwatch.ElapsedMilliseconds}ms");
+Console.WriteLine($"Throughput: {documentCount / (stopwatch.ElapsedMilliseconds / 1000.0):F2} docs/sec");</code></pre>
+
+<p>The <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> includes optimization guidance for batch processing, including render caching and memory management strategies.</p>
+
+<h3>ExpertPdf -- Concurrent Processing</h3>
+
+<pre><code>using ExpertPdf.HtmlToPdf;
+using System;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Threading.Tasks;
+
+namespace ConcurrentProcessing
+{
+    class Program
+    {
+        static async Task Main(string[] args)
+        {
+            int concurrencyLevel = 4;
+            int documentsPerThread = 10;
+            var stopwatch = Stopwatch.StartNew();
+
+            var results = new ConcurrentBag&lt;TimeSpan&gt;();
+
+            try
+            {
+                var tasks = new Task[concurrencyLevel];
+
+                for (int t = 0; t &lt; concurrencyLevel; t++)
+                {
+                    int threadId = t;
+                    tasks[t] = Task.Run(() =&gt; ProcessBatch(threadId, documentsPerThread, results));
+                }
+
+                await Task.WhenAll(tasks);
+
+                stopwatch.Stop();
+
+                int totalDocs = concurrencyLevel * documentsPerThread;
+                double avgTime = results.Select(r =&gt; r.TotalMilliseconds).Average();
+
+                Console.WriteLine($"Total documents: {totalDocs}");
+                Console.WriteLine($"Concurrency level: {concurrencyLevel}");
+                Console.WriteLine($"Total time: {stopwatch.ElapsedMilliseconds}ms");
+                Console.WriteLine($"Average doc time: {avgTime:F2}ms");
+                Console.WriteLine($"Throughput: {totalDocs / (stopwatch.ElapsedMilliseconds / 1000.0):F2} docs/sec");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Concurrent processing failed: {ex.Message}");
+            }
+        }
+
+        static void ProcessBatch(int threadId, int count, ConcurrentBag&lt;TimeSpan&gt; results)
+        {
+            // Separate converter instance per thread (verify thread safety in docs)
+            PdfConverter converter = new PdfConverter();
+
+            for (int i = 0; i &lt; count; i++)
+            {
+                var docWatch = Stopwatch.StartNew();
+
+                string html = $@"
+                    &lt;html&gt;
+                    &lt;body&gt;
+                        &lt;h1&gt;Thread {threadId}, Doc {i}&lt;/h1&gt;
+                        &lt;p&gt;Timestamp: {DateTime.Now}&lt;/p&gt;
+                    &lt;/body&gt;
+                    &lt;/html&gt;";
+
+                byte[] pdf = converter.GetPdfBytesFromHtmlString(html);
+                System.IO.File.WriteAllBytes($"thread{threadId}_doc{i}.pdf", pdf);
+
+                docWatch.Stop();
+                results.Add(docWatch.Elapsed);
+            }
+        }
+    }
+}</code></pre>
+
+<h3>IronPDF -- Concurrent Processing</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.Diagnostics;
+using System.Linq;
+using System.Threading.Tasks;
+
+var concurrencyLevel = 4;
+var documentsPerThread = 10;
+var stopwatch = Stopwatch.StartNew();
+
+var renderer = new ChromePdfRenderer(); // Thread-safe, can be shared
+
+var tasks = Enumerable.Range(0, concurrencyLevel)
+    .Select(threadId =&gt; Task.Run(async () =&gt;
+    {
+        for (int i = 0; i &lt; documentsPerThread; i++)
+        {
+            var html = $@"
+                &lt;html&gt;
+                &lt;body&gt;
+                    &lt;h1&gt;Thread {threadId}, Doc {i}&lt;/h1&gt;
+                    &lt;p&gt;Timestamp: {DateTime.Now}&lt;/p&gt;
+                &lt;/body&gt;
+                &lt;/html&gt;";
+
+            var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+            pdf.SaveAs($"thread{threadId}_doc{i}.pdf");
+        }
+    }))
+    .ToArray();
+
+await Task.WhenAll(tasks);
+
+stopwatch.Stop();
+var totalDocs = concurrencyLevel * documentsPerThread;
+Console.WriteLine($"Total time: {stopwatch.ElapsedMilliseconds}ms");
+Console.WriteLine($"Throughput: {totalDocs / (stopwatch.ElapsedMilliseconds / 1000.0):F2} docs/sec");</code></pre>
+
+<p>IronPDF's <code>ChromePdfRenderer</code> is thread-safe by design, allowing concurrent calls without separate instances or locking.</p>
+
+<h2>How Do Merging, Signing, Forms, and Security Compare?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>ExpertPdf sells separate components for merging, splitting, text extraction, and security operations. Each requires its own NuGet package and license. IronPDF includes all of these as built-in features in a single package.</p>
+
+<p>For merging PDFs, IronPDF provides a straightforward built-in API. The <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Merge PDFs guide</a> covers combining documents, splitting, and extracting pages. ExpertPdf requires the separate ExpertPdf.MergePdf and ExpertPdf.SplitPdf packages.</p>
+
+<p>On security, IronPDF supports 128/256-bit AES password encryption, granular user permissions, built-in X.509 digital signatures, and permanent redaction. ExpertPdf offers password encryption, user permissions, and digital signatures through its separate components. Redaction support should be verified in ExpertPdf's documentation.</p>
+
+<p>Both libraries support form filling -- IronPDF handles AcroForm fields, and ExpertPdf provides form support as well. For a complete walkthrough of PDF editing operations, see the <a href="https://ironpdf.com/tutorials/csharp-edit-pdf-complete-tutorial/">Edit PDF Documents tutorial</a>.</p>
+
+<h2>How Do You Install Each Library?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>ExpertPdf Installation</h3>
+
+<pre><code># Base converter
+Install-Package ExpertPdf.HtmlToPdf
+
+# Additional components require separate packages
+Install-Package ExpertPdf.PdfCreator
+Install-Package ExpertPdf.MergePdf
+Install-Package ExpertPdf.SplitPdf
+# etc.</code></pre>
+
+<pre><code>using ExpertPdf.HtmlToPdf;
+using ExpertPdf.PdfCreator; // If using creator features</code></pre>
+
+<p>ExpertPdf requires multiple NuGet packages depending on the operations you need. Each component is licensed separately, and you must coordinate versioning across packages.</p>
+
+<h3>IronPDF Installation</h3>
+
+<pre><code>Install-Package IronPdf</code></pre>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;</code></pre>
+
+<p>IronPDF ships as a single NuGet package with all features included -- HTML conversion, merging, splitting, security, forms, and more.</p>
+
+<h2>Feature Comparison Table</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Status</h3>
+
+<table>
+<tr><th>Feature</th><th>ExpertPdf</th><th>IronPDF</th></tr>
+<tr><td>Active development</td><td>v19/v20</td><td>Monthly releases</td></tr>
+<tr><td>.NET 8 support</td><td>Yes (Windows)</td><td>Yes (cross-platform)</td></tr>
+<tr><td>.NET 9 support</td><td>Yes (Windows)</td><td>Yes (cross-platform)</td></tr>
+<tr><td>.NET 10 support</td><td>Verify in docs</td><td>Yes (cross-platform)</td></tr>
+<tr><td>.NET Framework 4.6.2+</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Linux support</td><td>Not supported</td><td>Yes</td></tr>
+<tr><td>macOS support</td><td>Not supported</td><td>Yes</td></tr>
+</table>
+
+<h3>Support</h3>
+
+<table>
+<tr><th>Feature</th><th>ExpertPdf</th><th>IronPDF</th></tr>
+<tr><td>Documentation</td><td>Available</td><td>Comprehensive</td></tr>
+<tr><td>Code examples</td><td>Basic samples</td><td>100+ examples</td></tr>
+<tr><td>Community forum</td><td>Verify availability</td><td>Active forum</td></tr>
+<tr><td>Technical support</td><td>Commercial</td><td>Engineering support</td></tr>
+<tr><td>Response time</td><td>Verify SLA</td><td>&lt; 1 min median (chat)</td></tr>
+</table>
+
+<h3>Content Creation</h3>
+
+<table>
+<tr><th>Feature</th><th>ExpertPdf</th><th>IronPDF</th></tr>
+<tr><td>HTML5 support</td><td>Chromium</td><td>Chromium</td></tr>
+<tr><td>CSS3 support</td><td>Full CSS3</td><td>Full CSS3</td></tr>
+<tr><td>JavaScript execution</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Web fonts</td><td>Yes</td><td>Google Fonts, custom</td></tr>
+<tr><td>SVG rendering</td><td>Native</td><td>Native</td></tr>
+<tr><td>Canvas rendering</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Responsive layouts</td><td>Media queries</td><td>Media queries</td></tr>
+<tr><td>Print CSS</td><td>@media print</td><td>@media print</td></tr>
+</table>
+
+<h3>PDF Operations</h3>
+
+<table>
+<tr><th>Feature</th><th>ExpertPdf</th><th>IronPDF</th></tr>
+<tr><td>Merge PDFs</td><td>Separate component</td><td>Built-in</td></tr>
+<tr><td>Split PDFs</td><td>Separate component</td><td>Built-in</td></tr>
+<tr><td>Extract pages</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Rotate pages</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Extract text</td><td>Separate component</td><td>Built-in</td></tr>
+<tr><td>Extract images</td><td>Separate component</td><td>Built-in</td></tr>
+<tr><td>Form filling</td><td>Yes</td><td>AcroForm</td></tr>
+<tr><td>Headers/footers</td><td>Yes</td><td>HTML-based</td></tr>
+<tr><td>Page numbers</td><td>Yes</td><td>Dynamic</td></tr>
+</table>
+
+<h3>Security</h3>
+
+<table>
+<tr><th>Feature</th><th>ExpertPdf</th><th>IronPDF</th></tr>
+<tr><td>Password encryption</td><td>Yes</td><td>128/256-bit AES</td></tr>
+<tr><td>User permissions</td><td>Yes</td><td>Granular</td></tr>
+<tr><td>Digital signatures</td><td>Separate component</td><td>Built-in X.509</td></tr>
+<tr><td>Redaction</td><td>Verify in docs</td><td>Permanent</td></tr>
+<tr><td>Metadata</td><td>Yes</td><td>Yes</td></tr>
+</table>
+
+<h3>Performance</h3>
+
+<table>
+<tr><th>Metric</th><th>ExpertPdf</th><th>IronPDF</th></tr>
+<tr><td>Cold start time</td><td>Verify with benchmarks</td><td>Optimized initialization</td></tr>
+<tr><td>Warm conversion</td><td>Verify with benchmarks</td><td>&lt;200ms simple HTML</td></tr>
+<tr><td>Memory footprint</td><td>Varies by document</td><td>Stream-based processing</td></tr>
+<tr><td>Thread safety</td><td>Verify in docs</td><td>Thread-safe renderer</td></tr>
+<tr><td>Concurrent throughput</td><td>Test with your workload</td><td>Linear scaling to cores</td></tr>
+<tr><td>Async support</td><td>Verify availability</td><td>Full async/await</td></tr>
+</table>
+
+<h3>Development</h3>
+
+<table>
+<tr><th>Feature</th><th>ExpertPdf</th><th>IronPDF</th></tr>
+<tr><td>NuGet installation</td><td>Multiple packages</td><td>One package</td></tr>
+<tr><td>External dependencies</td><td>Verify requirements</td><td>None</td></tr>
+<tr><td>Component licensing</td><td>Separate per component</td><td>All-inclusive</td></tr>
+<tr><td>Error messages</td><td>Standard exceptions</td><td>Detailed diagnostics</td></tr>
+<tr><td>Testing support</td><td>Unit testable</td><td>Unit testable</td></tr>
+</table>
+
+<h3>API Mapping Reference</h3>
+
+<table>
+<tr><th>Operation</th><th>ExpertPdf</th><th>IronPDF</th></tr>
+<tr><td>Initialize</td><td><code>new PdfConverter()</code></td><td><code>new ChromePdfRenderer()</code></td></tr>
+<tr><td>HTML string to PDF</td><td><code>GetPdfBytesFromHtmlString(html)</code></td><td><code>RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td>HTML URL to PDF</td><td><code>GetPdfBytesFromUrl(url)</code></td><td><code>RenderUrlAsPdf(url)</code></td></tr>
+<tr><td>Async conversion</td><td>Verify async support</td><td><code>RenderHtmlAsPdfAsync(html)</code></td></tr>
+<tr><td>Set timeout</td><td><code>NavigationTimeout = seconds</code></td><td><code>RenderingOptions.Timeout = seconds</code></td></tr>
+<tr><td>Page size</td><td><code>PdfPageSize.A4</code></td><td><code>PaperSize = PdfPaperSize.A4</code></td></tr>
+<tr><td>Page orientation</td><td><code>PdfPageOrientation.Portrait</code></td><td><code>PaperOrientation = Portrait</code></td></tr>
+<tr><td>JavaScript enable</td><td>Verify in docs</td><td><code>EnableJavaScript = true</code></td></tr>
+<tr><td>Margins</td><td><code>PdfMargins</code> object</td><td><code>MarginTop/Bottom/Left/Right</code></td></tr>
+<tr><td>Headers/footers</td><td>Verify API</td><td><code>HtmlHeaderFooter</code></td></tr>
+</table>
+
+<h2>Frequently Asked Questions</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Does ExpertPdf work on Linux?</h3>
+
+<p>No. ExpertPdf requires Windows for operation. This limits deployment options for teams using Linux containers, Azure App Service Linux plans, or AWS Lambda on non-Windows runtimes. IronPDF supports Windows, Linux, and macOS.</p>
+
+<h3>Can I use a single ExpertPdf package for all PDF operations?</h3>
+
+<p>No. ExpertPdf sells separate components for different operations -- HtmlToPdf, PdfCreator, PdfMerge, PdfSplit, and others. Teams needing multiple operations must license each component separately and coordinate versioning across multiple NuGet packages. IronPDF ships everything in a single package.</p>
+
+<h3>Is IronPDF's ChromePdfRenderer thread-safe?</h3>
+
+<p>Yes. IronPDF's <code>ChromePdfRenderer</code> class can handle concurrent calls from multiple threads without locking or separate instances, enabling linear scaling with available cores. ExpertPdf's thread safety model should be verified in its documentation.</p>
+
+<h3>Does IronPDF support async/await for PDF generation?</h3>
+
+<p>Yes. All rendering methods have async counterparts such as <code>RenderHtmlAsPdfAsync</code> for non-blocking operation in high-concurrency scenarios. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML String to PDF guide</a> covers these patterns in detail.</p>
+
+<h3>What rendering engine does each library use?</h3>
+
+<p>Both ExpertPdf and IronPDF use Chromium-based rendering engines. This means both support HTML5, CSS3, JavaScript execution, web fonts, SVG, canvas rendering, responsive layouts, and print CSS via @media print.</p>
+
+<h3>How do support options compare between ExpertPdf and IronPDF?</h3>
+
+<p>ExpertPdf offers commercial vendor support with response times that should be verified based on your licensing arrangement. IronPDF provides 24/5 engineering support (with 24/7 available on Premium plans) and a median chat response time of less than one minute, along with comprehensive documentation and 100+ code examples.</p>
+
+<h2>Which Library Should Your Team Choose?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Performance requirements drive the decision more than feature gaps. Teams encounter forcing functions around ExpertPdf when throughput requirements exceed single-threaded capacity, when licensing costs compound across multiple components, when cross-platform deployment becomes necessary, or when real-time latency requirements demand optimization.</p>
+
+<p>If your batch jobs require processing thousands of PDFs per hour and single-threaded sequential processing can't meet that target, you need concurrent execution. ExpertPdf's thread safety model may require architectural changes to scale horizontally, while IronPDF's thread-safe renderer scales linearly with available cores.</p>
+
+<p>When your workflow requires HTML conversion, merging, splitting, text extraction, and security operations, licensing each ExpertPdf component separately creates budget complexity. Organizations find it challenging to forecast costs as requirements expand. IronPDF bundles all operations under a single license.</p>
+
+<p>Teams standardizing on Linux containers or Azure App Service Linux plans cannot use ExpertPdf. The infrastructure cost of maintaining Windows-specific environments for PDF generation often exceeds the licensing savings.</p>
+
+<p>IronPDF optimizes for server-side throughput through thread-safe design, stream-based operations, full async/await support, and internal resource pooling. PDFs can be generated directly to <code>MemoryStream</code> or network streams without intermediate file system I/O:</p>
+
+<pre><code>var pdf = renderer.RenderHtmlAsPdf(html);
+await pdf.SaveAsAsync(Response.Body); // ASP.NET Core</code></pre>
+
+<p>For detailed performance optimization guidance, see the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> which covers caching strategies, memory management, and load testing methodologies.</p>

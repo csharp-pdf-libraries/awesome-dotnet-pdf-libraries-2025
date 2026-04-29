@@ -1,0 +1,545 @@
+<h1>Migrating from GrabzIt to IronPDF: Copy-Paste and Ship</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Migrate from GrabzIt to IronPDF?</h2>
+
+<p>You have a service that generates PDFs and screenshots. It worked fine at one pod. Now you are running three, and the GrabzIt API calls are stepping on each other -- timeouts, corrupt outputs, occasional 429s from the cloud endpoint. The rate limiter does not care that your traffic is legitimate. You are scaling up, and the architecture does not support it.</p>
+
+<p>I have seen teams run this migration for a range of neutral, practical reasons. Not all of these will apply to you, but here are the most common ones:</p>
+
+<p><strong>Concurrency limits hit.</strong> GrabzIt cloud API has rate limits. Under burst traffic, requests queue or fail.</p>
+
+<p><strong>Network dependency at render time.</strong> Every PDF generation makes an outbound HTTP call. Latency spikes in cloud environments, VPN-locked offices, or air-gapped systems.</p>
+
+<p><strong>Data residency requirements.</strong> HTML content is sent to GrabzIt servers. Some compliance frameworks prohibit sending document content to third-party endpoints.</p>
+
+<p><strong>Offline/edge deployments.</strong> Embedded systems, offline factory floors, or on-prem government environments cannot reach the GrabzIt API.</p>
+
+<p><strong>Docker/Kubernetes complexity.</strong> Managing API keys in secrets, retry logic for transient failures, and fallback strategies all add overhead that a local renderer eliminates.</p>
+
+<p><strong>Cost structure changes.</strong> SaaS pricing scales with usage. At volume, a one-time license can look different on a spreadsheet than per-render billing. Verify both against your own usage numbers.</p>
+
+<p><strong>CSS/JS fidelity.</strong> Cloud renderers have their own Chromium version and update cadence. Your HTML may render differently than expected.</p>
+
+<p><strong>Timeout handling.</strong> Async screenshot requests over HTTP introduce timeout complexity not present in in-process rendering.</p>
+
+<p><strong>Vendor lock-in.</strong> A thin wrapper pattern means your code is coupled to GrabzIt's API contract. If they change endpoints or deprecate methods, your builds break.</p>
+
+<h2>How Do GrabzIt and IronPDF Compare at a Glance?</h2>
+
+<p>Before diving into code, here is a side-by-side comparison of the two libraries across key dimensions.</p>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>GrabzIt</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>Cloud screenshot + PDF SaaS</td><td>Local PDF generation / manipulation</td></tr>
+<tr><td>Pricing</td><td>Subscription tiers</td><td>Per-developer license</td></tr>
+<tr><td>API Style</td><td>REST client wrapper -- async HTTP</td><td>In-process .NET library -- synchronous + async</td></tr>
+<tr><td>Learning Curve</td><td>Low (minimal setup), but limited control</td><td>Medium (more API surface, more control)</td></tr>
+<tr><td>HTML Rendering</td><td>Cloud Chromium (version managed by vendor)</td><td>Chromium-based local renderer</td></tr>
+<tr><td>Page Indexing</td><td>1-based</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Rate-limited by API tier</td><td>Renderer instance reuse -- see async docs</td></tr>
+<tr><td>Namespace</td><td><code>GrabzItClient</code></td><td><code>IronPdf</code></td></tr>
+</tbody>
+</table>
+
+<h2>How Much Effort Does Each Feature Take to Migrate?</h2>
+
+<p>Not every feature migrates with the same complexity. I have mapped the common GrabzIt features against the effort required to move them to <a href="https://ironpdf.com/">IronPDF</a>.</p>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>GrabzIt Approach</th><th>Effort to Migrate</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string to PDF</td><td><code>ConvertHtmlToImage</code> / PDF equivalent</td><td>Low</td></tr>
+<tr><td>URL to PDF</td><td><code>ConvertURL</code></td><td>Low</td></tr>
+<tr><td>Screenshot capture</td><td>GrabzIt-specific feature</td><td>High -- IronPDF does not do screenshots</td></tr>
+<tr><td>Merge PDFs</td><td>Not a GrabzIt core feature</td><td>Low (IronPDF has it natively)</td></tr>
+<tr><td>Watermark</td><td>Not a GrabzIt core feature</td><td>Low</td></tr>
+<tr><td>Password protection</td><td>Not a core feature</td><td>Low</td></tr>
+<tr><td>Custom headers/footers</td><td>Limited via options</td><td>Medium</td></tr>
+<tr><td>Async batch rendering</td><td>API-level queuing</td><td>Medium -- see IronPDF async docs</td></tr>
+<tr><td>Retry / fallback logic</td><td>Custom in your code</td><td>Medium -- already in your code, stays there</td></tr>
+<tr><td>Data residency compliance</td><td>N/A (data leaves your infra)</td><td>High value -- eliminates the concern</td></tr>
+<tr><td>Custom CSS / fonts</td><td>Limited by cloud renderer</td><td>Medium -- test your specific templates</td></tr>
+</tbody>
+</table>
+
+<h2>What Scenarios Favor Which Library?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>If you need screenshot capture (not just PDF), GrabzIt remains relevant because IronPDF does not replace screenshot use cases. For air-gapped or offline deployments, IronPDF or another local renderer is the only option since GrabzIt will not work. If you have data residency or compliance requirements, a local renderer is required. And if you are scaling concurrent PDF generation, evaluate a local renderer and test both under load before committing.</p>
+
+<table>
+<thead>
+<tr><th>Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>Need screenshot capture (not just PDF)</td><td>GrabzIt remains relevant; IronPDF does not replace screenshot use cases</td></tr>
+<tr><td>Air-gapped / offline deployment</td><td>IronPDF or another local renderer; GrabzIt will not work</td></tr>
+<tr><td>Data residency / compliance requirement</td><td>Local renderer required; evaluate IronPDF, PuppeteerSharp, or wkhtmltopdf</td></tr>
+<tr><td>Scaling concurrent PDF generation</td><td>Evaluate local renderer; test both under load before committing</td></tr>
+</tbody>
+</table>
+
+<h2>How Do I Set Up IronPDF After Removing GrabzIt?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>First, find all GrabzIt references in your codebase so you know what needs to change.</p>
+
+<h3>Find GrabzIt References</h3>
+
+<pre><code># Find all files referencing GrabzIt
+rg -l "GrabzIt" --type cs
+
+# Find specific client instantiation
+rg "GrabzItClient" --type cs -n
+
+# Find all using statements
+rg "using GrabzIt" --type cs -n
+
+# Find all API key references
+rg "SetApplicationKey\|ApplicationKey" --type cs -n
+</code></pre>
+
+<p>Then swap the NuGet packages.</p>
+
+<h3>Remove GrabzIt, Install IronPDF</h3>
+
+<pre><code># Remove GrabzIt NuGet package
+dotnet remove package GrabzIt
+
+# Install IronPDF
+dotnet add package IronPdf
+
+# Restore
+dotnet restore
+</code></pre>
+
+<p>Next, replace the license configuration. GrabzIt requires an API key and secret at client instantiation, sent with every cloud request. IronPDF uses a single license key set once at app startup.</p>
+
+<h3>Before (GrabzIt API Key Setup)</h3>
+
+<pre><code>using GrabzIt;
+
+// GrabzIt requires your API key + secret at client instantiation
+var grabzIt = new GrabzItClient("YOUR_APPLICATION_KEY", "YOUR_APPLICATION_SECRET");
+// Key is sent with every API request to the cloud
+</code></pre>
+
+<h3>After (IronPDF License Key)</h3>
+
+<pre><code>using IronPdf;
+
+// Set once at app startup -- appsettings or environment variable
+IronPdf.License.LicenseKey = "YOUR_IRONPDF_LICENSE_KEY";
+// Verify license setup: https://ironpdf.com/how-to/license-keys/
+</code></pre>
+
+<p>Finally, update your namespace imports.</p>
+
+<h3>Before (GrabzIt Namespaces)</h3>
+
+<pre><code>using GrabzIt;
+using GrabzIt.Parameters;
+// Additional GrabzIt namespaces -- verify in your specific version
+</code></pre>
+
+<h3>After (IronPDF Namespaces)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering; // for ChromePdfRenderOptions
+</code></pre>
+
+<h2>How Do the Core APIs Map Between GrabzIt and IronPDF?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>I have built full mapping tables covering namespaces, core classes, document loading, page operations, and merge/split. Use these as your migration reference.</p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<thead>
+<tr><th>GrabzIt</th><th>IronPDF</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>GrabzItClient</code></td><td><code>IronPdf</code></td><td>Top-level namespace</td></tr>
+<tr><td><code>GrabzIt.Parameters</code></td><td><code>IronPdf.Rendering</code></td><td>Options/config classes</td></tr>
+<tr><td><code>GrabzIt.Screenshots</code></td><td>N/A</td><td>Screenshot feature not in IronPDF</td></tr>
+</tbody>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<thead>
+<tr><th>GrabzIt Class</th><th>IronPDF Class</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>GrabzItClient</code></td><td><code>ChromePdfRenderer</code></td><td>Main rendering entry point</td></tr>
+<tr><td><code>PDFOptions</code></td><td><code>ChromePdfRenderOptions</code></td><td>Render configuration</td></tr>
+<tr><td><code>HTMLOptions</code></td><td><code>ChromePdfRenderOptions</code></td><td>HTML conversion options</td></tr>
+<tr><td>N/A</td><td><code>PdfDocument</code></td><td>Represents a loaded/generated PDF</td></tr>
+</tbody>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>GrabzIt</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string</td><td><code>ConvertHTML(html, options)</code></td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+<tr><td>URL</td><td><code>ConvertURL(url, options)</code></td><td><code>renderer.RenderUrlAsPdf(url)</code></td></tr>
+<tr><td>File</td><td>N/A (not a core feature)</td><td><code>renderer.RenderHtmlFileAsPdf(path)</code></td></tr>
+<tr><td>Existing PDF</td><td>N/A</td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+</tbody>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>GrabzIt</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Page count</td><td>N/A</td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Extract page</td><td>N/A</td><td><code>pdf.CopyPages(startIndex, endIndex)</code></td></tr>
+<tr><td>Page size</td><td>Via options</td><td><code>ChromePdfRenderOptions.PaperSize</code></td></tr>
+<tr><td>Margins</td><td>Via options</td><td><code>ChromePdfRenderOptions.MarginTop</code> etc.</td></tr>
+</tbody>
+</table>
+
+<h3>Merge/Split Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>GrabzIt</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Merge PDFs</td><td>Not a core feature</td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
+<tr><td>Split PDF</td><td>Not a core feature</td><td><code>pdf.CopyPages(0, n)</code></td></tr>
+</tbody>
+</table>
+
+<h2>What Does a Basic HTML-to-PDF Migration Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>This is the most common migration path. GrabzIt uses an async callback pattern with a cloud API, while IronPDF renders in-process with a straightforward synchronous call.</p>
+
+<h3>Before (GrabzIt HTML to PDF)</h3>
+
+<pre><code>using GrabzIt;
+using GrabzIt.Parameters;
+using System;
+
+class HtmlToPdfExample
+{
+    static void Main(string[] args)
+    {
+        var client = new GrabzItClient("APP_KEY", "APP_SECRET");
+
+        // HTMLOptions vary by library version -- verify before use
+        var htmlOptions = new HTMLOptions
+        {
+            // Width, height, delay options -- verify property names
+            CustomWaterMarkUrl = null
+        };
+
+        // Async callback pattern -- this is a simplified outline
+        // Actual implementation requires callback URL or polling
+        client.ConvertHTML(
+            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #1234&lt;/h1&gt;&lt;p&gt;Amount: $500&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;",
+            htmlOptions
+        );
+
+        // GrabzIt is async -- wait for result via callback or SaveTo polling
+        bool saved = client.SaveTo("invoice.pdf");
+        if (!saved)
+            Console.WriteLine("Conversion failed or timed out");
+        else
+            Console.WriteLine("Saved: invoice.pdf");
+    }
+}
+</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #1234&lt;/h1&gt;&lt;p&gt;Amount: $500&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+pdf.SaveAs("invoice.pdf");
+// Docs: https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h2>How Do I Migrate PDF Merging from GrabzIt?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Merging is not a native GrabzIt feature. Teams typically bolt on a second library like PdfSharp or iTextSharp just for this. With IronPDF, merging is built in and you can drop that extra dependency.</p>
+
+<h3>Before (GrabzIt with PdfSharp Workaround)</h3>
+
+<pre><code>using System.IO;
+using PdfSharp.Pdf;      // Common workaround -- teams add a second library
+using PdfSharp.Pdf.IO;
+
+class MergePdfsExample
+{
+    static void Main()
+    {
+        // Generate each PDF via GrabzIt separately, then merge with PdfSharp
+        // (or iTextSharp, or another library)
+        using var output = new PdfDocument();
+
+        foreach (var filePath in new[] { "part1.pdf", "part2.pdf" })
+        {
+            using var input = PdfReader.Open(filePath, PdfDocumentOpenMode.Import);
+            foreach (PdfPage page in input.Pages)
+                output.AddPage(page);
+        }
+
+        output.Save("merged.pdf");
+        Console.WriteLine("Merged.");
+    }
+}
+</code></pre>
+
+<h3>After (IronPDF Native Merge)</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf1 = PdfDocument.FromFile("part1.pdf");
+var pdf2 = PdfDocument.FromFile("part2.pdf");
+var merged = PdfDocument.Merge(pdf1, pdf2);
+merged.SaveAs("merged.pdf");
+// Docs: https://ironpdf.com/how-to/merge-or-split-pdfs/
+</code></pre>
+
+<h2>How Do I Add Watermarks After Migrating?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Watermarking is not a native GrabzIt feature either. The typical workaround involves iTextSharp with manual font setup and page-by-page stamping. IronPDF handles this with a clean stamper API.</p>
+
+<h3>Before (GrabzIt with iTextSharp Workaround)</h3>
+
+<pre><code>using iTextSharp.text;
+using iTextSharp.text.pdf;
+using System.IO;
+
+class WatermarkExample
+{
+    static void Main()
+    {
+        // Teams typically generate the PDF via GrabzIt, then apply watermark
+        // with a second library -- this is PdfReader/Stamper pattern
+        using var reader = new PdfReader("input.pdf");
+        using var stamper = new PdfStamper(reader, new FileStream("watermarked.pdf", FileMode.Create));
+
+        var content = stamper.GetOverContent(1);
+        var font = BaseFont.CreateFont(BaseFont.HELVETICA, BaseFont.CP1252, false);
+        content.SetFontAndSize(font, 40);
+        content.SetColorFill(BaseColor.LIGHT_GRAY);
+        content.ShowTextAligned(
+            Element.ALIGN_CENTER,
+            "CONFIDENTIAL",
+            300, 400, 45
+        );
+        // Repeat for each page manually
+    }
+}
+</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("input.pdf");
+var stamper = new TextStamper
+{
+    Text = "CONFIDENTIAL",
+    FontColor = IronSoftware.Drawing.Color.LightGray,
+    Opacity = 50,
+    Rotation = 45
+};
+pdf.ApplyStamp(stamper);
+pdf.SaveAs("watermarked.pdf");
+// Docs: https://ironpdf.com/how-to/custom-watermark/
+</code></pre>
+
+<h2>How Do I Migrate Password Protection?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Password protection is another feature GrabzIt does not offer natively. Teams typically generate the PDF via GrabzIt and then apply encryption with iTextSharp. IronPDF has built-in security settings.</p>
+
+<h3>Before (GrabzIt with iTextSharp Workaround)</h3>
+
+<pre><code>using iTextSharp.text.pdf;
+using System.IO;
+using System.Text;
+
+class PasswordExample
+{
+    static void Main()
+    {
+        // Generate via GrabzIt, then apply encryption with secondary library
+        var userPass = Encoding.ASCII.GetBytes("userpass");
+        var ownerPass = Encoding.ASCII.GetBytes("ownerpass");
+
+        using var reader = new PdfReader("generated.pdf");
+        using var stamper = new PdfStamper(
+            reader,
+            new FileStream("protected.pdf", FileMode.Create),
+            '\0', false
+        );
+
+        stamper.SetEncryption(
+            userPass,
+            ownerPass,
+            PdfWriter.ALLOW_PRINTING,
+            PdfWriter.ENCRYPTION_AES_128
+        );
+    }
+}
+</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Security;
+
+IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+
+var pdf = PdfDocument.FromFile("generated.pdf");
+pdf.SecuritySettings.OwnerPassword = "ownerpass";
+pdf.SecuritySettings.UserPassword = "userpass";
+pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+pdf.SecuritySettings.AllowUserPrinting = IronPdf.Security.PdfPrintSecurity.FullPrintRights;
+pdf.SaveAs("protected.pdf");
+// Docs: https://ironpdf.com/how-to/pdf-permissions-passwords/
+</code></pre>
+
+<h2>What Are the Critical Gotchas During Migration?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>There are four areas that catch teams during migration. I will walk through each one.</p>
+
+<p><strong>Page indexing.</strong> IronPDF uses 0-based page indexing. If your GrabzIt code references page 1 as the first page (1-based), adjust all page index references.</p>
+
+<pre><code>// If you had page 1 logic elsewhere:
+// GrabzIt: page 1 = first page
+// IronPDF: page 0 = first page
+var firstPage = pdf.Pages[0]; // not [1]
+</code></pre>
+
+<p><strong>Network vs in-process model.</strong> GrabzIt is fundamentally a network call. Your existing retry/timeout/circuit-breaker logic around those HTTP calls should be reviewed. It may no longer be necessary, or it may need to be rewritten around different failure modes like renderer startup and memory pressure.</p>
+
+<p><strong>Screenshot use case gap.</strong> IronPDF does not generate screenshots (PNG/JPEG captures of web pages). If your codebase uses GrabzIt's screenshot capability alongside PDF generation, you will need a separate tool for that use case. PuppeteerSharp is a common .NET option. Plan this before starting the migration.</p>
+
+<p><strong>Async patterns.</strong> GrabzIt is inherently async (cloud callback model). IronPDF has both sync and async APIs. If you are migrating to async IronPDF rendering, see the <a href="https://ironpdf.com/how-to/async/">IronPDF async documentation</a>.</p>
+
+<h2>How Should I Handle Performance and Concurrency?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>There are three patterns to follow for optimal performance with IronPDF.</p>
+
+<p><strong>Renderer reuse.</strong> Instantiating <code>ChromePdfRenderer</code> is relatively lightweight, but doing it repeatedly in tight loops is inefficient. Reuse instances where possible.</p>
+
+<h3>Batch Rendering with Reuse</h3>
+
+<pre><code>// Preferred for batch work
+var renderer = new ChromePdfRenderer();
+// Reuse renderer across renders in same scope
+foreach (var html in htmlBatch)
+{
+    var pdf = renderer.RenderHtmlAsPdf(html);
+    pdf.SaveAs($"output_{Guid.NewGuid()}.pdf");
+}
+</code></pre>
+
+<p><strong>Concurrency.</strong> For concurrent rendering, create separate renderer instances per thread rather than sharing one. See <a href="https://ironpdf.com/examples/parallel/">parallel rendering examples</a>.</p>
+
+<h3>Per-Thread Renderer Instantiation</h3>
+
+<pre><code>// Per-thread renderer instantiation is safe
+Parallel.ForEach(htmlBatch, html =&gt;
+{
+    var renderer = new ChromePdfRenderer(); // separate instance per thread
+    var pdf = renderer.RenderHtmlAsPdf(html);
+    pdf.SaveAs($"{Guid.NewGuid()}.pdf");
+});
+</code></pre>
+
+<p><strong>Disposal.</strong> <code>PdfDocument</code> implements <code>IDisposable</code>. Use <code>using</code> blocks or explicit disposal in long-running services.</p>
+
+<h3>Proper Disposal Pattern</h3>
+
+<pre><code>using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+// Disposed at end of block
+</code></pre>
+
+<p>A few edge cases worth flagging: JavaScript-heavy pages may have timing issues with async JS content (use <code>WaitFor</code> options if needed), local fonts on your rendering server need to be present since GrabzIt managed this on their end, and local rendering has a higher memory footprint than a thin HTTP client so load test before going to production.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can IronPDF replace GrabzIt for screenshot capture?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>No. IronPDF does not generate screenshots (PNG/JPEG captures of web pages). If your codebase uses GrabzIt's screenshot capability, you will need a separate tool for that use case. PuppeteerSharp is a common .NET alternative for screenshots.</p>
+
+<h3>Do I need to change my page indexing when migrating?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Yes. GrabzIt uses 1-based page indexing while IronPDF uses 0-based indexing. Audit all page index references in your code and subtract 1 from each. For example, <code>pdf.Pages[0]</code> is the first page in IronPDF, not <code>pdf.Pages[1]</code>.</p>
+
+<h3>Can I keep my existing retry and circuit-breaker logic?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>You should review it. GrabzIt is a network call, so retry/timeout logic made sense for HTTP failures. With IronPDF rendering in-process, the failure modes are different -- renderer startup issues, memory pressure, and font availability. Your existing retry logic may no longer be necessary, or it may need rewriting around these new failure modes.</p>
+
+<h3>Will my HTML templates render the same way in IronPDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>They should be close, but test each one. Both use Chromium-based rendering, but the Chromium version and configuration differ. CSS/JS fidelity depends on the specific version. Render each template and visually compare the output before going to production. Pay special attention to custom fonts, which you now manage locally.</p>
+
+<h3>Can I remove secondary PDF libraries like PdfSharp or iTextSharp after migrating?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>If those libraries were only present to supplement GrabzIt for features like merging, watermarking, or password protection, then yes. <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">IronPDF handles merging</a>, <a href="https://ironpdf.com/how-to/custom-watermark/">watermarking</a>, and <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">password protection</a> natively. Audit your usage of those secondary libraries to confirm they are not used elsewhere before removing them.</p>
+
+<h2>Conclusion</h2>
+
+<p>The main structural difference in this migration is not the API surface -- it is the architectural shift from a cloud-dependent HTTP client to an in-process renderer. Your error handling, retry logic, and async patterns all need revisiting with that in mind.</p>
+
+<p>Most of the code changes are straightforward: swap the NuGet package, replace <code>GrabzItClient</code> with <code>ChromePdfRenderer</code>, update namespace imports, and adjust page indexing from 1-based to 0-based. The real win is dropping secondary libraries you were using to patch gaps in GrabzIt's feature set -- merging, watermarking, and encryption all come built into IronPDF.</p>
+
+<p>The one area where GrabzIt retains relevance is screenshot capture. If that is part of your workflow, plan a separate solution before you begin the migration. For everything else, the effort table and mapping tables above should give you a clear picture of what is involved. Load test under realistic concurrency before going to production, and watch memory usage in the first week of live traffic.</p>

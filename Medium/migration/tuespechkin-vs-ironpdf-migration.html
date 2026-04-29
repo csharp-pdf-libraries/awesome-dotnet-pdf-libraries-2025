@@ -1,0 +1,617 @@
+<h1>Migrating from TuesPechkin to IronPDF: The Decision Guide for .NET Teams</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Consider Migrating from TuesPechkin?</h2>
+
+<p>I have watched this conversation play out many times. The license renewal arrives, someone checks the NuGet page, and the realization hits: TuesPechkin's last release was years ago, and the wkhtmltopdf binary it wraps has not seen an update either. The conversation shifts from "someday" to "this sprint."</p>
+
+<p>TuesPechkin and wkhtmltopdf are both in low or no active development. .NET 6+ compatibility is not officially maintained. If you are building on a modern stack, that is a real concern.</p>
+
+<p>The bundled wkhtmltopdf binary is Windows-only. Docker on Linux or any cross-platform deployment fails outright. If your team is moving toward containerized deployments, this is a hard blocker.</p>
+
+<p>The rendering engine is Qt WebKit, which is pre-2016. Modern CSS features like flex, grid, and custom properties do not render correctly. Your browser preview and your PDF output will not match.</p>
+
+<p>Thread safety is a recurring pain point. wkhtmltopdf has COM-like STA affinity requirements, so concurrent rendering requires a dedicated thread. Most production setups end up using an STA-threaded AppDomain or <code>ThreadLocal&lt;IConverter&gt;</code> to manage this constraint.</p>
+
+<p>TuesPechkin has no native PDF manipulation. Merge, watermark, security, and text extraction all require additional libraries alongside TuesPechkin. That means more dependencies, more maintenance, and more surface area for breaks.</p>
+
+<p>The wkhtmltopdf binary adds roughly 14MB to your Docker image or deployment artifact. Cookies, session tokens, and authenticated page rendering are complex with wkhtmltopdf. And while wkhtmltopdf executes JavaScript, the older engine means complex JS-rendered content may not render correctly.</p>
+
+<h2>What Does the Migration Effort Actually Look Like?</h2>
+
+<p>I want to give you a realistic picture of the effort involved. Here is a feature-by-feature breakdown so you can scope the work before writing any code.</p>
+
+<h3>Effort by Feature</h3>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>TuesPechkin Approach</th><th>IronPDF Equivalent</th><th>Complexity</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string to PDF</td><td><code>IConverter.Convert(doc)</code></td><td><code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code></td><td>Low</td></tr>
+<tr><td>URL to PDF</td><td><code>ObjectSettings.Page = url</code></td><td><code>renderer.RenderUrlAsPdfAsync(url)</code></td><td>Low</td></tr>
+<tr><td>HTML file to PDF</td><td><code>ObjectSettings.Page = "file:///..."</code></td><td><code>renderer.RenderHtmlFileAsPdfAsync(path)</code></td><td>Low</td></tr>
+<tr><td>Save to bytes</td><td><code>Convert()</code> returns byte[]</td><td><code>pdf.BinaryData</code></td><td>Low</td></tr>
+<tr><td>Save to file</td><td><code>File.WriteAllBytes(path, bytes)</code></td><td><code>pdf.SaveAs(path)</code></td><td>Low</td></tr>
+<tr><td>Page size</td><td><code>GlobalSettings.PaperSize</code></td><td><code>RenderingOptions.PaperSize</code></td><td>Low</td></tr>
+<tr><td>Margins</td><td><code>ObjectSettings.Margins.*</code></td><td><code>RenderingOptions.Margin*</code></td><td>Low</td></tr>
+<tr><td>Headers/footers</td><td><code>HeaderSettings</code> / <code>FooterSettings</code></td><td><code>RenderingOptions.HtmlHeader/Footer</code></td><td>Medium</td></tr>
+<tr><td>Merge PDFs</td><td>Not native</td><td><code>PdfDocument.Merge()</code></td><td>Medium</td></tr>
+<tr><td>Watermark</td><td>Not native</td><td><code>TextStamper</code> / <code>ImageStamper</code></td><td>Medium</td></tr>
+<tr><td>Password protection</td><td>Not native</td><td><code>pdf.SecuritySettings</code></td><td>Medium</td></tr>
+<tr><td>Text extraction</td><td>Not native</td><td><code>pdf.ExtractAllText()</code></td><td>Medium</td></tr>
+</tbody>
+</table>
+
+<h2>How Do You Decide Whether to Migrate?</h2>
+
+<p>Not every team should migrate on the same timeline. Here is a decision matrix I use when advising teams.</p>
+
+<table>
+<thead>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>.NET 6+ compatibility is the primary concern</td><td>Switch &mdash; TuesPechkin has no official .NET 6+ support</td></tr>
+<tr><td>Docker/Linux deployment needed</td><td>Switch &mdash; wkhtmltopdf binary is Windows-only</td></tr>
+<tr><td>Modern CSS (flex, grid) required</td><td>Switch &mdash; Chromium vs pre-2016 WebKit</td></tr>
+<tr><td>Basic HTML-to-PDF, Windows-only, wkhtmltopdf working well</td><td>Evaluate migration cost; if it is working, timeline is flexible</td></tr>
+</tbody>
+</table>
+
+<h3>Finding TuesPechkin References in Your Codebase</h3>
+
+<p>Before touching any code, run these commands and document the results. The output determines your scope and risk.</p>
+
+<pre><code># Find all TuesPechkin API usage files
+rg -l "TuesPechkin\|IConverter\|HtmlToPdfDocument\|ObjectSettings\|GlobalSettings" --type cs
+
+# Show line-level usage for review
+rg "TuesPechkin\|IConverter\|HtmlToPdfDocument" --type cs -n
+
+# Find STA threading workaround code
+rg "ApartmentState\.STA\|SetApartmentState\|ThreadLocal.*Converter" --type cs -n
+
+# Find the converter factory / singleton pattern
+rg "ThreadSafeConverter\|MultiplexingConverter\|ThreadLocal&lt;IConverter&gt;" --type cs -n
+
+# Find URL rendering vs HTML string rendering
+rg "ObjectSettings.*Page\s*=\|Page\s*=.*http" --type cs -n
+
+# Count usage density
+rg "IConverter\.\|HtmlToPdfDocument\|ObjectSettings" --type cs | wc -l
+</code></pre>
+
+<h3>Removing TuesPechkin and Installing IronPDF</h3>
+
+<pre><code># Remove TuesPechkin packages
+dotnet remove package TuesPechkin
+dotnet remove package TuesPechkin.Wkhtmltopdf.Win64
+dotnet remove package TuesPechkin.Wkhtmltopdf.Win32
+
+# Install IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+
+# Verify packages
+dotnet list package | grep -i "tuespechkin\|wkhtmltopdf\|ironpdf"
+</code></pre>
+
+<p>If you manually copied <code>wkhtmltopdf.exe</code> into your project or Docker image, remove those references too. IronPDF ships its own Chromium binaries. You can verify the install pattern at <a href="https://ironpdf.com/how-to/license-keys/">the IronPDF license configuration guide</a>.</p>
+
+<h3>Step 1: License Configuration</h3>
+
+<p><strong>Before (TuesPechkin):</strong></p>
+
+<pre><code>using TuesPechkin;
+using System.Threading;
+
+// TuesPechkin has no license key &mdash; but requires ThreadSafeConverter singleton
+private static readonly ThreadLocal&lt;IConverter&gt; _converter = new ThreadLocal&lt;IConverter&gt;(
+    () =&gt; new ThreadSafeConverter(
+        new PdfToolset(new Win64EmbeddedDeployment(
+            new TempFolderDeployment()))));
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+// https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY")
+    ?? throw new InvalidOperationException("IRONPDF_LICENSE_KEY not set");
+
+// No converter singleton needed
+</code></pre>
+
+<h3>Step 2: Namespace Imports</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>using TuesPechkin;
+using System.Threading;
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+</code></pre>
+
+<h3>Step 3: Basic HTML-to-PDF Conversion</h3>
+
+<p><strong>Before (TuesPechkin with STA thread):</strong></p>
+
+<pre><code>using TuesPechkin;
+using System;
+using System.IO;
+using System.Threading;
+
+class Program
+{
+    private static readonly ThreadLocal&lt;IConverter&gt; _converter = new ThreadLocal&lt;IConverter&gt;(
+        () =&gt; new ThreadSafeConverter(
+            new PdfToolset(new Win64EmbeddedDeployment(
+                new TempFolderDeployment()))));
+
+    static void Main()
+    {
+        byte[] pdfBytes = null;
+        var thread = new Thread(() =&gt;
+        {
+            var doc = new HtmlToPdfDocument
+            {
+                GlobalSettings = { PaperSize = PaperKind.A4 },
+                Objects =
+                {
+                    new ObjectSettings
+                    {
+                        HtmlText = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
+                        WebSettings = { DefaultEncoding = "utf-8" },
+                    }
+                }
+            };
+            pdfBytes = _converter.Value.Convert(doc);
+        });
+
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+
+        File.WriteAllBytes("output.pdf", pdfBytes);
+        Console.WriteLine("Saved output.pdf");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+pdf.SaveAs("output.pdf");
+
+Console.WriteLine($"Saved output.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h2>What Does Each Before/After Migration Look Like in Practice?</h2>
+
+<p>Let me walk through four complete migration examples so you can see exactly what changes in real code.</p>
+
+<h3>HTML String to PDF with Full Options</h3>
+
+<p><strong>Before (TuesPechkin):</strong></p>
+
+<pre><code>using TuesPechkin;
+using System;
+using System.IO;
+using System.Threading;
+
+class HtmlToPdfBefore
+{
+    private static readonly ThreadLocal&lt;IConverter&gt; _converter = new(() =&gt;
+        new ThreadSafeConverter(
+            new PdfToolset(
+                new Win64EmbeddedDeployment(new TempFolderDeployment()))));
+
+    static void Main()
+    {
+        byte[] pdfBytes = null;
+
+        var thread = new Thread(() =&gt;
+        {
+            var doc = new HtmlToPdfDocument
+            {
+                GlobalSettings =
+                {
+                    PaperSize = PaperKind.A4,
+                    Margins = { Top = 20, Bottom = 20, Left = 25, Right = 25, Unit = Unit.Millimeters },
+                },
+                Objects =
+                {
+                    new ObjectSettings
+                    {
+                        HtmlText = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #9901&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
+                        WebSettings = { DefaultEncoding = "utf-8" },
+                    }
+                }
+            };
+            pdfBytes = _converter.Value.Convert(doc);
+        });
+
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+
+        File.WriteAllBytes("invoice.pdf", pdfBytes);
+        Console.WriteLine($"Saved invoice.pdf ({pdfBytes.Length:N0} bytes)");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 20;
+renderer.RenderingOptions.MarginBottom = 20;
+renderer.RenderingOptions.MarginLeft = 25;
+renderer.RenderingOptions.MarginRight = 25;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #9901&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+pdf.SaveAs("invoice.pdf");
+Console.WriteLine($"Saved invoice.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h3>Merge PDFs</h3>
+
+<p><strong>Before (TuesPechkin &mdash; not native; secondary library required):</strong></p>
+
+<pre><code>using TuesPechkin;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading;
+
+class MergeBefore
+{
+    private static readonly ThreadLocal&lt;IConverter&gt; _converter = new(() =&gt;
+        new ThreadSafeConverter(
+            new PdfToolset(new Win64EmbeddedDeployment(new TempFolderDeployment()))));
+
+    static void Main()
+    {
+        var htmlSections = new[] {
+            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section A&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
+            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section B&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
+        };
+        var pdfFiles = new List&lt;string&gt;();
+
+        for (int i = 0; i &lt; htmlSections.Length; i++)
+        {
+            var html = htmlSections[i];
+            var outPath = $"section{i + 1}.pdf";
+            byte[] bytes = null;
+
+            var thread = new Thread(() =&gt;
+            {
+                var doc = new HtmlToPdfDocument
+                {
+                    Objects = { new ObjectSettings { HtmlText = html } }
+                };
+                bytes = _converter.Value.Convert(doc);
+            });
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+            thread.Join();
+
+            File.WriteAllBytes(outPath, bytes);
+            pdfFiles.Add(outPath);
+        }
+
+        // Merge requires secondary library &mdash; TuesPechkin has no merge
+        Console.WriteLine("Merge requires secondary library &mdash; STA thread per render");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+
+var results = await Task.WhenAll(
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section A&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"),
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section B&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;")
+);
+
+// https://ironpdf.com/how-to/merge-or-split-pdfs/
+var merged = PdfDocument.Merge(results[0], results[1]);
+merged.SaveAs("merged.pdf");
+Console.WriteLine($"Merged: {merged.PageCount} pages &mdash; no STA thread needed");
+</code></pre>
+
+<h3>Watermark</h3>
+
+<p><strong>Before (TuesPechkin &mdash; not native; secondary library required):</strong></p>
+
+<pre><code>using TuesPechkin;
+using System;
+using System.IO;
+using System.Threading;
+
+class WatermarkBefore
+{
+    static void Main()
+    {
+        byte[] pdfBytes = null;
+        var thread = new Thread(() =&gt;
+        {
+            var converter = new ThreadSafeConverter(
+                new PdfToolset(new Win64EmbeddedDeployment(new TempFolderDeployment())));
+
+            var doc = new HtmlToPdfDocument
+            {
+                Objects = { new ObjectSettings
+                    { HtmlText = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;" } }
+            };
+            pdfBytes = converter.Convert(doc);
+        });
+
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+
+        // Watermark requires secondary library &mdash; TuesPechkin cannot do this
+        Console.WriteLine("Watermark requires secondary library with TuesPechkin");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+
+// https://ironpdf.com/how-to/custom-watermark/
+var watermark = new TextStamper
+{
+    Text = "DRAFT",
+    FontColor = IronPdf.Imaging.Color.Gray,
+    Opacity = 0.15,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs("watermarked.pdf");
+</code></pre>
+
+<h3>Password Protection</h3>
+
+<p><strong>Before (TuesPechkin &mdash; not native):</strong></p>
+
+<pre><code>using TuesPechkin;
+using System;
+using System.IO;
+using System.Threading;
+
+class PasswordBefore
+{
+    static void Main()
+    {
+        byte[] pdfBytes = null;
+        var thread = new Thread(() =&gt;
+        {
+            var converter = new ThreadSafeConverter(
+                new PdfToolset(new Win64EmbeddedDeployment(new TempFolderDeployment())));
+
+            var doc = new HtmlToPdfDocument
+            {
+                Objects = { new ObjectSettings
+                    { HtmlText = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Protected Doc&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;" } }
+            };
+            pdfBytes = converter.Convert(doc);
+        });
+
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+
+        // Password protection requires secondary library &mdash; TuesPechkin does not support it
+        Console.WriteLine("Password protection requires secondary library with TuesPechkin");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Protected Doc&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+
+// https://ironpdf.com/how-to/pdf-permissions-passwords/
+pdf.SecuritySettings.UserPassword = "open123";
+pdf.SecuritySettings.OwnerPassword = "admin456";
+
+pdf.SaveAs("secured.pdf");
+</code></pre>
+
+<h2>How Do the Two Libraries Compare Feature by Feature?</h2>
+
+<p>Here are the full mapping tables I use when planning a TuesPechkin migration. These cover the overall comparison, namespaces, core classes, document loading, page operations, and merge/split.</p>
+
+<h3>Overall Comparison</h3>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>TuesPechkin + wkhtmltopdf</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>HTML-to-PDF via wkhtmltopdf wrapper</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Open source &mdash; wkhtmltopdf LGPL</td><td>Commercial license &mdash; verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td><code>IConverter.Convert(document)</code> + settings objects</td><td><code>ChromePdfRenderer</code> + options</td></tr>
+<tr><td>Learning Curve</td><td>Low for basic use; STA threading adds complexity</td><td>Low for .NET devs</td></tr>
+<tr><td>HTML Rendering</td><td>Qt WebKit (pre-2016)</td><td>Embedded Chromium</td></tr>
+<tr><td>Page Indexing</td><td>wkhtmltopdf 1-based in some contexts</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>STA thread affinity; one thread per converter</td><td>Verify IronPDF concurrent instance guidance</td></tr>
+<tr><td>Namespace</td><td><code>TuesPechkin</code></td><td><code>IronPdf</code></td></tr>
+</tbody>
+</table>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<thead>
+<tr><th>TuesPechkin</th><th>IronPDF</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>TuesPechkin</code></td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
+<tr><td>N/A</td><td><code>IronPdf.Rendering</code></td><td>Rendering config</td></tr>
+<tr><td>N/A</td><td><code>IronPdf.Editing</code></td><td>Watermark / stamp</td></tr>
+</tbody>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<thead>
+<tr><th>TuesPechkin Class</th><th>IronPDF Class</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>IConverter</code> / <code>ThreadSafeConverter</code></td><td><code>ChromePdfRenderer</code></td><td>Primary rendering class</td></tr>
+<tr><td><code>HtmlToPdfDocument</code></td><td>N/A &mdash; HTML string is the input</td><td>No document object needed</td></tr>
+<tr><td><code>GlobalSettings</code></td><td><code>ChromePdfRenderOptions</code></td><td>Page size, margins, global settings</td></tr>
+<tr><td><code>ObjectSettings</code></td><td><code>ChromePdfRenderOptions</code> + HTML input</td><td>Per-document settings</td></tr>
+</tbody>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>TuesPechkin</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string</td><td><code>ObjectSettings.HtmlText = html</code></td><td><code>renderer.RenderHtmlAsPdfAsync(html)</code></td></tr>
+<tr><td>URL</td><td><code>ObjectSettings.Page = url</code></td><td><code>renderer.RenderUrlAsPdfAsync(url)</code></td></tr>
+<tr><td>HTML file</td><td><code>ObjectSettings.Page = "file:///path"</code></td><td><code>renderer.RenderHtmlFileAsPdfAsync(path)</code></td></tr>
+<tr><td>Get bytes</td><td><code>converter.Convert(doc)</code> returns <code>byte[]</code></td><td><code>pdf.BinaryData</code></td></tr>
+</tbody>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>TuesPechkin</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Page count</td><td>Not returned from Convert()</td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Remove page</td><td>Not applicable</td><td><code>pdf.RemovePage(index)</code> &mdash; verify</td></tr>
+<tr><td>Extract text</td><td>Not applicable</td><td><code>pdf.ExtractAllText()</code></td></tr>
+<tr><td>Rotate</td><td>Via CSS <code>@page { rotate }</code> or wkhtmltopdf setting</td><td>Verify in IronPDF docs</td></tr>
+</tbody>
+</table>
+
+<h3>Merge/Split Operations</h3>
+
+<table>
+<thead>
+<tr><th>Operation</th><th>TuesPechkin</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Merge</td><td>Not native &mdash; secondary lib</td><td><code>PdfDocument.Merge(doc1, doc2)</code></td></tr>
+<tr><td>Split</td><td>Not native</td><td><a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Guide</a></td></tr>
+</tbody>
+</table>
+
+<h2>What Are the Frequently Asked Questions?</h2>
+
+<p><strong>Answer:</strong> I get these four questions on almost every TuesPechkin migration I advise on. Here they are with direct answers.</p>
+
+<h3>Will My PDFs Look Exactly the Same After Migration?</h3>
+
+<p><strong>Answer:</strong> TuesPechkin uses Qt WebKit (pre-2016) via wkhtmltopdf. IronPDF uses Chromium. For most templates this produces visually similar output, but not identical. Modern CSS features like flex and grid will actually render better with IronPDF since Qt WebKit did not support them correctly.</p>
+
+<p>IronPDF uses 0-based page indexing while wkhtmltopdf uses 1-based indexing in some contexts. If you are feeding output into other tools, verify the consumer side too. Run a visual comparison across all your HTML templates before cutting over.</p>
+
+<h3>How Do I Handle the STA Thread Boilerplate Removal?</h3>
+
+<p><strong>Answer:</strong> Count your STA thread wrappers before starting. Each one is a migration site. Run <code>rg "SetApartmentState\(ApartmentState\.STA\)" --type cs -n | wc -l</code> to get the count. Every <code>ThreadLocal&lt;IConverter&gt;</code>, every <code>ThreadSafeConverter</code>, every <code>MultiplexingConverter</code> singleton, and every STA thread creation block gets removed entirely. IronPDF does not require any of this infrastructure.</p>
+
+<pre><code>// TuesPechkin: count these and remove all of them
+rg "SetApartmentState\(ApartmentState\.STA\)" --type cs -n | wc -l
+rg "ThreadSafeConverter\|MultiplexingConverter\|ThreadLocal&lt;IConverter&gt;" --type cs -n
+</code></pre>
+
+<h3>What About Header and Footer Token Migration?</h3>
+
+<p><strong>Answer:</strong> wkhtmltopdf and TuesPechkin use <code>[page]</code> and <code>[topage]</code> as header/footer tokens. IronPDF uses <code>{page}</code> and <code>{total-pages}</code>. Any header or footer HTML that referenced the old tokens needs updating. This is a find-and-replace operation, but easy to miss if you do not audit systematically.</p>
+
+<pre><code>// wkhtmltopdf/TuesPechkin footer tokens:
+// "Page [page] of [topage]"
+
+// IronPDF footer tokens:
+// https://ironpdf.com/how-to/headers-and-footers/
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    HtmlFragment = "&lt;div style='font-size:9px; text-align:right; padding: 0 20px'&gt;Page {page} of {total-pages}&lt;/div&gt;",
+};
+</code></pre>
+
+<h3>Can I Remove Secondary PDF Libraries After Migration?</h3>
+
+<p><strong>Answer:</strong> TuesPechkin commonly accumulates secondary libraries for missing features like merge, watermark, and security. After IronPDF covers those natively, you can remove them. Run <code>dotnet list package | grep -i "pdfsharp\|itextsharp\|pdfdocument\|dinkto"</code> to find candidates. Verify each library was only used to supplement TuesPechkin before removing it.</p>
+
+<h2>What Is the Decision Framework for Your Team?</h2>
+
+<p><strong>Answer:</strong> Here is the migration framework I recommend. Work through it in order: pre-migration assessment, code migration, testing, and post-migration cleanup.</p>
+
+<h3>Pre-Migration</h3>
+
+<p>Find all TuesPechkin usages with <code>rg -l "TuesPechkin" --type cs</code>. Count the STA thread wrappers to understand scope. Check if your secondary PDF libraries (PdfSharp, iTextSharp) are only there to supplement TuesPechkin and can be removed. Inventory all HTML templates for render comparison testing. Verify <a href="https://ironpdf.com/how-to/license-keys/">IronPDF target framework compatibility</a>. Note all <code>GlobalSettings</code> and <code>ObjectSettings</code> properties currently in use.</p>
+
+<h3>Code Migration</h3>
+
+<p>Remove the <code>TuesPechkin</code> and <code>TuesPechkin.Wkhtmltopdf.Win64</code> NuGet packages. Remove wkhtmltopdf binaries from Docker images and deployment scripts. Install the <code>IronPdf</code> NuGet package. Replace <code>using TuesPechkin</code> with <code>using IronPdf</code>. Remove the entire <code>ThreadSafeConverter</code> / <code>MultiplexingConverter</code> singleton infrastructure. Remove all STA thread boilerplate. Replace <code>HtmlToPdfDocument</code> + <code>GlobalSettings</code> + <code>ObjectSettings</code> with <code>ChromePdfRenderOptions</code>. Replace <code>converter.Convert(doc)</code> with <code>renderer.RenderHtmlAsPdfAsync(html)</code>. Replace <code>File.WriteAllBytes(path, pdfBytes)</code> with <code>pdf.SaveAs(path)</code>. Update header/footer tokens from <code>[page]</code>/<code>[topage]</code> to <code>{page}</code>/<code>{total-pages}</code>. Remove secondary merge/watermark/encrypt libraries. Add your IronPDF license key to CI/CD secrets.</p>
+
+<h3>Testing</h3>
+
+<p>Render each HTML template and visually compare TuesPechkin vs IronPDF output. Check that modern CSS (flex, grid) now renders correctly. Verify page size and margins match reference. Test headers and footers, paying attention to the page number token format difference. Remove the STA thread wrapper from at least one call site and verify rendering still works. Run concurrent rendering tests at 10/50/100 simultaneous requests. Verify no <code>ThreadAbortException</code> or lock contention errors. Test merge output for correct page order. Test watermark for opacity, position, and text. Test password protection with correct and incorrect credentials. Test in Docker on Linux. Verify Docker image builds without the wkhtmltopdf binary.</p>
+
+<h3>Post-Migration</h3>
+
+<p>Remove <code>TuesPechkin</code> NuGet package and all related packages. Remove <code>ThreadSafeConverter</code> / <code>MultiplexingConverter</code> singleton infrastructure. Remove wkhtmltopdf binary from Docker image copy steps. Remove secondary PDF libraries now replaced by IronPDF. Update Dockerfile with IronPDF Linux system dependencies. Verify deployment artifact size reduced. Archive wkhtmltopdf-specific header/footer HTML files for reference. Monitor memory usage in the first production week.</p>
+
+<p>The immediate wins after migration &mdash; Linux/Docker support, modern CSS rendering, concurrent rendering without thread infrastructure &mdash; are measurable from day one. The STA thread boilerplate removal alone simplifies your codebase significantly.</p>

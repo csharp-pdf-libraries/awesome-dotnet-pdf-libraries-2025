@@ -1,0 +1,530 @@
+<h1>MigraDoc vs IronPDF: Solving Common .NET PDF Pain Points</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>Your team builds an invoice generator with MigraDoc. A 50-line invoice template expands to 200+ lines of C# that explicitly positions every element. Change the header logo size? Recalculate vertical offsets for everything below. Add a new table column? Adjust width calculations across row definitions. The programmatic approach gives precise control but couples visual design to code structure — debugging a misaligned footer means stepping through layout calculations rather than inspecting CSS.</p>
+
+<p>I want to walk through what MigraDoc offers, where teams commonly hit friction, and how IronPDF solves those pain points so you can decide which approach fits your workflow.</p>
+
+<h2>What Is MigraDoc?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>MigraDoc is an actively maintained, MIT-licensed .NET library for programmatic document construction. It sits on top of PDFsharp and lets you build PDFs by creating Document objects, adding Sections, Paragraphs, Tables, and formatting each element through explicit C# API calls. The community is active, empira Software offers commercial support packages, and the library supports current .NET versions including .NET 6+ and 8+.</p>
+
+<p>The core design philosophy is code-driven layout. You define column widths, font sizes, margins, and alignment directly in C#. There is no HTML rendering, no CSS, and no browser engine involved. For teams that want pixel-precise control over every element and have predictable, rarely-changing document templates, this approach works well.</p>
+
+<h2>Pain Point 1: How Do You Handle Layout Changes Without Rewriting Code?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>The MigraDoc Problem</h3>
+
+<p>MigraDoc tightly couples document structure to code. A simple layout change — increase header margin, adjust table cell padding, change font sizes — requires code modification, testing, and redeployment. Column widths must sum correctly or the table renders incorrectly. Adding or removing columns requires updating width definitions and all row cell references. Font sizes, margins, and spacing are magic numbers scattered through code with no CSS-style inheritance.</p>
+
+<p>For documents with frequently changing designs or A/B testing requirements, this coupling creates friction. Templates stored as C# classes also complicate version control and design collaboration with non-developers.</p>
+
+<h3>MigraDoc — Programmatic Invoice</h3>
+
+<pre><code>using MigraDoc.DocumentObjectModel;
+using MigraDoc.DocumentObjectModel.Tables;
+using MigraDoc.Rendering;
+using System;
+
+public class MigraDocInvoiceGenerator
+{
+    public void GenerateInvoice(string outputPath)
+    {
+        // Create document
+        Document document = new Document();
+        Section section = document.AddSection();
+
+        // Configure page
+        section.PageSetup.PageFormat = PageFormat.Letter;
+        section.PageSetup.LeftMargin = &quot;2cm&quot;;
+        section.PageSetup.RightMargin = &quot;2cm&quot;;
+        section.PageSetup.TopMargin = &quot;2cm&quot;;
+        section.PageSetup.BottomMargin = &quot;2cm&quot;;
+
+        // Add header text
+        Paragraph header = section.AddParagraph(&quot;Invoice #12345&quot;);
+        header.Format.Font.Size = 24;
+        header.Format.Font.Bold = true;
+        header.Format.SpaceAfter = &quot;0.5cm&quot;;
+
+        // Add invoice date
+        Paragraph dateP = section.AddParagraph($&quot;Date: {DateTime.Now:yyyy-MM-dd}&quot;);
+        dateP.Format.SpaceAfter = &quot;1cm&quot;;
+
+        // Customer information
+        Paragraph customer = section.AddParagraph(&quot;Customer: Acme Corp&quot;);
+        customer.Format.Font.Size = 12;
+        customer.Format.SpaceAfter = &quot;1cm&quot;;
+
+        // Create items table
+        Table table = section.AddTable();
+        table.Borders.Width = 0.75;
+
+        // Define columns with explicit widths
+        Column column = table.AddColumn(&quot;5cm&quot;);
+        column = table.AddColumn(&quot;3cm&quot;);
+        column = table.AddColumn(&quot;3cm&quot;);
+        column = table.AddColumn(&quot;3cm&quot;);
+
+        // Header row
+        Row row = table.AddRow();
+        row.Shading.Color = Colors.LightGray;
+        row.Cells[0].AddParagraph(&quot;Item&quot;);
+        row.Cells[1].AddParagraph(&quot;Quantity&quot;);
+        row.Cells[2].AddParagraph(&quot;Unit Price&quot;);
+        row.Cells[3].AddParagraph(&quot;Total&quot;);
+
+        // Data rows - each requires explicit row creation
+        AddItemRow(table, &quot;Widget Pro&quot;, 10, 29.99m);
+        AddItemRow(table, &quot;Gadget Ultra&quot;, 5, 49.99m);
+
+        // Total row
+        Row totalRow = table.AddRow();
+        totalRow.Cells[2].AddParagraph(&quot;Grand Total:&quot;);
+        totalRow.Cells[2].Format.Font.Bold = true;
+        totalRow.Cells[2].Format.Alignment = ParagraphAlignment.Right;
+        totalRow.Cells[3].AddParagraph(&quot;$549.85&quot;);
+        totalRow.Cells[3].Format.Font.Bold = true;
+
+        // Render to PDF
+        PdfDocumentRenderer pdfRenderer = new PdfDocumentRenderer();
+        pdfRenderer.Document = document;
+        pdfRenderer.RenderDocument();
+        pdfRenderer.PdfDocument.Save(outputPath);
+    }
+
+    private void AddItemRow(Table table, string name, int quantity, decimal price)
+    {
+        Row row = table.AddRow();
+        row.Cells[0].AddParagraph(name);
+        row.Cells[1].AddParagraph(quantity.ToString());
+        row.Cells[1].Format.Alignment = ParagraphAlignment.Center;
+        row.Cells[2].AddParagraph($&quot;${price:F2}&quot;);
+        row.Cells[2].Format.Alignment = ParagraphAlignment.Right;
+        row.Cells[3].AddParagraph($&quot;${quantity * price:F2}&quot;);
+        row.Cells[3].Format.Alignment = ParagraphAlignment.Right;
+    }
+}
+
+// Usage
+var generator = new MigraDocInvoiceGenerator();
+generator.GenerateInvoice(&quot;invoice.pdf&quot;);
+</code></pre>
+
+<h3>IronPDF — HTML Invoice</h3>
+
+<pre><code>using IronPdf;
+
+var invoiceData = new
+{
+    Number = &quot;12345&quot;,
+    Date = DateTime.Now.ToString(&quot;yyyy-MM-dd&quot;),
+    Customer = &quot;Acme Corp&quot;,
+    Items = new[]
+    {
+        new { Name = &quot;Widget Pro&quot;, Quantity = 10, Price = 29.99m },
+        new { Name = &quot;Gadget Ultra&quot;, Quantity = 5, Price = 49.99m }
+    },
+    Total = 549.85m
+};
+
+var html = $@&quot;
+&lt;style&gt;
+    body {{ font-family: Arial, sans-serif; margin: 40px; }}
+    h1 {{ color: #333; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+    th {{ background: #f0f0f0; padding: 10px; text-align: left; }}
+    td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
+    .right {{ text-align: right; }}
+    .total {{ font-weight: bold; }}
+&lt;/style&gt;
+&lt;h1&gt;Invoice #{invoiceData.Number}&lt;/h1&gt;
+&lt;p&gt;Date: {invoiceData.Date}&lt;/p&gt;
+&lt;p&gt;Customer: {invoiceData.Customer}&lt;/p&gt;
+&lt;table&gt;
+    &lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Quantity&lt;/th&gt;&lt;th&gt;Unit Price&lt;/th&gt;&lt;th&gt;Total&lt;/th&gt;&lt;/tr&gt;
+    {string.Join(&quot;&quot;, invoiceData.Items.Select(item =&gt; $@&quot;
+    &lt;tr&gt;
+        &lt;td&gt;{item.Name}&lt;/td&gt;
+        &lt;td class='right'&gt;{item.Quantity}&lt;/td&gt;
+        &lt;td class='right'&gt;${item.Price:F2}&lt;/td&gt;
+        &lt;td class='right'&gt;${item.Quantity * item.Price:F2}&lt;/td&gt;
+    &lt;/tr&gt;
+    &quot;))}
+    &lt;tr class='total'&gt;
+        &lt;td colspan='3' class='right'&gt;Grand Total:&lt;/td&gt;
+        &lt;td class='right'&gt;${invoiceData.Total:F2}&lt;/td&gt;
+    &lt;/tr&gt;
+&lt;/table&gt;&quot;;
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs(&quot;invoice.pdf&quot;);
+</code></pre>
+
+<p>The <a href="https://ironpdf.com/examples/using-html-to-create-a-pdf/">HTML to PDF documentation</a> shows how CSS handles styling globally while C# handles data. Change the header color? Edit CSS. Add a column? Update the HTML template. No layout recalculation needed.</p>
+
+<h2>Pain Point 2: How Do You Build Multi-Page Documents with Repeating Headers and Footers?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>The MigraDoc Problem</h3>
+
+<p>MigraDoc's header and footer setup requires understanding its section structure. Page number fields use a specific API — <code>AddPageField()</code> and <code>AddNumPagesField()</code> — with no simple text interpolation. Table header repetition requires setting <code>HeadingFormat = true</code>, which is easy to miss. You cannot use CSS media queries or print-specific styling. Debugging page break behavior requires understanding MigraDoc's layout engine internals.</p>
+
+<h3>MigraDoc — Multi-Page Report</h3>
+
+<pre><code>using MigraDoc.DocumentObjectModel;
+using MigraDoc.DocumentObjectModel.Tables;
+using MigraDoc.Rendering;
+using System;
+using System.Linq;
+
+public void GenerateMultiPageReport(string outputPath)
+{
+    Document document = new Document();
+    Section section = document.AddSection();
+
+    // Page setup
+    section.PageSetup.PageFormat = PageFormat.Letter;
+    section.PageSetup.TopMargin = &quot;3cm&quot;; // Space for header
+    section.PageSetup.BottomMargin = &quot;3cm&quot;; // Space for footer
+
+    // Define header (appears on every page)
+    Paragraph headerPara = section.Headers.Primary.AddParagraph();
+    headerPara.AddText(&quot;Monthly Sales Report - Company Confidential&quot;);
+    headerPara.Format.Font.Size = 10;
+    headerPara.Format.Font.Color = Colors.Gray;
+    headerPara.Format.Borders.Bottom.Width = 0.5;
+    headerPara.Format.SpaceBefore = &quot;1cm&quot;;
+
+    // Define footer (appears on every page)
+    Paragraph footerPara = section.Footers.Primary.AddParagraph();
+    footerPara.AddText(&quot;Page &quot;);
+    footerPara.AddPageField();
+    footerPara.AddText(&quot; of &quot;);
+    footerPara.AddNumPagesField();
+    footerPara.Format.Alignment = ParagraphAlignment.Center;
+    footerPara.Format.Font.Size = 9;
+
+    // Title
+    Paragraph title = section.AddParagraph(&quot;Q4 2025 Sales Analysis&quot;);
+    title.Format.Font.Size = 20;
+    title.Format.Font.Bold = true;
+    title.Format.SpaceAfter = &quot;0.5cm&quot;;
+
+    // Generate 50 data rows to force pagination
+    Table table = section.AddTable();
+    table.Borders.Width = 0.5;
+
+    Column col1 = table.AddColumn(&quot;4cm&quot;);
+    Column col2 = table.AddColumn(&quot;3cm&quot;);
+    Column col3 = table.AddColumn(&quot;3cm&quot;);
+    Column col4 = table.AddColumn(&quot;3cm&quot;);
+
+    // Header row
+    Row headerRow = table.AddRow();
+    headerRow.HeadingFormat = true; // Repeat on each page
+    headerRow.Shading.Color = Colors.LightBlue;
+    headerRow.Cells[0].AddParagraph(&quot;Product&quot;);
+    headerRow.Cells[1].AddParagraph(&quot;Region&quot;);
+    headerRow.Cells[2].AddParagraph(&quot;Units Sold&quot;);
+    headerRow.Cells[3].AddParagraph(&quot;Revenue&quot;);
+
+    // Data rows (simulate large dataset)
+    var products = new[] { &quot;Widget&quot;, &quot;Gadget&quot;, &quot;Doohickey&quot;, &quot;Thingamajig&quot; };
+    var regions = new[] { &quot;North&quot;, &quot;South&quot;, &quot;East&quot;, &quot;West&quot; };
+    var random = new Random(42);
+
+    for (int i = 0; i &lt; 50; i++)
+    {
+        Row row = table.AddRow();
+        row.Cells[0].AddParagraph(products[i % products.Length]);
+        row.Cells[1].AddParagraph(regions[i % regions.Length]);
+        row.Cells[2].AddParagraph(random.Next(100, 1000).ToString());
+        row.Cells[2].Format.Alignment = ParagraphAlignment.Right;
+        row.Cells[3].AddParagraph($&quot;${random.Next(1000, 50000):N0}&quot;);
+        row.Cells[3].Format.Alignment = ParagraphAlignment.Right;
+
+        // MigraDoc handles pagination automatically once configured
+    }
+
+    // Render
+    PdfDocumentRenderer pdfRenderer = new PdfDocumentRenderer();
+    pdfRenderer.Document = document;
+    pdfRenderer.RenderDocument();
+    pdfRenderer.PdfDocument.Save(outputPath);
+}
+</code></pre>
+
+<h3>IronPDF — Multi-Page HTML Report</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.Linq;
+
+var products = new[] { &quot;Widget&quot;, &quot;Gadget&quot;, &quot;Doohickey&quot;, &quot;Thingamajig&quot; };
+var regions = new[] { &quot;North&quot;, &quot;South&quot;, &quot;East&quot;, &quot;West&quot; };
+var random = new Random(42);
+
+var rows = string.Join(&quot;&quot;, Enumerable.Range(0, 50).Select(i =&gt; $@&quot;
+&lt;tr&gt;
+    &lt;td&gt;{products[i % products.Length]}&lt;/td&gt;
+    &lt;td&gt;{regions[i % regions.Length]}&lt;/td&gt;
+    &lt;td class='right'&gt;{random.Next(100, 1000)}&lt;/td&gt;
+    &lt;td class='right'&gt;${random.Next(1000, 50000):N0}&lt;/td&gt;
+&lt;/tr&gt;
+&quot;));
+
+var html = $@&quot;
+&lt;style&gt;
+    @page {{ margin: 1in; }}
+    body {{ font-family: Arial, sans-serif; }}
+    h1 {{ page-break-after: avoid; }}
+    table {{ width: 100%; border-collapse: collapse; }}
+    thead {{ display: table-header-group; }}
+    th {{ background: #4A90E2; color: white; padding: 10px; }}
+    td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
+    .right {{ text-align: right; }}
+&lt;/style&gt;
+&lt;h1&gt;Q4 2025 Sales Analysis&lt;/h1&gt;
+&lt;table&gt;
+    &lt;thead&gt;
+        &lt;tr&gt;&lt;th&gt;Product&lt;/th&gt;&lt;th&gt;Region&lt;/th&gt;&lt;th&gt;Units Sold&lt;/th&gt;&lt;th&gt;Revenue&lt;/th&gt;&lt;/tr&gt;
+    &lt;/thead&gt;
+    &lt;tbody&gt;{rows}&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;div style='position: running(header); text-align: center; color: #666;'&gt;
+    Monthly Sales Report - Company Confidential
+&lt;/div&gt;&quot;;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.MarginTop = 50;
+renderer.RenderingOptions.MarginBottom = 50;
+renderer.RenderingOptions.FirstPageNumber = 1;
+
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs(&quot;report.pdf&quot;);
+</code></pre>
+
+<p>CSS <code>@page</code> rules handle headers and footers, <code>display: table-header-group</code> repeats table headers on each page, and <code>page-break-after: avoid</code> prevents orphaned headings. The <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> explains these print-specific CSS features.</p>
+
+<h2>Pain Point 3: How Do You Apply Conditional Formatting Without Verbose Code?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>The MigraDoc Problem</h3>
+
+<p>With MigraDoc, conditional logic is embedded directly in document generation code. Color specifications use MigraDoc's own Color class — you cannot use standard hex colors directly. Each conditional branch requires explicit cell formatting, which becomes verbose for complex rules. There are no CSS-like classes or reusable styling. You must repeat formatting logic, and you cannot preview style changes without running the code.</p>
+
+<h3>MigraDoc — Conditional Styling</h3>
+
+<pre><code>using MigraDoc.DocumentObjectModel;
+using MigraDoc.DocumentObjectModel.Tables;
+using MigraDoc.Rendering;
+using System.Collections.Generic;
+
+public void GenerateConditionalReport(List&lt;SalesRecord&gt; records, string outputPath)
+{
+    Document document = new Document();
+    Section section = document.AddSection();
+
+    Paragraph title = section.AddParagraph(&quot;Sales Performance Report&quot;);
+    title.Format.Font.Size = 18;
+    title.Format.Font.Bold = true;
+    title.Format.SpaceAfter = &quot;1cm&quot;;
+
+    Table table = section.AddTable();
+    table.Borders.Width = 0.5;
+
+    table.AddColumn(&quot;5cm&quot;);
+    table.AddColumn(&quot;3cm&quot;);
+    table.AddColumn(&quot;3cm&quot;);
+    table.AddColumn(&quot;3cm&quot;);
+
+    // Header
+    Row headerRow = table.AddRow();
+    headerRow.Shading.Color = Colors.LightGray;
+    headerRow.Cells[0].AddParagraph(&quot;Salesperson&quot;);
+    headerRow.Cells[1].AddParagraph(&quot;Target&quot;);
+    headerRow.Cells[2].AddParagraph(&quot;Actual&quot;);
+    headerRow.Cells[3].AddParagraph(&quot;Status&quot;);
+
+    foreach (var record in records)
+    {
+        Row row = table.AddRow();
+
+        row.Cells[0].AddParagraph(record.SalespersonName);
+        row.Cells[1].AddParagraph($&quot;${record.Target:N0}&quot;);
+        row.Cells[1].Format.Alignment = ParagraphAlignment.Right;
+        row.Cells[2].AddParagraph($&quot;${record.Actual:N0}&quot;);
+        row.Cells[2].Format.Alignment = ParagraphAlignment.Right;
+
+        // Conditional formatting based on performance
+        Paragraph statusPara;
+        if (record.Actual &gt;= record.Target * 1.1m)
+        {
+            statusPara = row.Cells[3].AddParagraph(&quot;Exceeds&quot;);
+            row.Cells[3].Shading.Color = new Color(200, 255, 200); // Light green
+            statusPara.Format.Font.Color = new Color(0, 128, 0); // Dark green
+        }
+        else if (record.Actual &gt;= record.Target)
+        {
+            statusPara = row.Cells[3].AddParagraph(&quot;Meets&quot;);
+            row.Cells[3].Shading.Color = new Color(255, 255, 200); // Light yellow
+        }
+        else
+        {
+            statusPara = row.Cells[3].AddParagraph(&quot;Below&quot;);
+            row.Cells[3].Shading.Color = new Color(255, 200, 200); // Light red
+            statusPara.Format.Font.Color = Colors.DarkRed;
+        }
+
+        statusPara.Format.Alignment = ParagraphAlignment.Center;
+        statusPara.Format.Font.Bold = true;
+    }
+
+    PdfDocumentRenderer pdfRenderer = new PdfDocumentRenderer();
+    pdfRenderer.Document = document;
+    pdfRenderer.RenderDocument();
+    pdfRenderer.PdfDocument.Save(outputPath);
+}
+
+public class SalesRecord
+{
+    public string SalespersonName { get; set; }
+    public decimal Target { get; set; }
+    public decimal Actual { get; set; }
+}
+</code></pre>
+
+<h3>IronPDF — CSS-Based Conditional Styling</h3>
+
+<pre><code>using IronPdf;
+using System.Linq;
+
+var records = new[]
+{
+    new { Name = &quot;Alice&quot;, Target = 100000m, Actual = 115000m },
+    new { Name = &quot;Bob&quot;, Target = 100000m, Actual = 102000m },
+    new { Name = &quot;Charlie&quot;, Target = 100000m, Actual = 85000m }
+};
+
+var rows = string.Join(&quot;&quot;, records.Select(r =&gt;
+{
+    var performance = r.Actual &gt;= r.Target * 1.1m ? &quot;exceeds&quot; :
+                      r.Actual &gt;= r.Target ? &quot;meets&quot; : &quot;below&quot;;
+    var statusText = r.Actual &gt;= r.Target * 1.1m ? &quot;Exceeds&quot; :
+                     r.Actual &gt;= r.Target ? &quot;Meets&quot; : &quot;Below&quot;;
+
+    return $@&quot;
+    &lt;tr class='{performance}'&gt;
+        &lt;td&gt;{r.Name}&lt;/td&gt;
+        &lt;td class='right'&gt;${r.Target:N0}&lt;/td&gt;
+        &lt;td class='right'&gt;${r.Actual:N0}&lt;/td&gt;
+        &lt;td class='status'&gt;{statusText}&lt;/td&gt;
+    &lt;/tr&gt;&quot;;
+}));
+
+var html = $@&quot;
+&lt;style&gt;
+    table {{ width: 100%; border-collapse: collapse; }}
+    th {{ background: #333; color: white; padding: 10px; }}
+    td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
+    .right {{ text-align: right; }}
+    .status {{ text-align: center; font-weight: bold; }}
+    .exceeds {{ background: #c8ffc8; color: #008000; }}
+    .meets {{ background: #ffffc8; }}
+    .below {{ background: #ffc8c8; color: #8b0000; }}
+&lt;/style&gt;
+&lt;h1&gt;Sales Performance Report&lt;/h1&gt;
+&lt;table&gt;
+    &lt;tr&gt;&lt;th&gt;Salesperson&lt;/th&gt;&lt;th&gt;Target&lt;/th&gt;&lt;th&gt;Actual&lt;/th&gt;&lt;th&gt;Status&lt;/th&gt;&lt;/tr&gt;
+    {rows}
+&lt;/table&gt;&quot;;
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs(&quot;performance.pdf&quot;);
+</code></pre>
+
+<p>CSS classes handle styling; C# logic determines which class to apply. Change colors? Edit CSS. Add new status categories? Add CSS classes. See the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> for templating patterns.</p>
+
+<h2>How Do the Two Libraries Compare Feature by Feature?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr><th>Feature</th><th>MigraDoc</th><th>IronPDF</th></tr>
+<tr><td><strong>Status &amp; Support</strong></td><td></td><td></td></tr>
+<tr><td>Active Development</td><td>Yes (MIT, empira)</td><td>Yes (Commercial)</td></tr>
+<tr><td>.NET Framework Support</td><td>4.6.2+</td><td>4.6.2+</td></tr>
+<tr><td>.NET Core/5+/6+/8+ Support</td><td>Native</td><td>Native</td></tr>
+<tr><td>Commercial Support</td><td>Available via empira</td><td>Included with license</td></tr>
+<tr><td><strong>Content Creation</strong></td><td></td><td></td></tr>
+<tr><td>HTML to PDF</td><td>No (not designed for HTML)</td><td>Yes (core feature)</td></tr>
+<tr><td>Programmatic Layout</td><td>Yes (primary method)</td><td>No (uses HTML/CSS)</td></tr>
+<tr><td>Table Support</td><td>Comprehensive API</td><td>HTML &lt;table&gt;</td></tr>
+<tr><td>Image Embedding</td><td>Explicit API calls</td><td>&lt;img&gt; tags</td></tr>
+<tr><td>Custom Fonts</td><td>Font resolver API</td><td>Web fonts, @font-face</td></tr>
+<tr><td>Page Numbers</td><td>Field API</td><td>CSS counters/custom code</td></tr>
+<tr><td>Headers/Footers</td><td>Section-based</td><td>CSS @page rules</td></tr>
+<tr><td><strong>Design Iteration</strong></td><td></td><td></td></tr>
+<tr><td>Visual Changes</td><td>Requires code changes</td><td>Edit HTML/CSS</td></tr>
+<tr><td>Designer Involvement</td><td>Limited (code-only)</td><td>Full (browser tools)</td></tr>
+<tr><td>Preview Workflow</td><td>Run code to see output</td><td>Browser preview = PDF</td></tr>
+<tr><td>Templating</td><td>C# classes</td><td>Razor, string interpolation</td></tr>
+<tr><td><strong>PDF Manipulation</strong></td><td></td><td></td></tr>
+<tr><td>Merge PDFs</td><td>Via PDFsharp</td><td>Native</td></tr>
+<tr><td>Split PDFs</td><td>Via PDFsharp</td><td>Native</td></tr>
+<tr><td>Form Filling</td><td>Via PDFsharp</td><td>Native</td></tr>
+<tr><td>Text Extraction</td><td>Via PDFsharp</td><td>Native</td></tr>
+<tr><td><strong>Benchmark Characteristics (Typical)</strong></td><td></td><td></td></tr>
+<tr><td>Cold Start Performance</td><td>Faster (~50-100ms)</td><td>Slower (Chrome init ~200-400ms)</td></tr>
+<tr><td>Warm Performance</td><td>Very fast (&lt;50ms simple docs)</td><td>Moderate (~100-200ms)</td></tr>
+<tr><td>Memory Baseline</td><td>Low</td><td>Higher (Chrome engine)</td></tr>
+<tr><td>Complex Layout Speed</td><td>Linear with code complexity</td><td>Deferred to Chrome engine</td></tr>
+<tr><td><strong>Development</strong></td><td></td><td></td></tr>
+<tr><td>Installation</td><td>Single NuGet</td><td>Single NuGet</td></tr>
+<tr><td>Learning Curve</td><td>MigraDoc-specific API</td><td>HTML/CSS knowledge</td></tr>
+<tr><td>Code Verbosity</td><td>High for complex layouts</td><td>Low (HTML is concise)</td></tr>
+<tr><td>IDE Support</td><td>IntelliSense for API</td><td>HTML/CSS tooling</td></tr>
+<tr><td>Debugging</td><td>Standard C# debugging</td><td>Browser DevTools + C#</td></tr>
+</table>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can MigraDoc render HTML to PDF?</h3>
+
+<p>No. MigraDoc is built for code-driven document construction, not HTML-to-PDF conversion. It has no HTML rendering engine, no CSS support, and no JavaScript execution. If your workflow involves HTML templates or web content, you need a library with a browser-based rendering engine like <a href="https://ironpdf.com/">IronPDF</a>.</p>
+
+<h3>How do installation and setup compare?</h3>
+
+<p>Both libraries install as a single NuGet package. MigraDoc uses <code>dotnet add package PDFsharp-MigraDoc</code> and requires three using directives (MigraDoc.DocumentObjectModel, MigraDoc.DocumentObjectModel.Tables, MigraDoc.Rendering). IronPDF uses <code>dotnet add package IronPdf</code> and requires a single <code>using IronPdf;</code> directive.</p>
+
+<h3>Which library performs better for high-volume generation?</h3>
+
+<p>MigraDoc has a faster cold start (~50-100ms vs ~200-400ms for Chrome initialization) and lower memory baseline. For warm generation of simple documents, MigraDoc runs sub-20ms per document. IronPDF runs ~100-200ms per document depending on complexity, but its Chrome engine handles complex layouts more efficiently than manual positioning code. The right choice depends on whether your bottleneck is generation speed or development speed.</p>
+
+<h3>Can I use CSS frameworks and web fonts with MigraDoc?</h3>
+
+<p>No. MigraDoc has no web asset support. It cannot consume CSS frameworks, web fonts, or complex responsive layouts. Font handling uses a resolver API specific to MigraDoc. IronPDF's Chrome-based engine supports standard <code>@font-face</code> declarations, CSS frameworks like Bootstrap and Tailwind, and any asset a browser can render.</p>
+
+<h3>Does MigraDoc support PDF manipulation like merging and splitting?</h3>
+
+<p>MigraDoc itself focuses on document creation. For PDF manipulation tasks like merging, splitting, form filling, and text extraction, you use the underlying PDFsharp library. IronPDF includes these capabilities natively in the same package — see the <a href="https://ironpdf.com/how-to/html-file-to-pdf/">HTML file to PDF documentation</a> for the full range of supported operations.</p>
+
+<h2>When Should You Use Which Library?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>MigraDoc excels when you need programmatic precision, have simple documents with predictable layouts, or work in environments where HTML/CSS knowledge is unavailable. The low-level control and fast rendering make it suitable for high-volume generation of structured documents like reports from templates that rarely change.</p>
+
+<p>For modern .NET teams building documents from dynamic data, especially when designs evolve frequently or non-developers need to modify layouts, the HTML/CSS approach eliminates a category of friction. Instead of translating design requirements into positioning code, designers work in browsers and developers use standard templating. The separation of content (C#) from presentation (CSS) matches web development patterns most teams already know.</p>
+
+<p>Migration becomes necessary when layout changes become a bottleneck — requiring developer cycles for what should be design tweaks — when you need complex layouts that would require excessive positioning calculations in code, or when integrating web assets (fonts, CSS frameworks, responsive designs) that MigraDoc cannot consume. IronPDF provides <a href="https://ironpdf.com/examples/using-html-to-create-a-pdf/">HTML to PDF rendering</a> with a Chrome-based engine that handles layout automatically, trading MigraDoc's cold-start speed and minimal memory footprint for design flexibility and web technology compatibility.</p>

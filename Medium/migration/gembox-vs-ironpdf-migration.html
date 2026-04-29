@@ -1,0 +1,618 @@
+<h1>Migrating from GemBox to IronPDF: A Practical .NET Migration Guide</h1>
+
+<p>Before committing to a migration, teams want numbers — not marketing copy. This article tries to be honest about where GemBox.Pdf and IronPDF are different, where comparisons are apples-to-oranges, and what the technical gaps actually look like in production code.</p>
+
+<p>The short version: GemBox.Pdf is a capable, managed-code PDF library with a clean API. IronPDF is primarily a Chromium-based HTML-to-PDF renderer that also does document manipulation. If your primary workload is HTML rendering with modern CSS fidelity, the rendering engine difference matters. If your workload is document manipulation (merge, split, form fields, text extraction), the differences are narrower.</p>
+
+<p>Let's look at the specifics.</p>
+
+<h2>Why Should I Migrate from GemBox.Pdf to IronPDF?</h2>
+
+<p>Migration triggers are usually practical, not philosophical. Here are the most common reasons I see teams making this move:</p>
+
+<p><strong>Rendering engine difference.</strong> GemBox.Pdf uses its own HTML rendering engine; IronPDF uses Chromium. For CSS3/flexbox/grid-heavy templates, these produce different output.</p>
+
+<p><strong>CSS fidelity requirements.</strong> Teams maintaining complex HTML report templates often encounter layout differences between non-Chromium renderers and browser output.</p>
+
+<p><strong>JavaScript support.</strong> Chromium-based rendering handles JavaScript in HTML; verify GemBox.Pdf's current JS support level.</p>
+
+<p><strong>External dependency appetite.</strong> GemBox.Pdf is pure managed code (smaller deployment); IronPDF includes Chromium binaries (~200MB+ depending on version).</p>
+
+<p><strong>Edge case handling.</strong> Chromium rendering inherits Chrome's quirk handling; custom renderers handle edge cases differently.</p>
+
+<p><strong>Long-term rendering investment.</strong> Chromium's development pace means IronPDF rendering improves with browser engine updates.</p>
+
+<p><strong>Deployment size constraints.</strong> If binary size matters (Lambda, minimal containers), pure managed code wins on footprint.</p>
+
+<p><strong>License cost comparison.</strong> Evaluate against your scale.</p>
+
+<p><strong>Support and documentation depth.</strong> Both are commercially supported; evaluate responsiveness for your use case.</p>
+
+<h2>How Do the Two Libraries Compare Feature by Feature?</h2>
+
+<p>Before writing any migration code, it helps to see the two libraries side by side. I put together a comparison of the aspects that matter most when evaluating architectural fit.</p>
+
+<table>
+<tr><th>Aspect</th><th>GemBox.Pdf</th><th>IronPDF</th></tr>
+<tr><td>Focus</td><td>PDF read/write/convert; HTML-to-PDF via custom engine</td><td>HTML-to-PDF (Chromium) + document manipulation</td></tr>
+<tr><td>Pricing</td><td>Free tier limited; commercial license</td><td>Commercial license</td></tr>
+<tr><td>API Style</td><td>Object-model based; PdfDocument centric</td><td>Fluent, renderer-centric</td></tr>
+<tr><td>Learning Curve</td><td>Low&ndash;Medium; clean API surface</td><td>Medium; rendering options are broad</td></tr>
+<tr><td>HTML Rendering</td><td>Custom engine</td><td>Chromium-based</td></tr>
+<tr><td>Page Indexing</td><td>0-based</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify in GemBox docs</td><td>Renderer-per-thread recommended</td></tr>
+<tr><td>Namespace</td><td>GemBox.Pdf</td><td>IronPdf</td></tr>
+</table>
+
+<h2>What Are the Rendering Engine Differences?</h2>
+
+<p>This is the most important technical distinction between the two libraries. GemBox.Pdf uses a custom rendering engine; <a href="https://ironpdf.com/">IronPDF</a> uses Chromium. That difference ripples through everything from CSS support to deployment size.</p>
+
+<table>
+<tr><th>Characteristic</th><th>Custom Engine (GemBox.Pdf style)</th><th>Chromium-Based (IronPDF)</th></tr>
+<tr><td>CSS Grid / Flexbox</td><td>Partial or limited</td><td>Full browser support</td></tr>
+<tr><td>JavaScript execution</td><td>Limited or not supported</td><td>Supported (V8 engine)</td></tr>
+<tr><td>Web fonts (@font-face)</td><td>Partial</td><td>Full support</td></tr>
+<tr><td>SVG in HTML</td><td>Partial</td><td>Full support</td></tr>
+<tr><td>Deployment size</td><td>Smaller (no Chromium binaries)</td><td>Larger (Chromium included)</td></tr>
+<tr><td>Cold start time</td><td>Faster (no browser init)</td><td>Slower (Chromium init)</td></tr>
+<tr><td>Warm throughput</td><td>Higher for simple docs</td><td>Competitive for complex docs</td></tr>
+</table>
+
+<p>If rendering throughput matters, run benchmarks in your own environment. Here is a reasonable test harness for IronPDF:</p>
+
+<h3>IronPDF Throughput Benchmark</h3>
+
+<pre><code>using System.Diagnostics;
+using IronPdf;
+
+// IronPDF throughput test &mdash; renderer reuse pattern
+// See: https://ironpdf.com/examples/parallel/
+IronPdf.License.LicenseKey = &quot;YOUR_KEY&quot;;
+
+string html = File.ReadAllText(&quot;template.html&quot;); // your actual template
+int iterations = 100;
+
+var renderer = new ChromePdfRenderer();
+
+// Warm up (important for Chromium-based renderers)
+using var warmup = renderer.RenderHtmlAsPdf(html);
+
+var sw = Stopwatch.StartNew();
+for (int i = 0; i &lt; iterations; i++)
+{
+    using var pdf = renderer.RenderHtmlAsPdf(html);
+    // In real workload: save or process pdf here
+}
+sw.Stop();
+
+double msPerDoc = sw.Elapsed.TotalMilliseconds / iterations;
+Console.WriteLine($&quot;IronPDF: {msPerDoc:F1} ms/doc over {iterations} iterations&quot;);
+Console.WriteLine($&quot;Total: {sw.Elapsed.TotalSeconds:F2}s for {iterations} documents&quot;);
+</code></pre>
+
+<h3>GemBox.Pdf Equivalent Benchmark (Pseudo-Code)</h3>
+
+<pre><code>// GemBox.Pdf equivalent benchmark (pseudo-code &mdash; verify API)
+// Run this against the same template to get a direct comparison
+
+// using GemBox.Pdf;
+
+// ComponentInfo.SetLicense(&quot;YOUR_KEY&quot;); // verify
+// string html = File.ReadAllText(&quot;template.html&quot;);
+// int iterations = 100;
+
+// Warm up
+// var warmupDoc = PdfDocument.Load(html, LoadOptions.HtmlDefault); // verify API
+// warmupDoc.Save(&quot;warmup.pdf&quot;); // verify
+
+// var sw = Stopwatch.StartNew();
+// for (int i = 0; i &lt; iterations; i++)
+// {
+//     var doc = PdfDocument.Load(html, LoadOptions.HtmlDefault); // verify
+//     // In real workload: save or process doc here
+//     doc.Dispose(); // verify disposal
+// }
+// sw.Stop();
+
+// double msPerDoc = sw.Elapsed.TotalMilliseconds / iterations;
+// Console.WriteLine($&quot;GemBox.Pdf: {msPerDoc:F1} ms/doc over {iterations} iterations&quot;);
+</code></pre>
+
+<p><strong>Methodology notes for your own benchmarks:</strong> Use representative HTML/CSS from your actual templates, not synthetic HTML. Include warm-up passes (especially for Chromium-based renderers). Test at realistic concurrency levels (not just sequential). Measure memory consumption under sustained load, not just wall time. Run on the same hardware/VM spec you'd use in production.</p>
+
+<h2>How Much Effort Does Each Feature Require to Migrate?</h2>
+
+<p>Not every feature takes the same effort to port. I've broken down the migration complexity by feature area so you can estimate your timeline accurately.</p>
+
+<table>
+<tr><th>Feature</th><th>Effort</th><th>Notes</th></tr>
+<tr><td>HTML string to PDF</td><td>Low</td><td>API shape similar; output may differ</td></tr>
+<tr><td>URL to PDF</td><td>Low</td><td>Both support</td></tr>
+<tr><td>Load existing PDF</td><td>Low</td><td>Both support file/stream loading</td></tr>
+<tr><td>PDF merge</td><td>Low</td><td>Both expose merge</td></tr>
+<tr><td>PDF split</td><td>Low</td><td>Both expose page extraction</td></tr>
+<tr><td>Text extraction</td><td>Low&ndash;Medium</td><td>API differs; functionality similar</td></tr>
+<tr><td>Watermarking</td><td>Low</td><td>Both support stamping</td></tr>
+<tr><td>Password protection</td><td>Low</td><td>Straightforward mapping</td></tr>
+<tr><td>Form fields</td><td>Medium</td><td>Verify IronPDF form field support</td></tr>
+<tr><td>Digital signatures</td><td>Medium-High</td><td>Verify IronPDF signing support</td></tr>
+<tr><td>PDF/A compliance</td><td>Medium</td><td>Verify IronPDF PDF/A support</td></tr>
+</table>
+
+<h2>Which Business Scenarios Favor Which Library?</h2>
+
+<p>Depending on your workload profile, one library may be a better fit than the other. Here is how I think about the decision matrix.</p>
+
+<table>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+<tr><td>HTML templates with modern CSS</td><td>Evaluate IronPDF rendering against your actual templates</td></tr>
+<tr><td>Minimal deployment footprint</td><td>GemBox.Pdf advantage (no Chromium); evaluate trade-off</td></tr>
+<tr><td>High throughput PDF manipulation (not rendering)</td><td>Benchmark both; GemBox may have edge on throughput per MB deployed</td></tr>
+<tr><td>Complex web-like reports</td><td>IronPDF Chromium rendering likely advantageous</td></tr>
+</table>
+
+<h2>What Do I Need Before Starting the Migration?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>You will need a .NET 6, 7, or 8 project, NuGet access, and an <a href="https://ironpdf.com/how-to/license-keys/">IronPDF license key</a>.</p>
+
+<p>First, find all your GemBox.Pdf references:</p>
+
+<h3>Find GemBox.Pdf References</h3>
+
+<pre><code># Find all GemBox using statements
+rg &quot;using GemBox&quot; --type cs
+
+# Find all GemBox type references
+rg &quot;GemBox\.&quot; --type cs -l
+
+# Check project files
+rg &quot;GemBox&quot; **/*.csproj
+</code></pre>
+
+<h3>Remove GemBox.Pdf, Add IronPDF</h3>
+
+<pre><code># Remove GemBox.Pdf
+dotnet remove package GemBox.Pdf
+
+# Add IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+</code></pre>
+
+<h2>How Do I Migrate in Three Steps?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>The core migration follows three steps: license configuration, namespace imports, and basic conversion. Let me walk through each one.</p>
+
+<h3>Step 1: License Configuration</h3>
+
+<p><strong>Before (GemBox.Pdf)</strong></p>
+
+<pre><code>using GemBox.Pdf;
+
+// GemBox license initialization &mdash; set before first use
+// Free tier uses empty string; commercial key replaces it
+ComponentInfo.SetLicense(&quot;FREE-LIMITED-KEY&quot;); // or your commercial key
+</code></pre>
+
+<p><strong>After (IronPDF)</strong></p>
+
+<pre><code>using IronPdf;
+
+// See: https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = &quot;YOUR_IRONPDF_KEY&quot;;
+</code></pre>
+
+<h3>Step 2: Namespace Imports</h3>
+
+<p><strong>Before</strong></p>
+
+<pre><code>using GemBox.Pdf;
+using GemBox.Pdf.Content; // verify &mdash; for content manipulation
+using GemBox.Pdf.Forms;   // verify &mdash; if forms used
+</code></pre>
+
+<p><strong>After</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+using IronPdf.Editing;
+</code></pre>
+
+<h3>Step 3: Basic Conversion</h3>
+
+<p><strong>Before (GemBox.Pdf HTML to PDF)</strong></p>
+
+<pre><code>using GemBox.Pdf;
+
+ComponentInfo.SetLicense(&quot;YOUR_KEY&quot;);
+
+// GemBox HTML-to-PDF &mdash; verify current API; may use HtmlConverter or PdfDocument.Load
+// var doc = PdfDocument.Load(&quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;,
+//     LoadOptions.HtmlDefault); // verify method and options name
+// doc.Save(&quot;output.pdf&quot;);
+// doc.Dispose();
+
+// Actual API &mdash; verify at https://www.gemboxsoftware.com/pdf/docs
+Console.WriteLine(&quot;Verify GemBox.Pdf HTML loading API in current docs&quot;);
+</code></pre>
+
+<p><strong>After (IronPDF)</strong></p>
+
+<pre><code>using IronPdf;
+
+// See: https://ironpdf.com/how-to/html-string-to-pdf/
+IronPdf.License.LicenseKey = &quot;YOUR_KEY&quot;;
+
+var renderer = new ChromePdfRenderer();
+using var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+pdf.SaveAs(&quot;output.pdf&quot;);
+</code></pre>
+
+<h2>How Do the APIs Map Between GemBox.Pdf and IronPDF?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Here are the complete API mappings I've assembled. These cover namespaces, core classes, document loading, page operations, and merge/split operations.</p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<tr><th>GemBox Namespace</th><th>IronPDF Namespace</th><th>Purpose</th></tr>
+<tr><td><code>GemBox.Pdf</code></td><td><code>IronPdf</code></td><td>Core document types</td></tr>
+<tr><td><code>GemBox.Pdf.Content</code></td><td><code>IronPdf.Rendering</code></td><td>Content/rendering options</td></tr>
+<tr><td><code>GemBox.Pdf.Forms</code></td><td><code>IronPdf</code></td><td>Form fields</td></tr>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr><th>GemBox Class</th><th>IronPDF Class</th><th>Description</th></tr>
+<tr><td><code>PdfDocument</code></td><td><code>PdfDocument</code></td><td>Main document object</td></tr>
+<tr><td>HTML load path</td><td><code>ChromePdfRenderer</code></td><td>HTML-to-PDF rendering</td></tr>
+<tr><td><code>PdfPage</code></td><td><code>PdfDocument.Pages[n]</code></td><td>Page access</td></tr>
+<tr><td>Security settings</td><td><code>PdfDocument.SecuritySettings</code></td><td>Encryption</td></tr>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<tr><th>Operation</th><th>GemBox.Pdf</th><th>IronPDF</th></tr>
+<tr><td>Load from file</td><td><code>PdfDocument.Load(path)</code></td><td><code>PdfDocument.FromFile(path)</code></td></tr>
+<tr><td>Load from bytes</td><td><code>PdfDocument.Load(bytes, options)</code></td><td><code>PdfDocument.FromBytes(bytes)</code></td></tr>
+<tr><td>Load from stream</td><td><code>PdfDocument.Load(stream, options)</code></td><td><code>PdfDocument.FromStream(stream)</code></td></tr>
+<tr><td>Render from HTML</td><td>verify current API</td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>GemBox.Pdf</th><th>IronPDF</th></tr>
+<tr><td>Page count</td><td><code>doc.Pages.Count</code></td><td><code>pdf.PageCount</code></td></tr>
+<tr><td>Get page</td><td><code>doc.Pages[index]</code></td><td><code>pdf.Pages[index]</code></td></tr>
+<tr><td>Page width</td><td><code>page.Size.Width</code></td><td><code>page.Width</code></td></tr>
+<tr><td>Add page</td><td><code>doc.Pages.Add()</code></td><td>verify in IronPDF docs</td></tr>
+</table>
+
+<h3>Merge/Split Operations</h3>
+
+<table>
+<tr><th>Operation</th><th>GemBox.Pdf</th><th>IronPDF</th></tr>
+<tr><td>Merge</td><td>verify in docs</td><td><code>PdfDocument.Merge(doc1, doc2)</code></td></tr>
+<tr><td>Copy pages</td><td><code>doc.Pages.AddClone(otherPage)</code></td><td><code>pdf.CopyPages(indices)</code></td></tr>
+</table>
+
+<h2>How Do I Migrate HTML-to-PDF Rendering?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>HTML-to-PDF is where the rendering engine difference matters most. Here is a complete before/after comparison.</p>
+
+<h3>Before (GemBox.Pdf)</h3>
+
+<pre><code>using GemBox.Pdf;
+using System.IO;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        ComponentInfo.SetLicense(&quot;YOUR_GEMBOX_KEY&quot;);
+
+        string html = @&quot;
+            &lt;html&gt;
+            &lt;head&gt;&lt;style&gt;body { font-family: Arial; }&lt;/style&gt;&lt;/head&gt;
+            &lt;body&gt;&lt;h1&gt;Report Q4&lt;/h1&gt;&lt;p&gt;Summary content.&lt;/p&gt;&lt;/body&gt;
+            &lt;/html&gt;&quot;;
+
+        // GemBox HTML-to-PDF &mdash; verify current method name and options
+        // Option A: via HtmlLoadOptions
+        // var loadOptions = new HtmlLoadOptions(); // verify class name
+        // using var doc = PdfDocument.Load(html, loadOptions); // verify
+
+        // Option B: verify if GemBox uses a different conversion path
+        // Consult: https://www.gemboxsoftware.com/pdf/docs
+
+        // doc.Save(&quot;output.pdf&quot;); // verify
+        Console.WriteLine(&quot;Verify GemBox HTML rendering path in current docs&quot;);
+    }
+}
+</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+
+// See: https://ironpdf.com/how-to/html-string-to-pdf/
+IronPdf.License.LicenseKey = &quot;YOUR_KEY&quot;;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize      = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.PrintHtmlBackgrounds = true;
+
+string html = @&quot;
+    &lt;html&gt;
+    &lt;head&gt;&lt;style&gt;body { font-family: Arial; }&lt;/style&gt;&lt;/head&gt;
+    &lt;body&gt;&lt;h1&gt;Report Q4&lt;/h1&gt;&lt;p&gt;Summary content.&lt;/p&gt;&lt;/body&gt;
+    &lt;/html&gt;&quot;;
+
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs(&quot;output.pdf&quot;);
+Console.WriteLine($&quot;Rendered {pdf.PageCount} page(s)&quot;);
+</code></pre>
+
+<h2>How Do I Migrate PDF Merging?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>PDF merging is one of the lower-effort migration tasks. The API shape is different, but the concept maps directly.</p>
+
+<h3>Before (GemBox.Pdf)</h3>
+
+<pre><code>using GemBox.Pdf;
+
+class MergeExample
+{
+    static void Main(string[] args)
+    {
+        ComponentInfo.SetLicense(&quot;YOUR_KEY&quot;);
+
+        using var doc1 = PdfDocument.Load(&quot;file1.pdf&quot;); // verify
+        using var doc2 = PdfDocument.Load(&quot;file2.pdf&quot;); // verify
+
+        // GemBox merge &mdash; verify current API
+        // Option: clone pages from doc2 into doc1
+        // foreach (var page in doc2.Pages) // verify iteration
+        // {
+        //     doc1.Pages.AddClone(page); // verify method name
+        // }
+
+        // doc1.Save(&quot;merged.pdf&quot;); // verify
+        Console.WriteLine(&quot;Verify GemBox merge API &mdash; check Pages.AddClone or equivalent&quot;);
+    }
+}
+</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+
+// See: https://ironpdf.com/how-to/merge-or-split-pdfs/
+IronPdf.License.LicenseKey = &quot;YOUR_KEY&quot;;
+
+using var doc1 = PdfDocument.FromFile(&quot;file1.pdf&quot;);
+using var doc2 = PdfDocument.FromFile(&quot;file2.pdf&quot;);
+
+using var merged = PdfDocument.Merge(doc1, doc2);
+merged.SaveAs(&quot;merged.pdf&quot;);
+Console.WriteLine($&quot;Merged: {merged.PageCount} pages&quot;);
+</code></pre>
+
+<h2>How Do I Migrate Watermarking?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Watermarking in IronPDF uses a <code>TextStamper</code> that gives you fine-grained control over positioning, opacity, and rotation.</p>
+
+<h3>Before (GemBox.Pdf)</h3>
+
+<pre><code>using GemBox.Pdf;
+using GemBox.Pdf.Content; // verify
+
+class WatermarkExample
+{
+    static void Main(string[] args)
+    {
+        ComponentInfo.SetLicense(&quot;YOUR_KEY&quot;);
+
+        using var doc = PdfDocument.Load(&quot;input.pdf&quot;); // verify
+
+        // GemBox watermark &mdash; content stream approach
+        // Verify exact API for adding text content to pages
+        // foreach (var page in doc.Pages) // verify
+        // {
+        //     // Add text content element &mdash; verify PdfContent or similar
+        //     // var content = new PdfTextContent(&quot;CONFIDENTIAL&quot;); // verify
+        //     // Configure position, opacity, rotation
+        //     // page.Content.Elements.Add(...); // verify
+        // }
+
+        // doc.Save(&quot;watermarked.pdf&quot;); // verify
+        Console.WriteLine(&quot;Verify GemBox watermark API in current docs&quot;);
+    }
+}
+</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+// See: https://ironpdf.com/how-to/custom-watermark/
+IronPdf.License.LicenseKey = &quot;YOUR_KEY&quot;;
+
+using var pdf = PdfDocument.FromFile(&quot;input.pdf&quot;);
+
+var stamp = new TextStamper
+{
+    Text                = &quot;CONFIDENTIAL&quot;,
+    FontSize            = 40,
+    Opacity             = 0.3,
+    Rotation            = -45,
+    VerticalAlignment   = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center
+};
+
+pdf.ApplyStamp(stamp);
+pdf.SaveAs(&quot;watermarked.pdf&quot;);
+</code></pre>
+
+<h2>How Do I Migrate Password Protection?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Password protection in IronPDF is handled through the <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">SecuritySettings</a> property on the document object. The mapping is straightforward.</p>
+
+<h3>Before (GemBox.Pdf)</h3>
+
+<pre><code>using GemBox.Pdf;
+
+class SecurityExample
+{
+    static void Main(string[] args)
+    {
+        ComponentInfo.SetLicense(&quot;YOUR_KEY&quot;);
+
+        using var doc = PdfDocument.Load(&quot;input.pdf&quot;); // verify
+
+        // GemBox security/encryption &mdash; verify current API
+        // doc.EncryptionOptions.UserPassword  = &quot;user123&quot;; // verify property name
+        // doc.EncryptionOptions.OwnerPassword = &quot;owner456&quot;; // verify
+        // doc.EncryptionOptions.Permissions   = ...; // verify enum
+
+        // doc.Save(&quot;protected.pdf&quot;); // verify
+        Console.WriteLine(&quot;Verify GemBox encryption API &mdash; check EncryptionOptions or similar&quot;);
+    }
+}
+</code></pre>
+
+<h3>After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Security;
+
+// See: https://ironpdf.com/how-to/pdf-permissions-passwords/
+IronPdf.License.LicenseKey = &quot;YOUR_KEY&quot;;
+
+using var pdf = PdfDocument.FromFile(&quot;input.pdf&quot;);
+
+pdf.SecuritySettings.UserPassword  = &quot;user123&quot;;
+pdf.SecuritySettings.OwnerPassword = &quot;owner456&quot;;
+pdf.SecuritySettings.AllowUserPrinting         = PdfPrintSecurity.FullPrintRights;
+pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+pdf.SecuritySettings.AllowUserAnnotations      = false;
+
+pdf.SaveAs(&quot;protected.pdf&quot;);
+</code></pre>
+
+<h2>What Are the Critical Migration Notes I Should Know?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>There are three areas that trip teams up during migration: page indexing, error handling, and deployment size.</p>
+
+<p><strong>Page Indexing.</strong> Both GemBox.Pdf and IronPDF use 0-based page indexing. This is one area of direct compatibility.</p>
+
+<pre><code>// Both: 0 = first page
+var first = pdf.Pages[0];
+var last  = pdf.Pages[pdf.PageCount - 1];
+</code></pre>
+
+<p><strong>Error Handling.</strong> GemBox.Pdf throws exceptions (rather than returning status codes). IronPDF also throws exceptions. The pattern should be familiar:</p>
+
+<pre><code>try
+{
+    using var pdf = PdfDocument.FromFile(&quot;input.pdf&quot;);
+    // operations
+}
+catch (IronPdf.Exceptions.PdfException ex)
+{
+    Console.Error.WriteLine($&quot;PDF error: {ex.Message}&quot;);
+}
+catch (System.IO.IOException ex)
+{
+    Console.Error.WriteLine($&quot;IO error: {ex.Message}&quot;);
+}
+</code></pre>
+
+<p><strong>Deployment Size Delta.</strong> GemBox.Pdf's pure managed code approach means smaller deployment artifacts. IronPDF includes Chromium binaries. For containerized deployments, this affects image size. Measure before committing to either direction.</p>
+
+<pre><code># After migrating, check container image size delta
+docker build -t myapp:gembox . &amp;&amp; docker image inspect myapp:gembox --format '{{.Size}}'
+docker build -t myapp:ironpdf . &amp;&amp; docker image inspect myapp:ironpdf --format '{{.Size}}'
+</code></pre>
+
+<h2>How Should I Handle Performance Considerations?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>There are three performance patterns to be aware of when moving to IronPDF's Chromium-based renderer.</p>
+
+<p><strong>Chromium Cold Start.</strong> The first <code>ChromePdfRenderer</code> instantiation in a process triggers Chromium initialization. For serverless or short-lived processes, this is measurable overhead. Profile in your deployment environment.</p>
+
+<pre><code>// For Lambda/Function-as-a-Service: initialize renderer at cold start
+// (static field in execution context), reuse across invocations
+private static readonly ChromePdfRenderer _renderer = new ChromePdfRenderer();
+</code></pre>
+
+<p><strong>Parallel Rendering.</strong> Rule of thumb: one <code>ChromePdfRenderer</code> per concurrent task.</p>
+
+<pre><code>// Parallel batch &mdash; one renderer per task
+var tasks = htmlDocuments.Select(html =&gt; Task.Run(() =&gt;
+{
+    var renderer = new ChromePdfRenderer();
+    using var pdf = renderer.RenderHtmlAsPdf(html);
+    return pdf.BinaryData;
+}));
+
+byte[][] results = await Task.WhenAll(tasks);
+</code></pre>
+
+<p><strong>When GemBox.Pdf May Be Faster.</strong> For pure document manipulation (merge, split, text extraction, form filling) without rendering, a non-Chromium library will have lower overhead. If your workload is 90% manipulation and 10% rendering, benchmark both before deciding.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Is IronPDF a drop-in replacement for GemBox.Pdf?</h3>
+
+<p>No. The API shapes are different and the rendering engines are fundamentally different. IronPDF uses Chromium for HTML-to-PDF rendering while GemBox.Pdf uses a custom engine. However, the migration effort for most features is low, and the core operations (load, merge, split, watermark, password protection) all have direct equivalents. Expect to update every call site, but the logic stays the same.</p>
+
+<h3>Will my PDF output look different after migrating?</h3>
+
+<p>For HTML-to-PDF rendering, yes. Chromium renders CSS3, Flexbox, Grid, JavaScript, web fonts, and SVG with full browser fidelity. GemBox.Pdf's custom engine offers partial support for these features. For document manipulation operations (merge, split, watermark), the output should be equivalent. Run your actual production templates through both renderers and compare pixel-by-pixel before committing.</p>
+
+<h3>How does IronPDF handle the deployment size increase from Chromium?</h3>
+
+<p>IronPDF includes Chromium binaries (~200MB+ depending on version), which is significantly larger than GemBox.Pdf's pure managed code footprint. For containerized deployments, this affects image size. For serverless environments like AWS Lambda, the cold start time is also higher due to Chromium initialization. You can mitigate cold start by reusing a static <code>ChromePdfRenderer</code> instance across invocations.</p>
+
+<h3>Do both libraries use the same page indexing?</h3>
+
+<p>Yes. Both GemBox.Pdf and IronPDF use 0-based page indexing. This is one area of direct compatibility that simplifies migration -- you won't need to adjust any index calculations when porting page-level operations.</p>
+
+<h3>What is the recommended approach for parallel PDF generation with IronPDF?</h3>
+
+<p>Create one <code>ChromePdfRenderer</code> instance per concurrent task. Do not share a single renderer across threads. For batch operations, use <code>Task.Run</code> with a dedicated renderer per task and await all results with <code>Task.WhenAll</code>. See the <a href="https://ironpdf.com/examples/parallel/">IronPDF parallel rendering documentation</a> for validated patterns.</p>
+
+<h2>Conclusion</h2>
+
+<p>GemBox.Pdf is a thoughtfully designed library with a clean API and a pure managed code advantage. IronPDF's Chromium-based renderer is a fundamentally different architectural choice -- better CSS fidelity for complex templates, larger deployment footprint, slower cold start. Neither is categorically better; the right choice depends on your rendering requirements, deployment constraints, and template complexity.</p>
+
+<p>A question worth raising before you commit: have you run your actual production HTML templates through both renderers and compared the output pixel-by-pixel? Synthetic benchmarks and toy examples often miss the rendering differences that matter for real report templates with custom fonts, flexbox layouts, or SVG charts.</p>
+
+<p>For more details on <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML-to-PDF rendering</a>, <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merging and splitting</a>, and <a href="https://ironpdf.com/how-to/rendering-options/">rendering options</a>, check the IronPDF documentation.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

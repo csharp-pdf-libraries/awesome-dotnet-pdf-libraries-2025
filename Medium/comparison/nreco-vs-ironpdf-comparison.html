@@ -1,0 +1,540 @@
+<h1>NReco PDF Generator vs IronPDF: What the Docs Do Not Tell You</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>Picture a logistics app generating 500 shipping labels per hour during peak season. The team chose NReco.PdfGenerator two years ago because it was free for single-server deployments and the syntax looked straightforward. Six months in, production logs started filling with cryptic "Exit with code 1, due to unknown error" messages. No stack traces. No meaningful context. Just intermittent failures that vanished on retry.</p>
+
+<p>The underlying problem: NReco spawns wkhtmltopdf.exe as an external process for every PDF conversion. When file permissions get misaligned, temp directories fill up, or Windows security policies tighten, the wrapper can't tell you what actually failed — it just sees an exit code from a black-box executable it doesn't control.</p>
+
+<p>This isn't a story about NReco being broken. It's a story about technical debt from architectural decisions made over a decade ago, when Qt WebKit seemed like a reasonable rendering engine and process-based wrappers felt acceptable. But WebKit was deprecated in 2013. Wkhtmltopdf saw its last significant update in 2020. The ecosystem moved on.</p>
+
+<p>I want to walk through what still works, where the friction surfaces, and when the math tips toward modern alternatives so your team can make a confident decision in 2026.</p>
+
+<h2>What Is IronPDF?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p><a href="https://ironpdf.com/">IronPDF</a> renders HTML to PDF using an embedded Chromium engine — the same Blink renderer that powers Chrome, Edge, and Electron apps. This means HTML5, CSS Grid, Flexbox, ES6 JavaScript, and WOFF2 fonts work exactly as they do in a modern browser. No "this CSS property isn't supported" surprises. No external executables to spawn or monitor.</p>
+
+<p>The library provides both HTML-to-PDF rendering and comprehensive PDF manipulation in one package: merge documents, extract text, add watermarks, apply digital signatures, fill forms programmatically. For teams managing document workflows beyond simple generation, this consolidates tooling instead of forcing integration across multiple libraries.</p>
+
+<h2>What Are the Key Limitations of NReco PDF Generator?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>Last NuGet update January 2023. Built on wkhtmltopdf 0.12.6 from June 2020. Qt WebKit engine deprecated since 2013 — no CSS Grid, no Flexbox, no ES6 modules, no modern web standards introduced in the past decade.</p>
+
+<p>No PDF merging, splitting, or manipulation — you need iTextSharp or another library. No built-in watermarking. No digital signatures. No form filling. No text extraction. HTML-to-PDF only, nothing else.</p>
+
+<p>Process-based architecture creates race conditions under load. Temp file management causes production errors when permissions aren't perfect. JavaScript support exists but executes in Qt WebKit context (vintage 2013 behavior). CSS3 features like <code>flex</code>, <code>grid</code>, <code>@supports</code> don't work. WOFF2 fonts unsupported.</p>
+
+<p>Community support only — no SLA, no dedicated engineering team. GitHub issues show process timeouts, permission errors, IIS deployment problems. Many remain unresolved. The product appears in maintenance mode rather than active development.</p>
+
+<p>External .exe dependency complicates Docker deployments (manual binary management). Windows-only by default — cross-platform requires paid LT version plus separate wkhtmltopdf installation. Process spawning adds latency (hundreds of milliseconds baseline). Diagnostic information poor — "exit code 1" tells you nothing useful when debugging.</p>
+
+<h2>How Do You Convert an HTML String to PDF with Headers and Footers?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>NReco — HTML String to PDF with Custom Headers</h3>
+
+<pre><code>using NReco.PdfGenerator;
+using System;
+using System.IO;
+
+namespace PdfGenerationExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            // Configure converter instance
+            var pdfConverter = new HtmlToPdfConverter();
+
+            // Set page dimensions
+            pdfConverter.PageWidth = 210;  // A4 width in mm
+            pdfConverter.PageHeight = 297; // A4 height in mm
+            pdfConverter.Margins = new PageMargins
+            {
+                Top = 20,
+                Bottom = 20,
+                Left = 15,
+                Right = 15
+            };
+
+            // Header configuration - text only, no HTML
+            pdfConverter.PageHeaderHtml = &quot;Report Generated: &quot; + DateTime.Now.ToShortDateString();
+
+            // HTML content
+            string htmlContent = @&quot;
+                &lt;html&gt;
+                &lt;head&gt;
+                    &lt;style&gt;
+                        body { font-family: Arial; }
+                        .invoice { border: 1px solid #ccc; padding: 20px; }
+                    &lt;/style&gt;
+                &lt;/head&gt;
+                &lt;body&gt;
+                    &lt;div class='invoice'&gt;
+                        &lt;h1&gt;Monthly Report&lt;/h1&gt;
+                        &lt;p&gt;Generated on &quot; + DateTime.Now + @&quot;&lt;/p&gt;
+                    &lt;/div&gt;
+                &lt;/body&gt;
+                &lt;/html&gt;&quot;;
+
+            // Execute conversion (spawns wkhtmltopdf.exe process)
+            byte[] pdfBytes = pdfConverter.GeneratePdf(htmlContent);
+
+            // Save output
+            File.WriteAllBytes(&quot;nreco_output.pdf&quot;, pdfBytes);
+        }
+    }
+}
+</code></pre>
+
+<p>Headers are text-only; no HTML styling or complex layouts supported. Process spawning adds 200-500ms baseline latency per conversion. The external .exe must have file system write permissions to temp directories. No diagnostic output when the process fails — just exit codes. CSS Grid, Flexbox, and modern web fonts won't render. JavaScript execution limited to Qt WebKit capabilities (ECMAScript 5 era).</p>
+
+<h3>IronPDF — HTML String to PDF with HTML Headers</h3>
+
+<pre><code>using IronPdf;
+
+// Initialize renderer
+var renderer = new ChromePdfRenderer();
+
+// Configure with full HTML header support
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    Height = 20,
+    HtmlFragment = &quot;&lt;div style='text-align:center; font-size:10px;'&gt;Report Generated: {date}&lt;/div&gt;&quot;,
+    DrawDividerLine = true
+};
+
+// HTML content with modern CSS
+string htmlContent = @&quot;
+    &lt;style&gt;
+        .invoice {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+    &lt;/style&gt;
+    &lt;div class='invoice'&gt;
+        &lt;h1&gt;Monthly Report&lt;/h1&gt;
+        &lt;p&gt;Generated on {date}&lt;/p&gt;
+    &lt;/div&gt;&quot;;
+
+// Render with Chromium engine
+var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+pdf.SaveAs(&quot;ironpdf_output.pdf&quot;);
+</code></pre>
+
+<p>IronPDF headers support full HTML/CSS styling and dynamic placeholders like <code>{page}</code>, <code>{total-pages}</code>, <code>{date}</code>. The <a href="https://ironpdf.com/object-reference/api/IronPdf.ChromePdfRenderer.html">ChromePdfRenderer</a> handles CSS Grid and modern layouts without workarounds. Learn more about <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string rendering techniques</a>.</p>
+
+<h2>How Do You Convert a URL to PDF with JavaScript Execution?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>NReco — Rendering URLs with JavaScript Wait</h3>
+
+<pre><code>using NReco.PdfGenerator;
+using System;
+using System.IO;
+
+namespace UrlToPdfExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var converter = new HtmlToPdfConverter();
+
+            // Enable JavaScript in Qt WebKit context
+            converter.EnableJavaScript = true;
+
+            // Wait time for JS execution (milliseconds)
+            converter.JavaScriptDelay = 1000;
+
+            // Set output options
+            converter.Orientation = PageOrientation.Portrait;
+            converter.Size = PageSize.A4;
+
+            // Margins configuration
+            converter.Margins.Top = 10;
+            converter.Margins.Bottom = 10;
+            converter.Margins.Left = 10;
+            converter.Margins.Right = 10;
+
+            // Additional wkhtmltopdf flags
+            converter.Quiet = false; // Enable console output for debugging
+
+            try
+            {
+                // Spawns external process, blocks until complete
+                var pdfBytes = converter.GeneratePdfFromFile(
+                    &quot;https://example.com/dashboard&quot;,
+                    null
+                );
+
+                File.WriteAllBytes(&quot;url_output.pdf&quot;, pdfBytes);
+            }
+            catch (PdfGenerationException ex)
+            {
+                // Exception message typically just shows exit code
+                Console.WriteLine($&quot;Generation failed: {ex.Message}&quot;);
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>Qt WebKit understands ECMAScript 5 only (no arrow functions, no <code>const</code>/<code>let</code>, no async/await). The external process call blocks the thread — no true async support. JavaScript timing is a fixed delay, not "wait until page load complete." Network errors from wkhtmltopdf.exe appear as generic exit codes. TLS 1.2+ support depends on the Qt WebKit version compiled in 2020.</p>
+
+<h3>IronPDF — Async URL Rendering with Wait-for-Load</h3>
+
+<pre><code>using IronPdf;
+using System.Threading.Tasks;
+
+async Task GenerateFromUrl()
+{
+    var renderer = new ChromePdfRenderer();
+
+    // Modern JavaScript execution
+    renderer.RenderingOptions.EnableJavaScript = true;
+    renderer.RenderingOptions.RenderDelay = 500; // ms after page load
+    renderer.RenderingOptions.WaitFor.RenderDelay(1000); // or wait for specific element
+
+    // True async rendering
+    var pdf = await renderer.RenderUrlAsPdfAsync(new Uri(&quot;https://example.com/dashboard&quot;));
+    await pdf.SaveAsAsync(&quot;url_output.pdf&quot;);
+}
+</code></pre>
+
+<p>IronPDF's Chromium engine understands modern JavaScript (ES2020+) and handles dynamic SPAs that rely on fetch, promises, and async rendering. The async methods don't block threads. Detailed walkthrough: <a href="https://ironpdf.com/how-to/pixel-perfect-html-to-pdf/">Pixel-perfect HTML to PDF rendering</a>.</p>
+
+<h2>How Do You Convert a Local HTML File with External Assets?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>NReco — File Conversion with Asset References</h3>
+
+<pre><code>using NReco.PdfGenerator;
+using System;
+using System.IO;
+
+namespace FileToPdfExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var converter = new HtmlToPdfConverter();
+
+            // Configure dimensions
+            converter.Size = PageSize.Letter;
+            converter.Orientation = PageOrientation.Portrait;
+            converter.Margins = new PageMargins(15, 15, 15, 15);
+
+            // Zoom affects text size
+            converter.Zoom = 1.0f;
+
+            // Background graphics
+            converter.GenerateGrayscale = false;
+            converter.LowQuality = false;
+
+            // Footer with page numbers - text only
+            converter.PageFooterHtml = &quot;Page {page} of {topage}&quot;;
+
+            try
+            {
+                // File path must be absolute
+                string absolutePath = Path.GetFullPath(&quot;template.html&quot;);
+
+                // Relative asset paths in HTML must be absolute
+                // or relative to the HTML file location
+                byte[] pdfContent = converter.GeneratePdfFromFile(
+                    absolutePath,
+                    null  // No separate output path needed for byte array
+                );
+
+                File.WriteAllBytes(&quot;file_output.pdf&quot;, pdfContent);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($&quot;Conversion error: {ex.Message}&quot;);
+                // Debugging: check if wkhtmltopdf binaries extracted correctly
+                // Default location: App_Data/wkhtmltopdf/
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>Asset paths must be absolute or correctly relative to the HTML file location. Qt WebKit can't load WOFF2 fonts (only TTF/WOFF). CSS imports via <code>@import</code> may fail depending on file:// protocol restrictions. Image formats limited to JPEG, PNG, GIF, BMP — no WebP, AVIF. The process needs read permissions on all referenced files.</p>
+
+<h3>IronPDF — File Rendering with Auto Asset Resolution</h3>
+
+<pre><code>using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+
+// Footer with flexible placeholders
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    Height = 15,
+    HtmlFragment = &quot;&lt;center&gt;&lt;i&gt;Page {page} of {total-pages}&lt;/i&gt;&lt;/center&gt;&quot;
+};
+
+// Automatically resolves relative paths from file's directory
+var pdf = renderer.RenderHtmlFileAsPdf(&quot;template.html&quot;);
+pdf.SaveAs(&quot;file_output.pdf&quot;);
+</code></pre>
+
+<p>IronPDF automatically sets the base URL to the HTML file's directory, so relative paths to CSS, images, and fonts work without manual configuration. Supports all modern image formats (WebP, AVIF) and font formats (WOFF2, variable fonts). Complete file conversion guide: <a href="https://ironpdf.com/how-to/html-file-to-pdf/">HTML File to PDF Tutorial</a>.</p>
+
+<h2>How Do You Handle Batch Processing of Multiple HTML Files?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>NReco — Sequential File Batch Processing</h3>
+
+<pre><code>using NReco.PdfGenerator;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+
+namespace BatchProcessingExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var converter = new HtmlToPdfConverter();
+
+            // Shared configuration
+            converter.Size = PageSize.A4;
+            converter.Margins = new PageMargins(20, 20, 20, 20);
+
+            // Timeout for each process spawn
+            converter.ExecutionTimeout = 60000; // 60 seconds
+
+            string[] htmlFiles = Directory.GetFiles(&quot;invoices/&quot;, &quot;*.html&quot;);
+
+            var results = new List&lt;(string filename, bool success, string error)&gt;();
+
+            // Must process sequentially - no parallel support
+            foreach (var htmlFile in htmlFiles)
+            {
+                try
+                {
+                    byte[] pdfBytes = converter.GeneratePdfFromFile(htmlFile, null);
+
+                    string outputPath = Path.ChangeExtension(htmlFile, &quot;.pdf&quot;);
+                    File.WriteAllBytes(outputPath, pdfBytes);
+
+                    results.Add((htmlFile, true, null));
+                }
+                catch (PdfGenerationException ex)
+                {
+                    // Common error: &quot;Exit with code 1&quot; - not actionable
+                    results.Add((htmlFile, false, ex.Message));
+                }
+                catch (Exception ex)
+                {
+                    results.Add((htmlFile, false, ex.Message));
+                }
+            }
+
+            // Report results
+            int succeeded = results.Count(r =&gt; r.success);
+            int failed = results.Count(r =&gt; !r.success);
+
+            Console.WriteLine($&quot;Completed: {succeeded} succeeded, {failed} failed&quot;);
+
+            foreach (var result in results.Where(r =&gt; !r.success))
+            {
+                Console.WriteLine($&quot;Failed: {result.filename} - {result.error}&quot;);
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>Process spawning prevents efficient parallelization (creates process handle leaks under load). Timeout management is per-file, with no batch-level controls. Memory overhead accumulates because each conversion spawns a new .exe. Error handling provides minimal context — just exit codes. No progress callbacks or cancellation support. Temp file cleanup failures can cause cascading problems in long-running batches.</p>
+
+<h3>IronPDF — Parallel Batch with Thread Safety</h3>
+
+<pre><code>using IronPdf;
+using System.IO;
+using System.Linq;
+
+var renderer = new ChromePdfRenderer();
+var htmlFiles = Directory.GetFiles(&quot;invoices/&quot;, &quot;*.html&quot;);
+
+// Thread-safe parallel processing
+Parallel.ForEach(htmlFiles, htmlFile =&gt;
+{
+    var pdf = renderer.RenderHtmlFileAsPdf(htmlFile);
+    pdf.SaveAs(Path.ChangeExtension(htmlFile, &quot;.pdf&quot;));
+});
+</code></pre>
+
+<p>IronPDF's Chromium engine is thread-safe and designed for parallel execution. No external processes to manage, no temp file conflicts, no mysterious exit codes. The library handles resource pooling internally.</p>
+
+<h2>What Does the Feature Comparison Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr><th>Feature</th><th>NReco PdfGenerator</th><th>IronPDF</th></tr>
+<tr><td><strong>Current Status</strong></td><td>Last update Jan 2023, wkhtmltopdf 0.12.6 (Jun 2020)</td><td>Active development, monthly releases</td></tr>
+<tr><td><strong>HTML Support</strong></td><td>Qt WebKit (2013-era), no CSS Grid/Flexbox</td><td>Chromium Blink, full HTML5/CSS3/ES6</td></tr>
+<tr><td><strong>Rendering Quality</strong></td><td>Table-based layouts only, legacy fonts</td><td>Pixel-perfect modern web rendering</td></tr>
+<tr><td><strong>Installation</strong></td><td>20.73 MB + VC++ runtime, extracts binaries</td><td>NuGet package, fully managed, no external deps</td></tr>
+<tr><td><strong>Support</strong></td><td>Community-based, no SLA</td><td>24/5 engineering support with SLA options</td></tr>
+<tr><td><strong>Future Viability</strong></td><td>Maintenance mode, no roadmap</td><td>Active feature development</td></tr>
+</table>
+
+<table>
+<tr><th>Category</th><th>Feature</th><th>NReco PdfGenerator</th><th>IronPDF</th></tr>
+<tr><td><strong>Status</strong></td><td>Last Update</td><td>Jan 2023</td><td>Monthly releases</td></tr>
+<tr><td></td><td>Maintenance Mode</td><td>Yes (appears so)</td><td>Active development</td></tr>
+<tr><td></td><td>Future Roadmap</td><td>- with vendor</td><td>Public roadmap available</td></tr>
+<tr><td><strong>Support</strong></td><td>Documentation Quality</td><td>Basic, community-maintained</td><td>Comprehensive with examples</td></tr>
+<tr><td></td><td>Technical Support</td><td>Community forums only</td><td>24/5 engineering support</td></tr>
+<tr><td></td><td>SLA Available</td><td>No</td><td>Yes (Enterprise)</td></tr>
+<tr><td><strong>Content Creation</strong></td><td>HTML to PDF</td><td>Yes (QtWebKit)</td><td>Yes (Chromium)</td></tr>
+<tr><td></td><td>URL to PDF</td><td>Yes</td><td>Yes with async</td></tr>
+<tr><td></td><td>CSS3 Support</td><td>No (Grid, Flex unsupported)</td><td>Full modern CSS</td></tr>
+<tr><td></td><td>JavaScript Support</td><td>Limited (ES5-era)</td><td>Full ES2020+</td></tr>
+<tr><td></td><td>Custom Fonts</td><td>TTF/WOFF only</td><td>All formats including WOFF2</td></tr>
+<tr><td></td><td>Headers/Footers</td><td>Text-based only</td><td>Full HTML/CSS</td></tr>
+<tr><td></td><td>Watermarks</td><td>No — requires separate library</td><td>Built-in</td></tr>
+<tr><td></td><td>Page Numbering</td><td>Basic placeholders</td><td>Flexible placeholders</td></tr>
+<tr><td><strong>PDF Operations</strong></td><td>Merge PDFs</td><td>No — requires iTextSharp</td><td>Yes</td></tr>
+<tr><td></td><td>Split PDFs</td><td>No</td><td>Yes</td></tr>
+<tr><td></td><td>Extract Text</td><td>No</td><td>Yes</td></tr>
+<tr><td></td><td>Extract Images</td><td>No</td><td>Yes</td></tr>
+<tr><td></td><td>Fill Forms</td><td>No</td><td>Yes</td></tr>
+<tr><td></td><td>Create Forms from HTML</td><td>No</td><td>Yes</td></tr>
+<tr><td></td><td>Digital Signatures</td><td>No</td><td>Yes</td></tr>
+<tr><td></td><td>Encryption</td><td>No</td><td>Yes</td></tr>
+<tr><td></td><td>Password Protection</td><td>No</td><td>Yes</td></tr>
+<tr><td><strong>Security</strong></td><td>TLS 1.2+</td><td>Depends on Qt build</td><td>Modern TLS support</td></tr>
+<tr><td></td><td>Content Security Policy</td><td>-</td><td>Full CSP support</td></tr>
+<tr><td></td><td>HTTPS Resources</td><td>Yes but limited</td><td>Full support</td></tr>
+<tr><td><strong>Known Issues</strong></td><td>Process Timeouts</td><td>Common under load</td><td>Not applicable</td></tr>
+<tr><td></td><td>Permission Errors</td><td>Frequent in IIS/Docker</td><td>Not applicable</td></tr>
+<tr><td></td><td>Exit Code Failures</td><td>Cryptic diagnostics</td><td>Not applicable</td></tr>
+<tr><td></td><td>Temp File Conflicts</td><td>Known issue</td><td>Not applicable</td></tr>
+<tr><td><strong>Development</strong></td><td>Async/Await Support</td><td>No (process blocking)</td><td>Full async support</td></tr>
+<tr><td></td><td>Thread Safety</td><td>Not documented</td><td>Fully thread-safe</td></tr>
+<tr><td></td><td>Parallel Processing</td><td>Not recommended</td><td>Designed for it</td></tr>
+<tr><td></td><td>Docker Support</td><td>Manual binary management</td><td>Works out of box</td></tr>
+<tr><td></td><td>Cross-Platform</td><td>Paid LT version required</td><td>Included</td></tr>
+<tr><td></td><td>.NET Core Support</td><td>Yes</td><td>Yes (.NET 6-10+)</td></tr>
+</table>
+
+<h2>What Does the API Mapping Between NReco and IronPDF Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr><th>NReco.PdfGenerator</th><th>IronPDF Equivalent</th></tr>
+<tr><td><code>HtmlToPdfConverter</code> class</td><td><code>ChromePdfRenderer</code> class</td></tr>
+<tr><td><code>GeneratePdf(string htmlContent)</code></td><td><code>RenderHtmlAsPdf(string html)</code></td></tr>
+<tr><td><code>GeneratePdfFromFile(string path, string output)</code></td><td><code>RenderHtmlFileAsPdf(string path)</code></td></tr>
+<tr><td><code>EnableJavaScript</code> property</td><td><code>RenderingOptions.EnableJavaScript</code></td></tr>
+<tr><td><code>JavaScriptDelay</code> property</td><td><code>RenderingOptions.RenderDelay</code></td></tr>
+<tr><td><code>PageHeaderHtml</code> property (text only)</td><td><code>RenderingOptions.HtmlHeader.HtmlFragment</code> (full HTML)</td></tr>
+<tr><td><code>PageFooterHtml</code> property (text only)</td><td><code>RenderingOptions.HtmlFooter.HtmlFragment</code> (full HTML)</td></tr>
+<tr><td><code>Margins</code> property</td><td><code>RenderingOptions.MarginTop/Bottom/Left/Right</code></td></tr>
+<tr><td><code>Size</code> property (PageSize enum)</td><td><code>RenderingOptions.PaperSize</code></td></tr>
+<tr><td><code>Orientation</code> property</td><td><code>RenderingOptions.PaperOrientation</code></td></tr>
+<tr><td><code>Zoom</code> property</td><td><code>RenderingOptions.Zoom</code></td></tr>
+<tr><td><code>GenerateGrayscale</code> property</td><td><code>RenderingOptions.GrayScale</code></td></tr>
+<tr><td><code>CustomCssUrl</code> property</td><td><code>RenderingOptions.CustomCssUrl</code></td></tr>
+<tr><td><code>ExecutionTimeout</code></td><td>Operation-level timeout via CancellationToken</td></tr>
+</table>
+
+<h2>How Do You Install Each Library?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>NReco.PdfGenerator Installation</h3>
+
+<pre><code># Windows-only version (includes wkhtmltopdf binaries)
+dotnet add package NReco.PdfGenerator
+
+# Cross-platform version (requires manual wkhtmltopdf installation)
+dotnet add package NReco.PdfGenerator.LT
+</code></pre>
+
+<pre><code>using NReco.PdfGenerator;
+
+// Windows: works immediately after NuGet restore
+// Linux/macOS: requires wkhtmltopdf installation and path configuration
+var converter = new HtmlToPdfConverter();
+
+// For LT version on Linux
+converter.WkHtmlToPdfExeName = &quot;wkhtmltopdf&quot;;
+converter.PdfToolPath = &quot;/usr/local/bin/&quot;; // where wkhtmltopdf is installed
+</code></pre>
+
+<p>NReco requires Visual C++ 2015 Runtime on Windows. Docker deployments need manual binary management. The free version limits usage to single-server production environments.</p>
+
+<h3>IronPDF Installation</h3>
+
+<pre><code>dotnet add package IronPdf
+</code></pre>
+
+<pre><code>using IronPdf;
+
+// Works immediately on Windows, Linux, macOS, Docker
+// No external executables, no runtime dependencies
+var renderer = new ChromePdfRenderer();
+</code></pre>
+
+<p>IronPDF is fully managed .NET code with embedded Chromium engine. No native dependencies to install. Cross-platform support included without separate packages. Complete installation steps: <a href="https://ironpdf.com/how-to/ironpdf-2021-chrome-rendering-engine-eap/">Chrome PDF Rendering Engine Guide</a>.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can NReco render CSS Grid or Flexbox layouts?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>No. NReco is built on wkhtmltopdf 0.12.6, which uses the Qt WebKit engine deprecated since 2013. CSS Grid, Flexbox, <code>@supports</code>, and other modern CSS features introduced in the past decade are not supported. You are limited to table-based layouts. IronPDF's Chromium Blink engine supports full modern CSS including Grid, Flexbox, and variable fonts.</p>
+
+<h3>Is NReco thread-safe for parallel PDF generation?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Not recommended. NReco spawns an external wkhtmltopdf.exe process for every conversion. Under parallel load, this creates process handle leaks, temp file conflicts, and race conditions. IronPDF is fully thread-safe and designed for parallel execution with <code>Parallel.ForEach</code>, handling resource pooling internally without external processes.</p>
+
+<h3>Does NReco support async/await?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>No. NReco's process-based architecture blocks the calling thread while the external wkhtmltopdf.exe runs. There are no native async methods. IronPDF provides full async support with methods like <code>RenderHtmlAsPdfAsync</code> and <code>RenderUrlAsPdfAsync</code> that don't block threads.</p>
+
+<h3>Can I merge or digitally sign PDFs with NReco?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>No. NReco is HTML-to-PDF only. There is no PDF merging, splitting, text extraction, form filling, watermarking, digital signatures, encryption, or password protection. You would need a separate library like iTextSharp for those features. IronPDF includes all of these capabilities in a single package.</p>
+
+<h3>How does NReco handle Docker deployments compared to IronPDF?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>NReco requires manual wkhtmltopdf binary management in Docker containers. You need the paid LT version for cross-platform support, plus a separate wkhtmltopdf installation and path configuration. IronPDF works out of the box in Docker with no external executables or native dependencies to install.</p>
+
+<h2>When Should You Stay on NReco, and When Should You Migrate?</h2>
+
+<p>If your HTML templates use table-based layouts (no CSS Grid/Flexbox), you rarely update them, and you're running in a stable Windows environment where the process spawning hasn't caused issues, staying on NReco can make sense — especially if you're on the free tier and budgets are tight.</p>
+
+<p>Migration becomes necessary when CSS Grid/Flexbox layouts fail to render, modern JavaScript breaks, process timeouts appear in production logs, or you need PDF manipulation features NReco doesn't provide (merging, digital signatures, form filling). Docker deployments or cross-platform requirements also push toward modern alternatives because the manual wkhtmltopdf binary management adds operational overhead.</p>
+
+<p>The pragmatic decision point: how much engineering time are you spending working around NReco's limitations versus investing in a migration? For teams generating hundreds of PDFs daily with evolving template requirements, the return on migration effort typically appears within a quarter.</p>
+
+<p><a href="https://ironpdf.com/">IronPDF</a> consolidates HTML rendering and PDF manipulation into one library with a Chromium-based engine that handles modern web standards. Thread-safe parallel processing replaces process spawning. Full async support prevents thread blocking. No external executables to debug when something fails.</p>

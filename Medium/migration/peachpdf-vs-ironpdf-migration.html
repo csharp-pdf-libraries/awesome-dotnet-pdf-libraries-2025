@@ -1,0 +1,558 @@
+<h1>Migrating from PeachPDF to IronPDF: Solving Common Migration Pain Points</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Would You Migrate Away from PeachPDF?</h2>
+
+<p>The .NET upgrade was supposed to be the boring part. Update the TFM, fix a few deprecated APIs, run the tests — done. But somewhere in that process, the PDF library started throwing exceptions it didn't throw before, or you discovered it doesn't have a NuGet package targeting the new framework version you need.</p>
+
+<p>PeachPDF is a capable HTML-to-PDF library, but .NET version compatibility becomes a constraint when you're moving from .NET Framework or early .NET Core to the modern unified platform. I've seen teams hit this wall repeatedly, and the reasons for migrating tend to cluster around the same set of conditions:</p>
+
+<p><strong>.NET version incompatibility</strong> — the library doesn't publish a package for .NET 6/7/8/9, or the package exists but has runtime issues under the new TFM. <strong>Rendering engine age</strong> — non-Chromium HTML renderers often lag modern CSS capabilities. <strong>CSS fidelity gaps</strong> — flex layouts, CSS Grid, custom properties, or <code>@media print</code> rules don't render correctly.</p>
+
+<p><strong>Maintenance uncertainty</strong> — infrequent NuGet updates suggest the project is not actively tracking .NET releases. <strong>Cross-platform limitations</strong> — if the library has Windows-only native dependencies, Linux/Docker deployments are blocked. <strong>Missing manipulation features</strong> — no native merge, split, watermark, or security APIs in the library.</p>
+
+<p><strong>Async API support</strong> — older libraries often expose only synchronous APIs, which creates friction in async .NET code. <strong>Community support</strong> — smaller libraries have fewer Stack Overflow answers and GitHub issues for troubleshooting. <strong>Thread safety concerns</strong> — rendering under concurrent load may not be well-documented or tested.</p>
+
+<h2>What Does a .NET Version Incompatibility Look Like in Practice?</h2>
+
+<p>This is the most common trigger I see. Your team upgrades to .NET 8 or 9, and PeachPDF either doesn't have a compatible package or throws runtime exceptions under the new TFM. The build fails, and PeachPDF becomes the blocker for your entire upgrade.</p>
+
+<p>The first step is finding every PeachPDF reference in your codebase.</p>
+
+<h3>Searching for PeachPDF API Usage</h3>
+
+<pre><code># Search for PeachPDF API usage — verify the actual namespace
+rg -l "PeachPDF\|Peach\.Pdf\|PeachPdf" --type cs
+rg "PeachPDF\|PeachPdf" --type cs -n
+
+# Check project files
+grep -r "PeachPDF\|PeachPdf" *.csproj **/*.csproj 2&gt;/dev/null
+
+# Search for HTML template strings that feed the PDF library
+rg "RenderHtml\|ConvertHtml\|HtmlToPdf" --type cs -n
+
+# Find any rendering options or configuration classes
+rg "PageSize\|PaperSize\|Margin\|PdfOptions" --type cs -n
+</code></pre>
+
+<p>Once you know the scope, swap the packages.</p>
+
+<h3>Removing PeachPDF and Installing IronPDF</h3>
+
+<pre><code># Remove PeachPDF — verify exact package name at NuGet
+dotnet remove package PeachPDF  # verify package name
+
+# Install IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+</code></pre>
+
+<p>If PeachPDF was blocking <code>dotnet build</code> on your new TFM, verify the build succeeds after this swap before writing any migration code. Then configure your <a href="https://ironpdf.com/how-to/license-keys/">IronPDF license key</a>.</p>
+
+<h3>License Configuration</h3>
+
+<pre><code>using IronPdf;
+
+// Set at application startup — https://ironpdf.com/how-to/license-keys/
+// Set via environment variable (recommended for server deployments):
+// export IRONPDF_LICENSE_KEY=your-key-here
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY")
+    ?? throw new InvalidOperationException("IRONPDF_LICENSE_KEY environment variable not set");
+</code></pre>
+
+<h3>Namespace Swap — Before</h3>
+
+<pre><code>// VERIFY actual PeachPDF namespace — unknown without documentation
+using PeachPDF;         // illustrative — verify
+using PeachPDF.Options; // illustrative — verify
+</code></pre>
+
+<h3>Namespace Swap — After</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+</code></pre>
+
+<h3>Basic Conversion — Before (Illustrative)</h3>
+
+<pre><code>using System;
+using System.IO;
+// ALL PeachPDF API NAMES ARE ILLUSTRATIVE — VERIFY IN THEIR DOCUMENTATION
+
+class PeachPdfBefore
+{
+    static void Main()
+    {
+        // VERIFY: PeachPDF class and method names
+        // var options = new PdfConvertOptions();
+        // options.PageSize = PdfPageSize.A4;
+
+        // var converter = new HtmlConverter(options);
+        // var result = converter.ConvertFromHtml("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+        // File.WriteAllBytes("output.pdf", result);
+
+        Console.WriteLine("Verify all PeachPDF API names before migrating this block");
+    }
+}
+</code></pre>
+
+<h3>Basic Conversion — After</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+pdf.SaveAs("output.pdf");
+
+Console.WriteLine($"Saved output.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h2>How Do You Handle CSS That Renders Differently After the Switch?</h2>
+
+<p>This is the second most common pain point. HTML that rendered acceptably in PeachPDF looks different in IronPDF because the rendering engines are fundamentally different. IronPDF uses Chromium; PeachPDF's engine is unknown. The new rendering may actually be more correct for modern CSS, but it can look different.</p>
+
+<p>The debugging approach I recommend starts with Chrome DevTools.</p>
+
+<h3>Debugging CSS Rendering Differences</h3>
+
+<pre><code>// Step 1: Test your HTML directly in Chrome DevTools print preview
+// IronPDF's Chromium renders CSS as Chrome does with @media print rules
+
+// Step 2: Add explicit @media print styles for predictable output
+var html = @"
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        /* Screen styles */
+        body { font-family: Arial; }
+
+        /* Print-specific — IronPDF applies these via Chromium */
+        @media print {
+            .no-print { display: none; }
+            .page-break { page-break-before: always; }
+            table { page-break-inside: avoid; }
+        }
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;...&lt;/body&gt;
+    &lt;/html&gt;";
+
+// Step 3: Adjust rendering options to match desired output
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+// See: https://ironpdf.com/how-to/rendering-options/
+// See: https://ironpdf.com/how-to/pixel-perfect-html-to-pdf/
+</code></pre>
+
+<p>Another common issue: images, CSS files, or fonts referenced in the HTML don't appear in the PDF. Relative paths in HTML may not resolve correctly when rendering from a string.</p>
+
+<h3>Fixing External Resources That Don't Load</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.IO;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+
+// Option 1: Set base URL so relative paths resolve correctly
+// Verify BaseUrlPath / BaseUrl property name in current IronPDF docs
+renderer.RenderingOptions.BaseUrlPath = new DirectoryInfo(
+    Path.GetFullPath("./templates")
+).FullName;
+
+// Option 2: Use absolute URLs in the HTML
+var html = @"
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;link rel='stylesheet' href='https://cdn.example.com/styles.css'&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;img src='https://cdn.example.com/logo.png' alt='logo'&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;";
+
+// Option 3: Embed resources as base64
+// var logoBase64 = Convert.ToBase64String(File.ReadAllBytes("logo.png"));
+// var html = $"&lt;img src='data:image/png;base64,{logoBase64}'&gt;";
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("output.pdf");
+</code></pre>
+
+<h2>What About Merging, Watermarks, and Security — Features PeachPDF May Not Have?</h2>
+
+<p>A common discovery during migration: a secondary library was added for watermarking, security, or merge because PeachPDF didn't support those features. After migrating to <a href="https://ironpdf.com/">IronPDF</a>, those secondary packages can typically be removed.</p>
+
+<h3>Merging PDFs — Before (Illustrative)</h3>
+
+<pre><code>using System;
+// VERIFY: PeachPDF merge capability
+
+class MergeBefore
+{
+    static void Main()
+    {
+        // If PeachPDF doesn't support merge, you've likely already added
+        // a secondary library (PDFSharp, iTextSharp, etc.) for this.
+        // Migration is an opportunity to consolidate.
+
+        // Hypothetical PeachPDF merge (verify):
+        // var merger = new PeachPdfMerger();
+        // merger.Add("part1.pdf");
+        // merger.Add("part2.pdf");
+        // merger.MergeToFile("combined.pdf");
+
+        Console.WriteLine("Verify PeachPDF merge API or identify secondary library");
+    }
+}
+</code></pre>
+
+<h3>Merging PDFs — After</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var pdf1 = PdfDocument.FromFile("part1.pdf");
+var pdf2 = PdfDocument.FromFile("part2.pdf");
+var pdf3 = PdfDocument.FromFile("part3.pdf");
+
+// Merge: https://ironpdf.com/how-to/merge-or-split-pdfs/
+var merged = PdfDocument.Merge(pdf1, pdf2, pdf3);
+merged.SaveAs("combined.pdf");
+
+Console.WriteLine($"Merged: {merged.PageCount} pages");
+pdf1.Dispose(); pdf2.Dispose(); pdf3.Dispose();
+</code></pre>
+
+<h3>Watermark — Before (CSS-Based Workaround)</h3>
+
+<pre><code>using System;
+// VERIFY: PeachPDF watermark support
+
+class WatermarkBefore
+{
+    static void Main()
+    {
+        // If PeachPDF doesn't have a watermark API:
+        // Option 1 — CSS pseudo-element in the HTML before conversion:
+        var html = @"
+            &lt;html&gt;
+            &lt;head&gt;
+            &lt;style&gt;
+                .watermark {
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%) rotate(-45deg);
+                    font-size: 80px;
+                    color: rgba(150, 150, 150, 0.2);
+                    z-index: 9999;
+                    white-space: nowrap;
+                    pointer-events: none;
+                }
+            &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+                &lt;div class='watermark'&gt;INTERNAL USE ONLY&lt;/div&gt;
+                &lt;h1&gt;Document&lt;/h1&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        // Then pass to PeachPDF converter (verify):
+        // var result = converter.Convert(html);
+        Console.WriteLine("CSS watermark approach — rendering fidelity depends on PeachPDF engine");
+    }
+}
+</code></pre>
+
+<h3>Watermark — After</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Document&lt;/h1&gt;&lt;p&gt;Content...&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// Post-render programmatic watermark — consistent regardless of HTML content
+// https://ironpdf.com/how-to/custom-watermark/
+var watermark = new TextStamper
+{
+    Text = "INTERNAL USE ONLY",
+    FontColor = IronPdf.Imaging.Color.Gray,
+    Opacity = 0.2,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs("internal-document.pdf");
+</code></pre>
+
+<h3>Password Protection — Before (Illustrative)</h3>
+
+<pre><code>using System;
+// VERIFY: PeachPDF password protection — may require secondary library
+
+class PasswordBefore
+{
+    static void Main()
+    {
+        // If PeachPDF supports security settings (verify):
+        // var options = new PeachPdfOptions();
+        // options.UserPassword = "open123";
+        // options.OwnerPassword = "admin456";
+
+        // If not, secondary library required:
+        // var unprotectedBytes = /* PeachPDF output */;
+        // var protectedBytes = AnotherPdfLib.AddPassword(unprotectedBytes, "open123");
+
+        Console.WriteLine("Verify PeachPDF security API — may need secondary library cleanup");
+    }
+}
+</code></pre>
+
+<h3>Password Protection — After</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Restricted Document&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// https://ironpdf.com/how-to/pdf-permissions-passwords/
+pdf.SecuritySettings.UserPassword = "open123";
+pdf.SecuritySettings.OwnerPassword = "admin456";
+
+pdf.SaveAs("restricted.pdf");
+</code></pre>
+
+<h2>How Does PeachPDF Compare to IronPDF Feature by Feature?</h2>
+
+<p>I find a side-by-side table is the fastest way to assess the scope of your migration. Here is how the two libraries compare across key dimensions.</p>
+
+<table>
+<thead>
+<tr><th>Aspect</th><th>PeachPDF</th><th>IronPDF</th></tr>
+</thead>
+<tbody>
+<tr><td>Focus</td><td>HTML-to-PDF generation</td><td>HTML-to-PDF + PDF manipulation</td></tr>
+<tr><td>Pricing</td><td>Verify at their site</td><td>Commercial license — verify at ironsoftware.com</td></tr>
+<tr><td>API Style</td><td>Verify — likely class-per-operation</td><td>Fluent .NET objects</td></tr>
+<tr><td>Learning Curve</td><td>Verify — depends on API surface</td><td>Low for .NET developers</td></tr>
+<tr><td>HTML Rendering</td><td>Verify rendering engine</td><td>Embedded Chromium</td></tr>
+<tr><td>Page Indexing</td><td>Verify</td><td>0-based</td></tr>
+<tr><td>Thread Safety</td><td>Verify</td><td>Verify in IronPDF docs</td></tr>
+<tr><td>Namespace</td><td>Verify at NuGet</td><td><code>IronPdf</code></td></tr>
+</tbody>
+</table>
+
+<p>And here is the feature-by-feature migration complexity breakdown.</p>
+
+<table>
+<thead>
+<tr><th>Feature</th><th>PeachPDF</th><th>IronPDF Equivalent</th><th>Complexity</th></tr>
+</thead>
+<tbody>
+<tr><td>HTML string to PDF</td><td>Verify method name</td><td><code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code></td><td>Low</td></tr>
+<tr><td>URL to PDF</td><td>Verify if supported</td><td><code>ChromePdfRenderer.RenderUrlAsPdfAsync()</code></td><td>Low</td></tr>
+<tr><td>Save to file</td><td>Verify</td><td><code>pdf.SaveAs(path)</code></td><td>Low</td></tr>
+<tr><td>Save to bytes/stream</td><td>Verify</td><td><code>pdf.BinaryData</code> / <code>pdf.Stream</code></td><td>Low</td></tr>
+<tr><td>Custom page size</td><td>Verify options API</td><td><code>RenderingOptions.PaperSize</code></td><td>Low</td></tr>
+<tr><td>Custom margins</td><td>Verify</td><td><code>RenderingOptions.Margin*</code></td><td>Low</td></tr>
+<tr><td>Headers/footers</td><td>Verify</td><td><code>RenderingOptions.HtmlHeader/Footer</code></td><td>Medium</td></tr>
+<tr><td>JavaScript rendering</td><td>Verify</td><td>Built-in; verify <code>WaitFor</code> settings</td><td>Medium</td></tr>
+<tr><td>Merge</td><td>Verify if native</td><td><code>PdfDocument.Merge()</code></td><td>Medium</td></tr>
+<tr><td>Watermark</td><td>Verify</td><td><code>TextStamper</code> / <code>ImageStamper</code></td><td>Medium</td></tr>
+<tr><td>Password protection</td><td>Verify</td><td><code>pdf.SecuritySettings</code></td><td>Medium</td></tr>
+<tr><td>Async rendering</td><td>Verify if available</td><td>Built-in async methods</td><td>Low–Medium</td></tr>
+</tbody>
+</table>
+
+<h2>What Are the Most Common Questions During a PeachPDF to IronPDF Migration?</h2>
+
+<h3>What if my build fails after swapping packages?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>The most common cause is a missing license key. IronPDF throws at runtime, not compile time, when the key is not set. Check that the license key is configured before any IronPDF API call.</p>
+
+<pre><code>using IronPdf;
+
+// Check that the license key is set before any IronPDF API call
+// A missing or invalid key will throw at runtime, not compile time
+if (string.IsNullOrEmpty(IronPdf.License.LicenseKey))
+{
+    IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY")
+        ?? throw new InvalidOperationException("Set IRONPDF_LICENSE_KEY environment variable");
+}
+
+// Validate: https://ironpdf.com/how-to/license-keys/
+Console.WriteLine($"License valid: {IronPdf.License.IsValidLicense}");
+</code></pre>
+
+<p>If PeachPDF was the build blocker on your new TFM, verify the build succeeds after the package swap before writing any migration code.</p>
+
+<h3>How do I handle high memory usage under sustained rendering load?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Always use <code>using</code> on <code>PdfDocument</code> — IronPDF wraps native Chromium resources that need timely disposal. For high-volume scenarios, process in batches.</p>
+
+<pre><code>using IronPdf;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+// Always use 'using' on PdfDocument — IronPDF wraps native Chromium resources
+static async Task ProcessBatch(IEnumerable&lt;string&gt; htmlDocuments)
+{
+    var renderer = new ChromePdfRenderer();
+
+    foreach (var html in htmlDocuments)
+    {
+        // 'using' ensures timely disposal of Chromium resources
+        using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+        pdf.SaveAs($"output_{Guid.NewGuid():N}.pdf");
+        // pdf disposed here — native resources released
+    }
+}
+
+// For high-volume: consider processing in batches
+// and explicitly calling GC.Collect() between batches if needed
+</code></pre>
+
+<h3>Should I create one ChromePdfRenderer per request or reuse a single instance?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Reusing a single renderer avoids repeated Chromium initialization overhead. For concurrent load, verify thread safety in the IronPDF documentation.</p>
+
+<pre><code>using IronPdf;
+using System.Threading.Tasks;
+
+// Option 1: Reuse a single renderer (verify thread safety in IronPDF docs)
+public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public PdfService()
+    {
+        IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+        _renderer = new ChromePdfRenderer();
+        // Configure once
+        _renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+    }
+
+    public async Task&lt;byte[]&gt; GeneratePdfAsync(string html)
+    {
+        using var pdf = await _renderer.RenderHtmlAsPdfAsync(html);
+        return pdf.BinaryData;
+    }
+}
+
+// Option 2: Per-request renderer (thread-isolated but slower to initialize)
+// Choose based on IronPDF's thread-safety documentation and your load profile
+// https://ironpdf.com/how-to/async/
+</code></pre>
+
+<h3>How do I deploy IronPDF to Azure or cloud environments?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>IronPDF works locally but may throw exceptions in Azure App Service, Azure Functions, or similar cloud environments. Set Azure App Service to 64-bit, and verify that the hosting plan supports enough memory for Chromium rendering (Basic tier or above is typically needed).</p>
+
+<pre><code>// IronPDF has specific guidance for Azure deployments
+// https://ironpdf.com/how-to/azure/
+
+// Common requirement: set Azure App Service to 64-bit
+// Common requirement: verify that the hosting plan supports enough memory
+// for Chromium rendering (Basic tier or above is typically needed)
+
+// Verify Chromium sandbox settings for cloud environments:
+// Some environments require NoSandbox mode — check IronPDF Azure docs
+// before changing security settings
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+// Cloud-safe initialization pattern (verify recommended settings in current docs):
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("output.pdf");
+
+// See full Azure guidance: https://ironpdf.com/how-to/azure/
+</code></pre>
+
+<h3>How do I warm up IronPDF to avoid cold-start latency?</h3>
+
+<p><strong>Answer:</strong></p>
+
+<p>Trigger Chromium initialization at application startup using a hosted service. This avoids cold-start latency on the first real request.</p>
+
+<pre><code>using IronPdf;
+using Microsoft.Extensions.Hosting;
+using System.Threading;
+using System.Threading.Tasks;
+
+// Warm up during application startup — avoids cold-start latency on first request
+public class PdfWarmupService : IHostedService
+{
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+
+        // Trigger Chromium initialization at startup
+        var renderer = new ChromePdfRenderer();
+        using var _ = await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;warmup&lt;/body&gt;&lt;/html&gt;");
+
+        // Renderer is now warm for production traffic
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) =&gt; Task.CompletedTask;
+}
+</code></pre>
+
+<h2>When Is the Right Time to Migrate from PeachPDF to IronPDF?</h2>
+
+<p>The .NET version upgrade path is often the clearest migration case — there's a hard compatibility constraint, not a preference. If PeachPDF doesn't publish a package for your target framework, the decision is made for you.</p>
+
+<p>Here is how I think about the decision matrix.</p>
+
+<table>
+<thead>
+<tr><th>Business Scenario</th><th>Recommendation</th></tr>
+</thead>
+<tbody>
+<tr><td>.NET 6/7/8/9 compatibility required and PeachPDF doesn't support it</td><td>Switch — version compatibility is a hard constraint</td></tr>
+<tr><td>CSS rendering fidelity is critical</td><td>Switch — Chromium renders current CSS standards</td></tr>
+<tr><td>All usage is basic HTML-to-PDF with no manipulation needs</td><td>Evaluate carefully — simpler libraries may be sufficient</td></tr>
+<tr><td>Cross-platform or Docker deployment needed</td><td>Verify PeachPDF platform support; IronPDF supports Linux</td></tr>
+</tbody>
+</table>
+
+<p>The main work after the swap is verifying that the rendering output is equivalent. One practical note: if your .NET upgrade also includes moving from .NET Framework to a modern TFM, test <a href="https://ironpdf.com/">IronPDF</a> on Linux as early as possible — it's faster to catch platform issues in a local Docker container than in a CI pipeline.</p>
+
+<p>IronPDF uses 0-based page indexing. If PeachPDF used 1-based indexing and you have page manipulation code, audit all page index references. And don't forget to check for secondary libraries you added to fill PeachPDF's gaps — after migrating to <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF</a>, those secondary packages for merge, watermark, or security can typically be removed.</p>

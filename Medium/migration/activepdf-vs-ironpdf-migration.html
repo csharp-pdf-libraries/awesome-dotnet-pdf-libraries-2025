@@ -1,0 +1,896 @@
+<h1>Migrating from ActivePDF to IronPDF in C#: The Complete Guide</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<p>Three separate ActivePDF NuGet packages. Three separate DLL references. Three separate licensing conversations with procurement. Your WebGrabber handles HTML conversion, Toolkit handles manipulation, and DocConverter handles everything else -- but none of them talk to each other cleanly, and all of them require Windows Server.</p>
+
+<p>Then the Apryse acquisition happened, and now your support tickets route through a portal that looks nothing like the one your team bookmarked two years ago. The product still works. But the question every architect eventually asks is: do we really need three components for what is, fundamentally, one pipeline?</p>
+
+<p>This guide walks you through consolidating ActivePDF into <a href="https://ironpdf.com">IronPDF</a> -- a single NuGet package that covers HTML-to-PDF, manipulation, merge, watermark, and security.</p>
+
+<h2>Why Should I Migrate Away from ActivePDF?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>ActivePDF has served enterprise .NET shops for over a decade. Here is why teams re-evaluate:</p>
+
+<p><strong>Modular overhead.</strong> You buy and license Toolkit, WebGrabber, and DocConverter separately. Each has its own DLL, its own NuGet package, its own API surface. A single PDF generation workflow might touch all three.</p>
+
+<p><strong>Windows Server lock-in.</strong> ActivePDF components require Windows Server. If you are moving to Linux containers, Docker on ARM, or Azure App Service on Linux, ActivePDF does not follow you.</p>
+
+<p><strong>MSI installer dependencies.</strong> WebGrabber and DocConverter require MSI installation on the host -- not just a NuGet restore. This breaks immutable infrastructure patterns and complicates CI/CD.</p>
+
+<p><strong>Acquisition uncertainty.</strong> Apryse acquired ActivePDF and merged support portals. The product roadmap, pricing, and long-term component strategy may shift toward Apryse's own PDFTron SDK.</p>
+
+<p><strong>IE-era rendering engine.</strong> WebGrabber historically offered Native and Internet Explorer rendering engines. Modern HTML5/CSS3 applications need a Chrome-class renderer.</p>
+
+<p><strong>API verbosity.</strong> Toolkit uses COM-style patterns inherited from its Classic ASP roots. Method names like <code>SetMasterPassword</code> and <code>CopyForm</code> work, but they are verbose compared to fluent property-based APIs.</p>
+
+<p><strong>Limited cross-platform path.</strong> Even though Toolkit's NuGet targets .NET Standard 1.0, the underlying native code and WebGrabber/DocConverter dependencies are Windows-only.</p>
+
+<p><strong>Separate HTML conversion path.</strong> If you need both HTML-to-PDF and PDF manipulation, you are calling WebGrabber to generate the PDF, then loading it into Toolkit to manipulate it. That is two separate APIs for one workflow.</p>
+
+<p><strong>DocConverter as a Windows service.</strong> DocConverter runs as a watched-folder service or COM automation host. In a microservices architecture, this model feels like a detour.</p>
+
+<p><strong>License complexity.</strong> Each ActivePDF component is licensed separately, often per-server. For teams scaling horizontally, the licensing math gets expensive.</p>
+
+<h2>How Do ActivePDF and IronPDF Compare Feature by Feature?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr>
+<th>Aspect</th>
+<th>ActivePDF (Toolkit + WebGrabber)</th>
+<th>IronPDF</th>
+</tr>
+<tr>
+<td><strong>Focus</strong></td>
+<td>Modular: Toolkit = manipulation, WebGrabber = HTML-to-PDF</td>
+<td>Unified: generation + manipulation in one package</td>
+</tr>
+<tr>
+<td><strong>Pricing</strong></td>
+<td>Per-component, per-server licensing</td>
+<td>Per-developer, perpetual licenses available</td>
+</tr>
+<tr>
+<td><strong>API Style</strong></td>
+<td>COM-influenced methods, procedural</td>
+<td>Fluent properties, C#-native patterns</td>
+</tr>
+<tr>
+<td><strong>Learning Curve</strong></td>
+<td>Medium -- need to learn multiple component APIs</td>
+<td>Low -- single namespace, discoverable API</td>
+</tr>
+<tr>
+<td><strong>HTML Rendering</strong></td>
+<td>WebGrabber: Native and IE engines</td>
+<td>Chrome rendering engine, modern web standards</td>
+</tr>
+<tr>
+<td><strong>Page Indexing</strong></td>
+<td>1-based in Toolkit</td>
+<td>0-based</td>
+</tr>
+<tr>
+<td><strong>Thread Safety</strong></td>
+<td>Toolkit: verify threading model for your version</td>
+<td><code>ChromePdfRenderer</code> is stateless, safe to share</td>
+</tr>
+<tr>
+<td><strong>Namespace</strong></td>
+<td><code>APToolkit</code> / <code>APWebGrabber</code></td>
+<td><code>IronPdf</code></td>
+</tr>
+</table>
+
+<h2>How Much Effort Does Each Feature Require to Migrate?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr>
+<th>Feature</th>
+<th>Complexity</th>
+<th>Notes</th>
+</tr>
+<tr>
+<td>HTML to PDF (from WebGrabber)</td>
+<td>Low</td>
+<td>Direct replacement; IronPDF eliminates the separate WebGrabber dependency</td>
+</tr>
+<tr>
+<td>PDF manipulation (from Toolkit)</td>
+<td>Medium</td>
+<td>API shape differs; Toolkit's COM-style methods map to IronPDF properties</td>
+</tr>
+<tr>
+<td>Merge</td>
+<td>Low</td>
+<td><code>PdfDocument.Merge()</code> replaces Toolkit's merge methods</td>
+</tr>
+<tr>
+<td>Split / extract pages</td>
+<td>Low</td>
+<td>IronPDF page indexer vs. Toolkit page operations</td>
+</tr>
+<tr>
+<td>Watermark / stamping</td>
+<td>Medium</td>
+<td>Toolkit uses <code>SetHeaderWatermark</code>; IronPDF uses HTML-based <code>ApplyWatermark</code></td>
+</tr>
+<tr>
+<td>Password / encryption</td>
+<td>Low</td>
+<td>Both support owner/user passwords; property names differ</td>
+</tr>
+<tr>
+<td>Form filling</td>
+<td>Medium</td>
+<td>Toolkit has extensive form APIs; IronPDF uses <code>FormField</code> collection</td>
+</tr>
+<tr>
+<td>Document conversion (300+ formats)</td>
+<td>High / N/A</td>
+<td>DocConverter has no direct IronPDF equivalent. Use IronPDF for HTML/URL; for Office to PDF, consider a dedicated converter</td>
+</tr>
+<tr>
+<td>Print-to-PDF (Server)</td>
+<td>N/A</td>
+<td>No direct equivalent in IronPDF. Consider OS-level print drivers or alternative tools</td>
+</tr>
+<tr>
+<td>Watched-folder automation (Meridian)</td>
+<td>N/A</td>
+<td>Architectural pattern -- implement with FileSystemWatcher or message queues</td>
+</tr>
+<tr>
+<td>Digital signatures</td>
+<td>Medium</td>
+<td>Different API surface; verify IronPDF signing documentation</td>
+</tr>
+</table>
+
+<h2>Which Migration Scenario Fits My Project?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<table>
+<tr>
+<th>Scenario</th>
+<th>Recommendation</th>
+</tr>
+<tr>
+<td>HTML-to-PDF + basic manipulation, no DocConverter</td>
+<td>Migrate -- IronPDF unifies WebGrabber + Toolkit into one NuGet</td>
+</tr>
+<tr>
+<td>Heavy DocConverter usage (Office, CAD conversions)</td>
+<td>Partial migration -- use IronPDF for HTML/PDF ops, keep DocConverter or find a dedicated converter</td>
+</tr>
+<tr>
+<td>Scaling to Linux / Docker / cross-platform</td>
+<td>Migrate -- ActivePDF is Windows-only</td>
+</tr>
+<tr>
+<td>Deep Toolkit form automation</td>
+<td>Evaluate IronPDF's form API coverage for your specific form workflows</td>
+</tr>
+</table>
+
+<h2>How Do I Set Up the Migration Step by Step?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>You will need .NET 6+ (or .NET Framework 4.6.2+), a trial or licensed <a href="https://ironpdf.com/get-started/license-keys/">IronPDF key</a>, and an inventory of which ActivePDF components your codebase uses.</p>
+
+<h3>Find ActivePDF References</h3>
+
+<pre><code># Find all ActivePDF using statements and DLL references
+rg -l "APToolkit|APWebGrabber|ActivePDF|APDocConverter" --glob "*.cs"
+
+# Count Toolkit instantiations
+rg -c "new APToolkit\(\)|new Toolkit\(\)" --glob "*.cs"
+
+# Find project/config references
+rg -l "ActivePDF" --glob "*.csproj" --glob "*.config"
+</code></pre>
+
+<p>If you don't have <code>rg</code>:</p>
+
+<pre><code>grep -rl "APToolkit\|APWebGrabber\|ActivePDF" --include="*.cs" .
+</code></pre>
+
+<p>In PowerShell, <code>Get-ChildItem -Recurse -Filter *.cs | Select-String "APToolkit|APWebGrabber|ActivePDF"</code> covers the same ground.</p>
+
+<h3>Swap NuGet Packages</h3>
+
+<pre><code># Remove ActivePDF packages
+dotnet remove package ActivePDF.Toolkit
+dotnet remove package ActivePDF.WebGrabber  # if present as NuGet
+
+# Install IronPDF (replaces both)
+dotnet add package IronPdf
+</code></pre>
+
+<p>If WebGrabber or DocConverter were installed via MSI rather than NuGet, remove the DLL references from your <code>.csproj</code> manually and uninstall the MSI from your build/deploy hosts.</p>
+
+<h2>What Does the Code Look Like Before and After Migration?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Step 1: License Configuration</h3>
+
+<p><strong>Before (ActivePDF Toolkit):</strong></p>
+
+<pre><code>// ActivePDF Toolkit -- verify exact API for your version
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Toolkit typically uses a license key or unlocking mechanism
+        // Exact API varies by version -- verify in ActivePDF docs
+        var toolkit = new APToolkit(); // verify class name
+        int result = toolkit.SetLicenseKey("your-activepdf-key"); // verify method
+        if (result != 0)
+        {
+            Console.WriteLine("ActivePDF license failed: " + result);
+            return;
+        }
+
+        Console.WriteLine("ActivePDF Toolkit licensed.");
+        toolkit.Close(); // verify disposal method
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        // One line. Works in containers, CI, serverless.
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        Console.WriteLine($"IronPDF licensed: {License.IsLicensed}");
+    }
+}
+</code></pre>
+
+<h3>Step 2: Namespace Imports</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>// ActivePDF -- you might have both Toolkit and WebGrabber
+// Namespace names vary by version -- verify in your project references
+using APToolkit;          // verify -- Toolkit manipulation
+using APWebGrabber;       // verify -- HTML-to-PDF conversion
+// Some versions use: using ActivePDF;
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;    // watermarks, headers, footers
+using IronPdf.Rendering;  // render options
+</code></pre>
+
+<h3>Step 3: Basic HTML-to-PDF</h3>
+
+<p><strong>Before (ActivePDF WebGrabber -- ~18 lines):</strong></p>
+
+<pre><code>// ActivePDF WebGrabber -- verify all API names for your version
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var grabber = new WebGrabber(); // verify class name
+        grabber.SetLicenseKey("your-key"); // verify method
+        grabber.CreateFromHTMLText = true; // verify property
+
+        grabber.HTMLText = @"
+            &lt;html&gt;&lt;body&gt;
+                &lt;h1&gt;Invoice #1042&lt;/h1&gt;
+                &lt;p&gt;Amount: $5,200.00&lt;/p&gt;
+            &lt;/body&gt;&lt;/html&gt;";
+
+        grabber.OutputDirectory = @"C:\output\"; // verify property
+        grabber.NewDocumentName = "invoice.pdf";  // verify property
+
+        // Set page properties -- verify property names
+        grabber.PageWidth = 8.5f;   // inches, verify
+        grabber.PageHeight = 11.0f; // inches, verify
+        grabber.MarginTop = 0.5f;
+        grabber.MarginBottom = 0.5f;
+
+        int result = grabber.ConvertToPDF(); // verify method
+        if (result != 0)
+        {
+            Console.WriteLine("WebGrabber error: " + result);
+        }
+        else
+        {
+            Console.WriteLine("Saved with WebGrabber.");
+        }
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF -- 10 lines):</strong></p>
+
+<pre><code>using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.Letter;
+        renderer.RenderingOptions.MarginTop = 12; // mm
+        renderer.RenderingOptions.MarginBottom = 12;
+
+        var pdf = renderer.RenderHtmlAsPdf(@"
+            &lt;html&gt;&lt;body&gt;
+                &lt;h1&gt;Invoice #1042&lt;/h1&gt;
+                &lt;p&gt;Amount: $5,200.00&lt;/p&gt;
+            &lt;/body&gt;&lt;/html&gt;");
+
+        pdf.SaveAs("invoice.pdf");
+        Console.WriteLine("Saved with IronPDF.");
+    }
+}
+</code></pre>
+
+<p>No output directory configuration. No status-code checking. No separate install. One NuGet, one renderer, one <code>SaveAs</code>. See the <a href="https://ironpdf.com/tutorials/html-to-pdf/">IronPDF HTML-to-PDF tutorial</a> for URL-based and file-based rendering.</p>
+
+<h2>How Do I Map ActivePDF API Calls to IronPDF?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Namespace Mapping</h3>
+
+<table>
+<tr>
+<th>ActivePDF Namespace</th>
+<th>IronPDF Namespace</th>
+<th>Purpose</th>
+</tr>
+<tr>
+<td><code>APToolkit</code> (or <code>ActivePDF</code>)</td>
+<td><code>IronPdf</code></td>
+<td>Document manipulation</td>
+</tr>
+<tr>
+<td><code>APWebGrabber</code></td>
+<td><code>IronPdf</code></td>
+<td>HTML-to-PDF conversion</td>
+</tr>
+<tr>
+<td>N/A (COM properties)</td>
+<td><code>IronPdf.Editing</code></td>
+<td>Watermarks, headers, footers</td>
+</tr>
+</table>
+
+<h3>Core Class Mapping</h3>
+
+<table>
+<tr>
+<th>ActivePDF Class</th>
+<th>IronPDF Class</th>
+<th>Description</th>
+</tr>
+<tr>
+<td><code>APToolkit</code> / <code>Toolkit</code></td>
+<td><code>PdfDocument</code></td>
+<td>PDF loading, manipulation, saving</td>
+</tr>
+<tr>
+<td><code>WebGrabber</code></td>
+<td><code>ChromePdfRenderer</code></td>
+<td>HTML/URL to PDF conversion</td>
+</tr>
+<tr>
+<td><code>DocConverter</code></td>
+<td>N/A (no direct equivalent)</td>
+<td>300+ format conversion -- use dedicated tools</td>
+</tr>
+<tr>
+<td>Status code returns (int)</td>
+<td>Exceptions (<code>IronPdfException</code>)</td>
+<td>Error handling pattern shift</td>
+</tr>
+</table>
+
+<h3>Document Loading Methods</h3>
+
+<table>
+<tr>
+<th>Operation</th>
+<th>ActivePDF Toolkit</th>
+<th>IronPDF</th>
+</tr>
+<tr>
+<td>Open existing PDF</td>
+<td><code>toolkit.OpenInputFile("file.pdf")</code></td>
+<td><code>PdfDocument.FromFile("file.pdf")</code></td>
+</tr>
+<tr>
+<td>Open with password</td>
+<td><code>toolkit.OpenInputFile("file.pdf"); toolkit.InputPassword = "pass"</code></td>
+<td><code>PdfDocument.FromFile("file.pdf", "pass")</code></td>
+</tr>
+<tr>
+<td>Create from HTML</td>
+<td>WebGrabber separate component</td>
+<td><code>renderer.RenderHtmlAsPdf(html)</code></td>
+</tr>
+<tr>
+<td>Create from URL</td>
+<td>WebGrabber with <code>URL</code> property</td>
+<td><code>renderer.RenderUrlAsPdf("https://...")</code></td>
+</tr>
+</table>
+
+<h3>Page Operations</h3>
+
+<table>
+<tr>
+<th>Operation</th>
+<th>ActivePDF Toolkit</th>
+<th>IronPDF</th>
+</tr>
+<tr>
+<td>Get page count</td>
+<td><code>toolkit.NumPages()</code></td>
+<td><code>pdf.PageCount</code></td>
+</tr>
+<tr>
+<td>Copy specific pages</td>
+<td><code>toolkit.CopyForm(input, startPage, endPage)</code></td>
+<td><code>pdf.CopyPages(start, end)</code></td>
+</tr>
+<tr>
+<td>Add pages from another PDF</td>
+<td><code>toolkit.MergeFile(file, startPage, endPage)</code></td>
+<td><code>PdfDocument.Merge(pdf1, pdf2)</code></td>
+</tr>
+<tr>
+<td>Delete pages</td>
+<td><code>toolkit.RemovePages(start, end)</code></td>
+<td><code>pdf.RemovePage(index)</code></td>
+</tr>
+</table>
+
+<h3>Merge / Split Operations</h3>
+
+<table>
+<tr>
+<th>Operation</th>
+<th>ActivePDF Toolkit</th>
+<th>IronPDF</th>
+</tr>
+<tr>
+<td>Merge multiple PDFs</td>
+<td>Loop with <code>toolkit.MergeFile()</code></td>
+<td><code>PdfDocument.Merge(pdf1, pdf2, pdf3)</code></td>
+</tr>
+<tr>
+<td>Split by page range</td>
+<td><code>toolkit.CopyForm()</code> with page range</td>
+<td><code>pdf.CopyPages()</code></td>
+</tr>
+</table>
+
+<h2>What Do Full Before-and-After Examples Look Like?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>HTML to PDF</h3>
+
+<p><strong>Before (ActivePDF WebGrabber):</strong></p>
+
+<pre><code>// ActivePDF WebGrabber -- verify all API names
+using System;
+
+class HtmlToPdfActivePdf
+{
+    static void Main()
+    {
+        var grabber = new WebGrabber(); // verify
+        grabber.SetLicenseKey("your-activepdf-key"); // verify
+        grabber.CreateFromHTMLText = true; // verify
+
+        grabber.HTMLText = @"
+            &lt;html&gt;
+            &lt;head&gt;&lt;style&gt;
+                body { font-family: 'Segoe UI', sans-serif; }
+                .banner { background: #1a237e; color: #fff; padding: 24px; }
+                .items { margin: 20px; }
+                table { width: 100%; border-collapse: collapse; }
+                td, th { padding: 10px; border-bottom: 1px solid #eee; }
+            &lt;/style&gt;&lt;/head&gt;
+            &lt;body&gt;
+                &lt;div class='banner'&gt;&lt;h1&gt;Order Confirmation&lt;/h1&gt;&lt;/div&gt;
+                &lt;div class='items'&gt;
+                    &lt;table&gt;
+                        &lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Qty&lt;/th&gt;&lt;th&gt;Price&lt;/th&gt;&lt;/tr&gt;
+                        &lt;tr&gt;&lt;td&gt;Widget Pro&lt;/td&gt;&lt;td&gt;5&lt;/td&gt;&lt;td&gt;$49.95&lt;/td&gt;&lt;/tr&gt;
+                        &lt;tr&gt;&lt;td&gt;Gadget Lite&lt;/td&gt;&lt;td&gt;2&lt;/td&gt;&lt;td&gt;$19.99&lt;/td&gt;&lt;/tr&gt;
+                    &lt;/table&gt;
+                &lt;/div&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        grabber.OutputDirectory = @"C:\output\"; // verify
+        grabber.NewDocumentName = "order.pdf";    // verify
+        grabber.PageWidth = 8.5f;
+        grabber.PageHeight = 11.0f;
+
+        int result = grabber.ConvertToPDF(); // verify
+        Console.WriteLine(result == 0 ? "Success" : $"Error: {result}");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+class HtmlToPdfIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.Letter;
+        renderer.RenderingOptions.PrintHtmlBackgrounds = true;
+        renderer.RenderingOptions.CssMediaType = IronPdf.Rendering.PdfCssMediaType.Screen;
+
+        var pdf = renderer.RenderHtmlAsPdf(@"
+            &lt;html&gt;
+            &lt;head&gt;&lt;style&gt;
+                body { font-family: 'Segoe UI', sans-serif; }
+                .banner { background: #1a237e; color: #fff; padding: 24px; }
+                .items { margin: 20px; }
+                table { width: 100%; border-collapse: collapse; }
+                td, th { padding: 10px; border-bottom: 1px solid #eee; }
+            &lt;/style&gt;&lt;/head&gt;
+            &lt;body&gt;
+                &lt;div class='banner'&gt;&lt;h1&gt;Order Confirmation&lt;/h1&gt;&lt;/div&gt;
+                &lt;div class='items'&gt;
+                    &lt;table&gt;
+                        &lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Qty&lt;/th&gt;&lt;th&gt;Price&lt;/th&gt;&lt;/tr&gt;
+                        &lt;tr&gt;&lt;td&gt;Widget Pro&lt;/td&gt;&lt;td&gt;5&lt;/td&gt;&lt;td&gt;$49.95&lt;/td&gt;&lt;/tr&gt;
+                        &lt;tr&gt;&lt;td&gt;Gadget Lite&lt;/td&gt;&lt;td&gt;2&lt;/td&gt;&lt;td&gt;$19.99&lt;/td&gt;&lt;/tr&gt;
+                    &lt;/table&gt;
+                &lt;/div&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;");
+
+        pdf.SaveAs("order.pdf");
+        Console.WriteLine("Saved with IronPDF.");
+    }
+}
+</code></pre>
+
+<p>No output directory. No status code to check. No MSI prerequisite. The Chrome engine renders the CSS grid and background colors faithfully. See the <a href="https://ironpdf.com/tutorials/html-to-pdf/">IronPDF HTML-to-PDF tutorial</a> for advanced rendering options.</p>
+
+<h3>Merge PDFs</h3>
+
+<p><strong>Before (ActivePDF Toolkit):</strong></p>
+
+<pre><code>// ActivePDF Toolkit -- verify all API names
+using System;
+
+class MergeActivePdf
+{
+    static void Main()
+    {
+        var toolkit = new APToolkit(); // verify class
+        toolkit.SetLicenseKey("your-key"); // verify
+
+        // Open first file as base
+        int result = toolkit.OpenOutputFile(@"C:\output\merged.pdf"); // verify
+        if (result != 0) { Console.WriteLine("Output error"); return; }
+
+        // Merge first PDF
+        result = toolkit.MergeFile(@"C:\input\part1.pdf", 0, 0); // verify -- 0,0 = all pages
+        if (result != 0) { Console.WriteLine("Merge1 error"); return; }
+
+        // Merge second PDF
+        result = toolkit.MergeFile(@"C:\input\part2.pdf", 0, 0); // verify
+        if (result != 0) { Console.WriteLine("Merge2 error"); return; }
+
+        toolkit.CloseOutputFile(); // verify
+        toolkit.Close();           // verify
+        Console.WriteLine("Merged with ActivePDF.");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+class MergeIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf1 = PdfDocument.FromFile("part1.pdf");
+        var pdf2 = PdfDocument.FromFile("part2.pdf");
+
+        var merged = PdfDocument.Merge(pdf1, pdf2);
+        merged.SaveAs("merged.pdf");
+        Console.WriteLine("Merged with IronPDF.");
+    }
+}
+</code></pre>
+
+<p>The open-output, merge-file, close-output ceremony reduces to a single static call. See the <a href="https://ironpdf.com/examples/merge-pdfs/">IronPDF merge documentation</a> for additional options.</p>
+
+<h3>Watermark</h3>
+
+<p><strong>Before (ActivePDF Toolkit):</strong></p>
+
+<pre><code>// ActivePDF Toolkit -- verify all API names and parameters
+using System;
+
+class WatermarkActivePdf
+{
+    static void Main()
+    {
+        var toolkit = new APToolkit(); // verify
+        toolkit.SetLicenseKey("your-key"); // verify
+
+        // Open input/output
+        int result = toolkit.OpenOutputFile("watermarked.pdf"); // verify
+        if (result != 0) return;
+
+        toolkit.OpenInputFile("input.pdf"); // verify
+
+        // Set header watermark on all pages -- verify method signature
+        toolkit.SetHeaderWatermarkByIndex(
+            0,                    // watermark index, verify
+            "DRAFT",             // text
+            "Helvetica",         // font name
+            48,                  // font size
+            45,                  // rotation in degrees
+            200, 200, 200,       // RGB color
+            0, 0                  // x, y position, verify
+        ); // verify -- this method signature is approximate
+
+        toolkit.CopyForm(0, 0); // verify -- copy all pages with watermark applied
+        toolkit.CloseOutputFile();
+        toolkit.Close();
+        Console.WriteLine("Watermarked with ActivePDF.");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+class WatermarkIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf = PdfDocument.FromFile("input.pdf");
+
+        // HTML watermark -- full CSS control
+        pdf.ApplyWatermark(
+            "&lt;h1 style='color:rgb(200,200,200);font-size:48px;opacity:0.6;font-family:Helvetica;'&gt;DRAFT&lt;/h1&gt;",
+            rotation: 45
+        );
+
+        pdf.SaveAs("watermarked.pdf");
+        Console.WriteLine("Watermarked with IronPDF.");
+    }
+}
+</code></pre>
+
+<h3>Password Protection</h3>
+
+<p><strong>Before (ActivePDF Toolkit):</strong></p>
+
+<pre><code>// ActivePDF Toolkit -- verify all API names
+using System;
+
+class PasswordActivePdf
+{
+    static void Main()
+    {
+        var toolkit = new APToolkit(); // verify
+        toolkit.SetLicenseKey("your-key"); // verify
+
+        int result = toolkit.OpenOutputFile("protected.pdf"); // verify
+        if (result != 0) return;
+
+        toolkit.OpenInputFile("input.pdf"); // verify
+
+        // Set passwords -- verify method names for your Toolkit version
+        toolkit.SetMasterPassword("owner123"); // verify
+        toolkit.SetUserPassword("user456");    // verify
+
+        // Set permissions -- verify property names
+        toolkit.AllowPrint = false;  // verify
+        toolkit.AllowCopy = false;   // verify
+        toolkit.AllowModify = false; // verify
+
+        toolkit.CopyForm(0, 0); // verify -- copy all pages with security applied
+        toolkit.CloseOutputFile();
+        toolkit.Close();
+        Console.WriteLine("Protected with ActivePDF.");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+class PasswordIronPdf
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "IRONPDF-YOUR-KEY-HERE";
+
+        var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.SecuritySettings.OwnerPassword = "owner123";
+        pdf.SecuritySettings.UserPassword = "user456";
+        pdf.SecuritySettings.AllowUserPrinting = IronPdf.Security.PdfPrintSecurity.NoPrint;
+        pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+        pdf.SecuritySettings.AllowUserEdits = IronPdf.Security.PdfEditSecurity.NoEdit;
+
+        pdf.SaveAs("protected.pdf");
+        Console.WriteLine("Protected with IronPDF.");
+    }
+}
+</code></pre>
+
+<p>No open-output/close-output dance. No separate input/output file streams. See <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">IronPDF password protection documentation</a> for the full security API.</p>
+
+<h2>What Are the Critical Migration Gotchas?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Status Codes to Exceptions</h3>
+
+<p>ActivePDF returns integer status codes from nearly every method (0 = success, non-zero = error). IronPDF throws exceptions on failure. Your error handling needs to shift from <code>if (result != 0)</code> checks to <code>try/catch</code> blocks:</p>
+
+<pre><code>// ActivePDF pattern
+int result = toolkit.MergeFile("file.pdf", 0, 0);
+if (result != 0) { /* handle error */ }
+
+// IronPDF pattern
+try
+{
+    var pdf = PdfDocument.FromFile("file.pdf");
+}
+catch (Exception ex)
+{
+    // handle error
+}
+</code></pre>
+
+<h3>Page Indexing Differences</h3>
+
+<p>ActivePDF Toolkit uses 1-based page numbering in most operations. IronPDF uses 0-based indexing. Audit every page reference in your code.</p>
+
+<h3>Input/Output File Pattern</h3>
+
+<p>ActivePDF Toolkit separates "open input" and "open output" into distinct calls. IronPDF loads a document and saves it -- there is no separate output file concept. Any code that relies on the input/output split needs restructuring:</p>
+
+<pre><code>// ActivePDF pattern
+toolkit.OpenOutputFile("output.pdf");
+toolkit.OpenInputFile("input.pdf");
+toolkit.CopyForm(0, 0);
+toolkit.CloseOutputFile();
+
+// IronPDF pattern
+var pdf = PdfDocument.FromFile("input.pdf");
+// ... manipulate ...
+pdf.SaveAs("output.pdf");
+</code></pre>
+
+<h3>Unit Conversion</h3>
+
+<p>ActivePDF WebGrabber uses inches for page dimensions. IronPDF uses millimeters for margins. The conversion: 1 inch = 25.4 mm. So <code>MarginTop = 0.5f</code> (inches) becomes <code>MarginTop = 12.7</code> (mm) in IronPDF.</p>
+
+<h2>How Do I Optimize Performance After Migration?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<h3>Eliminating the Component Hop</h3>
+
+<p>With ActivePDF, a typical HTML-to-manipulated-PDF workflow looks like: WebGrabber converts HTML, saves to disk, Toolkit opens the file, manipulates, saves again. That is two disk round-trips and two component initializations.</p>
+
+<p>IronPDF keeps everything in memory:</p>
+
+<pre><code>var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(html); // in-memory PdfDocument
+pdf.ApplyWatermark("&lt;h1&gt;DRAFT&lt;/h1&gt;");     // still in memory
+pdf.SecuritySettings.UserPassword = "x";   // still in memory
+pdf.SaveAs("final.pdf");                   // one write to disk
+</code></pre>
+
+<h3>Renderer Reuse</h3>
+
+<p><code>ChromePdfRenderer</code> is stateless. Create one and share it:</p>
+
+<pre><code>private static readonly ChromePdfRenderer _renderer = new ChromePdfRenderer();
+</code></pre>
+
+<h3>Disposal</h3>
+
+<p><code>PdfDocument</code> is <code>IDisposable</code>. In high-throughput services, wrap in <code>using</code>:</p>
+
+<pre><code>using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
+</code></pre>
+
+<h3>Edge Cases Worth Flagging</h3>
+
+<p><strong>DocConverter replacement:</strong> If you depend on DocConverter for Office-to-PDF, IronPDF does not natively convert <code>.docx</code> or <code>.xlsx</code> to PDF. Consider pairing IronPDF with a library like IronWord or a dedicated conversion service.</p>
+
+<p><strong>Watched-folder patterns:</strong> If Meridian's watched-folder feature is part of your pipeline, replace it with a <code>FileSystemWatcher</code> + IronPDF processing loop. This gives you more control over error handling and retry logic.</p>
+
+<p><strong>Large batch processing:</strong> IronPDF supports <code>Parallel.ForEach</code> with a shared renderer instance. ActivePDF Toolkit may have required sequential processing depending on your threading configuration.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I migrate incrementally or do I have to replace everything at once?</h3>
+
+<p><strong>Answer:</strong> You can migrate incrementally. Start with HTML-to-PDF workflows by replacing WebGrabber with <code>ChromePdfRenderer</code>, then move Toolkit manipulation code to <code>PdfDocument</code>. DocConverter workflows can remain in place while you evaluate dedicated alternatives. The two libraries can coexist in the same solution during transition.</p>
+
+<h3>What happens to my ActivePDF status-code error handling?</h3>
+
+<p><strong>Answer:</strong> ActivePDF returns integer status codes from nearly every method (0 = success). IronPDF throws exceptions on failure. You need to convert every <code>if (result != 0)</code> check to a <code>try/catch</code> block. This is a pattern-level change that affects every call site.</p>
+
+<h3>Does IronPDF work on Linux and in Docker containers?</h3>
+
+<p><strong>Answer:</strong> Yes. IronPDF runs on Windows, Linux, and macOS. It works in Docker containers, Azure App Service on Linux, and AWS Lambda. ActivePDF components are Windows-only, so this is one of the primary reasons teams migrate.</p>
+
+<h3>How do I handle the page indexing difference?</h3>
+
+<p><strong>Answer:</strong> ActivePDF Toolkit uses 1-based page numbering. IronPDF uses 0-based indexing. Audit every page reference in your codebase and subtract 1. This is a subtle bug source -- automated tests for page operations are essential.</p>
+
+<h3>What about ActivePDF DocConverter's 300+ format support?</h3>
+
+<p><strong>Answer:</strong> DocConverter has no direct IronPDF equivalent. IronPDF handles HTML, URL, and image-to-PDF conversion. For Office-to-PDF, consider pairing IronPDF with IronWord or a dedicated conversion service. For CAD-to-PDF or other specialized formats, you will need a separate tool.</p>
+
+<h3>How does IronPDF licensing compare to ActivePDF's per-server model?</h3>
+
+<p><strong>Answer:</strong> ActivePDF licenses each component separately, often per-server. IronPDF uses per-developer perpetual licensing. For teams scaling horizontally across multiple servers or containers, IronPDF's model avoids the per-server multiplication that makes ActivePDF expensive at scale. Get a trial key at <a href="https://ironpdf.com/get-started/license-keys/">ironpdf.com</a>.</p>
+
+<h2>Which Approach Should I Take?</h2>
+
+<p><strong>Answer:</strong></p>
+
+<p>If your codebase is primarily WebGrabber + Toolkit with no DocConverter dependency, migrate everything. IronPDF unifies both components into a single NuGet package, eliminates the MSI installation requirement, and gives you cross-platform deployment. The API surface is smaller and more discoverable.</p>
+
+<p>If you have heavy DocConverter usage for Office, CAD, or other specialized format conversions, take a partial approach. Migrate HTML-to-PDF and PDF manipulation to IronPDF, keep DocConverter for format conversion, and evaluate dedicated alternatives on a separate timeline.</p>
+
+<p>If cross-platform deployment is your primary driver -- Linux containers, Docker, Azure App Service on Linux -- the migration is straightforward. ActivePDF is Windows-only. IronPDF is not. That single fact may be the entire business case.</p>
+
+<p>The biggest win in this migration is consolidation. Going from three separate components to a single NuGet package simplifies your dependency tree, your licensing, and your deployment pipeline. The biggest risk is DocConverter: if you rely on Office-to-PDF conversion for 300+ formats, plan that replacement separately.</p>
+
+<p>Worth knowing even without IronPDF: the open-output, merge-file, close-output pattern that ActivePDF Toolkit uses is fragile -- forget to close and you get corrupted files. Any modern PDF library that uses an in-memory document model eliminates this class of bug.</p>
