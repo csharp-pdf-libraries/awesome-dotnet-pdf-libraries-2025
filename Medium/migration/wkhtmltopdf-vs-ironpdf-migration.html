@@ -6,7 +6,7 @@
 
 <p>Every engineer who has added wkhtmltopdf to a Dockerfile has encountered this -- usually after a deployment that appeared to succeed.</p>
 
-<p>This article covers migrating from wkhtmltopdf (or DinkToPdf, which wraps the same binary) to <a href="https://ironpdf.com/">IronPDF</a>. I'll walk through the decision criteria, working before/after code, and the effort involved so your team can make a confident call.</p>
+<p>This article covers migrating from wkhtmltopdf -- whether you call it via a managed wrapper like WkHtmlToPdf-DotNet or DinkToPdf, or shell out to the binary directly -- to <a href="https://ironpdf.com/">IronPDF</a>. I'll walk through the decision criteria, working before/after code, and the effort involved so your team can make a confident call.</p>
 
 <h2>Why Should .NET Teams Migrate Away from wkhtmltopdf?</h2>
 
@@ -30,47 +30,45 @@
 
 <h2>How Does the Migration Effort Break Down by Feature?</h2>
 
-<p>I've mapped every common wkhtmltopdf/DinkToPdf feature to its IronPDF equivalent with a complexity rating. Most swaps are low effort -- the medium ones involve header/footer token changes and JavaScript wait configuration.</p>
+<p>I've mapped every common wkhtmltopdf wrapper feature to its IronPDF equivalent with a complexity rating. Most swaps are low effort -- the medium ones involve header/footer token changes and JavaScript wait configuration.</p>
 
-<table>
-<tr><th>Feature</th><th>wkhtmltopdf / DinkToPdf</th><th>IronPDF Equivalent</th><th>Complexity</th></tr>
-<tr><td>HTML string to PDF</td><td><code>--</code> CLI / <code>HtmlToPdfDocument</code></td><td><code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code></td><td>Low</td></tr>
-<tr><td>URL to PDF</td><td>wkhtmltopdf URL arg</td><td><code>renderer.RenderUrlAsPdfAsync()</code></td><td>Low</td></tr>
-<tr><td>HTML file to PDF</td><td>wkhtmltopdf file arg</td><td><code>renderer.RenderHtmlFileAsPdfAsync()</code></td><td>Low</td></tr>
-<tr><td>Save to bytes</td><td>Via stdout / <code>SynchronizedConverter</code></td><td><code>pdf.BinaryData</code></td><td>Low</td></tr>
-<tr><td>Save to file</td><td>wkhtmltopdf output arg</td><td><code>pdf.SaveAs(path)</code></td><td>Low</td></tr>
-<tr><td>Page size</td><td><code>--page-size A4</code> / <code>GlobalSettings</code></td><td><code>RenderingOptions.PaperSize</code></td><td>Low</td></tr>
-<tr><td>Margins</td><td><code>--margin-top 20mm</code> / <code>ObjectSettings</code></td><td><code>RenderingOptions.Margin*</code></td><td>Low</td></tr>
-<tr><td>Headers/footers</td><td><code>--header-html</code> / <code>HeaderSettings</code></td><td><code>RenderingOptions.HtmlHeader/Footer</code></td><td>Medium</td></tr>
-<tr><td>JS wait</td><td><code>--javascript-delay 500</code></td><td><code>RenderingOptions.WaitFor.*</code></td><td>Medium</td></tr>
-<tr><td>Merge PDFs</td><td>Not native</td><td><code>PdfDocument.Merge()</code></td><td>Medium</td></tr>
-<tr><td>Watermark</td><td>Not native</td><td><code>TextStamper</code> / <code>ImageStamper</code></td><td>Medium</td></tr>
-<tr><td>Password protection</td><td>Not native</td><td><code>pdf.SecuritySettings</code></td><td>Low</td></tr>
-</table>
+<ul>
+<li><strong>HTML string to PDF -- Low.</strong> <code>--</code> CLI or <code>HtmlToPdfDocument</code> with <code>ObjectSettings.HtmlContent</code> becomes <code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code>.</li>
+<li><strong>URL to PDF -- Low.</strong> wkhtmltopdf URL arg becomes <code>renderer.RenderUrlAsPdfAsync()</code>.</li>
+<li><strong>HTML file to PDF -- Low.</strong> wkhtmltopdf file arg becomes <code>renderer.RenderHtmlFileAsPdfAsync()</code>.</li>
+<li><strong>Save to bytes -- Low.</strong> Via stdout or <code>SynchronizedConverter.Convert(doc)</code> becomes <code>pdf.BinaryData</code>.</li>
+<li><strong>Save to file -- Low.</strong> wkhtmltopdf output arg becomes <code>pdf.SaveAs(path)</code>.</li>
+<li><strong>Page size -- Low.</strong> <code>--page-size A4</code> or <code>GlobalSettings.PaperSize</code> becomes <code>RenderingOptions.PaperSize</code>.</li>
+<li><strong>Margins -- Low.</strong> <code>--margin-top 20mm</code> or <code>MarginSettings</code> becomes <code>RenderingOptions.MarginTop</code> and friends (numeric millimeters).</li>
+<li><strong>Headers/footers -- Medium.</strong> <code>--header-html</code> or <code>HeaderSettings</code> becomes <code>RenderingOptions.HtmlHeader</code> / <code>HtmlFooter</code>. Token format changes here -- see below.</li>
+<li><strong>JS wait -- Medium.</strong> <code>--javascript-delay 500</code> becomes <code>RenderingOptions.WaitFor.RenderDelay(500)</code> or the more reliable <code>WaitFor.HtmlElementById</code> / <code>WaitFor.JavaScript</code> options.</li>
+<li><strong>Merge PDFs -- Medium.</strong> Not native in wkhtmltopdf -- becomes <code>PdfDocument.Merge()</code>.</li>
+<li><strong>Watermark -- Medium.</strong> Not native in wkhtmltopdf -- becomes <code>TextStamper</code> or <code>ImageStamper</code>.</li>
+<li><strong>Password protection -- Low.</strong> Not native in wkhtmltopdf -- becomes <code>pdf.SecuritySettings</code>.</li>
+</ul>
 
 <h2>What Are the Decision Criteria for Switching?</h2>
 
 <p>Here's the decision matrix I use when advising teams:</p>
 
-<table>
-<tr><th>Business Scenario</th><th>Recommendation</th></tr>
-<tr><td>Docker/Linux deployment fails on wkhtmltopdf deps</td><td>Switch -- eliminates native binary dependency entirely</td></tr>
-<tr><td>Archived/unmaintained status is the concern</td><td>Switch -- IronPDF is actively maintained</td></tr>
-<tr><td>Modern CSS (flex, grid) rendering needed</td><td>Switch -- Chromium vs pre-2016 WebKit</td></tr>
-<tr><td>wkhtmltopdf working fine, no deployment friction</td><td>Evaluate migration cost vs timing of eventual forced migration</td></tr>
-</table>
+<ul>
+<li><strong>If Docker or Linux deployment is failing on wkhtmltopdf deps,</strong> switch -- the migration eliminates the native binary dependency entirely.</li>
+<li><strong>If the archived/unmaintained status is the concern,</strong> switch -- IronPDF is actively maintained with regular releases.</li>
+<li><strong>If you need modern CSS (flex, grid, custom properties),</strong> switch -- Chromium handles it; pre-2016 WebKit does not.</li>
+<li><strong>If wkhtmltopdf is working fine and there's no deployment friction,</strong> evaluate the migration cost against the timing of the eventual forced migration. The project is archived, so the question is when, not if.</li>
+</ul>
 
 <p>Let me show you what the actual code changes look like.</p>
 
-<h3>Basic HTML to PDF -- Before (DinkToPdf)</h3>
+<h3>Basic HTML to PDF -- Before (WkHtmlToPdf-DotNet)</h3>
 
-<pre><code>using DinkToPdf;
-using DinkToPdf.Contracts;
+<pre><code>using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 using System;
 
 class Program
 {
-    // DinkToPdf: single global converter -- thread-safety requires SynchronizedConverter
+    // wkhtmltopdf wrapper: single global converter -- thread-safety requires SynchronizedConverter
     private static readonly IConverter _converter =
         new SynchronizedConverter(new PdfTools());
 
@@ -101,7 +99,7 @@ class Program
 <pre><code>using IronPdf;
 using System;
 
-IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
 
 var renderer = new ChromePdfRenderer();
 renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
@@ -114,10 +112,10 @@ Console.WriteLine($&quot;Saved output.pdf ({pdf.PageCount} page(s))&quot;);
 
 <p>The entire <code>SynchronizedConverter</code> singleton pattern disappears. No <code>HtmlToPdfDocument</code>, no <code>ObjectSettings</code>, no <code>GlobalSettings</code>. Just a renderer, options, and a one-line render call.</p>
 
-<h3>Merging PDFs -- Before (DinkToPdf + Secondary Library)</h3>
+<h3>Merging PDFs -- Before (wkhtmltopdf + Secondary Library)</h3>
 
-<pre><code>using DinkToPdf;
-using DinkToPdf.Contracts;
+<pre><code>using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -129,7 +127,7 @@ class MergeBefore
 
     static void Main()
     {
-        // DinkToPdf: no merge -- generate each section, merge externally
+        // wkhtmltopdf wrappers: no merge -- generate each section, merge externally
         var sections = new[]
         {
             &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 1: Overview&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;,
@@ -159,7 +157,7 @@ class MergeBefore
 using System;
 using System.Threading.Tasks;
 
-IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
 
 var renderer = new ChromePdfRenderer();
 
@@ -175,10 +173,10 @@ Console.WriteLine($&quot;Merged: {merged.PageCount} pages -- no secondary librar
 
 <p>No PdfSharp. No iTextSharp. <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">IronPDF handles merge natively</a> -- one line.</p>
 
-<h3>Watermark -- Before (DinkToPdf CSS Hack)</h3>
+<h3>Watermark -- Before (wkhtmltopdf CSS Hack)</h3>
 
-<pre><code>using DinkToPdf;
-using DinkToPdf.Contracts;
+<pre><code>using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 using System;
 using System.IO;
 
@@ -222,7 +220,7 @@ class WatermarkBefore
 using IronPdf.Editing;
 using System;
 
-IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
 
 var renderer = new ChromePdfRenderer();
 var pdf = await renderer.RenderHtmlAsPdfAsync(&quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
@@ -230,8 +228,8 @@ var pdf = await renderer.RenderHtmlAsPdfAsync(&quot;&lt;html&gt;&lt;body&gt;&lt;
 var watermark = new TextStamper
 {
     Text = &quot;DRAFT&quot;,
-    FontColor = IronPdf.Imaging.Color.Gray,
-    Opacity = 0.15,
+    FontColor = IronSoftware.Drawing.Color.Gray,
+    Opacity = 15,
     VerticalAlignment = VerticalAlignment.Middle,
     HorizontalAlignment = HorizontalAlignment.Center,
 };
@@ -242,10 +240,10 @@ pdf.SaveAs(&quot;watermarked.pdf&quot;);
 
 <p>No CSS hack. No secondary library. <a href="https://ironpdf.com/how-to/custom-watermark/">IronPDF's stamper API</a> applies the watermark after rendering, which means it works on any existing PDF too.</p>
 
-<h3>Password Protection -- Before (DinkToPdf + Secondary Library)</h3>
+<h3>Password Protection -- Before (wkhtmltopdf + Secondary Library)</h3>
 
-<pre><code>using DinkToPdf;
-using DinkToPdf.Contracts;
+<pre><code>using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 using System;
 using System.IO;
 
@@ -256,7 +254,7 @@ class PasswordBefore
 
     static void Main()
     {
-        // wkhtmltopdf / DinkToPdf have no native password API
+        // wkhtmltopdf wrappers have no native password API
         var doc = new HtmlToPdfDocument
         {
             Objects = { new ObjectSettings
@@ -277,7 +275,7 @@ class PasswordBefore
 <pre><code>using IronPdf;
 using System;
 
-IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
 
 var renderer = new ChromePdfRenderer();
 var pdf = await renderer.RenderHtmlAsPdfAsync(
@@ -294,70 +292,55 @@ pdf.SaveAs(&quot;secured.pdf&quot;);
 
 <h2>How Do wkhtmltopdf and IronPDF Compare Feature by Feature?</h2>
 
-<table>
-<tr><th>Aspect</th><th>wkhtmltopdf / DinkToPdf</th><th>IronPDF</th></tr>
-<tr><td>Focus</td><td>HTML-to-PDF via native binary</td><td>HTML-to-PDF + PDF manipulation</td></tr>
-<tr><td>Pricing</td><td>Open source (LGPL) -- archived</td><td>Commercial -- verify at ironsoftware.com</td></tr>
-<tr><td>API Style</td><td>CLI flags / DinkToPdf managed wrapper</td><td><code>ChromePdfRenderer</code> + options object</td></tr>
-<tr><td>Learning Curve</td><td>Low for CLI; DinkToPdf adds wrapper layer</td><td>Low for .NET devs</td></tr>
-<tr><td>HTML Rendering</td><td>Qt WebKit (pre-2016) -- archived</td><td>Embedded Chromium</td></tr>
-<tr><td>Page Indexing</td><td>Not exposed via standard output</td><td>0-based</td></tr>
-<tr><td>Thread Safety</td><td>Native library is single-threaded</td><td>Verify IronPDF concurrent instance guidance</td></tr>
-<tr><td>Namespace</td><td><code>DinkToPdf</code> (wrapper)</td><td><code>IronPdf</code></td></tr>
-</table>
+<ul>
+<li><strong>Focus.</strong> wkhtmltopdf is HTML-to-PDF via a native binary; IronPDF covers HTML-to-PDF plus PDF manipulation in one library.</li>
+<li><strong>Pricing.</strong> wkhtmltopdf is open source (LGPL) but archived; IronPDF is commercial -- check current pricing at ironsoftware.com.</li>
+<li><strong>API style.</strong> wkhtmltopdf is CLI flags or a managed wrapper like WkHtmlToPdf-DotNet/DinkToPdf; IronPDF is a <code>ChromePdfRenderer</code> with an options object.</li>
+<li><strong>Learning curve.</strong> Low for the wkhtmltopdf CLI; the .NET wrappers add a layer. IronPDF is low for .NET developers and idiomatic to the platform.</li>
+<li><strong>HTML rendering.</strong> Qt WebKit (pre-2016) and archived versus embedded Chromium kept current.</li>
+<li><strong>Page indexing.</strong> wkhtmltopdf doesn't expose pages via the standard output; IronPDF is 0-based.</li>
+<li><strong>Thread safety.</strong> The native <code>libwkhtmltox</code> is single-threaded -- you need <code>SynchronizedConverter</code>. IronPDF supports a renderer per task without that constraint -- verify the latest concurrency guidance in the IronPDF docs for your version.</li>
+<li><strong>Namespace.</strong> <code>WkHtmlToPdfDotNet</code> or <code>DinkToPdf</code> (wrapper) becomes <code>IronPdf</code>.</li>
+</ul>
 
 <h3>Namespace Mapping</h3>
 
-<table>
-<tr><th>wkhtmltopdf / DinkToPdf</th><th>IronPDF</th><th>Notes</th></tr>
-<tr><td><code>DinkToPdf</code></td><td><code>IronPdf</code></td><td>Core namespace</td></tr>
-<tr><td><code>DinkToPdf.Contracts</code></td><td><code>IronPdf.Rendering</code></td><td>Options/settings namespace</td></tr>
-<tr><td>N/A</td><td><code>IronPdf.Editing</code></td><td>Watermark / stamp</td></tr>
-</table>
+<ul>
+<li><code>WkHtmlToPdfDotNet</code> / <code>DinkToPdf</code> &rarr; <code>IronPdf</code> &mdash; core namespace.</li>
+<li><code>WkHtmlToPdfDotNet.Contracts</code> / <code>DinkToPdf.Contracts</code> &rarr; <code>IronPdf.Rendering</code> &mdash; options and settings.</li>
+<li>N/A &rarr; <code>IronPdf.Editing</code> &mdash; watermark and stamp APIs (no equivalent in wkhtmltopdf).</li>
+</ul>
 
 <h3>Core Class Mapping</h3>
 
-<table>
-<tr><th>DinkToPdf Class</th><th>IronPDF Class</th><th>Description</th></tr>
-<tr><td><code>SynchronizedConverter</code></td><td><code>ChromePdfRenderer</code></td><td>Primary rendering class</td></tr>
-<tr><td><code>HtmlToPdfDocument</code></td><td>N/A -- HTML string is the input</td><td>No document object needed</td></tr>
-<tr><td><code>GlobalSettings</code></td><td><code>ChromePdfRenderOptions</code></td><td>Page-level settings</td></tr>
-<tr><td><code>ObjectSettings</code></td><td><code>ChromePdfRenderOptions</code> + HTML</td><td>Per-content settings + HTML input</td></tr>
-</table>
+<ul>
+<li><code>SynchronizedConverter</code> &rarr; <code>ChromePdfRenderer</code> &mdash; primary rendering class.</li>
+<li><code>HtmlToPdfDocument</code> &rarr; N/A &mdash; the HTML string itself is the input; no document object is needed.</li>
+<li><code>GlobalSettings</code> &rarr; <code>ChromePdfRenderOptions</code> &mdash; page-level settings (paper size, margins, orientation).</li>
+<li><code>ObjectSettings</code> &rarr; <code>ChromePdfRenderOptions</code> plus the HTML argument &mdash; per-content settings combine with the HTML input on the render call.</li>
+</ul>
 
 <h3>Document Loading Methods</h3>
 
-<table>
-<tr><th>Operation</th><th>wkhtmltopdf / DinkToPdf</th><th>IronPDF</th></tr>
-<tr><td>HTML string</td><td><code>ObjectSettings.HtmlContent = html</code></td><td><code>renderer.RenderHtmlAsPdfAsync(html)</code></td></tr>
-<tr><td>URL</td><td><code>ObjectSettings.Page = url</code></td><td><code>renderer.RenderUrlAsPdfAsync(url)</code></td></tr>
-<tr><td>HTML file</td><td><code>ObjectSettings.Page = "file:///path"</code></td><td><code>renderer.RenderHtmlFileAsPdfAsync(path)</code></td></tr>
-<tr><td>Get bytes</td><td><code>converter.Convert(doc)</code> returns <code>byte[]</code></td><td><code>pdf.BinaryData</code></td></tr>
-</table>
+<ul>
+<li><strong>HTML string.</strong> <code>ObjectSettings.HtmlContent = html</code> becomes <code>renderer.RenderHtmlAsPdfAsync(html)</code>.</li>
+<li><strong>URL.</strong> <code>ObjectSettings.Page = url</code> becomes <code>renderer.RenderUrlAsPdfAsync(url)</code>.</li>
+<li><strong>HTML file.</strong> <code>ObjectSettings.Page = "file:///path"</code> becomes <code>renderer.RenderHtmlFileAsPdfAsync(path)</code>.</li>
+<li><strong>Get bytes.</strong> <code>converter.Convert(doc)</code> returning <code>byte[]</code> becomes <code>pdf.BinaryData</code>.</li>
+</ul>
 
 <h3>Page and Merge Operations</h3>
 
-<table>
-<tr><th>Operation</th><th>wkhtmltopdf</th><th>IronPDF</th></tr>
-<tr><td>Page count</td><td>Not returned</td><td><code>pdf.PageCount</code></td></tr>
-<tr><td>Remove page</td><td>Not applicable</td><td><code>pdf.RemovePage(index)</code></td></tr>
-<tr><td>Extract text</td><td>Not applicable</td><td><code>pdf.ExtractAllText()</code></td></tr>
-<tr><td>Merge</td><td>Not native -- secondary lib</td><td><code>PdfDocument.Merge(doc1, doc2)</code></td></tr>
-</table>
+<ul>
+<li><strong>Page count.</strong> Not returned by wkhtmltopdf; <code>pdf.PageCount</code> in IronPDF.</li>
+<li><strong>Remove page.</strong> Not applicable for wkhtmltopdf; <code>pdf.RemovePages(index)</code> in IronPDF.</li>
+<li><strong>Extract text.</strong> Not applicable for wkhtmltopdf; <code>pdf.ExtractAllText()</code> in IronPDF.</li>
+<li><strong>Merge.</strong> Not native in wkhtmltopdf -- needs a secondary library; <code>PdfDocument.Merge(doc1, doc2)</code> in IronPDF.</li>
+</ul>
 
 <h2>What Are the Most Common Post-Migration Issues?</h2>
 
-<p><strong>Answer:</strong></p>
-
-<p><strong>Header/footer token format change.</strong> This is the most common post-migration bug. wkhtmltopdf uses square bracket tokens (<code>[page]</code>, <code>[toPage]</code>). IronPDF uses curly brace tokens (<code>{page}</code>, <code>{total-pages}</code>). Any header/footer HTML that referenced wkhtmltopdf tokens needs updating. Flag it before starting the code changes and it's a five-minute find-and-replace.</p>
-
-<table>
-<tr><th>wkhtmltopdf Token</th><th>IronPDF Token</th></tr>
-<tr><td><code>[page]</code></td><td><code>{page}</code></td></tr>
-<tr><td><code>[toPage]</code></td><td><code>{total-pages}</code></td></tr>
-<tr><td><code>[date]</code></td><td><code>{date}</code></td></tr>
-<tr><td><code>[sitepage]</code> / <code>[sitepages]</code></td><td>Verify in IronPDF docs</td></tr>
-</table>
+<p><strong>Header/footer token format change.</strong> This is the most common post-migration bug. wkhtmltopdf uses square bracket tokens (<code>[page]</code>, <code>[toPage]</code>). IronPDF uses curly brace tokens (<code>{page}</code>, <code>{total-pages}</code>). Any header/footer HTML that referenced wkhtmltopdf tokens needs updating. Flag it before starting the code changes and it's a five-minute find-and-replace. The mapping I check for first: <code>[page]</code> &rarr; <code>{page}</code>, <code>[toPage]</code> &rarr; <code>{total-pages}</code>, <code>[date]</code> &rarr; <code>{date}</code>, <code>[title]</code> &rarr; <code>{html-title}</code>, <code>[url]</code> &rarr; <code>{url}</code>. The less-common <code>[sitepage]</code> / <code>[sitepages]</code> tokens have no direct IronPDF equivalent -- verify the closest match in the IronPDF rendering options docs for your scenario.</p>
 
 <p><strong>CSS rendering differences.</strong> Qt WebKit (wkhtmltopdf) and Chromium render CSS differently. After migration, test for <code>@page</code> CSS margin rules, <code>page-break-before: always</code> behavior, CSS <code>position: fixed</code> in headers/footers, and font rendering of system fonts. The good news is Chromium handles modern CSS far better -- you'll likely be removing workarounds, not adding them.</p>
 
@@ -365,9 +348,7 @@ pdf.SaveAs(&quot;secured.pdf&quot;);
 
 <h2>What Does the SynchronizedConverter Removal Look Like?</h2>
 
-<p><strong>Answer:</strong></p>
-
-<p>DinkToPdf's standard pattern uses a <code>SynchronizedConverter</code> as a thread-safe singleton. After migrating, the entire pattern is removed. IronPDF's <code>ChromePdfRenderer</code> doesn't have the same single-threaded constraint. Each Task can have its own renderer:</p>
+<p>The standard wrapper pattern (DinkToPdf, WkHtmlToPdf-DotNet) uses a <code>SynchronizedConverter</code> as a thread-safe singleton. After migrating, the entire pattern is removed. IronPDF's <code>ChromePdfRenderer</code> doesn't have the same single-threaded constraint -- each Task can have its own renderer:</p>
 
 <pre><code>// Before: one SynchronizedConverter for all requests (serialized)
 // private static readonly IConverter _converter = new SynchronizedConverter(new PdfTools());
@@ -380,7 +361,7 @@ var pdfs = await Task.WhenAll(jobs.Select(async html =&gt;
 }));
 </code></pre>
 
-<p>This also means you can amortize Chromium initialization at application startup with a warm-up render, just as DinkToPdf had initialization overhead on first use:</p>
+<p>This also means you can amortize Chromium initialization at application startup with a warm-up render, just as the wkhtmltopdf wrappers had initialization overhead on first use:</p>
 
 <pre><code>var renderer = new ChromePdfRenderer();
 using var _ = await renderer.RenderHtmlAsPdfAsync(&quot;&lt;html&gt;&lt;body&gt;warmup&lt;/body&gt;&lt;/html&gt;&quot;);
@@ -388,8 +369,6 @@ using var _ = await renderer.RenderHtmlAsPdfAsync(&quot;&lt;html&gt;&lt;body&gt;
 </code></pre>
 
 <h2>How Do I Handle the Dockerfile Changes?</h2>
-
-<p><strong>Answer:</strong></p>
 
 <p>The Dockerfile change is the biggest visible improvement. You remove the wkhtmltopdf binary, X11 libraries, and display server dependencies. You add IronPDF's Chromium system libraries instead:</p>
 
@@ -410,7 +389,8 @@ RUN apt-get update &amp;&amp; apt-get install -y \
 
 <p>On the NuGet side, the swap is straightforward:</p>
 
-<pre><code># Remove DinkToPdf NuGet packages
+<pre><code># Remove wkhtmltopdf wrapper NuGet packages (whichever you use)
+dotnet remove package WkHtmlToPdf-DotNet
 dotnet remove package DinkToPdf
 dotnet remove package DinkToPdf.NetCore
 
@@ -422,11 +402,9 @@ dotnet restore
 
 <h2>What's the Decision Framework for My Team?</h2>
 
-<p><strong>Answer:</strong></p>
-
 <p>wkhtmltopdf's archived status removes the "if it's not broken" argument. The project won't receive updates, and as .NET and system libraries evolve, the gap will grow. The Docker complexity is usually the practical trigger that forces the migration timeline sooner rather than later.</p>
 
-<p>The header/footer token format change (<code>[page]</code> to <code>{page}</code>) is the most common post-migration surprise -- flag it before starting the code changes and it's a five-minute find-and-replace. Everything else maps directly.</p>
+<p>The header/footer token format change (<code>[page]</code> to <code>{page}</code>) is the most common post-migration surprise. Catch it during the code review and everything else maps directly.</p>
 
 <p>If you're hitting Docker deployment failures, need modern CSS rendering, or are concerned about running an archived dependency in production, the migration is straightforward. Most features map at low complexity. The medium-complexity items (headers/footers, JS wait, merge) are well-documented and have clear IronPDF equivalents.</p>
 

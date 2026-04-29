@@ -6,215 +6,93 @@
 
 <p>There is a particular kind of technical debt that accumulates quietly: the imaging SDK you licensed four years ago because you needed PDF thumbnail generation. Then someone added barcode scanning. Then OCR. Then PDF signing. Now you have a GdPicture.NET license that touches seven different workflows, the API has surface area in dozens of files, and when renewal comes, the conversation is less "should we renew" and more "can we even untangle this."</p>
 
-<p>This guide is for the narrower scenario: you want to replace GdPicture.NET's PDF generation and manipulation features specifically, using <a href="https://ironpdf.com/">IronPDF</a>. If your GdPicture usage is purely imaging (TIFF processing, scanning, barcode), this article is less relevant. If your primary pain is HTML-to-PDF, merge, watermark, and document security, read on.</p>
-
-<p><strong>Answer:</strong></p>
+<p>This guide is for the narrower scenario: you want to replace GdPicture.NET's PDF generation and manipulation features specifically, using <a href="https://ironpdf.com/">IronPDF</a>. If your GdPicture usage is purely imaging (TIFF processing, scanning, barcode, OCR), this article is less relevant — IronPDF does not replace those. If your primary pain is HTML-to-PDF, merge, watermark, and document security, read on.</p>
 
 <p>Teams running GdPicture.NET for PDF work specifically, not imaging, commonly run into these friction points:</p>
 
-<p>First, module licensing complexity. GdPicture.NET is modular, and PDF features may require multiple licensed components. Second, API breadth versus task specificity. A platform built for imaging and PDF alike has a larger learning surface than a focused PDF library. Third, HTML rendering capability. GdPicture.NET is not primarily an HTML-to-PDF renderer; if that is your primary task, a Chromium-based approach like <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF's HTML rendering</a> may produce better fidelity.</p>
+<p>First, paying for breadth you do not use. GdPicture.NET ships as a full document-imaging suite — OCR, barcode, scanning, image processing — and the license cost reflects that whether you touch those modules or not. Second, the API is shaped around imaging concepts: <code>GdPictureStatus</code> return codes on every call, 1-indexed pages, manual <code>Dispose()</code> or <code>Release()</code>, and a version-stamped namespace (<code>GdPicture14</code>) that forces global rewrites on major upgrades. Third, the rebrand to "Nutrient" has fragmented documentation across two domains, which slows down anyone trying to look up an exact method signature.</p>
 
-<p>Beyond those three, there are practical concerns around deployment assembly count, thread safety model, documentation depth for edge cases, upgrade paths across major versions, team familiarity for new engineers, container and Linux deployment, and cost structure that scales with feature breadth rather than just usage.</p>
+<p>Beyond those, there are practical concerns around deployment assembly count, thread-safety model, upgrade paths across major versions, team familiarity for new engineers, and HTML/CSS rendering fidelity — GdPicture's HTML-to-PDF path exists (<code>GdPictureDocumentConverter.LoadFromHTMLString</code>) but is not Chromium-based, so modern CSS and JavaScript-heavy pages render less reliably than they would through <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF's Chromium renderer</a>.</p>
 
 <h2>How Much Effort Does Each Feature Migration Require?</h2>
 
 <p>Not every part of a GdPicture integration maps to IronPDF. Some features translate directly. Others do not apply at all. Here is the effort breakdown I have seen across real migrations.</p>
 
-<table>
-<thead>
-<tr>
-<th>Feature</th>
-<th>Effort</th>
-<th>Notes</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>HTML string to PDF</td>
-<td>Low-Medium</td>
-<td>GdPicture HTML-to-PDF fidelity may differ; verify</td>
-</tr>
-<tr>
-<td>URL to PDF</td>
-<td>Medium</td>
-<td>Verify GdPicture URL rendering vs IronPDF</td>
-</tr>
-<tr>
-<td>PDF merge</td>
-<td>Low</td>
-<td>Both support merge</td>
-</tr>
-<tr>
-<td>PDF split</td>
-<td>Medium</td>
-<td>Page extraction APIs differ</td>
-</tr>
-<tr>
-<td>Text extraction</td>
-<td>Medium</td>
-<td>Both support; API shape differs</td>
-</tr>
-<tr>
-<td>Image extraction</td>
-<td>Medium-High</td>
-<td>GdPicture imaging strengths don't map directly</td>
-</tr>
-<tr>
-<td>OCR</td>
-<td>N/A</td>
-<td>GdPicture OCR is not replaced by IronPDF</td>
-</tr>
-<tr>
-<td>Barcode</td>
-<td>N/A</td>
-<td>GdPicture barcode is not replaced by IronPDF</td>
-</tr>
-<tr>
-<td>Watermarking</td>
-<td>Low</td>
-<td>Both support text/image stamps</td>
-</tr>
-<tr>
-<td>Password protection</td>
-<td>Low</td>
-<td>Straightforward mapping</td>
-</tr>
-<tr>
-<td>Digital signatures</td>
-<td>High</td>
-<td>Verify IronPDF signing capabilities</td>
-</tr>
-</tbody>
-</table>
+<ul>
+  <li><strong>HTML string to PDF — Low.</strong> Direct method mapping. <code>converter.LoadFromHTMLString</code> + <code>SaveAsPDF</code> becomes <code>renderer.RenderHtmlAsPdf</code> + <code>pdf.SaveAs</code>. Expect rendering differences on modern CSS — IronPDF's Chromium engine generally renders closer to a browser.</li>
+  <li><strong>URL to PDF — Low.</strong> Direct method mapping; <code>LoadFromURL</code> becomes <code>renderer.RenderUrlAsPdf</code>.</li>
+  <li><strong>PDF merge — Low.</strong> <code>pdf1.MergePages(pdf2)</code> becomes the static <code>PdfDocument.Merge(...)</code>.</li>
+  <li><strong>PDF split — Low.</strong> <code>ClonePage</code> in a loop becomes <code>pdf.CopyPage(index)</code> or <code>pdf.CopyPages(...)</code>.</li>
+  <li><strong>Watermarking — Low.</strong> The coordinate-based <code>SetTextColor</code> / <code>SetTextSize</code> / <code>DrawText</code> loop collapses into a single <code>pdf.ApplyWatermark</code> call with HTML.</li>
+  <li><strong>Password protection — Medium.</strong> <code>SaveToFile</code> with a long parameter list becomes <code>pdf.SecuritySettings</code> property assignment.</li>
+  <li><strong>Text extraction — Low.</strong> Page-by-page <code>GetPageText</code> becomes <code>pdf.ExtractAllText()</code> or <code>ExtractTextFromPage(i)</code>.</li>
+  <li><strong>Form fields — Medium.</strong> Index-based <code>GetFormFieldTitle</code>/<code>SetFormFieldValue</code> becomes name-keyed <code>pdf.Form.Fields["FieldName"].Value</code>.</li>
+  <li><strong>Digital signatures — Medium-High.</strong> Different certificate-handling model; verify your specific PAdES/timestamp requirements against IronPDF's signing API.</li>
+  <li><strong>OCR — Not replaced.</strong> IronPDF does not include OCR. If you use GdPicture's OCR module, you either retain GdPicture for that path or adopt the separate <a href="https://ironsoftware.com/csharp/ocr/">IronOCR</a> product.</li>
+  <li><strong>Barcode — Not replaced.</strong> IronPDF does not read or write barcodes. Retain GdPicture or adopt the separate <a href="https://ironsoftware.com/csharp/barcode/">IronBarcode</a> product.</li>
+  <li><strong>Image processing / scanning / TIFF — Not replaced.</strong> IronPDF is a PDF library, not an imaging suite. Retain GdPicture for these workflows.</li>
+</ul>
 
-<p>The key insight: OCR and barcode features are out of scope entirely. IronPDF does not replace those GdPicture modules. If you use them, you will either retain GdPicture for imaging or find a separate specialized library.</p>
+<p>The key insight: OCR, barcode, and general imaging are out of scope entirely. IronPDF does not replace those GdPicture modules. If you use them, you will either retain GdPicture for imaging or pair IronPDF with IronOCR / IronBarcode as separate products.</p>
 
 <h2>What Does the Decision Matrix Look Like for Different Business Scenarios?</h2>
 
-<p><strong>Answer:</strong></p>
-
 <p>Not every team should migrate, and not every team should migrate everything at once. Here is how I think about it.</p>
 
-<table>
-<thead>
-<tr>
-<th>Business Scenario</th>
-<th>Recommendation</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>PDF generation only (HTML/URL to PDF, merge, security)</td>
-<td>IronPDF migration is well-scoped</td>
-</tr>
-<tr>
-<td>PDF generation + OCR/barcode in same pipeline</td>
-<td>Split: IronPDF for PDF, retain GdPicture for imaging</td>
-</tr>
-<tr>
-<td>Scanning/TIFF workflows interleaved with PDF</td>
-<td>Retain GdPicture; IronPDF won't replace imaging features</td>
-</tr>
-<tr>
-<td>Greenfield .NET 8 service, PDF-only</td>
-<td>IronPDF is a reasonable choice; evaluate against requirements</td>
-</tr>
-</tbody>
-</table>
+<ul>
+  <li><strong>If your usage is PDF-only</strong> (HTML/URL to PDF, merge, watermark, security), the IronPDF migration is well-scoped and worth doing.</li>
+  <li><strong>If your pipeline mixes PDF generation with OCR or barcode</strong>, split the responsibilities: IronPDF for the PDF layer, retain GdPicture for OCR/barcode — or adopt IronOCR/IronBarcode as companions.</li>
+  <li><strong>If you have scanning or TIFF workflows interleaved with PDF</strong>, retain GdPicture. IronPDF will not replace imaging features; forcing a full-stack swap is the wrong move here.</li>
+  <li><strong>If you are starting greenfield on .NET 8 and only need PDF</strong>, IronPDF is a reasonable default — evaluate against your specific requirements (signing depth, PDF/A compliance, deployment platform) before committing.</li>
+</ul>
 
 <h2>How Do the Two Libraries Compare Side by Side?</h2>
 
-<p><strong>Answer:</strong></p>
-
 <p>Before diving into code, it helps to see the structural differences at a glance. GdPicture.NET is a broad imaging and document SDK where PDF is one module among many. IronPDF is built specifically for PDF work.</p>
 
-<table>
-<thead>
-<tr>
-<th>Aspect</th>
-<th>GdPicture.NET SDK</th>
-<th>IronPDF</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Focus</td>
-<td>Imaging, scanning, OCR, barcode, PDF — broad platform</td>
-<td>HTML-to-PDF rendering + document manipulation</td>
-</tr>
-<tr>
-<td>Pricing</td>
-<td>Modular commercial license</td>
-<td>Commercial license</td>
-</tr>
-<tr>
-<td>API Style</td>
-<td>Component/handle-based; GdImageRef pattern</td>
-<td>Fluent, renderer-centric</td>
-</tr>
-<tr>
-<td>Learning Curve</td>
-<td>High overall; Medium for PDF-specific paths</td>
-<td>Medium — focused surface area</td>
-</tr>
-<tr>
-<td>HTML Rendering</td>
-<td>Available via plugin/module</td>
-<td>Primary design goal; Chromium-based</td>
-</tr>
-<tr>
-<td>Page Indexing</td>
-<td>1-based in many operations</td>
-<td>0-based</td>
-</tr>
-<tr>
-<td>Thread Safety</td>
-<td>Verify in current SDK docs; handle management required</td>
-<td>Renderer-per-thread pattern recommended</td>
-</tr>
-<tr>
-<td>Namespace</td>
-<td><code>GdPicture14</code></td>
-<td><code>IronPdf</code></td>
-</tr>
-</tbody>
-</table>
+<ul>
+  <li><strong>Focus.</strong> GdPicture.NET is a broad imaging platform — scanning, OCR, barcode, image processing, and PDF. IronPDF is a focused PDF library centered on HTML-to-PDF rendering and document manipulation.</li>
+  <li><strong>Pricing.</strong> GdPicture is sold as a modular commercial license; cost scales with which modules (PDF, OCR, barcode, etc.) you license. IronPDF is a single commercial license covering the PDF library.</li>
+  <li><strong>API style.</strong> GdPicture is component- and handle-based — <code>GdPicturePDF</code> and <code>GdPictureDocumentConverter</code> objects, status-code returns, explicit <code>Dispose</code>. IronPDF is fluent and renderer-centric, with exception-based error handling and standard <code>IDisposable</code>.</li>
+  <li><strong>Learning curve.</strong> GdPicture's full surface is large; the PDF-specific paths are moderate. IronPDF's surface is narrower and more familiar to anyone comfortable with HTML/CSS.</li>
+  <li><strong>HTML rendering.</strong> GdPicture's <code>GdPictureDocumentConverter</code> renders HTML internally — adequate for simple markup but not Chromium-grade. IronPDF treats HTML-to-PDF as a primary design goal and ships with an embedded Chromium engine.</li>
+  <li><strong>Page indexing.</strong> GdPicture is 1-based (<code>SelectPage(1)</code> is the first page). IronPDF is 0-based (<code>Pages[0]</code>). This is the single most common source of off-by-one bugs during migration.</li>
+  <li><strong>Thread safety.</strong> GdPicture generally requires manual synchronization on shared instances. IronPDF's recommended pattern is one renderer per thread, with thread-safe document operations.</li>
+  <li><strong>Namespace.</strong> <code>GdPicture14</code> includes the major-version number, so upgrading GdPicture forces a global namespace rewrite. IronPDF uses the stable <code>IronPdf</code> namespace.</li>
+</ul>
 
 <h2>How Do I Handle License Configuration and Basic Setup?</h2>
 
-<p><strong>Answer:</strong></p>
-
-<p>The first thing to change is license initialization. GdPicture uses a LicenseManager pattern. IronPDF uses a single static property.</p>
+<p>The first thing to change is license initialization. GdPicture uses a static <code>LicenseManager.RegisterKEY</code> call. IronPDF uses a single static property.</p>
 
 <h3>GdPicture License Setup (Before)</h3>
 
-<pre><code>using GdPicture14; // verify namespace for your version
+<pre><code>using GdPicture14;
 
-// GdPicture license initialization — exact call varies by version
-// Typically called once at application startup
-var licenseManager = new LicenseManager(); // verify class name
-licenseManager.RegisterKEY("YOUR_GDPICTURE_KEY"); // verify method name
+// Must be called before any GdPicture operations,
+// typically once at application startup.
+LicenseManager.RegisterKEY("YOUR-LICENSE-KEY");
 </code></pre>
 
 <h3>IronPDF License Setup (After)</h3>
 
 <pre><code>using IronPdf;
 
-// Set once at application startup
+// Set once at application startup.
 // See: https://ironpdf.com/how-to/license-keys/
-IronPdf.License.LicenseKey = "YOUR_IRONPDF_KEY";
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 // Alternative: via environment variable IronPdf__LicenseKey
 // or appsettings.json under "IronPdf" : { "LicenseKey": "..." }
 </code></pre>
 
-<p>Namespace imports simplify considerably. GdPicture may require multiple namespace imports depending on your version and modules. IronPDF consolidates to a small set.</p>
+<p>Namespace imports simplify considerably. GdPicture's namespace includes the major version (<code>GdPicture14</code>), so upgrading the SDK is a global rewrite. IronPDF consolidates to a small, stable set.</p>
 
 <h3>GdPicture Namespaces (Before)</h3>
 
-<pre><code>using GdPicture14;           // verify — namespace changes between major versions
-using GdPicture14.PDF;       // verify — may vary
-using GdPicture14.WebP;      // verify — only if used
+<pre><code>using GdPicture14;           // version-stamped; changes on major upgrades
+using GdPicture14.PDF;       // PDF-specific types
+using GdPicture14.Imaging;   // only if image processing is used
 </code></pre>
 
 <h3>IronPDF Namespaces (After)</h3>
@@ -226,37 +104,37 @@ using IronPdf.Editing;       // for Stamper types
 
 <h2>How Do I Migrate HTML-to-PDF Rendering?</h2>
 
-<p><strong>Answer:</strong></p>
-
-<p>This is typically the highest-value migration target. GdPicture's HTML-to-PDF path varies significantly by version and licensed module. IronPDF makes it a primary design goal with a Chromium-based renderer.</p>
+<p>This is typically the highest-value migration target. GdPicture exposes HTML-to-PDF through <code>GdPictureDocumentConverter</code>, with a status-code return on every call. IronPDF makes HTML-to-PDF a primary design goal with a Chromium-based renderer and exception-based error handling.</p>
 
 <h3>GdPicture HTML to PDF (Before)</h3>
 
-<pre><code>using GdPicture14; // verify
-using System.IO;
+<pre><code>using GdPicture14;
+using System;
 
 class Program
 {
-    static void Main(string[] args)
+    static void Main()
     {
-        // GdPicture license init — verify
-        // var lm = new LicenseManager();
-        // lm.RegisterKEY("YOUR_KEY");
+        LicenseManager.RegisterKEY("YOUR-LICENSE-KEY");
 
-        string html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;p&gt;Quarterly summary.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;";
-        string tempFile = Path.GetTempFileName() + ".html";
-        File.WriteAllText(tempFile, html);
+        using (GdPictureDocumentConverter converter = new GdPictureDocumentConverter())
+        {
+            string html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;p&gt;Quarterly summary.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;";
+            GdPictureStatus status = converter.LoadFromHTMLString(html);
 
-        // GdPicture HTML-to-PDF — verify this path exists in your licensed version
-        // var gdPDF = new GdPicturePDF();
-        // int createStatus = gdPDF.NewPDF(); // verify return value semantics
-        // Verify: does your license include HTML rendering?
-        // int importStatus = gdPDF.ImportFromFile(tempFile); // verify
-        // gdPDF.SaveToFile("output.pdf"); // verify
-        // gdPDF.Dispose(); // always dispose
-
-        File.Delete(tempFile);
-        Console.WriteLine("Verify GdPicture HTML rendering path in your licensed modules");
+            if (status == GdPictureStatus.OK)
+            {
+                status = converter.SaveAsPDF("output.pdf");
+                if (status != GdPictureStatus.OK)
+                {
+                    Console.WriteLine($"Save error: {status}");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"Load error: {status}");
+            }
+        }
     }
 }
 </code></pre>
@@ -266,7 +144,7 @@ class Program
 <pre><code>using IronPdf;
 
 // See: https://ironpdf.com/how-to/html-string-to-pdf/
-IronPdf.License.LicenseKey = "YOUR_KEY";
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 var renderer = new ChromePdfRenderer();
 renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
@@ -279,42 +157,27 @@ Console.WriteLine($"Generated {pdf.PageCount} page(s)");
 
 <h2>How Do I Migrate PDF Merge Operations?</h2>
 
-<p><strong>Answer:</strong></p>
-
-<p>GdPicture's merge pattern typically involves opening a base document and cloning pages from secondary documents in a loop. IronPDF provides a static <code>Merge</code> method that handles this in a single call.</p>
+<p>GdPicture's merge is an instance method on the base document — load the second document, then call <code>MergePages</code> to append it. IronPDF provides a static <code>Merge</code> method that handles a list of documents in a single call.</p>
 
 <h3>GdPicture Merge (Before)</h3>
 
-<pre><code>using GdPicture14; // verify
+<pre><code>using GdPicture14;
 
 class MergeExample
 {
-    static void Main(string[] args)
+    static void Main()
     {
-        // var lm = new LicenseManager();
-        // lm.RegisterKEY("YOUR_KEY");
+        LicenseManager.RegisterKEY("YOUR-LICENSE-KEY");
 
-        // GdPicture merge pattern — exact API varies
-        // One approach: open a base doc and clone pages from secondary docs
+        using (GdPicturePDF pdf1 = new GdPicturePDF())
+        using (GdPicturePDF pdf2 = new GdPicturePDF())
+        {
+            pdf1.LoadFromFile("file1.pdf", false);
+            pdf2.LoadFromFile("file2.pdf", false);
 
-        // var basePdf = new GdPicturePDF();
-        // basePdf.LoadFromFile("file1.pdf"); // verify method name
-
-        // var secondPdf = new GdPicturePDF();
-        // secondPdf.LoadFromFile("file2.pdf"); // verify
-
-        // int pageCount = secondPdf.GetPageCount(); // verify
-        // for (int i = 1; i &lt;= pageCount; i++) // verify 1-based indexing
-        // {
-        //     // Clone/copy pages — verify correct API for your version
-        //     // basePdf.ClonePage(secondPdf, i); // verify
-        // }
-
-        // basePdf.SaveToFile("merged.pdf"); // verify
-        // basePdf.Dispose();
-        // secondPdf.Dispose();
-
-        Console.WriteLine("Verify GdPicture merge API for your version");
+            pdf1.MergePages(pdf2);
+            pdf1.SaveToFile("merged.pdf");
+        }
     }
 }
 </code></pre>
@@ -322,54 +185,48 @@ class MergeExample
 <h3>IronPDF Merge (After)</h3>
 
 <pre><code>using IronPdf;
+using System.Collections.Generic;
 
 // See: https://ironpdf.com/how-to/merge-or-split-pdfs/
-IronPdf.License.LicenseKey = "YOUR_KEY";
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
-using var doc1 = PdfDocument.FromFile("file1.pdf");
-using var doc2 = PdfDocument.FromFile("file2.pdf");
+var pdf1 = PdfDocument.FromFile("file1.pdf");
+var pdf2 = PdfDocument.FromFile("file2.pdf");
 
-using var merged = PdfDocument.Merge(doc1, doc2);
+var merged = PdfDocument.Merge(new List&lt;PdfDocument&gt; { pdf1, pdf2 });
 merged.SaveAs("merged.pdf");
 Console.WriteLine($"Merged: {merged.PageCount} pages total");
 </code></pre>
 
 <h2>How Do I Migrate Watermarking?</h2>
 
-<p><strong>Answer:</strong></p>
-
-<p>GdPicture watermarking typically involves iterating pages, selecting each one, setting font and color properties, and drawing text at specific coordinates. The approaches vary significantly between SDK versions. IronPDF uses a declarative stamper model.</p>
+<p>GdPicture watermarking iterates pages, selects each one with <code>SelectPage</code>, sets text color and size, then calls <code>DrawText</code> at fixed coordinates. IronPDF replaces that whole loop with a single <code>ApplyWatermark</code> call that takes an HTML fragment, an integer opacity (0–100), and alignment values.</p>
 
 <h3>GdPicture Watermark (Before)</h3>
 
-<pre><code>using GdPicture14; // verify
+<pre><code>using GdPicture14;
+using System.Drawing;
 
 class WatermarkExample
 {
-    static void Main(string[] args)
+    static void Main()
     {
-        // var lm = new LicenseManager();
-        // lm.RegisterKEY("YOUR_KEY");
+        LicenseManager.RegisterKEY("YOUR-LICENSE-KEY");
 
-        // var pdf = new GdPicturePDF();
-        // pdf.LoadFromFile("input.pdf"); // verify
+        using (GdPicturePDF pdf = new GdPicturePDF())
+        {
+            pdf.LoadFromFile("input.pdf", false);
 
-        // GdPicture watermarking — content stream or dedicated API
-        // Approaches vary significantly between SDK versions
+            for (int i = 1; i &lt;= pdf.GetPageCount(); i++)  // 1-indexed
+            {
+                pdf.SelectPage(i);
+                pdf.SetTextColor(Color.Red);
+                pdf.SetTextSize(48);
+                pdf.DrawText("CONFIDENTIAL", 200, 400);
+            }
 
-        // int pageCount = pdf.GetPageCount(); // verify
-        // for (int i = 1; i &lt;= pageCount; i++) // verify 1-based
-        // {
-        //     pdf.SelectPage(i); // verify
-        //     // Set font, position, draw text — verify full API
-        //     // pdf.SetFillColor(128, 128, 128); // verify
-        //     // pdf.DrawText("DRAFT", x, y, width, height, angle); // verify
-        // }
-
-        // pdf.SaveToFile("watermarked.pdf"); // verify
-        // pdf.Dispose();
-
-        Console.WriteLine("Verify GdPicture watermark API for your version");
+            pdf.SaveToFile("watermarked.pdf");
+        }
     }
 }
 </code></pre>
@@ -380,56 +237,48 @@ class WatermarkExample
 using IronPdf.Editing;
 
 // See: https://ironpdf.com/how-to/custom-watermark/
-IronPdf.License.LicenseKey = "YOUR_KEY";
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
-using var pdf = PdfDocument.FromFile("input.pdf");
+var pdf = PdfDocument.FromFile("input.pdf");
 
-var stamp = new TextStamper
-{
-    Text            = "DRAFT",
-    FontSize        = 40,
-    Opacity         = 0.35,
-    Rotation        = -45,
-    VerticalAlignment   = VerticalAlignment.Middle,
-    HorizontalAlignment = HorizontalAlignment.Center
-};
+pdf.ApplyWatermark(
+    "&lt;h1 style='color:red;'&gt;CONFIDENTIAL&lt;/h1&gt;",
+    50,                              // opacity 0–100 (integer)
+    VerticalAlignment.Middle,
+    HorizontalAlignment.Center);
 
-pdf.ApplyStamp(stamp);
 pdf.SaveAs("watermarked.pdf");
 </code></pre>
 
 <h2>How Do I Migrate Password Protection and Security?</h2>
 
-<p><strong>Answer:</strong></p>
-
-<p>GdPicture security typically uses a SetEncryption or SetPassword method, with the exact API varying by version. IronPDF exposes security through a <code>SecuritySettings</code> property on the document.</p>
+<p>GdPicture encrypts at save time: <code>SaveToFile</code> takes the encryption algorithm, both passwords, and a long list of permission booleans as positional arguments. IronPDF separates the two — set passwords and permissions on the <code>SecuritySettings</code> property, then save normally.</p>
 
 <h3>GdPicture Password Protection (Before)</h3>
 
-<pre><code>using GdPicture14; // verify
+<pre><code>using GdPicture14;
 
 class SecurityExample
 {
-    static void Main(string[] args)
+    static void Main()
     {
-        // var lm = new LicenseManager();
-        // lm.RegisterKEY("YOUR_KEY");
+        LicenseManager.RegisterKEY("YOUR-LICENSE-KEY");
 
-        // var pdf = new GdPicturePDF();
-        // pdf.LoadFromFile("input.pdf"); // verify
+        using (GdPicturePDF pdf = new GdPicturePDF())
+        {
+            GdPictureStatus status = pdf.LoadFromFile("input.pdf", false);
+            if (status != GdPictureStatus.OK) return;
 
-        // GdPicture security — exact API varies by version
-        // Typically a SetEncryption or SetPassword method
-        // pdf.SetEncryption(
-        //     userPassword: "user123",
-        //     ownerPassword: "owner456",
-        //     permissions: GdPicturePDFPermissions.Print // verify enum
-        // ); // verify method signature
-
-        // pdf.SaveToFile("protected.pdf"); // verify
-        // pdf.Dispose();
-
-        Console.WriteLine("Verify GdPicture encryption API for your version");
+            // Parameters: path, encryption, userPwd, ownerPwd,
+            //             canPrint, canCopy, canModify, canAddNotes,
+            //             canFillForms, canExtract, canAssemble, canPrintHQ
+            pdf.SaveToFile(
+                "protected.pdf",
+                PdfEncryption.PdfEncryption256BitAES,
+                "user123",
+                "owner456",
+                true, false, false, false, true, false, false, true);
+        }
     }
 }
 </code></pre>
@@ -440,35 +289,35 @@ class SecurityExample
 using IronPdf.Security;
 
 // See: https://ironpdf.com/how-to/pdf-permissions-passwords/
-IronPdf.License.LicenseKey = "YOUR_KEY";
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
-using var pdf = PdfDocument.FromFile("input.pdf");
+var pdf = PdfDocument.FromFile("input.pdf");
 
 pdf.SecuritySettings.UserPassword  = "user123";
 pdf.SecuritySettings.OwnerPassword = "owner456";
 pdf.SecuritySettings.AllowUserPrinting         = PdfPrintSecurity.FullPrintRights;
 pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+pdf.SecuritySettings.AllowUserEdits            = PdfEditSecurity.NoEdit;
+pdf.SecuritySettings.AllowUserFormData         = true;
 
 pdf.SaveAs("protected.pdf");
 </code></pre>
 
 <h2>What Are the Critical Technical Differences to Watch For?</h2>
 
-<p><strong>Answer:</strong></p>
-
 <p>Three things will bite you if you are not careful during migration.</p>
 
-<p>First, page indexing. GdPicture.NET uses 1-based page indexing in many operations (e.g., <code>SelectPage(1)</code> for the first page). IronPDF uses 0-based indexing. This is the most common source of off-by-one bugs during migration.</p>
+<p>First, page indexing. GdPicture.NET uses 1-based page indexing in most operations (e.g., <code>SelectPage(1)</code> for the first page). IronPDF uses 0-based indexing. This is the most common source of off-by-one bugs during migration.</p>
 
-<pre><code>// GdPicture (approximate — verify):
-// pdf.SelectPage(1); // page 1 = first page
+<pre><code>// GdPicture:
+pdf.SelectPage(1); // page 1 = first page
 
 // IronPDF:
 var firstPage = pdf.Pages[0]; // index 0 = first page
 var lastPage  = pdf.Pages[pdf.PageCount - 1];
 </code></pre>
 
-<p>Second, error handling. GdPicture returns integer status codes from many operations. IronPDF throws exceptions. You need to replace status-code checks with try/catch blocks.</p>
+<p>Second, error handling. GdPicture returns a <code>GdPictureStatus</code> enum from most operations. IronPDF throws exceptions. You need to replace status-code checks with try/catch blocks.</p>
 
 <pre><code>// IronPDF: always use try/catch for file I/O and rendering
 try
@@ -488,8 +337,6 @@ catch (IronPdf.Exceptions.PdfException ex)
 <p>Third, disposal patterns. GdPicture requires explicit <code>Dispose()</code> on its objects. IronPDF's <code>PdfDocument</code> implements <code>IDisposable</code>, so use <code>using</code> blocks consistently. This is actually simpler, but you need to ensure every document object is wrapped.</p>
 
 <h2>What About Performance in Production?</h2>
-
-<p><strong>Answer:</strong></p>
 
 <p><code>ChromePdfRenderer</code> carries initialization overhead. For batch processing, construct once and reuse across renders.</p>
 
@@ -515,128 +362,44 @@ await File.WriteAllBytesAsync(outputPath, pdf.BinaryData);
 
 <h2>What Does the Full Feature Mapping Look Like?</h2>
 
-<p>Here are the complete API mapping tables for reference during your migration.</p>
+<p>Here are the complete API mappings for reference during your migration.</p>
 
-<table>
-<thead>
-<tr>
-<th>GdPicture Namespace</th>
-<th>IronPDF Namespace</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>GdPicture14</code></td>
-<td><code>IronPdf</code></td>
-<td>Core types</td>
-</tr>
-<tr>
-<td><code>GdPicture14.PDF</code></td>
-<td><code>IronPdf.Rendering</code></td>
-<td>Rendering options</td>
-</tr>
-<tr>
-<td><code>GdPicture14</code> security types</td>
-<td><code>IronPdf.Security</code></td>
-<td>Document security</td>
-</tr>
-</tbody>
-</table>
+<p><strong>Namespaces.</strong></p>
 
-<table>
-<thead>
-<tr>
-<th>GdPicture Class</th>
-<th>IronPDF Class</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>GdPicturePDF</code></td>
-<td><code>PdfDocument</code></td>
-<td>Main document object</td>
-</tr>
-<tr>
-<td>HTML renderer</td>
-<td><code>ChromePdfRenderer</code></td>
-<td>HTML-to-PDF rendering</td>
-</tr>
-<tr>
-<td>Page operations on <code>GdPicturePDF</code></td>
-<td><code>PdfDocument.Pages[n]</code></td>
-<td>Page access</td>
-</tr>
-<tr>
-<td>Security methods on <code>GdPicturePDF</code></td>
-<td><code>PdfDocument.SecuritySettings</code></td>
-<td>Encryption</td>
-</tr>
-</tbody>
-</table>
+<ul>
+  <li><code>GdPicture14</code> → <code>IronPdf</code> — core types</li>
+  <li><code>GdPicture14.PDF</code> → <code>IronPdf.Rendering</code> — rendering options</li>
+  <li>GdPicture security types → <code>IronPdf.Security</code> — document security</li>
+</ul>
 
-<table>
-<thead>
-<tr>
-<th>Operation</th>
-<th>GdPicture</th>
-<th>IronPDF</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Load from file</td>
-<td><code>pdf.LoadFromFile(path)</code></td>
-<td><code>PdfDocument.FromFile(path)</code></td>
-</tr>
-<tr>
-<td>Load from bytes</td>
-<td>verify in docs</td>
-<td><code>PdfDocument.FromBytes(bytes)</code></td>
-</tr>
-<tr>
-<td>Load from stream</td>
-<td>verify in docs</td>
-<td><code>PdfDocument.FromStream(stream)</code></td>
-</tr>
-<tr>
-<td>Render from HTML</td>
-<td>verify in docs</td>
-<td><code>renderer.RenderHtmlAsPdf(html)</code></td>
-</tr>
-<tr>
-<td>Page count</td>
-<td><code>pdf.GetPageCount()</code></td>
-<td><code>pdf.PageCount</code></td>
-</tr>
-<tr>
-<td>Select/get page</td>
-<td><code>pdf.SelectPage(index)</code></td>
-<td><code>pdf.Pages[index]</code> (0-based)</td>
-</tr>
-<tr>
-<td>Page width</td>
-<td><code>pdf.GetPageWidth()</code></td>
-<td><code>page.Width</code></td>
-</tr>
-<tr>
-<td>Page rotation</td>
-<td>verify in docs</td>
-<td><code>page.Rotation</code></td>
-</tr>
-<tr>
-<td>Merge documents</td>
-<td>verify in docs</td>
-<td><code>PdfDocument.Merge(doc1, doc2)</code></td>
-</tr>
-<tr>
-<td>Extract pages</td>
-<td>verify in docs</td>
-<td><code>pdf.CopyPages(indices)</code></td>
-</tr>
-</tbody>
-</table>
+<p><strong>Classes.</strong></p>
+
+<ul>
+  <li><code>GdPicturePDF</code> → <code>PdfDocument</code> — main document object</li>
+  <li><code>GdPictureDocumentConverter</code> → <code>ChromePdfRenderer</code> — HTML-to-PDF rendering</li>
+  <li>Page operations on <code>GdPicturePDF</code> → <code>PdfDocument.Pages[n]</code> — page access</li>
+  <li>Security methods on <code>GdPicturePDF</code> → <code>PdfDocument.SecuritySettings</code> — encryption</li>
+  <li><code>LicenseManager</code> → <code>IronPdf.License</code> — license management</li>
+  <li><code>GdPictureStatus</code> → exceptions — error handling</li>
+</ul>
+
+<p><strong>Common operations.</strong></p>
+
+<ul>
+  <li><strong>Load from file.</strong> <code>pdf.LoadFromFile(path, false)</code> → <code>PdfDocument.FromFile(path)</code></li>
+  <li><strong>Load from stream.</strong> <code>pdf.LoadFromStream(stream)</code> → <code>PdfDocument.FromStream(stream)</code></li>
+  <li><strong>Load HTML string.</strong> <code>converter.LoadFromHTMLString(html)</code> → <code>renderer.RenderHtmlAsPdf(html)</code></li>
+  <li><strong>Load from URL.</strong> <code>converter.LoadFromURL(url)</code> → <code>renderer.RenderUrlAsPdf(url)</code></li>
+  <li><strong>Save.</strong> <code>pdf.SaveToFile(path)</code> / <code>converter.SaveAsPDF(path)</code> → <code>pdf.SaveAs(path)</code></li>
+  <li><strong>Page count.</strong> <code>pdf.GetPageCount()</code> → <code>pdf.PageCount</code></li>
+  <li><strong>Select / get page.</strong> <code>pdf.SelectPage(i)</code> (1-based) → <code>pdf.Pages[i]</code> (0-based)</li>
+  <li><strong>Page width / height.</strong> <code>pdf.GetPageWidth()</code> / <code>GetPageHeight()</code> → <code>page.Width</code> / <code>page.Height</code></li>
+  <li><strong>Merge.</strong> <code>pdf1.MergePages(pdf2)</code> → <code>PdfDocument.Merge(new List&lt;PdfDocument&gt; { ... })</code></li>
+  <li><strong>Extract pages.</strong> <code>pdf.ClonePage(...)</code> in a loop → <code>pdf.CopyPage(i)</code> or <code>pdf.CopyPages(indices)</code></li>
+  <li><strong>Text extraction.</strong> <code>pdf.GetPageText(i)</code> → <code>pdf.ExtractTextFromPage(i)</code> or <code>pdf.ExtractAllText()</code></li>
+  <li><strong>Form field value.</strong> <code>pdf.SetFormFieldValue(idx, value)</code> → <code>pdf.Form.Fields["Name"].Value = value</code></li>
+  <li><strong>Watermark.</strong> <code>SelectPage</code> + <code>DrawText</code> loop → <code>pdf.ApplyWatermark(html, opacity, vAlign, hAlign)</code></li>
+</ul>
 
 <h2>Frequently Asked Questions</h2>
 

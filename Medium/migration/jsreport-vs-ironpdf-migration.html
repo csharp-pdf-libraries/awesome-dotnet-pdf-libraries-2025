@@ -2,125 +2,87 @@
 
 <p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
 
-<p>The deployment worked fine on-prem. Then the team containerized the application for Kubernetes, and the PDF generation service started failing intermittently. The error logs pointed to jsreport's child process spawning &mdash; Node.js inside a Docker container, with the reporting service trying to launch headless Chromium inside that Node.js process. The layered process management, the user permission model in the container, the memory limits &mdash; it all compounds.</p>
+<p>The deployment worked fine on-prem. Then the team containerized the application for Kubernetes, and the PDF generation service started failing intermittently. The error logs pointed to jsreport's child process spawning &mdash; the embedded Node.js binary that <code>jsreport.Local</code> launches under the .NET host, with the reporting service trying to start headless Chromium inside that Node.js process. The layered process management, the user permission model in the container, the platform-specific binary packages &mdash; it all compounds.</p>
 
-<p>Getting jsreport running reliably in a container environment takes work that has nothing to do with generating PDFs. That's a common trigger for evaluating alternatives. This article is for .NET teams considering IronPDF as the replacement.</p>
+<p>Getting jsreport's local binaries running reliably in a container takes work that has nothing to do with generating PDFs. That's a common trigger for evaluating alternatives. This article is for .NET teams considering IronPDF as the replacement.</p>
 
 <h2>Why Should I Migrate from jsreport to IronPDF?</h2>
 
-<p><strong>Answer:</strong></p>
-
-<p>jsreport is a reporting server. <a href="https://ironpdf.com/">IronPDF</a> is a .NET library. That difference has practical implications before you write a single line of migration code. jsreport runs as an external Node.js process, stores templates in its own engine, and communicates via HTTP API or local IPC. IronPDF runs in-process, uses HTML strings or files rendered via Chromium, and requires no external service.</p>
+<p>jsreport is a Node.js reporting platform that .NET teams typically consume through <code>jsreport.Local</code>, which downloads a Node.js binary (<code>jsreport.Binary</code>, <code>jsreport.Binary.Linux</code>, <code>jsreport.Binary.OSX</code>) and spawns it as a child process. <a href="https://ironpdf.com/">IronPDF</a> is a pure .NET library. That difference has practical implications before you write a single line of migration code. jsreport runs an external Node.js process &mdash; whether in utility mode (one-shot per render) or web server mode (persistent) &mdash; and communicates with your .NET code over local IPC or HTTP. IronPDF runs in-process, renders HTML strings or files via embedded Chromium, and ships no external runtime.</p>
 
 <p>Here are eight specific reasons teams trigger this migration:</p>
 
 <p>1. <strong>Container deployment complexity</strong> &mdash; jsreport's Chromium-in-Node.js-in-Docker requires managing layered process permissions, seccomp profiles, and memory limits that don't apply to an in-process library.</p>
 
-<p>2. <strong>Node.js dependency in a .NET shop</strong> &mdash; maintaining a Node.js runtime, managing npm packages, and keeping jsreport updated adds operational overhead for teams without Node.js expertise.</p>
+<p>2. <strong>Node.js dependency in a .NET shop</strong> &mdash; maintaining a Node.js runtime, managing the platform-specific <code>jsreport.Binary*</code> packages, and keeping them updated adds operational overhead for teams without Node.js expertise.</p>
 
-<p>3. <strong>Inter-process communication overhead</strong> &mdash; HTTP or IPC round trips to a reporting server add latency per PDF. In-process rendering eliminates the network hop.</p>
+<p>3. <strong>Process spawn and IPC overhead</strong> &mdash; in utility mode, every <code>RenderAsync</code> call boots the Node.js binary; in web server mode, you pay a local HTTP round trip per render. In-process rendering eliminates both.</p>
 
-<p>4. <strong>Service orchestration</strong> &mdash; jsreport as a separate service needs health checks, restart policies, and separate monitoring. An in-process library reduces the service count.</p>
+<p>4. <strong>Service orchestration</strong> &mdash; jsreport in web server mode needs health checks, restart policies, and separate monitoring. An in-process library reduces the service count.</p>
 
-<p>5. <strong>Azure App Service / serverless constraints</strong> &mdash; some Azure tiers restrict background process spawning. An in-process renderer avoids this constraint. See the <a href="https://ironpdf.com/how-to/azure/">IronPDF Azure documentation</a>.</p>
+<p>5. <strong>Azure App Service / serverless constraints</strong> &mdash; some Azure tiers restrict child process spawning, which breaks <code>jsreport.Local</code>. An in-process renderer avoids this constraint. See the <a href="https://ironpdf.com/how-to/azure/">IronPDF Azure documentation</a>.</p>
 
-<p>6. <strong>Template management coupling</strong> &mdash; jsreport templates stored in jsreport's data store create a dependency between your template design and the reporting service. Moving to HTML files in your codebase gives you version control integration.</p>
+<p>6. <strong>Handlebars / JsRender templating</strong> &mdash; jsreport's template engines run inside Node.js. After migration, templating moves to .NET (Razor, string interpolation, or Handlebars.NET) and lives in your repo under version control.</p>
 
-<p>7. <strong>Output format scope</strong> &mdash; if PDF is the only output you actually use, maintaining a full reporting platform is overhead.</p>
+<p>7. <strong>Output format scope</strong> &mdash; if PDF is the only output you actually use, maintaining a full multi-recipe reporting platform is overhead.</p>
 
 <p>8. <strong>jsreport licensing tiers</strong> &mdash; if you're hitting limits on the community edition for your use case, evaluating alternatives is reasonable before upgrading tiers.</p>
 
 <h2>How Much Effort Does Each Feature Take to Migrate?</h2>
 
-<p><strong>Answer:</strong></p>
-
 <p>The migration scope depends heavily on which jsreport features you actually use. I've mapped every common feature to its migration effort below. If you're only generating PDFs from HTML, the migration is straightforward. If you depend on jsreport's multi-format output or template management UI, those pieces need separate handling.</p>
 
-<table>
-<thead>
-<tr><th>Feature</th><th>jsreport Approach</th><th>Effort to Migrate</th></tr>
-</thead>
-<tbody>
-<tr><td>HTML/Handlebars to PDF</td><td>API call with template data</td><td>Medium &mdash; migrate templates to HTML</td></tr>
-<tr><td>URL to PDF</td><td>jsreport recipe</td><td>Low</td></tr>
-<tr><td>Headers and footers</td><td>Template recipe options</td><td>Medium</td></tr>
-<tr><td>Watermark</td><td>Custom CSS in template / post-processing</td><td>Low (native in IronPDF)</td></tr>
-<tr><td>Merge PDFs</td><td>Not a jsreport core feature</td><td>Low (native in IronPDF)</td></tr>
-<tr><td>Password protection</td><td>Not a jsreport core feature</td><td>Low</td></tr>
-<tr><td>Excel output</td><td>jsreport native feature</td><td>N/A &mdash; IronPDF doesn't cover this</td></tr>
-<tr><td>CSV output</td><td>jsreport native feature</td><td>N/A</td></tr>
-<tr><td>Template management UI</td><td>jsreport studio</td><td>Not in IronPDF &mdash; build separately</td></tr>
-<tr><td>Scheduled reports</td><td>jsreport scheduling</td><td>Not in IronPDF &mdash; build separately</td></tr>
-<tr><td>Container deployment</td><td>Complex (layered processes)</td><td>Simpler &mdash; in-process</td></tr>
-</tbody>
-</table>
+<ul>
+<li><strong>HTML/Handlebars to PDF &mdash; Medium.</strong> The render call itself is a one-line swap; the work is moving template data binding from Handlebars (running in Node.js) to .NET string interpolation, Razor, or Handlebars.NET.</li>
+<li><strong>URL to PDF &mdash; Low.</strong> jsreport handles this through the ChromePdf recipe; IronPDF has a direct <code>RenderUrlAsPdf</code> method.</li>
+<li><strong>Headers and footers &mdash; Medium.</strong> Mechanically straightforward, but placeholders change: <code>{#pageNum}</code> &rarr; <code>{page}</code>, <code>{#numPages}</code> &rarr; <code>{total-pages}</code>, <code>{#timestamp}</code> &rarr; <code>{date}</code>.</li>
+<li><strong>Margins &mdash; Low.</strong> Convert CSS units to millimeters (<code>"2cm"</code> &rarr; <code>20</code>, <code>"1in"</code> &rarr; <code>25</code>).</li>
+<li><strong>Platform-specific binaries &mdash; Low.</strong> Delete <code>jsreport.Binary</code>, <code>jsreport.Binary.Linux</code>, and <code>jsreport.Binary.OSX</code>; IronPDF auto-detects platform.</li>
+<li><strong>Server lifecycle (StartAsync / KillAsync) &mdash; Low.</strong> All such calls disappear; IronPDF is in-process.</li>
+<li><strong>Excel and CSV output &mdash; N/A.</strong> IronPDF does not cover non-PDF recipes; if you rely on jsreport for these, keep jsreport for them or add a dedicated library.</li>
+<li><strong>jsreport Studio (template management UI) &mdash; Not in IronPDF.</strong> If non-developers design templates in the browser, you need to build that workflow separately.</li>
+<li><strong>Scheduled reports &mdash; Not in IronPDF.</strong> Move to Hangfire, Quartz.NET, or a hosted scheduler.</li>
+<li><strong>Container deployment &mdash; Simpler.</strong> No Node.js layer, no platform-specific binaries.</li>
+</ul>
 
 <p>And here is a quick decision matrix:</p>
 
-<table>
-<thead>
-<tr><th>Scenario</th><th>Recommendation</th></tr>
-</thead>
-<tbody>
-<tr><td>PDF only, container deployment issues</td><td>IronPDF is a direct fit &mdash; evaluates well</td></tr>
-<tr><td>Multi-format output (Excel, CSV) needed</td><td>IronPDF covers PDF; retain jsreport for other formats, or add libraries</td></tr>
-<tr><td>Template management UI is business-critical</td><td>jsreport's studio has no equivalent in IronPDF</td></tr>
-<tr><td>Node.js runtime is already in your stack</td><td>jsreport overhead is lower &mdash; migration ROI is smaller</td></tr>
-</tbody>
-</table>
+<ul>
+<li><strong>PDF only, container deployment issues.</strong> IronPDF is a direct fit and evaluates well.</li>
+<li><strong>Multi-format output (Excel, CSV) needed.</strong> IronPDF covers PDF only &mdash; retain jsreport for other formats, or add format-specific libraries.</li>
+<li><strong>Template management UI is business-critical.</strong> jsreport Studio has no equivalent in IronPDF; either keep jsreport or build a Razor-based editor in front of IronPDF.</li>
+<li><strong>Node.js runtime is already in your stack.</strong> jsreport overhead is lower for you, so migration ROI is smaller; the case is mostly about deployment simplification.</li>
+</ul>
 
 <h2>How Do jsreport and IronPDF Compare Feature by Feature?</h2>
 
-<p><strong>Answer:</strong></p>
-
 <p>Before diving into code, it helps to see the two libraries side by side. I've mapped the core aspects, API patterns, and class equivalents so you know exactly what changes during migration.</p>
 
-<table>
-<thead>
-<tr><th>Aspect</th><th>jsreport</th><th>IronPDF</th></tr>
-</thead>
-<tbody>
-<tr><td>Focus</td><td>Multi-format reporting platform</td><td>PDF generation + manipulation</td></tr>
-<tr><td>Pricing</td><td>Community (free) + commercial tiers</td><td>Commercial &mdash; verify at ironsoftware.com</td></tr>
-<tr><td>API Style</td><td>HTTP REST API + .NET client</td><td>In-process .NET library</td></tr>
-<tr><td>Learning Curve</td><td>Medium (requires understanding reporting concepts)</td><td>Medium (.NET API)</td></tr>
-<tr><td>HTML Rendering</td><td>Chromium via Puppeteer</td><td>Chromium-based</td></tr>
-<tr><td>Page Indexing</td><td>N/A (output only)</td><td>0-based</td></tr>
-<tr><td>Thread Safety</td><td>External service handles isolation</td><td>Renderer instance reuse &mdash; see async docs</td></tr>
-<tr><td>Namespace</td><td><code>jsreport.Client</code> (HTTP client)</td><td><code>IronPdf</code></td></tr>
-</tbody>
-</table>
+<p>jsreport is a multi-format reporting platform; IronPDF is focused on PDF generation and manipulation. jsreport has a community (free) tier plus commercial tiers, IronPDF is commercial &mdash; pricing is on ironsoftware.com. Both render HTML through Chromium, so the visual output of equivalent templates is generally close.</p>
+
+<p>The architectural difference is bigger than the API difference. <code>jsreport.Local</code> spawns a Node.js child process (utility mode) or runs an embedded Node.js web server (web server mode); the .NET side is essentially a client. IronPDF runs entirely in-process: a single <code>ChromePdfRenderer</code> instance renders directly. Page indexing in IronPDF's <code>PdfDocument</code> is 0-based &mdash; relevant once you start manipulating output. Renderer reuse is supported; for ASP.NET Core, register <code>ChromePdfRenderer</code> as a singleton.</p>
 
 <p>Here is the namespace mapping:</p>
 
-<table>
-<thead>
-<tr><th>jsreport</th><th>IronPDF</th><th>Notes</th></tr>
-</thead>
-<tbody>
-<tr><td><code>jsreport.Client</code></td><td><code>IronPdf</code></td><td>Core</td></tr>
-<tr><td><code>jsreport.Types</code></td><td><code>IronPdf.Rendering</code></td><td>Configuration types</td></tr>
-<tr><td>HTTP client pattern</td><td>In-process &mdash; no HTTP</td><td>Architectural change</td></tr>
-</tbody>
-</table>
+<ul>
+<li><code>jsreport.Local</code> &rarr; <code>IronPdf</code> &mdash; entry point</li>
+<li><code>jsreport.Types</code> &rarr; <code>IronPdf</code> / <code>IronPdf.Rendering</code> &mdash; configuration types</li>
+<li><code>jsreport.Binary</code>, <code>jsreport.Binary.Linux</code>, <code>jsreport.Binary.OSX</code> &rarr; not needed &mdash; IronPDF auto-detects platform</li>
+<li><code>jsreport.Client</code> &rarr; not needed &mdash; no HTTP client (in-process)</li>
+</ul>
 
 <p>And the core class mapping:</p>
 
-<table>
-<thead>
-<tr><th>jsreport Class</th><th>IronPDF Class</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>ReportingService</code></td><td><code>ChromePdfRenderer</code></td><td>Entry point for PDF generation</td></tr>
-<tr><td><code>RenderRequest</code></td><td><code>ChromePdfRenderOptions</code></td><td>Render configuration</td></tr>
-<tr><td><code>Template</code></td><td>HTML string or file</td><td>Template definition</td></tr>
-<tr><td><code>Report.Content</code> (stream)</td><td><code>PdfDocument</code></td><td>PDF output</td></tr>
-</tbody>
-</table>
+<ul>
+<li><code>LocalReporting</code> / <code>ReportingService</code> &rarr; <code>ChromePdfRenderer</code> &mdash; entry point for PDF generation</li>
+<li><code>RenderRequest</code> &rarr; method parameters on <code>ChromePdfRenderer</code> &mdash; no wrapper object</li>
+<li><code>Template</code> &rarr; method parameters &mdash; HTML string or file passed directly</li>
+<li><code>Chrome</code> (recipe options) &rarr; <code>RenderingOptions</code> &mdash; margins, paper size, headers, wait conditions</li>
+<li><code>Report.Content</code> (stream) &rarr; <code>PdfDocument</code> &mdash; output object with <code>SaveAs</code>, <code>BinaryData</code>, <code>Stream</code></li>
+<li><code>Recipe</code> / <code>Engine</code> enums &rarr; not needed &mdash; IronPDF is always Chrome PDF; templating is C#</li>
+</ul>
 
 <h2>How Do I Set Up IronPDF and Run a Basic Migration?</h2>
-
-<p><strong>Answer:</strong></p>
 
 <p>I'll walk you through the three steps to get from jsreport to <a href="https://ironpdf.com/">IronPDF</a>: license configuration, namespace imports, and a basic PDF generation swap.</p>
 
@@ -128,30 +90,30 @@
 
 <h3>Finding jsreport References</h3>
 
-<pre><code># Find jsreport client usage
-rg -l "jsreport\|JsReport\|IJsReportClient" --type cs -i
+<pre><code># Find jsreport using statements and client classes
+rg -l "jsreport\.|JsReportBinary|LocalReporting|ReportingService" --type cs -i
 
-# Find HTTP API calls to jsreport
-rg "jsreport\|localhost:5488\|api/report" --type cs -n
+# Find render call sites
+rg "RenderAsync|RenderRequest|new Template" --type cs -n
 
-# Find template rendering calls
-rg "ReportingService\|RenderAsync" --type cs -n
+# Find recipe / engine usage (Handlebars, JsRender, ChromePdf, Xlsx, etc.)
+rg "Recipe\.|Engine\." --type cs -n
 
 # Find NuGet package references
-grep -r "jsreport" *.csproj **/*.csproj 2&gt;/dev/null
-
-# Find jsreport config files
-find . -name "jsreport.config.json" -o -name "*.jsrep" 2&gt;/dev/null
+rg "jsreport\." -g "*.csproj"
 </code></pre>
 
 <p>Then remove jsreport and install IronPDF:</p>
 
 <h3>Swap the Packages</h3>
 
-<pre><code># Remove jsreport .NET client packages
-dotnet remove package jsreport.Client
-dotnet remove package jsreport.Local    # if using embedded mode
-dotnet remove package jsreport.AspNetCore  # if using middleware
+<pre><code># Remove jsreport .NET packages
+dotnet remove package jsreport.Local
+dotnet remove package jsreport.Types
+dotnet remove package jsreport.Binary
+dotnet remove package jsreport.Binary.Linux  # if installed
+dotnet remove package jsreport.Binary.OSX    # if installed
+dotnet remove package jsreport.Client        # if you used the HTTP client
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -160,16 +122,17 @@ dotnet restore
 
 <h3>Step 1: License Configuration</h3>
 
-<p>Before (jsreport &mdash; no .NET license key; authenticated via jsreport server config):</p>
+<p>Before (jsreport &mdash; no .NET license key; the Node.js binary is configured at construction time):</p>
 
-<pre><code>using jsreport.Client;
+<pre><code>using jsreport.Binary;
+using jsreport.Local;
 using jsreport.Types;
-using System;
 
-// jsreport authentication is handled at the HTTP level
-var rs = new ReportingService("http://localhost:5488");
-// Optional: rs.Username = "admin"; rs.Password = "password";
-// No in-process license key
+// No in-process license key. Configuration is on the LocalReporting builder.
+var rs = new LocalReporting()
+    .UseBinary(JsReportBinary.GetBinary())
+    .AsUtility()
+    .Create();
 </code></pre>
 
 <p>After (IronPDF):</p>
@@ -177,7 +140,7 @@ var rs = new ReportingService("http://localhost:5488");
 <pre><code>using IronPdf;
 
 // One-time setup at application startup
-IronPdf.License.LicenseKey = "YOUR_IRONPDF_LICENSE_KEY";
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 // Guide: https://ironpdf.com/how-to/license-keys/
 </code></pre>
 
@@ -185,8 +148,10 @@ IronPdf.License.LicenseKey = "YOUR_IRONPDF_LICENSE_KEY";
 
 <p>Before:</p>
 
-<pre><code>using jsreport.Client;
+<pre><code>using jsreport.Binary;
+using jsreport.Local;
 using jsreport.Types;
+using System.IO;
 using System.Threading.Tasks;
 </code></pre>
 
@@ -198,9 +163,10 @@ using IronPdf.Rendering;
 
 <h3>Step 3: Basic PDF Generation</h3>
 
-<p>Before (jsreport API call):</p>
+<p>Before (jsreport with <code>jsreport.Local</code>):</p>
 
-<pre><code>using jsreport.Client;
+<pre><code>using jsreport.Binary;
+using jsreport.Local;
 using jsreport.Types;
 using System.IO;
 using System.Threading.Tasks;
@@ -209,7 +175,10 @@ class QuickStartExample
 {
     static async Task Main()
     {
-        var rs = new ReportingService("http://localhost:5488");
+        var rs = new LocalReporting()
+            .UseBinary(JsReportBinary.GetBinary())
+            .AsUtility()
+            .Create();
 
         var report = await rs.RenderAsync(new RenderRequest
         {
@@ -221,9 +190,8 @@ class QuickStartExample
             }
         });
 
-        using var ms = new MemoryStream();
-        await report.Content.CopyToAsync(ms);
-        File.WriteAllBytes("output.pdf", ms.ToArray());
+        using var fs = File.Create("output.pdf");
+        report.Content.CopyTo(fs);
     }
 }
 </code></pre>
@@ -232,7 +200,7 @@ class QuickStartExample
 
 <pre><code>using IronPdf;
 
-IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 var renderer = new ChromePdfRenderer();
 var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Hello World&lt;/h1&gt;");
@@ -242,13 +210,12 @@ pdf.SaveAs("output.pdf");
 
 <h2>How Do I Migrate HTML-to-PDF with Template Data?</h2>
 
-<p><strong>Answer:</strong></p>
-
-<p>With jsreport, template data binding happens in Handlebars running inside Node.js. After migration, that logic moves to your .NET code. You can use string interpolation, Razor, or even Handlebars.NET if you want to preserve your existing template syntax.</p>
+<p>With jsreport, template data binding happens in Handlebars running inside the Node.js binary. After migration, that logic moves to your .NET code. You can use string interpolation, Razor, or Handlebars.NET if you want to preserve your existing template syntax.</p>
 
 <h3>Before (jsreport RenderAsync with Handlebars Data)</h3>
 
-<pre><code>using jsreport.Client;
+<pre><code>using jsreport.Binary;
+using jsreport.Local;
 using jsreport.Types;
 using System;
 using System.IO;
@@ -258,7 +225,10 @@ class HtmlToPdfExample
 {
     static async Task Main()
     {
-        var rs = new ReportingService("http://localhost:5488");
+        var rs = new LocalReporting()
+            .UseBinary(JsReportBinary.GetBinary())
+            .AsUtility()
+            .Create();
 
         // Template with Handlebars data binding
         string template = @"
@@ -285,10 +255,8 @@ class HtmlToPdfExample
             }
         });
 
-        // Stream to bytes
-        using var ms = new MemoryStream();
-        await report.Content.CopyToAsync(ms);
-        File.WriteAllBytes("invoice.pdf", ms.ToArray());
+        using var fs = File.Create("invoice.pdf");
+        report.Content.CopyTo(fs);
         Console.WriteLine("Saved: invoice.pdf");
     }
 }
@@ -299,7 +267,7 @@ class HtmlToPdfExample
 <pre><code>using IronPdf;
 using System;
 
-IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 // Template data rendering moves to .NET (Razor, string interpolation, etc.)
 var invoiceNumber = "1234";
@@ -337,225 +305,146 @@ string html = template(data);
 var pdf = renderer.RenderHtmlAsPdf(html);
 </code></pre>
 
-<h2>How Do I Migrate Merge, Watermark, and Password Protection?</h2>
+<h2>How Do I Migrate URL-to-PDF and Header/Footer Templates?</h2>
 
-<p><strong>Answer:</strong></p>
+<p>These two scenarios cover the bulk of jsreport-to-IronPDF migration work in practice. URL rendering goes from a Chrome recipe option to a dedicated method. Header and footer templates carry the most subtle migration risk because the placeholder syntax differs: <code>{#pageNum}</code> &rarr; <code>{page}</code>, <code>{#numPages}</code> &rarr; <code>{total-pages}</code>, <code>{#timestamp}</code> &rarr; <code>{date}</code>.</p>
 
-<p>These three operations are where IronPDF simplifies things the most. With jsreport, none of them are core features &mdash; you needed secondary libraries like PdfSharp or iTextSharp. With IronPDF, they're built in.</p>
+<h3>URL to PDF &mdash; Before (jsreport)</h3>
 
-<h3>Merge PDFs &mdash; Before (jsreport + PdfSharp)</h3>
-
-<pre><code>using jsreport.Client;
+<pre><code>using jsreport.Binary;
+using jsreport.Local;
 using jsreport.Types;
-using PdfSharp.Pdf;       // secondary library
-using PdfSharp.Pdf.IO;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 
-class MergeReportsExample
+class UrlToPdfExample
 {
     static async Task Main()
     {
-        var rs = new ReportingService("http://localhost:5488");
-        var tempPaths = new List&lt;string&gt;();
+        var rs = new LocalReporting()
+            .UseBinary(JsReportBinary.GetBinary())
+            .AsUtility()
+            .Create();
 
-        // Generate each section as separate PDF
-        foreach (var sectionHtml in new[] { "&lt;h1&gt;Section 1&lt;/h1&gt;", "&lt;h1&gt;Section 2&lt;/h1&gt;" })
+        // jsreport URL rendering: empty Content + Chrome.Url, or use a script redirect
+        var report = await rs.RenderAsync(new RenderRequest
         {
-            var report = await rs.RenderAsync(new RenderRequest
+            Template = new Template
             {
-                Template = new Template
+                Recipe = Recipe.ChromePdf,
+                Engine = Engine.None,
+                Content = "",
+                Chrome = new Chrome
                 {
-                    Content = sectionHtml,
-                    Engine = Engine.None,
-                    Recipe = Recipe.ChromePdf
+                    Url = "https://example.com",
+                    WaitForNetworkIdle = true,
+                    Format = "A4",
+                    Landscape = true,
+                    MediaType = MediaType.Print
                 }
-            });
-            var tempPath = Path.GetTempFileName() + ".pdf";
-            using var fs = new FileStream(tempPath, FileMode.Create);
-            await report.Content.CopyToAsync(fs);
-            tempPaths.Add(tempPath);
-        }
+            }
+        });
 
-        // Merge with PdfSharp (secondary library)
-        using var outputDoc = new PdfDocument();
-        foreach (var path in tempPaths)
-        {
-            using var input = PdfReader.Open(path, PdfDocumentOpenMode.Import);
-            foreach (PdfPage page in input.Pages)
-                outputDoc.AddPage(page);
-        }
-        outputDoc.Save("merged.pdf");
-        foreach (var path in tempPaths) File.Delete(path); // cleanup
+        using var fs = File.Create("webpage.pdf");
+        report.Content.CopyTo(fs);
     }
 }
 </code></pre>
 
-<h3>Merge PDFs &mdash; After (IronPDF)</h3>
+<h3>URL to PDF &mdash; After (IronPDF)</h3>
 
 <pre><code>using IronPdf;
 
-IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.PaperOrientation = IronPdf.Rendering.PdfPaperOrientation.Landscape;
+renderer.RenderingOptions.CssMediaType = IronPdf.Rendering.PdfCssMediaType.Print;
+renderer.RenderingOptions.WaitFor.NetworkIdle();
 
-var section1 = renderer.RenderHtmlAsPdf("&lt;h1&gt;Section 1&lt;/h1&gt;");
-var section2 = renderer.RenderHtmlAsPdf("&lt;h1&gt;Section 2&lt;/h1&gt;");
-
-var merged = PdfDocument.Merge(section1, section2);
-merged.SaveAs("merged.pdf");
-// Guide: https://ironpdf.com/how-to/merge-or-split-pdfs/
+var pdf = renderer.RenderUrlAsPdf("https://example.com");
+pdf.SaveAs("webpage.pdf");
+// Guide: https://ironpdf.com/how-to/url-to-pdf/
 </code></pre>
 
-<h3>Watermark &mdash; Before (jsreport + iTextSharp)</h3>
+<h3>Headers and Footers &mdash; Before (jsreport)</h3>
 
-<pre><code>using jsreport.Client;
+<pre><code>using jsreport.Binary;
+using jsreport.Local;
 using jsreport.Types;
-using iTextSharp.text;
-using iTextSharp.text.pdf;
 using System.IO;
 using System.Threading.Tasks;
 
-class WatermarkExample
+class HeaderFooterExample
 {
     static async Task Main()
     {
-        var rs = new ReportingService("http://localhost:5488");
+        var rs = new LocalReporting()
+            .UseBinary(JsReportBinary.GetBinary())
+            .AsUtility()
+            .Create();
 
-        // Generate PDF
         var report = await rs.RenderAsync(new RenderRequest
         {
             Template = new Template
             {
-                Content = "&lt;h1&gt;Confidential Report&lt;/h1&gt;",
+                Recipe = Recipe.ChromePdf,
                 Engine = Engine.None,
-                Recipe = Recipe.ChromePdf
+                Content = "&lt;h1&gt;Document with Header and Footer&lt;/h1&gt;&lt;p&gt;Main content goes here.&lt;/p&gt;",
+                Chrome = new Chrome
+                {
+                    DisplayHeaderFooter = true,
+                    HeaderTemplate = "&lt;div style='font-size:10px; text-align:center; width:100%;'&gt;Custom Header&lt;/div&gt;",
+                    FooterTemplate = "&lt;div style='font-size:10px; text-align:center; width:100%;'&gt;Page &lt;span class='pageNumber'&gt;&lt;/span&gt; of &lt;span class='totalPages'&gt;&lt;/span&gt;&lt;/div&gt;",
+                    MarginTop = "2cm",
+                    MarginBottom = "2cm"
+                }
             }
         });
 
-        // Write to temp file, apply watermark with secondary library
-        var temp = Path.GetTempFileName() + ".pdf";
-        using (var fs = new FileStream(temp, FileMode.Create))
-            await report.Content.CopyToAsync(fs);
-
-        // Apply watermark via iTextSharp (secondary library)
-        using var reader  = new PdfReader(temp);
-        using var outFs   = new FileStream("watermarked.pdf", FileMode.Create);
-        using var stamper = new PdfStamper(reader, outFs);
-        var font = BaseFont.CreateFont(BaseFont.HELVETICA_BOLD, BaseFont.CP1252, false);
-        for (int i = 1; i &lt;= reader.NumberOfPages; i++)
-        {
-            var cb = stamper.GetOverContent(i);
-            cb.BeginText();
-            cb.SetFontAndSize(font, 60);
-            cb.SetColorFill(new BaseColor(200, 200, 200));
-            cb.ShowTextAligned(Element.ALIGN_CENTER, "CONFIDENTIAL", 300, 400, 45);
-            cb.EndText();
-        }
-        File.Delete(temp);
+        using var fs = File.Create("document_with_headers.pdf");
+        report.Content.CopyTo(fs);
     }
 }
 </code></pre>
 
-<h3>Watermark &mdash; After (IronPDF)</h3>
+<h3>Headers and Footers &mdash; After (IronPDF)</h3>
 
 <pre><code>using IronPdf;
-using IronPdf.Editing;
+using IronPdf.Rendering;
 
-IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 var renderer = new ChromePdfRenderer();
-var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Confidential Report&lt;/h1&gt;");
 
-var stamper = new TextStamper
+renderer.RenderingOptions.TextHeader = new TextHeaderFooter
 {
-    Text = "CONFIDENTIAL",
-    FontColor = IronSoftware.Drawing.Color.LightGray,
-    FontSize = 60,
-    Opacity = 30,
-    Rotation = 45,
-    VerticalAlignment = VerticalAlignment.Middle,
-    HorizontalAlignment = HorizontalAlignment.Center
+    CenterText = "Custom Header",
+    FontSize = 10
 };
-pdf.ApplyStamp(stamper);
-pdf.SaveAs("watermarked.pdf");
-</code></pre>
-
-<h3>Password Protection &mdash; Before (jsreport + iTextSharp)</h3>
-
-<pre><code>using jsreport.Client;
-using jsreport.Types;
-using iTextSharp.text.pdf;
-using System.IO;
-using System.Text;
-using System.Threading.Tasks;
-
-class SecurityExample
+renderer.RenderingOptions.TextFooter = new TextHeaderFooter
 {
-    static async Task Main()
-    {
-        var rs = new ReportingService("http://localhost:5488");
+    CenterText = "Page {page} of {total-pages}",
+    FontSize = 10
+};
+renderer.RenderingOptions.MarginTop = 20;    // mm (2cm)
+renderer.RenderingOptions.MarginBottom = 20;
 
-        var report = await rs.RenderAsync(new RenderRequest
-        {
-            Template = new Template
-            {
-                Content = "&lt;h1&gt;Private Document&lt;/h1&gt;",
-                Engine = Engine.None,
-                Recipe = Recipe.ChromePdf
-            }
-        });
-
-        // Stream to bytes, then encrypt with secondary library
-        byte[] pdfBytes;
-        using (var ms = new MemoryStream())
-        {
-            await report.Content.CopyToAsync(ms);
-            pdfBytes = ms.ToArray();
-        }
-
-        using var reader  = new PdfReader(pdfBytes);
-        using var fs      = new FileStream("secured.pdf", FileMode.Create);
-        using var stamper = new PdfStamper(reader, fs, '\0', false);
-        stamper.SetEncryption(
-            Encoding.ASCII.GetBytes("userpass"),
-            Encoding.ASCII.GetBytes("ownerpass"),
-            PdfWriter.ALLOW_PRINTING,
-            PdfWriter.ENCRYPTION_AES_128
-        );
-    }
-}
+var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Document with Header and Footer&lt;/h1&gt;&lt;p&gt;Main content goes here.&lt;/p&gt;");
+pdf.SaveAs("document_with_headers.pdf");
+// Guide: https://ironpdf.com/how-to/headers-and-footers/
 </code></pre>
 
-<h3>Password Protection &mdash; After (IronPDF)</h3>
-
-<pre><code>using IronPdf;
-using IronPdf.Security;
-
-IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
-
-var renderer = new ChromePdfRenderer();
-var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Private Document&lt;/h1&gt;");
-
-pdf.SecuritySettings.UserPassword  = "userpass";
-pdf.SecuritySettings.OwnerPassword = "ownerpass";
-pdf.SecuritySettings.AllowUserPrinting = PdfPrintSecurity.FullPrintRights;
-pdf.SaveAs("secured.pdf");
-// Guide: https://ironpdf.com/how-to/pdf-permissions-passwords/
-</code></pre>
+<p>If you need rich HTML headers (logos, multi-column layouts) rather than plain centered text, use <code>HtmlHeader</code> / <code>HtmlFooter</code> with <code>HtmlHeaderFooter</code> and the same <code>{page}</code>, <code>{total-pages}</code>, <code>{date}</code>, <code>{html-title}</code>, <code>{url}</code> placeholders.</p>
 
 <h2>What About Performance and Deployment Considerations?</h2>
 
-<p><strong>Answer:</strong></p>
+<p>The biggest performance win is eliminating the cross-process hop. With <code>jsreport.Local</code> utility mode, every render starts the Node.js binary and tears it down; in web server mode, you pay a localhost HTTP round trip per render. IronPDF renders in-process against an embedded Chromium, with no spawn or network overhead.</p>
 
-<p>The biggest performance win is eliminating the HTTP round trip. Every jsreport PDF generation made a network call (or at minimum IPC). IronPDF renders in-process &mdash; same Chromium rendering, no network overhead.</p>
-
-<pre><code>// jsreport: HTTP call -&gt; jsreport Node process -&gt; Chromium -&gt; response
-// Typical latency: 100-500ms+ depending on network and template complexity
-
-// IronPDF: in-process -&gt; Chromium -&gt; return
-// Same Chromium rendering, no network overhead
+<pre><code>// jsreport (utility mode):  spawn Node.js binary -&gt; Chromium -&gt; stream back -&gt; exit
+// jsreport (web server mode): HTTP call to local Node.js -&gt; Chromium -&gt; response
+// IronPDF:                   in-process -&gt; embedded Chromium -&gt; PdfDocument
 </code></pre>
 
 <p>For ASP.NET Core applications, register the renderer as a singleton for reuse:</p>
@@ -587,37 +476,27 @@ return File(pdf.Stream, "application/pdf", "report.pdf");
 
 <h3>Can I keep jsreport for non-PDF outputs and use IronPDF for PDFs?</h3>
 
-<p><strong>Answer:</strong></p>
-
 <p>Yes. If you rely on jsreport for Excel, CSV, or other non-PDF output formats, you can run both side by side. IronPDF covers PDF generation and manipulation only. Retain jsreport for the formats it handles natively, or replace those with dedicated .NET libraries for each format.</p>
 
 <h3>What happens to my Handlebars templates?</h3>
-
-<p><strong>Answer:</strong></p>
 
 <p>You have three options. For simple templates, use C# string interpolation. For complex templates with partials and helpers, use Handlebars.NET (the NuGet package <code>Handlebars.Net</code>) which lets you reuse your existing Handlebars syntax directly in .NET. For teams already using Razor elsewhere, migrate templates to <code>.cshtml</code> files and use RazorLight to compile them to HTML strings before passing to <code>ChromePdfRenderer</code>.</p>
 
 <h3>Does IronPDF have an equivalent to jsreport Studio?</h3>
 
-<p><strong>Answer:</strong></p>
-
 <p>No. IronPDF has no built-in template management UI. If jsreport Studio is business-critical for your team &mdash; for example, non-developers design templates in the browser &mdash; you'll need to build that workflow separately. Some teams create a simple internal tool with a Razor-based editor and preview endpoint that calls IronPDF under the hood.</p>
 
 <h3>How do I handle jsreport running as a Docker service?</h3>
 
-<p><strong>Answer:</strong></p>
-
-<p>Remove the jsreport service entirely from your <code>docker-compose.yml</code> or Kubernetes config. Remove the jsreport port from service discovery and firewall rules. If jsreport was the only consumer of Node.js in your Docker images, remove the Node.js runtime as well. Update monitoring to replace jsreport health checks with in-process metrics. IronPDF runs inside your existing .NET application container &mdash; no separate service needed.</p>
+<p>Remove the jsreport service entirely from your <code>docker-compose.yml</code> or Kubernetes config. If you were using <code>jsreport.Local</code> with bundled binaries, drop the <code>jsreport.Binary*</code> packages and the platform-detection code. If jsreport was the only consumer of Node.js in your Docker images, remove the Node.js runtime as well. Update monitoring to replace jsreport health checks with in-process metrics. IronPDF runs inside your existing .NET application container &mdash; no separate service needed.</p>
 
 <h3>Is IronPDF thread-safe for concurrent PDF generation?</h3>
-
-<p><strong>Answer:</strong></p>
 
 <p>Yes, you can reuse a <code>ChromePdfRenderer</code> instance across requests. For ASP.NET Core, register it as a singleton in your DI container. For high-concurrency scenarios, use the async rendering methods (<code>RenderHtmlAsPdfAsync</code>) to avoid blocking threads. See the <a href="https://ironpdf.com/how-to/async/">IronPDF async documentation</a> for details.</p>
 
 <h2>Conclusion</h2>
 
-<p>The architectural shift from external reporting server to in-process library is the meaningful part of this migration. The API differences are straightforward once you've mapped the template engine and determined how non-PDF outputs will be handled.</p>
+<p>The architectural shift from a Node.js subprocess (or local jsreport server) to a pure in-process .NET library is the meaningful part of this migration. The API differences are straightforward once you've mapped the template engine and decided how non-PDF outputs will be handled.</p>
 
 <p>Teams that hit friction tend to be the ones with large Handlebars template libraries &mdash; that migration is mechanical but takes time. And teams who depended on jsreport Studio for template management need to decide where that workflow goes.</p>
 

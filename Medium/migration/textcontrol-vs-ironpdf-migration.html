@@ -14,15 +14,13 @@
 
 <h2>What Are the STA Threading Problems and How Does IronPDF Solve Them?</h2>
 
-<p><strong>Answer:</strong></p>
-
-<p>The concurrency issue is usually the trigger for evaluating alternatives. TextControl's <code>ServerTextControl</code> typically requires STA thread affinity. That means every PDF generation call needs to be wrapped in a dedicated STA thread with <code>SetApartmentState</code>, <code>Start</code>, and <code>Join</code> boilerplate. Under concurrent load, you end up building request queues and semaphores just to serialize access.</p>
+<p>The concurrency issue is usually the trigger for evaluating alternatives. TextControl's <code>ServerTextControl</code> typically requires STA thread affinity in many configurations &mdash; verify against your specific TextControl version and license edition. That means every PDF generation call needs to be wrapped in a dedicated STA thread with <code>SetApartmentState</code>, <code>Start</code>, and <code>Join</code> boilerplate. Under concurrent load, you end up building request queues and semaphores just to serialize access.</p>
 
 <p>Here is what the workaround pattern looks like in a typical TextControl codebase.</p>
 
 <h3>TextControl STA Threading Pattern (Before)</h3>
 
-<pre><code>using TXTextControl;  // VERIFY
+<pre><code>using TXTextControl;
 using System;
 using System.IO;
 using System.Threading;
@@ -46,9 +44,9 @@ class HtmlToPdfBefore
                     &lt;p&gt;Customer: Acme Corp | Total: $4,200.00&lt;/p&gt;
                     &lt;/body&gt;&lt;/html&gt;";
 
-                tx.Load(html, StringStreamType.HTMLFormat); // VERIFY enum name
+                tx.Load(html, StreamType.HTMLFormat);
 
-                tx.Save("invoice.pdf", StreamType.AdobePDF); // VERIFY
+                tx.Save("invoice.pdf", StreamType.AdobePDF);
                 Console.WriteLine("Saved invoice.pdf");
             }
             catch (Exception ex)
@@ -74,7 +72,7 @@ class HtmlToPdfBefore
 <pre><code>using IronPdf;
 using System;
 
-IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 // No STA thread wrapper, no thread.Start/Join, no exception capture
 var html = @"
@@ -105,7 +103,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 
-IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 var sw = Stopwatch.StartNew();
 
@@ -128,17 +126,14 @@ foreach (var pdf in pdfs) pdf.Dispose();
 
 <h2>How Do You Handle PDF Merging After Migration?</h2>
 
-<p><strong>Answer:</strong></p>
+<p>TextControl can append PDFs through its document model by loading each PDF with <code>LoadAppendMode.Append</code> and saving the combined result as PDF. It works, but every load and save runs through the same <code>ServerTextControl</code> document pipeline &mdash; you are routing PDFs through a word processor to concatenate them, with the same threading constraints as HTML rendering.</p>
 
-<p>TextControl does not merge PDFs natively. Teams typically generate each section separately, each in its own STA thread, then merge externally using a secondary library. That means two dependencies to maintain plus the STA overhead for each section.</p>
-
-<p>IronPDF has built-in merge support. You can render sections concurrently and merge them in a single call.</p>
+<p>IronPDF has a dedicated <code>PdfDocument.Merge</code> for stitching PDFs without going through a document model. You can render sections concurrently and merge them in a single call.</p>
 
 <h3>TextControl Merge Approach (Before)</h3>
 
-<pre><code>using TXTextControl;  // VERIFY
+<pre><code>using TXTextControl;
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 
@@ -146,30 +141,24 @@ class MergeBefore
 {
     static void Main()
     {
-        var pdfPaths = new List&lt;string&gt;();
-        var htmlSections = new[] { "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 1&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
-                                   "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 2&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;" };
-
-        for (int i = 0; i &lt; htmlSections.Length; i++)
+        var thread = new Thread(() =&gt;
         {
-            var html = htmlSections[i];
-            var outPath = $"section{i + 1}.pdf";
+            using var tx = new ServerTextControl();
+            tx.Create();
 
-            var thread = new Thread(() =&gt;
-            {
-                using var tx = new ServerTextControl(); // VERIFY
-                tx.Create();
-                tx.Load(html, StringStreamType.HTMLFormat); // VERIFY
-                tx.Save(outPath, StreamType.AdobePDF);      // VERIFY
-            });
-            thread.SetApartmentState(ApartmentState.STA);
-            thread.Start();
-            thread.Join();
-            pdfPaths.Add(outPath);
-        }
+            byte[] pdf1 = File.ReadAllBytes("document1.pdf");
+            tx.Load(pdf1, StreamType.AdobePDF);
 
-        // Merge via secondary library
-        Console.WriteLine("PDF merge requires secondary library + STA thread per section");
+            byte[] pdf2 = File.ReadAllBytes("document2.pdf");
+            tx.Load(pdf2, StreamType.AdobePDF, LoadAppendMode.Append);
+
+            tx.Save("merged.pdf", StreamType.AdobePDF);
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+
+        Console.WriteLine("Merged via ServerTextControl document pipeline");
     }
 }
 </code></pre>
@@ -180,7 +169,7 @@ class MergeBefore
 using System;
 using System.Threading.Tasks;
 
-IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 var renderer = new ChromePdfRenderer();
 
@@ -198,9 +187,7 @@ Console.WriteLine($"Merged: {merged.PageCount} pages &mdash; no STA thread neede
 
 <h2>How Do You Add Watermarks and Password Protection Without a Secondary Library?</h2>
 
-<p><strong>Answer:</strong></p>
-
-<p>With TextControl, watermarking and password protection on PDF output may require a secondary library. The watermark API needs verification against your specific TextControl version, and PDF security export options may or may not be available depending on the edition.</p>
+<p>With TextControl, watermarking on PDF output is typically expressed through the document model (background text or background images on a section), and the exact API depends on your TextControl version &mdash; verify against the edition you have licensed. PDF security export options (user/owner password) are exposed through <code>SaveSettings</code> in recent versions.</p>
 
 <p>IronPDF handles both natively. No additional dependencies.</p>
 
@@ -208,9 +195,10 @@ Console.WriteLine($"Merged: {merged.PageCount} pages &mdash; no STA thread neede
 
 <pre><code>using IronPdf;
 using IronPdf.Editing;
+using IronSoftware.Drawing;
 using System;
 
-IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 var renderer = new ChromePdfRenderer();
 var pdf = await renderer.RenderHtmlAsPdfAsync(
@@ -220,8 +208,8 @@ var pdf = await renderer.RenderHtmlAsPdfAsync(
 var watermark = new TextStamper
 {
     Text = "DRAFT",
-    FontColor = IronPdf.Imaging.Color.Gray,
-    Opacity = 0.15,
+    FontColor = Color.Gray,
+    Opacity = 15,
     VerticalAlignment = VerticalAlignment.Middle,
     HorizontalAlignment = HorizontalAlignment.Center,
 };
@@ -235,7 +223,7 @@ pdf.SaveAs("watermarked.pdf");
 <pre><code>using IronPdf;
 using System;
 
-IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 var renderer = new ChromePdfRenderer();
 var pdf = await renderer.RenderHtmlAsPdfAsync(
@@ -252,63 +240,45 @@ pdf.SaveAs("secured.pdf");
 
 <h2>How Do the Two Libraries Compare Feature by Feature?</h2>
 
-<p><strong>Answer:</strong></p>
-
 <p>Here is a side-by-side comparison of the core aspects that matter for a migration decision.</p>
 
-<table>
-<thead>
-<tr><th>Aspect</th><th>TX Text Control</th><th>IronPDF</th></tr>
-</thead>
-<tbody>
-<tr><td>Focus</td><td>Rich text editor + document export (PDF, DOCX)</td><td>HTML-to-PDF + PDF manipulation</td></tr>
-<tr><td>Pricing</td><td>Commercial &mdash; verify at textcontrol.com</td><td>Commercial &mdash; verify at ironsoftware.com</td></tr>
-<tr><td>API Style</td><td>Document load/edit/save model; STA affinity</td><td><code>ChromePdfRenderer</code> &mdash; no threading constraints</td></tr>
-<tr><td>Learning Curve</td><td>Medium; own document model</td><td>Low for .NET devs; HTML/CSS is the input</td></tr>
-<tr><td>HTML Rendering</td><td>Via document conversion &mdash; not native</td><td>Embedded Chromium</td></tr>
-<tr><td>Page Indexing</td><td>Verify in TextControl docs</td><td>0-based</td></tr>
-<tr><td>Thread Safety</td><td>STA constraints in some configs &mdash; verify</td><td>Verify IronPDF concurrent instance guidance</td></tr>
-<tr><td>Namespace</td><td><code>TXTextControl.*</code></td><td><code>IronPdf</code></td></tr>
-</tbody>
-</table>
+<ul>
+<li><strong>Focus.</strong> TextControl is a rich text editor with document export (PDF, DOCX, RTF). IronPDF is HTML-to-PDF plus PDF manipulation.</li>
+<li><strong>Pricing.</strong> Both are commercial &mdash; verify current numbers at textcontrol.com and ironsoftware.com.</li>
+<li><strong>API style.</strong> TextControl uses a document load/edit/save model with STA thread affinity in many configurations. IronPDF exposes <code>ChromePdfRenderer</code> with no threading constraints in its renderer surface.</li>
+<li><strong>Learning curve.</strong> TextControl has its own document model to learn. IronPDF takes HTML and CSS as input, which most .NET teams already know.</li>
+<li><strong>HTML rendering.</strong> TextControl loads HTML into its document model via conversion. IronPDF uses embedded Chromium directly.</li>
+<li><strong>Page indexing.</strong> IronPDF is 0-based. TextControl page indexing depends on the API surface you are using &mdash; verify in TextControl docs.</li>
+<li><strong>Thread safety.</strong> TextControl has STA constraints in some configurations &mdash; verify. Verify IronPDF concurrent-instance guidance for your deployment topology.</li>
+<li><strong>Namespace.</strong> <code>TXTextControl.*</code> &rarr; <code>IronPdf</code>.</li>
+</ul>
 
 <p>And here is the migration effort breakdown by feature.</p>
 
-<table>
-<thead>
-<tr><th>Feature</th><th>TX Text Control</th><th>IronPDF Equivalent</th><th>Complexity</th></tr>
-</thead>
-<tbody>
-<tr><td>HTML string to PDF</td><td>Via document conversion</td><td><code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code></td><td>Low</td></tr>
-<tr><td>DOCX to PDF</td><td>Native export</td><td>N/A &mdash; not in IronPDF scope</td><td>High (keep TextControl for this)</td></tr>
-<tr><td>Mail merge to PDF</td><td>Built-in merge engine</td><td>HTML template engine + <code>RenderHtmlAsPdfAsync()</code></td><td>Medium-High</td></tr>
-<tr><td>Save to file</td><td><code>doc.Save(path, format)</code></td><td><code>pdf.SaveAs(path)</code></td><td>Low</td></tr>
-<tr><td>Save to stream</td><td><code>doc.Save(stream, format)</code></td><td><code>pdf.Stream</code></td><td>Low</td></tr>
-<tr><td>Concurrent rendering</td><td>STA thread pool workaround needed</td><td>No threading workaround needed</td><td>Low (eliminate workaround)</td></tr>
-<tr><td>Merge PDFs</td><td>Not native for PDF</td><td><code>PdfDocument.Merge()</code></td><td>Medium</td></tr>
-<tr><td>Watermark</td><td>Verify TextControl API</td><td><code>TextStamper</code> / <code>ImageStamper</code></td><td>Medium</td></tr>
-<tr><td>Password protection</td><td>Verify export settings</td><td><code>pdf.SecuritySettings</code></td><td>Low</td></tr>
-<tr><td>Headers/footers</td><td>Document section headers/footers</td><td><code>RenderingOptions.HtmlHeader/Footer</code></td><td>Medium</td></tr>
-</tbody>
-</table>
+<ul>
+<li><strong>HTML string to PDF &mdash; Low.</strong> TextControl loads HTML through its document model; IronPDF uses <code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code>.</li>
+<li><strong>DOCX to PDF &mdash; High (keep TextControl for this).</strong> Native export in TextControl; not in IronPDF's scope.</li>
+<li><strong>Mail merge to PDF &mdash; Medium-High.</strong> TextControl has a built-in merge engine; IronPDF combines an HTML template engine with <code>RenderHtmlAsPdfAsync()</code>.</li>
+<li><strong>Save to file &mdash; Low.</strong> <code>doc.Save(path, format)</code> &rarr; <code>pdf.SaveAs(path)</code>.</li>
+<li><strong>Save to stream &mdash; Low.</strong> <code>doc.Save(stream, format)</code> &rarr; <code>pdf.Stream</code>.</li>
+<li><strong>Concurrent rendering &mdash; Low (eliminate workaround).</strong> TextControl typically needs an STA thread pool workaround; IronPDF needs none in the renderer surface.</li>
+<li><strong>Merge PDFs &mdash; Medium.</strong> TextControl appends through its document pipeline; IronPDF uses <code>PdfDocument.Merge()</code>.</li>
+<li><strong>Watermark &mdash; Medium.</strong> Verify the TextControl background-text or stamp API for your version; IronPDF uses <code>TextStamper</code> or <code>ImageStamper</code>.</li>
+<li><strong>Password protection &mdash; Low.</strong> Verify TextControl export settings for your edition; IronPDF uses <code>pdf.SecuritySettings</code>.</li>
+<li><strong>Headers/footers &mdash; Medium.</strong> TextControl uses section headers and footers in the document model; IronPDF uses <code>RenderingOptions.HtmlHeader/Footer</code> or <code>pdf.AddTextHeader/AddTextFooter</code>.</li>
+</ul>
 
 <h2>What Are the Most Common Questions About This Migration?</h2>
 
 <h3>Can I keep TextControl for DOCX and use IronPDF for PDF?</h3>
 
-<p><strong>Answer:</strong></p>
-
-<p>Yes, and this is actually the recommended approach if your codebase uses TextControl for both DOCX editing and PDF export. Keep TextControl for the DOCX creation and editing path. Replace only the PDF export path with IronPDF for HTML-to-PDF generation. Remove the DOCX-to-TextControl-to-PDF path if you can serve the same output through HTML templates instead.</p>
+<p>Yes, and this is the recommended approach if your codebase uses TextControl for both DOCX editing and PDF export. Keep TextControl for the DOCX creation and editing path. Replace only the PDF export path with IronPDF for HTML-to-PDF generation. Remove the DOCX-to-TextControl-to-PDF path if you can serve the same output through HTML templates instead.</p>
 
 <h3>What replaces TextControl's mail merge?</h3>
-
-<p><strong>Answer:</strong></p>
 
 <p>IronPDF is an HTML renderer, not a document editor, so there is no direct mail merge equivalent. The recommended replacement is a .NET template engine like Scriban or Fluid (both MIT licensed) that generates HTML, which you then render to PDF with IronPDF. If you are already in the ASP.NET Core stack, Razor views work as well. You render the view to an HTML string and pass it to <code>RenderHtmlAsPdfAsync</code>.</p>
 
 <h3>How do I find all TextControl references in my codebase?</h3>
-
-<p><strong>Answer:</strong></p>
 
 <p>Run these searches to locate every touchpoint before starting migration.</p>
 
@@ -325,13 +295,9 @@ grep -r "TXTextControl" *.csproj **/*.csproj 2&gt;/dev/null
 
 <h3>What .NET versions does IronPDF support?</h3>
 
-<p><strong>Answer:</strong></p>
-
 <p>IronPDF supports .NET 6, 7, 8, and 9. You will need an <a href="https://ironpdf.com/how-to/license-keys/">IronPDF license key</a> to get started. The installation is a single NuGet package (<code>dotnet add package IronPdf</code>) with no native COM components or registration requirements.</p>
 
 <h3>What about the disposal pattern?</h3>
-
-<p><strong>Answer:</strong></p>
 
 <p>The pattern is similar to TextControl. Use a <code>using</code> block on the <code>PdfDocument</code> result. For API responses, access <code>pdf.BinaryData</code>. For file output, call <code>pdf.SaveAs(outputPath)</code>. The document is disposed at the end of the <code>using</code> block, just as you would with <code>ServerTextControl</code>.</p>
 
@@ -349,17 +315,12 @@ pdf.SaveAs(outputPath);
 
 <p>The decision matrix from my experience working with teams making this switch breaks down cleanly.</p>
 
-<table>
-<thead>
-<tr><th>Business Scenario</th><th>Recommendation</th></tr>
-</thead>
-<tbody>
-<tr><td>Concurrent PDF generation is the primary scaling bottleneck</td><td>Switch &mdash; eliminates STA threading constraint</td></tr>
-<tr><td>HTML-to-PDF is the primary use case</td><td>Switch &mdash; IronPDF is HTML-first; TextControl requires a conversion step</td></tr>
-<tr><td>DOCX editing + PDF export is the primary use case</td><td>Keep TextControl for DOCX path; evaluate IronPDF for HTML-to-PDF separately</td></tr>
-<tr><td>Mail merge documents</td><td>Evaluate template engine (Scriban, Fluid) as TextControl mail merge replacement</td></tr>
-</tbody>
-</table>
+<ul>
+<li><strong>If concurrent PDF generation is the primary scaling bottleneck,</strong> switch &mdash; this eliminates the STA threading constraint.</li>
+<li><strong>If HTML-to-PDF is the primary use case,</strong> switch &mdash; IronPDF is HTML-first, while TextControl requires a conversion step through its document model.</li>
+<li><strong>If DOCX editing plus PDF export is the primary use case,</strong> keep TextControl for the DOCX path and evaluate IronPDF for HTML-to-PDF separately.</li>
+<li><strong>If mail merge documents are the primary workload,</strong> evaluate a template engine (Scriban, Fluid, or Razor) as the mail-merge replacement before migrating.</li>
+</ul>
 
 <p>If the STA threading constraint is your bottleneck, the migration pays for itself immediately. The concurrent rendering capacity is no longer limited by thread pool size and STA serialization &mdash; compute and I/O become the actual constraints. If DOCX editing is your primary use case, keep TextControl for that path and evaluate IronPDF separately for the HTML-to-PDF workload.</p>
 

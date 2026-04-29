@@ -4,33 +4,29 @@
 
 <h2>Why Should I Migrate from PdfiumViewer to IronPDF?</h2>
 
-<p>PdfiumViewer worked on-prem for years. The developer machine, the test server, the production Windows VM — all fine. Then the team moved the PDF generation service to a Linux Docker container on Kubernetes and the first deploy failed with a <code>DllNotFoundException</code> on <code>pdfiumviewer.dll</code>. It's a Windows-targeting library. You're on Linux now. The migration decision practically makes itself.</p>
+<p>PdfiumViewer worked on-prem for years. The developer machine, the test server, the production Windows VM — all fine. Then the team moved the PDF rendering service to a Linux Docker container on Kubernetes and the first deploy failed with a <code>DllNotFoundException</code> on <code>pdfium.dll</code>. PdfiumViewer is a thin .NET wrapper around the native Pdfium DLLs and a Windows Forms <code>PdfRenderer</code> control. You're on Linux now. The migration decision practically makes itself.</p>
 
 <p>I've seen this pattern over and over. Here's why the migration makes sense:</p>
 
-<p><strong>Windows-only limitation.</strong> PdfiumViewer targets Windows Forms and native Windows DLLs. Linux, macOS, and container environments can't use it.</p>
+<p><strong>Windows-only by design.</strong> PdfiumViewer targets Windows Forms and ships native Windows Pdfium DLLs. Linux, macOS, and container environments can't load those binaries.</p>
 
-<p><strong>Repository archived.</strong> PdfiumViewer appears unmaintained. Maintenance has likely stopped.</p>
+<p><strong>Repository unmaintained.</strong> The original PdfiumViewer repository has effectively stopped seeing releases. You may be relying on community forks for any patches.</p>
 
-<p><strong>.NET Framework target.</strong> Limited or no .NET 6+ support means incompatibility as the stack modernizes.</p>
+<p><strong>.NET Framework heritage.</strong> The library was written for the .NET Framework / WinForms era. .NET 6+ and modern <code>System.Drawing</code> portability constraints are not first-class.</p>
 
-<p><strong>PDF viewer vs server-side generator.</strong> PdfiumViewer is designed as a desktop viewer control. Server-side PDF generation is not its primary design target.</p>
+<p><strong>Viewer + rasterizer, not a PDF toolkit.</strong> PdfiumViewer is built to display PDFs in a WinForms control and rasterize pages to <code>System.Drawing.Image</code>. It does not generate, merge, watermark, sign, or secure PDFs.</p>
 
-<p><strong>HTML-to-PDF not supported.</strong> PdfiumViewer renders existing PDFs to images; it doesn't generate PDFs from HTML.</p>
-
-<p><strong>No manipulation features.</strong> Merge, watermark, password protection require additional libraries.</p>
+<p><strong>No HTML-to-PDF or URL-to-PDF.</strong> If your service needs to produce PDFs from HTML or web content, PdfiumViewer was never the right tool — teams typically bolt on wkhtmltopdf or another library for that side.</p>
 
 <p><strong>Cloud deployment incompatible.</strong> Azure App Service on Linux, AWS Lambda, GCP Cloud Run: all fail with Windows-only native libraries.</p>
 
 <p><strong>CI/CD on Linux agents.</strong> Build agents running Linux (GitHub Actions ubuntu runners, GitLab CI) can't run PdfiumViewer-dependent tests.</p>
 
-<p>With <a href="https://ironpdf.com">IronPDF</a>, all of these constraints disappear. It runs cross-platform on .NET 6+, works in Docker containers, and handles HTML-to-PDF generation natively.</p>
+<p>The honest framing of this migration is <em>viewer → renderer + viewer</em>. <a href="https://ironpdf.com">IronPDF</a> is a server-side rendering and manipulation library; it is not a WinForms control. You replace the page-to-image rasterization side with IronPDF on .NET 6+ Linux, and replace the WinForms <code>PdfRenderer</code> control with a separate viewer (browser-based, Syncfusion, DevExpress, Telerik). This article focuses on the renderer half — page rasterization and reading existing PDFs — because that's what the .NET code actually has to swap.</p>
 
 <h2>How Do I Diagnose the PdfiumViewer Deployment Failure?</h2>
 
 <p>Before writing migration code, confirm the exact failure mode. Linux and Docker failures with PdfiumViewer are predictable, and I want you to know exactly what you're dealing with.</p>
-
-<p><strong>Answer:</strong></p>
 
 <p>The most common symptom is a <code>DllNotFoundException</code> for <code>pdfium.dll</code>. This is a Windows PE binary that won't load on Linux regardless of configuration.</p>
 
@@ -58,8 +54,6 @@ docker run --rm your-image dotnet run 2&gt;&amp;1 | grep -i "segfault\|abort\|SI
 
 <p>The swap itself is straightforward. I'll walk you through the three essential steps: removing PdfiumViewer, installing IronPDF, and updating your code.</p>
 
-<p><strong>Answer:</strong></p>
-
 <p>First, find all PdfiumViewer references in your codebase:</p>
 
 <h3>Finding PdfiumViewer References</h3>
@@ -73,12 +67,14 @@ rg "using PdfiumViewer" --type cs -n
 # Find NuGet references
 grep -r -i "pdfiumviewer" **/*.csproj *.csproj 2&gt;/dev/null</code></pre>
 
-<p>Then remove PdfiumViewer and install IronPDF:</p>
+<p>Then remove PdfiumViewer and install IronPDF. Don't forget the native binary packages — PdfiumViewer ships its Pdfium DLLs in side packages and they need to come out too:</p>
 
 <h3>Swapping NuGet Packages</h3>
 
-<pre><code># Remove PdfiumViewer
+<pre><code># Remove PdfiumViewer and its native binary packages
 dotnet remove package PdfiumViewer
+dotnet remove package PdfiumViewer.Native.x86.v8-xfa
+dotnet remove package PdfiumViewer.Native.x64.v8-xfa
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -104,8 +100,7 @@ using System.Drawing.Imaging;
 // After:
 using IronPdf;
 using IronPdf.Rendering;
-using IronPdf.Editing;
-using IronPdf.Security;</code></pre>
+using IronPdf.Editing;</code></pre>
 
 <p>And set up your <a href="https://ironpdf.com/how-to/license-keys/">IronPDF license key</a>:</p>
 
@@ -114,266 +109,157 @@ using IronPdf.Security;</code></pre>
 <pre><code>using IronPdf;
 
 // Set once at application startup
-IronPdf.License.LicenseKey = "YOUR_IRONPDF_LICENSE_KEY";
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 // License guide: https://ironpdf.com/how-to/license-keys/</code></pre>
 
 <h2>What Does the Core PDF Operation Code Look Like After Migration?</h2>
 
-<p>The biggest difference is that PdfiumViewer is a page renderer focused on converting PDF pages to bitmap images, while IronPDF is an HTML-to-PDF generator and manipulation library. The API surface is fundamentally different.</p>
+<p>The biggest difference is that PdfiumViewer is a page renderer focused on rasterizing PDF pages to <code>System.Drawing.Image</code> bitmaps, while IronPDF is a server-side renderer with a much broader API surface — it can also rasterize pages, but pages-to-image is one feature among many. For a straight viewer/rasterizer migration, the swap is small.</p>
 
-<p><strong>Answer:</strong></p>
-
-<h3>Basic PDF Operation — Before (PdfiumViewer)</h3>
+<h3>Page-to-Image Rendering — Before (PdfiumViewer)</h3>
 
 <pre><code>using PdfiumViewer;
 using System;
-using System.Drawing;
 using System.Drawing.Imaging;
 
 class BasicPdfiumViewerExample
 {
     static void Main()
     {
-        // PdfiumViewer: open existing PDF and render page to image
-        // This is the primary use case — Windows only
-        using var document = PdfDocument.Load("input.pdf");
+        // PdfiumViewer: open existing PDF and render pages to bitmap.
+        // This is the primary use case — Windows only.
+        using var document = PdfDocument.Load("document.pdf");
 
         int pageCount = document.PageCount;
         Console.WriteLine($"Pages: {pageCount}");
 
-        // Render page 0 to bitmap (Windows-only System.Drawing)
-        using var image = document.Render(
-            page: 0,
-            width: 1240,
-            height: 1754,
-            dpiX: 150,
-            dpiY: 150,
-            forPrinting: false
-        );
+        // Render page 0 at 300 DPI (Windows-only System.Drawing)
+        using (var image = document.Render(0, 300, 300, true))
+        {
+            image.Save("page1.png", ImageFormat.Png);
+        }
 
-        image.Save("page1.png", ImageFormat.Png);
-        Console.WriteLine("Rendered page 1 to page1.png");
+        // Render every page at 150 DPI
+        for (int i = 0; i &lt; document.PageCount; i++)
+        {
+            using var pageImage = document.Render(i, 150, 150, true);
+            pageImage.Save($"page_{i + 1}.png", ImageFormat.Png);
+        }
     }
 }</code></pre>
 
-<h3>Basic PDF Operation — After (IronPDF)</h3>
+<h3>Page-to-Image Rendering — After (IronPDF)</h3>
 
 <pre><code>using IronPdf;
 
-IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
-// If replacing server-side PDF generation:
-var renderer = new ChromePdfRenderer();
-var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Hello World&lt;/h1&gt;");
-pdf.SaveAs("output.pdf");
-// Guide: https://ironpdf.com/how-to/html-string-to-pdf/
+// Open the existing PDF
+PdfDocument pdf = PdfDocument.FromFile("document.pdf");
+Console.WriteLine($"Pages: {pdf.PageCount}");
 
-// If you need to open and read an existing PDF:
-// var existing = PdfDocument.FromFile("input.pdf");
-// Console.WriteLine($"Pages: {existing.PageCount}");</code></pre>
+// Rasterize page 0 to a bitmap
+var firstPageImage = pdf.ToBitmap(0);
+firstPageImage[0].Save("page1.png");
+
+// Rasterize every page
+var allPageImages = pdf.ToBitmap();
+for (int i = 0; i &lt; allPageImages.Length; i++)
+{
+    allPageImages[i].Save($"page_{i + 1}.png");
+}
+// Guide: https://ironpdf.com/how-to/rasterize-pdf-to-image/</code></pre>
 
 <p>Both libraries use 0-based page indexing, so that's one less thing to worry about:</p>
 
 <pre><code>// PdfiumViewer: doc.Render(page: 0, ...) — 0-based
-// IronPDF: pdf.Pages[0] — 0-based
+// IronPDF: pdf.Pages[0], pdf.ToBitmap(0) — 0-based
 // Consistent between them</code></pre>
 
-<h2>How Do I Migrate HTML-to-PDF Generation That Used a Secondary Tool?</h2>
+<h2>How Do I Migrate Page Info and Page Size Lookups?</h2>
 
-<p>Since PdfiumViewer can't generate PDFs from HTML, teams commonly add wkhtmltopdf or another subprocess tool alongside it. This is one of the cleanest wins in the migration — you eliminate that external process entirely.</p>
+<p>If your PdfiumViewer code reads metadata — page counts, page sizes — it ports almost line-for-line. The naming differs but the shape is the same.</p>
 
-<p><strong>Answer:</strong></p>
+<h3>Page Info — Before (PdfiumViewer)</h3>
 
-<h3>HTML to PDF — Before (wkhtmltopdf subprocess)</h3>
-
-<pre><code>using System;
-using System.Diagnostics;
-using System.IO;
-
-class HtmlToPdfWithSecondary
-{
-    static void Main()
-    {
-        // PdfiumViewer can't generate PDFs from HTML
-        // Teams add wkhtmltopdf or another tool for this
-        string html    = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
-        string tmpHtml = Path.GetTempFileName() + ".html";
-        string tmpPdf  = Path.GetTempFileName() + ".pdf";
-
-        File.WriteAllText(tmpHtml, html);
-
-        var psi = new ProcessStartInfo("wkhtmltopdf", $"\"{tmpHtml}\" \"{tmpPdf}\"")
-        {
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var proc = Process.Start(psi)!;
-        if (!proc.WaitForExit(30_000)) { proc.Kill(); throw new TimeoutException(); }
-        if (proc.ExitCode != 0)
-            throw new Exception(proc.StandardError.ReadToEnd());
-
-        byte[] pdfBytes = File.ReadAllBytes(tmpPdf);
-        File.Delete(tmpHtml);
-        File.Delete(tmpPdf);
-        Console.WriteLine($"Generated {pdfBytes.Length} bytes");
-    }
-}</code></pre>
-
-<h3>HTML to PDF — After (IronPDF)</h3>
-
-<pre><code>using IronPdf;
-
-IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
-
-var renderer = new ChromePdfRenderer();
-var pdf = renderer.RenderHtmlAsPdf(
-    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice&lt;/h1&gt;&lt;p&gt;Amount: $500&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
-);
-pdf.SaveAs("invoice.pdf");
-// Guide: https://ironpdf.com/how-to/html-string-to-pdf/</code></pre>
-
-<p>No temp files. No subprocess management. No timeout handling. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">ChromePdfRenderer</a> handles it all in-process.</p>
-
-<h2>How Do I Migrate Merge, Watermark, and Security Operations?</h2>
-
-<p>PdfiumViewer doesn't support merge, watermark, or password protection — so teams typically bolted on PDFSharp or iTextSharp for these features. With IronPDF, all of these are built in.</p>
-
-<p><strong>Answer:</strong></p>
-
-<h3>Merging PDFs — Before (PDFSharp secondary library)</h3>
-
-<pre><code>using PdfSharp.Pdf;
-using PdfSharp.Pdf.IO;
+<pre><code>using PdfiumViewer;
 using System;
 
-class MergePdfsExample
+void GetPageInfo(string pdfPath)
 {
-    static void Main()
+    using var document = PdfDocument.Load(pdfPath);
+    Console.WriteLine($"Total pages: {document.PageCount}");
+
+    for (int i = 0; i &lt; document.PageCount; i++)
     {
-        // PdfiumViewer has no merge — secondary library needed
-        using var output = new PdfDocument();
-
-        foreach (string path in new[] { "section1.pdf", "section2.pdf" })
-        {
-            using var input = PdfReader.Open(path, PdfDocumentOpenMode.Import);
-            foreach (PdfPage page in input.Pages)
-                output.AddPage(page);
-        }
-
-        output.Save("merged.pdf");
-        Console.WriteLine("Merged to: merged.pdf");
+        var size = document.PageSizes[i];
+        Console.WriteLine($"Page {i + 1}: {size.Width} x {size.Height} points");
     }
 }</code></pre>
 
-<h3>Merging PDFs — After (IronPDF)</h3>
+<h3>Page Info — After (IronPDF)</h3>
 
 <pre><code>using IronPdf;
-
-IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
-
-var merged = PdfDocument.Merge(
-    PdfDocument.FromFile("section1.pdf"),
-    PdfDocument.FromFile("section2.pdf")
-);
-merged.SaveAs("merged.pdf");
-// Guide: https://ironpdf.com/how-to/merge-or-split-pdfs/</code></pre>
-
-<h3>Watermarking — Before (iTextSharp secondary library)</h3>
-
-<pre><code>using iTextSharp.text;
-using iTextSharp.text.pdf;
-using System.IO;
 using System;
 
-class WatermarkExample
-{
-    static void Main()
-    {
-        using var reader  = new PdfReader("input.pdf");
-        using var fs      = new FileStream("watermarked.pdf", FileMode.Create);
-        using var stamper = new PdfStamper(reader, fs);
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
-        var baseFont = BaseFont.CreateFont(BaseFont.HELVETICA_BOLD, BaseFont.CP1252, false);
-        for (int i = 1; i &lt;= reader.NumberOfPages; i++)
-        {
-            var cb = stamper.GetOverContent(i);
-            cb.BeginText();
-            cb.SetFontAndSize(baseFont, 60);
-            cb.SetColorFill(new BaseColor(180, 180, 180));
-            cb.ShowTextAligned(Element.ALIGN_CENTER, "DRAFT", 300, 420, 45);
-            cb.EndText();
-        }
-        Console.WriteLine("Watermarked.");
+void GetPageInfo(string pdfPath)
+{
+    var pdf = PdfDocument.FromFile(pdfPath);
+    Console.WriteLine($"Total pages: {pdf.PageCount}");
+
+    for (int i = 0; i &lt; pdf.PageCount; i++)
+    {
+        var page = pdf.Pages[i];
+        Console.WriteLine($"Page {i + 1}: {page.Width} x {page.Height} points");
     }
 }</code></pre>
 
-<h3>Watermarking — After (IronPDF)</h3>
+<p>Note the shape change: PdfiumViewer exposes page sizes through a separate <code>PageSizes</code> indexer, while IronPDF gives you a <code>Pages</code> collection of objects with <code>Width</code> and <code>Height</code> properties on each.</p>
 
-<pre><code>using IronPdf;
-using IronPdf.Editing;
+<h2>How Do I Migrate Text Extraction (or Add It Where PdfiumViewer Couldn't)?</h2>
 
-IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+<p>PdfiumViewer does not extract text — it's a rasterizer. Teams that needed text from a PDF either ran OCR over the rasterized images or pulled in a second library like PDFSharp or iTextSharp. Migrating to IronPDF lets you delete that scaffolding.</p>
 
-var pdf = PdfDocument.FromFile("input.pdf");
-var stamper = new TextStamper
+<h3>Text Extraction — Before (PdfiumViewer rasterize-then-OCR)</h3>
+
+<pre><code>using PdfiumViewer;
+using System;
+
+// PdfiumViewer has no text extraction. Common workaround:
+// render each page to an image, then run OCR (Tesseract or similar)
+// over the bitmaps. The library itself only renders.
+using var document = PdfDocument.Load("document.pdf");
+for (int i = 0; i &lt; document.PageCount; i++)
 {
-    Text = "DRAFT",
-    FontColor = IronSoftware.Drawing.Color.LightGray,
-    FontSize = 60,
-    Opacity = 30,
-    Rotation = 45,
-    VerticalAlignment = VerticalAlignment.Middle,
-    HorizontalAlignment = HorizontalAlignment.Center
-};
-pdf.ApplyStamp(stamper);
-pdf.SaveAs("watermarked.pdf");
-// Guide: https://ironpdf.com/how-to/custom-watermark/</code></pre>
-
-<h3>Password Protection — Before (iTextSharp secondary library)</h3>
-
-<pre><code>using iTextSharp.text.pdf;
-using System.IO;
-using System.Text;
-
-class SecurityExample
-{
-    static void Main()
-    {
-        byte[] userPass  = Encoding.ASCII.GetBytes("viewonly");
-        byte[] ownerPass = Encoding.ASCII.GetBytes("admin");
-
-        using var reader  = new PdfReader("input.pdf");
-        using var fs      = new FileStream("secured.pdf", FileMode.Create);
-        using var stamper = new PdfStamper(reader, fs, '\0', false);
-        stamper.SetEncryption(
-            userPass, ownerPass,
-            PdfWriter.ALLOW_PRINTING,
-            PdfWriter.ENCRYPTION_AES_128
-        );
-    }
+    using var pageImage = document.Render(i, 96, 96, false);
+    // ... hand pageImage to an OCR engine ...
+    Console.WriteLine($"Rendered page {i + 1} for OCR pass");
 }</code></pre>
 
-<h3>Password Protection — After (IronPDF)</h3>
+<h3>Text Extraction — After (IronPDF)</h3>
 
 <pre><code>using IronPdf;
-using IronPdf.Security;
+using System;
 
-IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
-var pdf = PdfDocument.FromFile("input.pdf");
-pdf.SecuritySettings.UserPassword  = "viewonly";
-pdf.SecuritySettings.OwnerPassword = "admin";
-pdf.SecuritySettings.AllowUserPrinting = PdfPrintSecurity.FullPrintRights;
-pdf.SaveAs("secured.pdf");
-// Guide: https://ironpdf.com/how-to/pdf-permissions-passwords/</code></pre>
+PdfDocument pdf = PdfDocument.FromFile("document.pdf");
+
+// Pull text from the whole document
+string allText = pdf.ExtractAllText();
+Console.WriteLine(allText);
+
+// Or one page at a time
+string firstPageText = pdf.ExtractTextFromPage(0);
+Console.WriteLine(firstPageText);</code></pre>
+
+<p>This is the kind of swap where the line count drops by an order of magnitude. The caveat: <code>ExtractAllText</code> reads the embedded text layer; it is not OCR. For scanned PDFs that have no text layer, you still want IronOCR or a dedicated OCR engine — verify against your specific document set.</p>
 
 <h2>How Do I Fix IronPDF Failures in Docker on Linux?</h2>
 
 <p>You've removed PdfiumViewer and installed IronPDF. Now the Docker build succeeds but IronPDF's Chromium renderer fails at runtime. This is the most common post-migration issue I see.</p>
-
-<p><strong>Answer:</strong></p>
 
 <p>IronPDF's Chromium renderer requires specific Linux libraries in your Docker base image. Here's the Dockerfile configuration that works:</p>
 
@@ -424,66 +310,64 @@ RUN apt-get install -y fonts-liberation fonts-dejavu fontconfig \
 
 <h2>What Are the Key API Differences Between PdfiumViewer and IronPDF?</h2>
 
-<p>Understanding the API mapping makes the find-and-replace portion of migration much faster. Here are the complete mapping tables from my experience working with teams making this switch.</p>
+<p>Understanding the API mapping makes the find-and-replace portion of migration much faster. Here are the mappings from my experience working with teams making this switch.</p>
 
-<p><strong>Answer:</strong></p>
-
-<table>
-<tr><th>Aspect</th><th>PdfiumViewer</th><th>IronPDF</th></tr>
-<tr><td>Focus</td><td>PDF viewer control + page rendering</td><td>HTML-to-PDF + PDF manipulation</td></tr>
-<tr><td>Pricing</td><td>Open source (MIT-ish)</td><td>Commercial — verify at ironsoftware.com</td></tr>
-<tr><td>API Style</td><td>Windows Forms control / rendering</td><td>In-process .NET library</td></tr>
-<tr><td>Learning Curve</td><td>Low for viewing; not designed for server</td><td>Medium</td></tr>
-<tr><td>HTML Rendering</td><td>Not supported</td><td>Chromium-based</td></tr>
-<tr><td>Page Indexing</td><td>0-based</td><td>0-based</td></tr>
-<tr><td>Thread Safety</td><td>Windows Forms threading model</td><td>Renderer instance reuse</td></tr>
-<tr><td>Namespace</td><td><code>PdfiumViewer</code></td><td><code>IronPdf</code></td></tr>
-</table>
+<ul>
+  <li><strong>Focus.</strong> PdfiumViewer is a Windows Forms viewer control plus a page-to-image rasterizer. IronPDF is a server-side renderer and PDF manipulation library — page rasterization is one feature, not the whole product.</li>
+  <li><strong>Pricing.</strong> PdfiumViewer is open source (Apache 2.0 / community-maintained). IronPDF is commercial — verify the current edition and trial terms at ironsoftware.com.</li>
+  <li><strong>API style.</strong> PdfiumViewer wraps a Windows Forms control around the native Pdfium DLL. IronPDF is an in-process .NET library with no UI surface.</li>
+  <li><strong>Learning curve.</strong> PdfiumViewer is small and easy if you only need to view or rasterize; it was never designed for server-side use. IronPDF has a broader API and a moderate learning curve.</li>
+  <li><strong>HTML rendering.</strong> PdfiumViewer cannot render HTML. IronPDF uses an embedded Chromium renderer.</li>
+  <li><strong>Page indexing.</strong> Both libraries are 0-based.</li>
+  <li><strong>Threading.</strong> PdfiumViewer follows the WinForms threading model (UI-thread coupled). IronPDF works server-side; reuse a single <code>ChromePdfRenderer</code> across calls.</li>
+  <li><strong>Namespace.</strong> <code>PdfiumViewer</code> → <code>IronPdf</code>.</li>
+</ul>
 
 <h3>Document Loading Methods</h3>
 
-<table>
-<tr><th>Operation</th><th>PdfiumViewer</th><th>IronPDF</th></tr>
-<tr><td>Open existing PDF</td><td><code>PdfDocument.Load(path)</code></td><td><code>PdfDocument.FromFile(path)</code></td></tr>
-<tr><td>Open from stream</td><td><code>PdfDocument.Load(stream, ...)</code></td><td><code>PdfDocument.FromStream(stream)</code></td></tr>
-<tr><td>HTML to PDF</td><td>Not supported</td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
-<tr><td>URL to PDF</td><td>Not supported</td><td><code>renderer.RenderUrlAsPdf(url)</code></td></tr>
-</table>
+<ul>
+  <li><strong>Open existing PDF.</strong> <code>PdfDocument.Load(path)</code> → <code>PdfDocument.FromFile(path)</code>.</li>
+  <li><strong>Open from stream.</strong> <code>PdfDocument.Load(stream, ...)</code> → <code>PdfDocument.FromStream(stream)</code>.</li>
+  <li><strong>Open from bytes.</strong> <code>PdfDocument.Load(bytes)</code> → <code>PdfDocument.FromBinaryData(bytes)</code>.</li>
+  <li><strong>HTML to PDF.</strong> Not supported in PdfiumViewer; <code>renderer.RenderHtmlAsPdf(html)</code> in IronPDF.</li>
+  <li><strong>URL to PDF.</strong> Not supported in PdfiumViewer; <code>renderer.RenderUrlAsPdf(url)</code> in IronPDF.</li>
+</ul>
 
 <h3>Page Operations</h3>
 
-<table>
-<tr><th>Operation</th><th>PdfiumViewer</th><th>IronPDF</th></tr>
-<tr><td>Page count</td><td><code>doc.PageCount</code></td><td><code>pdf.PageCount</code></td></tr>
-<tr><td>Render page to image</td><td><code>doc.Render(page, w, h, ...)</code></td><td>Not primary feature</td></tr>
-<tr><td>Page size</td><td><code>doc.PageSizes[n]</code></td><td><code>pdf.Pages[n].Width/Height</code></td></tr>
-<tr><td>Access page</td><td>N/A (render-focused)</td><td><code>pdf.Pages[n]</code></td></tr>
-</table>
+<ul>
+  <li><strong>Page count.</strong> <code>doc.PageCount</code> → <code>pdf.PageCount</code>.</li>
+  <li><strong>Render page to bitmap.</strong> <code>doc.Render(page, dpiX, dpiY, forPrinting)</code> → <code>pdf.ToBitmap(pageIndex)</code>, or <code>pdf.ToBitmap()</code> for all pages.</li>
+  <li><strong>Page size.</strong> <code>doc.PageSizes[n]</code> → <code>pdf.Pages[n].Width</code> / <code>pdf.Pages[n].Height</code>.</li>
+  <li><strong>Access a page object.</strong> No equivalent in PdfiumViewer (it is render-focused) → <code>pdf.Pages[n]</code> in IronPDF.</li>
+</ul>
 
-<h3>Merge and Split Operations</h3>
+<h3>Features PdfiumViewer Doesn't Have</h3>
 
-<table>
-<tr><th>Operation</th><th>PdfiumViewer</th><th>IronPDF</th></tr>
-<tr><td>Merge</td><td>Not a feature</td><td><code>PdfDocument.Merge(pdf1, pdf2)</code></td></tr>
-<tr><td>Split</td><td>Not a feature</td><td><code>pdf.CopyPages(startIndex, endIndex)</code></td></tr>
-</table>
+<ul>
+  <li><strong>Text extraction.</strong> Not in PdfiumViewer; <code>pdf.ExtractAllText()</code> or <code>pdf.ExtractTextFromPage(i)</code> in IronPDF.</li>
+  <li><strong>Merge.</strong> Not in PdfiumViewer; <code>PdfDocument.Merge(pdf1, pdf2)</code> in IronPDF.</li>
+  <li><strong>Split.</strong> Not in PdfiumViewer; <code>pdf.CopyPages(startIndex, endIndex)</code> in IronPDF.</li>
+  <li><strong>Watermark / stamp.</strong> Not in PdfiumViewer; <code>pdf.ApplyStamp(...)</code> / <code>pdf.ApplyWatermark(...)</code> in IronPDF.</li>
+  <li><strong>Headers and footers.</strong> Not in PdfiumViewer; <code>HtmlHeaderFooter</code> on <code>RenderingOptions</code> in IronPDF.</li>
+  <li><strong>Password / encryption.</strong> Not in PdfiumViewer; <code>pdf.SecuritySettings</code> in IronPDF.</li>
+  <li><strong>Form filling.</strong> Not in PdfiumViewer; <code>pdf.Form</code> in IronPDF — verify field-type coverage against your specific forms.</li>
+</ul>
 
 <h3>Migration Effort by Feature</h3>
 
-<table>
-<tr><th>Feature</th><th>PdfiumViewer Approach</th><th>Effort to Migrate</th></tr>
-<tr><td>PDF page to bitmap image</td><td>PdfiumViewer native</td><td>High — different feature set</td></tr>
-<tr><td>Display PDF in WinForms UI</td><td>PdfiumViewer native</td><td>High — N/A in IronPDF</td></tr>
-<tr><td>HTML to PDF generation</td><td>Not supported</td><td>Low (native in IronPDF)</td></tr>
-<tr><td>Open/read existing PDF</td><td>Via PdfDocument</td><td>Low</td></tr>
-<tr><td>Page count / metadata</td><td><code>doc.PageCount</code></td><td>Low</td></tr>
-<tr><td>Text extraction</td><td>Limited</td><td>Medium — verify IronPDF</td></tr>
-<tr><td>Merge PDFs</td><td>Not a feature</td><td>Low (native in IronPDF)</td></tr>
-<tr><td>Watermark</td><td>Not a feature</td><td>Low</td></tr>
-<tr><td>Password protection</td><td>Not a feature</td><td>Low</td></tr>
-<tr><td>Linux/Docker deployment</td><td>Not possible</td><td>Resolved</td></tr>
-<tr><td>Cross-platform .NET 8</td><td>Not supported</td><td>Resolved</td></tr>
-</table>
+<ul>
+  <li><strong>Page-to-bitmap rasterization — Low.</strong> PdfiumViewer's primary feature; maps cleanly to <code>pdf.ToBitmap()</code>.</li>
+  <li><strong>Open / read existing PDF — Low.</strong> <code>PdfDocument.Load</code> → <code>PdfDocument.FromFile</code>.</li>
+  <li><strong>Page count / metadata — Low.</strong> <code>doc.PageCount</code> stays as <code>pdf.PageCount</code>.</li>
+  <li><strong>Print PDF — Low.</strong> <code>doc.CreatePrintDocument()</code> → <code>pdf.Print(printerName)</code>.</li>
+  <li><strong>Text extraction — Low (new capability).</strong> Wasn't possible before; <code>pdf.ExtractAllText()</code> is a one-liner in IronPDF.</li>
+  <li><strong>HTML / URL to PDF — Low (new capability).</strong> If you were running wkhtmltopdf or another tool alongside PdfiumViewer, you can delete that subprocess.</li>
+  <li><strong>Merge / watermark / password — Low (new capability).</strong> Native in IronPDF; you can drop PDFSharp or iTextSharp.</li>
+  <li><strong>Linux / Docker deployment — Resolved.</strong> The whole point of the migration.</li>
+  <li><strong>Cross-platform .NET 6/8 — Resolved.</strong> IronPDF supports modern .NET on Windows, Linux, and macOS.</li>
+  <li><strong>Display PDF in a WinForms control — High (out of scope).</strong> IronPDF has no UI control. Replace <code>PdfRenderer</code> with a separate viewer (browser-based PDF.js, Syncfusion, DevExpress, Telerik).</li>
+</ul>
 
 <h2>Frequently Asked Questions</h2>
 
@@ -493,7 +377,7 @@ RUN apt-get install -y fonts-liberation fonts-dejavu fontconfig \
 
 <h3>What About PdfiumViewer's PDF-to-Image Rendering?</h3>
 
-<p>This is a genuine feature gap, not a configuration issue. PdfiumViewer's primary purpose is rendering PDF pages to bitmap images. For cross-platform PDF-to-image on Linux, alternatives include docnet (an open-source, cross-platform Pdfium wrapper), Ghostscript, or ImageMagick. If you also need HTML-to-PDF, IronPDF handles that side while you use a separate tool for image rendering.</p>
+<p>IronPDF can rasterize pages to bitmaps cross-platform via <code>pdf.ToBitmap()</code> (single page or whole document) and to disk via <code>pdf.RasterizeToImageFiles(path, DPI)</code>. That's a like-for-like replacement for PdfiumViewer's <code>document.Render(...)</code> call, and it runs on Linux. If you specifically want a thin Pdfium wrapper without IronPDF's broader feature set, docnet is an open-source cross-platform option.</p>
 
 <h3>Do I Need to Change Page Indexing in My Code?</h3>
 
@@ -505,7 +389,7 @@ RUN apt-get install -y fonts-liberation fonts-dejavu fontconfig \
 
 <h3>How Do I Optimize IronPDF's Chromium Renderer for Performance?</h3>
 
-<p>Reuse the <code>ChromePdfRenderer</code> instance across multiple render calls. Creating a new renderer for each PDF is unnecessary overhead:</p>
+<p>If you do generate HTML-to-PDFs alongside your rasterization workload, reuse the <code>ChromePdfRenderer</code> instance across calls. Creating a new renderer per PDF is unnecessary overhead:</p>
 
 <pre><code>var renderer = new ChromePdfRenderer();
 renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
@@ -516,7 +400,7 @@ foreach (var html in templates)
     pdf.SaveAs($"output_{Guid.NewGuid()}.pdf");
 }</code></pre>
 
-<p>Cache the apt-get layer in your Dockerfile separately from your application layer so rebuilds are faster.</p>
+<p>For pure rasterization workloads, <code>PdfDocument.FromFile</code> is cheap and you don't need a renderer at all. Cache the apt-get layer in your Dockerfile separately from your application layer so rebuilds stay fast.</p>
 
 <h2>When Should I Migrate from PdfiumViewer to IronPDF?</h2>
 
