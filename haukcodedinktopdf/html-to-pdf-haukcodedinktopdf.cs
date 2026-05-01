@@ -1,6 +1,6 @@
-// NuGet: Install-Package DinkToPdf
-using DinkToPdf;
-using DinkToPdf.Contracts;
+// NuGet: Install-Package Haukcode.WkHtmlToPdfDotNet (renamed from Haukcode.DinkToPdf in Oct 2024)
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 using System.IO;
 
 class Program

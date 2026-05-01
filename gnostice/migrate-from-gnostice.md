@@ -18,7 +18,7 @@
 
 ### The Gnostice Problems
 
-Gnostice Document Studio .NET and PDFOne have well-documented limitations that affect production applications:
+Gnostice Document Studio .NET and PDFOne have well-documented limitations that affect production applications. Note also that the legacy `PDFOne.NET` NuGet package is now marked deprecated (last release 24.1.60, July 1, 2024) and the vendor directs new work to `Gnostice.DocumentStudio.*` packages — meaning a Gnostice-to-Gnostice migration is itself unavoidable for anyone still on PDFOne:
 
 1. **No External CSS Support**: Gnostice's documentation explicitly states it doesn't support external CSS stylesheets—a fundamental requirement for modern web-to-PDF conversion.
 
@@ -70,7 +70,7 @@ The [comprehensive migration documentation with examples](https://ironpdf.com/bl
 | Encryption | Medium | Different API structure |
 | Form Fields | Medium | Property access differences |
 | Viewer Controls | High | IronPDF focuses on generation |
-| Digital Signatures | Low | Now supported (wasn't in Gnostice) |
+| Digital Signatures | Low | Limited/late addition in Gnostice; first-class in IronPDF |
 
 ### Features You Gain
 
@@ -106,11 +106,18 @@ grep -r "Gnostice\|PDFOne" --include="*.csproj" .
 ### NuGet Package Changes
 
 ```bash
-# Remove Gnostice packages
-dotnet remove package PDFOne.NET
-dotnet remove package Gnostice.DocumentStudio.NET
-dotnet remove package Gnostice.PDFOne.NET
-dotnet remove package Gnostice.XtremeDocumentStudio.NET
+# Remove Gnostice packages (real package IDs as published on nuget.org)
+dotnet remove package PDFOne.NET                          # legacy, deprecated
+dotnet remove package Gnostice.DocumentStudio.WinForms
+dotnet remove package Gnostice.DocumentStudio.WPF
+dotnet remove package Gnostice.DocumentStudio.ASP
+dotnet remove package Gnostice.DocumentStudio.ASP.Core
+dotnet remove package Gnostice.DocumentStudio.Xamarin
+dotnet remove package Gnostice.DocumentStudio.Foundation
+dotnet remove package Gnostice.DocumentStudio.Converter
+dotnet remove package Gnostice.DocumentStudio.OCR
+dotnet remove package Gnostice.DocumentStudio.Printer
+dotnet remove package Gnostice.DocumentStudio.MailMerge
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -120,8 +127,8 @@ dotnet add package IronPdf
 
 **Gnostice:**
 ```csharp
-// Gnostice license often set via config or property
-PDFOne.License.LicenseKey = "YOUR-GNOSTICE-LICENSE";
+// Gnostice PDFOne license is set via the static PDFOne class
+Gnostice.PDFOne.PDFOne.LicenseKey = "YOUR-GNOSTICE-LICENSE";
 ```
 
 **IronPDF:**
@@ -607,12 +614,14 @@ class Program
 }
 ```
 
-### Example 6: Digital Signatures (Gnostice Doesn't Support!)
+### Example 6: Digital Signatures (Limited in older Gnostice)
 
 **Before (Gnostice):**
 ```csharp
-// Digital signatures were NOT supported in Gnostice PDFOne!
-// This was a documented limitation.
+// Digital signatures were absent in early PDFOne and added in
+// later releases of PDFOne / Document Studio. Even where present,
+// the API requires manual certificate handling and signature-field
+// placement, with documentation lagging behind newer versions.
 ```
 
 **After (IronPDF):**
@@ -1176,7 +1185,11 @@ pdf.SaveAs("output.pdf");
 
 - [ ] **Remove Gnostice NuGet packages**
   ```bash
-  dotnet remove package Gnostice
+  # Use the actual published package IDs (PDFOne.NET is the deprecated legacy package)
+  dotnet remove package PDFOne.NET
+  dotnet remove package Gnostice.DocumentStudio.WinForms
+  dotnet remove package Gnostice.DocumentStudio.WPF
+  dotnet remove package Gnostice.DocumentStudio.ASP.Core
   ```
   **Why:** Clean removal of old dependencies to avoid conflicts.
 
@@ -1198,8 +1211,8 @@ pdf.SaveAs("output.pdf");
 
 - [ ] **Replace license key setup**
   ```csharp
-  // Before (Gnostice)
-  Gnostice.LicenseManager.SetLicenseKey("YOUR-OLD-LICENSE-KEY");
+  // Before (Gnostice PDFOne)
+  Gnostice.PDFOne.PDFOne.LicenseKey = "YOUR-OLD-LICENSE-KEY";
 
   // After (IronPDF)
   IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";

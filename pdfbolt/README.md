@@ -50,7 +50,7 @@ Below is a comparative table that outlines the key distinctions between PDFBolt 
 
 ## C# Code Example Using IronPDF
 
-For those looking to integrate PDF generation directly in their C# applications, IronPDF provides a robust library. Below is a simple code snippet to convert an HTML file to a PDF using IronPDF:
+For those looking to integrate PDF generation directly in their C# applications, IronPDF provides a robust library. Below is a simple code snippet to convert a URL to a PDF using IronPDF:
 
 ```csharp
 using IronPdf;
@@ -59,17 +59,19 @@ public class PdfExample
 {
     public static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         // Instantiate a Renderer object
-        var Renderer = new HtmlToPdf();
+        var renderer = new ChromePdfRenderer();
 
         // Render an HTML document or URL
-        var pdfDocument = Renderer.RenderUrlAsPdf("https://www.example.com");
+        var pdfDocument = renderer.RenderUrlAsPdf("https://www.example.com");
 
         // Save the PDF to file
         pdfDocument.SaveAs("Example.pdf");
 
-        // Express PDF by opening it
-        System.Diagnostics.Process.Start("Example.pdf");
+        // Open the file with the OS default viewer
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("Example.pdf") { UseShellExecute = true });
     }
 }
 ```
@@ -80,24 +82,37 @@ This example demonstrates how IronPDF can easily be utilized within a C# applica
 
 ## How Do I Convert HTML Files to PDF with Custom Settings?
 
-Here's how **PDFBolt** handles this:
+Here's how **PDFBolt** handles this (REST API — there is no `PDFBolt` NuGet package):
 
 ```csharp
-// NuGet: Install-Package PDFBolt
-using PDFBolt;
+// REST API — no official .NET SDK; integrate via HttpClient.
+// Docs: https://pdfbolt.com/docs/parameters
+using System;
 using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        converter.PageSize = PageSize.A4;
-        converter.MarginTop = 20;
-        converter.MarginBottom = 20;
-        var html = File.ReadAllText("input.html");
-        var pdf = converter.ConvertHtmlString(html);
-        File.WriteAllBytes("output.pdf", pdf);
+        var html = await File.ReadAllTextAsync("input.html");
+        var payload = JsonSerializer.Serialize(new
+        {
+            html = Convert.ToBase64String(Encoding.UTF8.GetBytes(html)),
+            format = "A4",
+            margin = new { top = "20mm", bottom = "20mm" }
+        });
+
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Add("API-KEY", "YOUR-PDFBOLT-API-KEY");
+        using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+        using var response = await http.PostAsync("https://api.pdfbolt.com/v1/direct", content);
+        response.EnsureSuccessStatusCode();
+
+        var pdfBytes = await response.Content.ReadAsByteArrayAsync();
+        await File.WriteAllBytesAsync("output.pdf", pdfBytes);
     }
 }
 ```
@@ -131,21 +146,35 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Do I Convert HTML to PDF in C# with PDFBolt?
 
-Here's how **PDFBolt** handles this:
+Here's how **PDFBolt** handles this (REST API — there is no `PDFBolt` NuGet package):
 
 ```csharp
-// NuGet: Install-Package PDFBolt
-using PDFBolt;
+// REST API — no official .NET SDK; integrate via HttpClient.
+// Docs: https://pdfbolt.com/docs/quick-start-guide/csharp
+using System;
 using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
         var html = "<html><body><h1>Hello World</h1></body></html>";
-        var pdf = converter.ConvertHtmlString(html);
-        File.WriteAllBytes("output.pdf", pdf);
+        var payload = JsonSerializer.Serialize(new
+        {
+            html = Convert.ToBase64String(Encoding.UTF8.GetBytes(html))
+        });
+
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Add("API-KEY", "YOUR-PDFBOLT-API-KEY");
+        using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+        using var response = await http.PostAsync("https://api.pdfbolt.com/v1/direct", content);
+        response.EnsureSuccessStatusCode();
+
+        var pdfBytes = await response.Content.ReadAsByteArrayAsync();
+        await File.WriteAllBytesAsync("output.pdf", pdfBytes);
     }
 }
 ```
@@ -175,20 +204,30 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Do I Convert a URL to PDF in .NET?
 
-Here's how **PDFBolt** handles this:
+Here's how **PDFBolt** handles this (REST API — there is no `PDFBolt` NuGet package):
 
 ```csharp
-// NuGet: Install-Package PDFBolt
-using PDFBolt;
+// REST API — no official .NET SDK; integrate via HttpClient.
+// Docs: https://pdfbolt.com/docs/quick-start-guide/csharp
 using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        var pdf = converter.ConvertUrl("https://www.example.com");
-        File.WriteAllBytes("webpage.pdf", pdf);
+        var payload = JsonSerializer.Serialize(new { url = "https://www.example.com" });
+
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Add("API-KEY", "YOUR-PDFBOLT-API-KEY");
+        using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+        using var response = await http.PostAsync("https://api.pdfbolt.com/v1/direct", content);
+        response.EnsureSuccessStatusCode();
+
+        var pdfBytes = await response.Content.ReadAsByteArrayAsync();
+        await File.WriteAllBytesAsync("webpage.pdf", pdfBytes);
     }
 }
 ```
@@ -233,7 +272,7 @@ PDFBolt's architecture creates fundamental limitations for production applicatio
 | Aspect | PDFBolt | IronPDF |
 |--------|---------|---------|
 | Data Location | External servers | Your servers only |
-| Usage Limits | 100 free, then per-document | Unlimited |
+| Usage Limits | 100 free/month, then $19–$249/mo tiers | Unlimited |
 | Internet Required | Yes, always | No |
 | Latency | Network round-trip | Milliseconds |
 | Compliance | Complex (external processing) | Simple (local processing) |
@@ -241,18 +280,18 @@ PDFBolt's architecture creates fundamental limitations for production applicatio
 
 ### Key API Mappings
 
-| PDFBolt | IronPDF | Notes |
-|---------|---------|-------|
-| `new Client(apiKey)` | `new ChromePdfRenderer()` | No API key needed |
-| `await client.HtmlToPdf(html)` | `renderer.RenderHtmlAsPdf(html)` | Sync by default |
-| `await client.UrlToPdf(url)` | `renderer.RenderUrlAsPdf(url)` | Sync by default |
-| `result.GetBytes()` | `pdf.BinaryData` | Property access |
-| `await result.SaveToFile(path)` | `pdf.SaveAs(path)` | Sync method |
-| `options.PageSize = PageSize.A4` | `renderer.RenderingOptions.PaperSize = PdfPaperSize.A4` | Enum names differ |
-| `options.MarginTop = 20` | `renderer.RenderingOptions.MarginTop = 20` | Individual properties |
-| `{pageNumber}` | `{page}` | Placeholder syntax |
-| `{totalPages}` | `{total-pages}` | Placeholder syntax |
-| `options.WaitForNetworkIdle = true` | `renderer.RenderingOptions.WaitFor.NetworkIdle()` | Wait strategy |
+| PDFBolt (REST) | IronPDF | Notes |
+|----------------|---------|-------|
+| `HttpClient` + `API-KEY` header | `new ChromePdfRenderer()` | No HTTP, no API key |
+| `POST /v1/direct` body `{ "html": base64 }` | `renderer.RenderHtmlAsPdf(html)` | No base64 |
+| `POST /v1/direct` body `{ "url": "..." }` | `renderer.RenderUrlAsPdf(url)` | Direct call |
+| `await response.Content.ReadAsByteArrayAsync()` | `pdf.BinaryData` | Property access |
+| `File.WriteAllBytes(...)` | `pdf.SaveAs(path)` | One method |
+| `"format": "A4"` | `renderer.RenderingOptions.PaperSize = PdfPaperSize.A4` | Strongly-typed enum |
+| `"margin": { "top": "20mm" }` | `renderer.RenderingOptions.MarginTop = 20` | Numeric mm |
+| `<span class="pageNumber"></span>` | `{page}` | Placeholder syntax |
+| `<span class="totalPages"></span>` | `{total-pages}` | Placeholder syntax |
+| `"waitUntil": "networkidle0"` | `renderer.RenderingOptions.WaitFor.NetworkIdle()` | Wait strategy |
 | _(not available)_ | `PdfDocument.Merge()` | NEW feature |
 | _(not available)_ | `pdf.ApplyWatermark()` | NEW feature |
 | _(not available)_ | `pdf.SecuritySettings` | NEW feature |
@@ -260,40 +299,43 @@ PDFBolt's architecture creates fundamental limitations for production applicatio
 
 ### Migration Code Example
 
-**Before (PDFBolt):**
+**Before (PDFBolt — HttpClient against `/v1/direct`):**
 ```csharp
-using PDFBolt;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 
 public class PdfService
 {
-    private readonly Client _client;
+    private readonly HttpClient _http;
 
-    public PdfService(IConfiguration config)
+    public PdfService(IConfiguration config, HttpClient http)
     {
         // API key from config - security risk if leaked
-        var apiKey = config["PDFBolt:ApiKey"];
-        _client = new Client(apiKey);
+        _http = http;
+        _http.DefaultRequestHeaders.Add("API-KEY", config["PDFBolt:ApiKey"]);
     }
 
     public async Task<byte[]> GeneratePdfAsync(string html)
     {
-        try
+        var footerHtml = "Page <span class=\"pageNumber\"></span> of <span class=\"totalPages\"></span>";
+        var payload = JsonSerializer.Serialize(new
         {
-            var options = new PdfOptions
-            {
-                PageSize = PageSize.A4,
-                MarginTop = 20,
-                DisplayHeaderFooter = true,
-                Footer = "Page {pageNumber} of {totalPages}"
-            };
+            html = Convert.ToBase64String(Encoding.UTF8.GetBytes(html)),
+            format = "A4",
+            margin = new { top = "20mm" },
+            displayHeaderFooter = true,
+            footerTemplate = Convert.ToBase64String(Encoding.UTF8.GetBytes(footerHtml))
+        });
+        using var content = new StringContent(payload, Encoding.UTF8, "application/json");
 
-            var result = await _client.HtmlToPdf(html, options);
-            return result.GetBytes();
-        }
-        catch (PDFBoltException ex) when (ex.Code == "RATE_LIMIT")
-        {
-            throw new Exception("Monthly limit exceeded");
-        }
+        using var response = await _http.PostAsync(
+            "https://api.pdfbolt.com/v1/direct", content);
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            throw new Exception("Monthly free-tier or per-minute limit exceeded");
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsByteArrayAsync();
     }
 }
 ```
@@ -333,25 +375,25 @@ public class PdfService
 
 1. **Async → Sync**: Remove await keywords (IronPDF is sync by default)
    ```csharp
-   // PDFBolt: var result = await client.HtmlToPdf(html);
+   // PDFBolt: var response = await http.PostAsync("https://api.pdfbolt.com/v1/direct", content);
    // IronPDF: var pdf = renderer.RenderHtmlAsPdf(html);
    ```
 
 2. **API Key → License Key**: Different security model
    ```csharp
-   // PDFBolt: new Client(apiKey) per request
+   // PDFBolt: API-KEY header on every HTTP call
    // IronPDF: License.LicenseKey = "..." once at startup
    ```
 
 3. **Page Number Placeholders**:
    ```csharp
-   // PDFBolt: "Page {pageNumber} of {totalPages}"
+   // PDFBolt: "Page <span class=\"pageNumber\"></span> of <span class=\"totalPages\"></span>"
    // IronPDF: "Page {page} of {total-pages}"
    ```
 
-4. **Remove Rate Limit Handling**: IronPDF has no limits
+4. **Remove Rate Limit Handling**: IronPDF has no per-document quotas
    ```csharp
-   // Delete: catch (PDFBoltException ex) when (ex.Code == "RATE_LIMIT")
+   // Delete: 429 / TooManyRequests retry blocks for api.pdfbolt.com
    ```
 
 5. **Remove Network Error Handling**: Local processing means no network errors
@@ -359,21 +401,20 @@ public class PdfService
    // Delete: catch (HttpRequestException), catch (TaskCanceledException)
    ```
 
-### NuGet Package Migration
+### Package Migration
+
+PDFBolt has no official .NET SDK and no `PDFBolt` NuGet package, so the only change on the PDFBolt side is to delete the hand-rolled `HttpClient` wrapper and DTOs. Then:
 
 ```bash
-# Remove PDFBolt
-dotnet remove package PDFBolt
-
-# Install IronPDF
+# Install IronPDF (replaces the wrapper)
 dotnet add package IronPdf
 ```
 
 ### Find All PDFBolt References
 
 ```bash
-# Find PDFBolt usage
-grep -r "PDFBolt\|Client\|HtmlToPdf\|UrlToPdf\|PdfOptions" --include="*.cs" .
+# Find PDFBolt REST calls
+grep -rE "api\.pdfbolt\.com|API-KEY|/v1/(direct|sync|async)" --include="*.cs" .
 
 # Find API key references
 grep -r "PDFBOLT\|ApiKey" --include="*.cs" --include="*.json" .

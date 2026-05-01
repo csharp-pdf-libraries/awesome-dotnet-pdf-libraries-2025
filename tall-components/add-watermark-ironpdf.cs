@@ -6,6 +6,8 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         // Load existing PDF
         var pdf = PdfDocument.FromFile("input.pdf");
         

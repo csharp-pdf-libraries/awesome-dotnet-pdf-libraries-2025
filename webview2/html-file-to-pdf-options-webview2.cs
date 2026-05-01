@@ -1,4 +1,6 @@
-// NuGet: Install-Package Microsoft.Web.WebView2.WinForms
+// NuGet: Install-Package Microsoft.Web.WebView2
+// Uses raw Chrome DevTools Protocol via CallDevToolsProtocolMethodAsync.
+// (Page.printToPDF returns base64 in result.data; units are inches.)
 using System;
 using System.IO;
 using System.Threading.Tasks;

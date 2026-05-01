@@ -6,6 +6,7 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
         var renderer = new ChromePdfRenderer();
         // Render a live website directly to PDF with full CSS, JavaScript, and images
         var pdf = renderer.RenderUrlAsPdf("https://example.com");

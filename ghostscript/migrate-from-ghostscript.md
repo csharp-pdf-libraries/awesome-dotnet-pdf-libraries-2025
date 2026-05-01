@@ -19,9 +19,9 @@
 
 ### The Ghostscript Problems
 
-Ghostscript is a venerable PostScript/PDF interpreter with decades of history, but its use in modern .NET applications presents significant challenges:
+Ghostscript (current native release line 10.x — 10.05.x shipped through 2025, 10.07.0 in early 2026) is a venerable PostScript/PDF interpreter from Artifex Software with decades of history. From .NET it is consumed via the `Ghostscript.NET` NuGet wrapper (v1.3.3, .NET Standard 2.0, also AGPL/commercial-dual), which P/Invokes the native `gsdll32.dll` / `gsdll64.dll`. Its use in modern .NET applications presents significant challenges:
 
-1. **AGPL License Restrictions**: Ghostscript's AGPL license requires you to release your source code if you distribute software that uses it—unless you purchase an expensive commercial license from Artifex.
+1. **AGPL-3.0 License Restrictions**: Both Ghostscript itself and the `Ghostscript.NET` wrapper are dual-licensed under AGPL-3.0 or a commercial license from Artifex. AGPL requires that you release the complete corresponding source of the larger work — including for SaaS / network use — unless you purchase a commercial license.
 
 2. **Command-Line Interface**: Ghostscript is fundamentally a command-line tool. Using it from C# requires spawning processes, passing string arguments, and parsing output—a fragile and error-prone approach.
 
@@ -45,7 +45,7 @@ More patterns are available in the [full documentation](https://ironpdf.com/blog
 
 | Aspect | Ghostscript | IronPDF |
 |--------|-------------|---------|
-| License | AGPL (viral) or expensive commercial | Commercial with clear terms |
+| License | AGPL-3.0 (network-copyleft) or Artifex commercial | Commercial with clear terms |
 | Integration | Command-line process spawning | Native .NET library |
 | API Design | String-based switches | Typed, IntelliSense-enabled API |
 | Error Handling | Parse stderr text | .NET exceptions |
@@ -88,7 +88,7 @@ IronPDF:      "Call these methods on .NET objects"
 
 ### Prerequisites
 
-1. **.NET Version**: IronPDF supports .NET Framework 4.6.2+ and .NET Core 2.0+ / .NET 5+
+1. **.NET Version**: IronPDF supports .NET Framework 4.6.2+ and .NET Core / .NET 5+ (including .NET 6/7/8). `Ghostscript.NET` v1.3.x targets .NET Standard 2.0.
 2. **License Key**: Obtain your IronPDF license key from [ironpdf.com](https://ironpdf.com)
 3. **Backup**: Create a branch for migration work
 
@@ -1067,9 +1067,9 @@ pdf.RasterizeToImageFiles("*.png", DPI: 300);
 
 ### Issue 7: AGPL License Concerns
 
-**Problem:** Current Ghostscript use may violate AGPL.
+**Problem:** Current Ghostscript use (and the `Ghostscript.NET` wrapper) is governed by AGPL-3.0; distributing or running it in a SaaS / network-accessible context without a commercial Artifex license requires releasing the corresponding source of your application.
 
-**Solution:** Migrating to IronPDF eliminates this concern—IronPDF has a commercial license without source code disclosure requirements.
+**Solution:** Migrating to IronPDF eliminates this concern — IronPDF ships under a commercial license with no source-disclosure or network-copyleft obligation. (If you keep Ghostscript only for PostScript ingest, purchase an Artifex commercial license for that piece.)
 
 ### Issue 8: Platform-Specific DLLs
 

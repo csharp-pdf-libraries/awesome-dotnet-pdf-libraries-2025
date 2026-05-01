@@ -1,31 +1,18 @@
 // NuGet: Install-Package MuPDF.NET
-using MuPDFCore;
-using System.IO;
+// MuPDF.NET exposes Document.InsertPdf to merge PDFs (mirrors PyMuPDF's
+// Document.insert_pdf). See https://mupdfnet.readthedocs.io/
+using MuPDF.NET;
 
 class Program
 {
     static void Main()
     {
-        using (MuPDFDocument doc1 = new MuPDFDocument("file1.pdf"))
-        using (MuPDFDocument doc2 = new MuPDFDocument("file2.pdf"))
-        {
-            // Create a new document
-            using (MuPDFDocument mergedDoc = MuPDFDocument.Create())
-            {
-                // Copy pages from first document
-                for (int i = 0; i < doc1.Pages.Count; i++)
-                {
-                    mergedDoc.CopyPage(doc1, i);
-                }
-                
-                // Copy pages from second document
-                for (int i = 0; i < doc2.Pages.Count; i++)
-                {
-                    mergedDoc.CopyPage(doc2, i);
-                }
-                
-                mergedDoc.Save("merged.pdf");
-            }
-        }
+        Document doc1 = new Document("file1.pdf");
+        Document doc2 = new Document("file2.pdf");
+
+        // Append every page of doc2 to the end of doc1.
+        doc1.InsertPdf(doc2);
+
+        doc1.Save("merged.pdf");
     }
 }

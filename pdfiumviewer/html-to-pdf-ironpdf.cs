@@ -2,6 +2,8 @@
 using IronPdf;
 using System;
 
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
 string htmlContent = "<h1>Hello World</h1><p>This is a test document.</p>";
 
 // Create a PDF from HTML string

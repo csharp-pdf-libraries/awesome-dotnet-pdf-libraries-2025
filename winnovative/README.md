@@ -4,7 +4,7 @@ Winnovative is a commercially licensed HTML-to-PDF converter that has been a not
 
 ## Understanding Winnovative
 
-Winnovative, available through its [official website](https://www.winnovative-software.com), offers solutions priced between $750 and $1,600 depending on the licensing requirements. The tool is primarily designed for converting HTML content into PDF documents in C# applications. However, key limitations impact its applicability in modern web scenarios.
+Winnovative, available through its [official website](https://www.winnovative-software.com), offers HTML-to-PDF licenses priced from $450 (Deployment) to $1,200 (Redistributable) per developer (per the [vendor pricing page](https://www.winnovative-software.com/buy.aspx)). The tool is primarily designed for converting HTML content into PDF documents in C# applications. However, key limitations impact its applicability in modern web scenarios.
 
 ### Strengths of Winnovative
 
@@ -14,7 +14,7 @@ Winnovative, available through its [official website](https://www.winnovative-so
 
 ### Weaknesses of Winnovative
 
-- **Outdated WebKit Engine**: The reliance on a WebKit version from 2016 is Winnovative's most significant shortfall. It cannot handle contemporary CSS3 features, such as the CSS Grid or the improved flexbox model.
+- **Aging Classic rendering engine**: Winnovative's long-standing Classic library uses an older proprietary engine that handles modern CSS3 (CSS Grid, recent Flexbox) inconsistently. The vendor's own answer is the separate `Winnovative.Pdf.Next` Chromium-class product, but adopting that means a namespace and API rewrite from `Winnovative` to `Winnovative.Pdf.Next`.
 - **Lack of Modern JavaScript Support**: ES6+ and beyond features are not supported, preventing it from executing many modern web applications' JavaScript functionalities accurately.
 - **Stagnant Innovation**: Despite its name, 'Winnovative,' the tool hasn't seen substantial innovation or feature updates in recent years.
 
@@ -51,7 +51,7 @@ IronPDF, which you can explore further on their [official tutorials](https://iro
 Here's how **Winnovative C# PDF: A Comprehensive Comparison with IronPDF** handles this:
 
 ```csharp
-// NuGet: Install-Package Winnovative.WebToPdfConverter
+// NuGet: Install-Package Winnovative.HtmlToPdf
 using Winnovative;
 using System;
 
@@ -112,7 +112,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Winnovative C# PDF: A Comprehensive Comparison with IronPDF** handles this:
 
 ```csharp
-// NuGet: Install-Package Winnovative.WebToPdfConverter
+// NuGet: Install-Package Winnovative.HtmlToPdf
 using Winnovative;
 using System;
 
@@ -173,7 +173,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Winnovative C# PDF: A Comprehensive Comparison with IronPDF** handles this:
 
 ```csharp
-// NuGet: Install-Package Winnovative.WebToPdfConverter
+// NuGet: Install-Package Winnovative.HtmlToPdf
 using Winnovative;
 using System;
 using System.Drawing;
@@ -262,11 +262,11 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from Winnovative C# PDF: A Comprehensive Comparison with IronPDF to IronPDF?
 
-Winnovative relies on a WebKit engine from 2016 that lacks support for modern CSS features like Grid and has buggy Flexbox implementation. Modern JavaScript (ES6+) is unreliable or completely unsupported, and despite its name suggesting "innovation," the product has seen minimal updates in recent years.
+Winnovative's Classic library uses an older proprietary rendering engine whose support for modern CSS (Grid, recent Flexbox) and modern JavaScript (ES2017+) is inconsistent. The vendor has shifted active rendering investment into the separate `Winnovative.Pdf.Next` Chromium-class product, leaving Classic feature-frozen — adopting Next still requires a code migration to a different namespace and API.
 
 **Migrating from Winnovative C# PDF: A Comprehensive Comparison with IronPDF to IronPDF involves:**
 
-1. **NuGet Package Change**: Remove `Winnovative.WebKitHtmlToPdf`, add `IronPdf`
+1. **NuGet Package Change**: Remove `Winnovative.HtmlToPdf` (and any `Winnovative.PdfMerge` / `Winnovative.PdfSecurity` / `Winnovative.Pdf.Next.*` packages your project uses), add `IronPdf`
 2. **Namespace Update**: Replace `Winnovative.WebKit` with `IronPdf`
 3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
 
@@ -285,7 +285,7 @@ For a complete step-by-step migration guide with detailed code examples and comm
 
 | Feature/Aspect               | Winnovative                          | IronPDF                              |
 |------------------------------|--------------------------------------|--------------------------------------|
-| Rendering Engine             | WebKit (2016)                        | Latest Chromium                       |
+| Rendering Engine             | Older proprietary (Classic) / Chromium-class (Next, separate product) | Latest Chromium                       |
 | JavaScript Support           | Up to ES5                            | Full ES2024                          |
 | CSS Support                  | Limited (No CSS Grid)                | Full CSS3, including Grid and flexbox |
 | Updates                      | Infrequent                           | Monthly                              |

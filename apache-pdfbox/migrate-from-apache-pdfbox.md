@@ -2,7 +2,7 @@
 
 > **Migration Complexity:** Medium
 > **Estimated Time:** 2-4 hours for typical projects
-> **Last Updated:** December 2024
+> **Last Updated:** April 2026
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ Apache PDFBox is a well-respected Java library, but its unofficial .NET ports pr
 
 ### The Case for Leaving Apache PDFBox .NET Ports
 
-**Unofficial Port Status**: PDFBox is fundamentally a Java library. All .NET versions are community-driven ports that lack official support from the Apache project. These ports frequently lag behind Java releases and may miss critical features or security updates.
+**Unofficial Port Status**: PDFBox is fundamentally a Java library — Apache only ships Java artifacts (current line: PDFBox 3.0.7, Apache License 2.0; legacy 2.x line still maintained at 2.0.36). All .NET versions are community-driven ports. Most are abandoned: `Pdfbox` (1.1.1, last published 2013, built against PDFBox 1.8.2), `Pdfbox-IKVM` (1.8.9, last published March 2017), and `PdfBox_DotNet_Version` (2.0.15, last published July 2019). The only actively maintained option is `MASES.NetPDF` (3.0.x line, tracks PDFBox 3.0.x), which is a JCOBridge wrapper and therefore requires a JVM at runtime alongside the CLR.
 
 **Java-First API Design**: The ported API retains Java conventions (`camelCase` methods, `File` objects, explicit `close()` calls) that feel foreign in .NET code, a complexity addressed comprehensively in the [step-by-step guide](https://ironpdf.com/blog/migration-guides/migrate-from-apache-pdfbox-to-ironpdf/). This cognitive overhead affects development velocity and code quality.
 
@@ -33,7 +33,7 @@ Apache PDFBox is a well-respected Java library, but its unofficial .NET ports pr
 
 **Limited Community Support**: The .NET ecosystem around PDFBox ports is sparse. Finding help, examples, or best practices for .NET-specific issues is difficult.
 
-**Potential JVM Dependencies**: Some ports may require Java runtime components, adding complexity to deployment and environment management.
+**JVM Dependencies**: The IKVM-based ports (`Pdfbox-IKVM`, `Pdfbox`) bundle a .NET reimplementation of the JVM, while `MASES.NetPDF` calls into a real JVM via JCOBridge. Either way, the deployment carries Java runtime baggage that idiomatic .NET libraries avoid.
 
 ### What IronPDF Provides
 
@@ -62,8 +62,8 @@ Apache PDFBox is a well-respected Java library, but its unofficial .NET ports pr
 Run these commands in your solution directory:
 
 ```bash
-grep -r "apache.pdfbox\|PdfBox\|PDDocument\|PDFTextStripper" --include="*.cs" .
-grep -r "PdfBox\|Apache.PdfBox" --include="*.csproj" .
+grep -r "org.apache.pdfbox\|Org.Apache.Pdfbox\|PDDocument\|PDFTextStripper" --include="*.cs" .
+grep -rE "Pdfbox|Pdfbox-IKVM|PdfBox_DotNet_Version|MASES\.NetPDF" --include="*.csproj" .
 ```
 
 ### Breaking Changes to Anticipate
@@ -84,10 +84,11 @@ grep -r "PdfBox\|Apache.PdfBox" --include="*.csproj" .
 ### Step 1: Update NuGet Packages
 
 ```bash
-# Remove PDFBox .NET port packages
-dotnet remove package PdfBox
-dotnet remove package PDFBoxNet
-dotnet remove package Apache.PdfBox
+# Remove whichever PDFBox .NET port your project uses
+dotnet remove package Pdfbox            # built against PDFBox 1.8.2 (2013)
+dotnet remove package Pdfbox-IKVM       # IKVM wrapper, last update 2017
+dotnet remove package PdfBox_DotNet_Version  # last update 2019
+dotnet remove package MASES.NetPDF      # JCOBridge wrapper, requires JVM
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -104,11 +105,11 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 | Find | Replace With |
 |------|--------------|
-| `using org.apache.pdfbox.pdmodel;` | `using IronPdf;` |
-| `using org.apache.pdfbox.text;` | `using IronPdf;` |
-| `using org.apache.pdfbox.multipdf;` | `using IronPdf;` |
-| `using PdfBoxDotNet.Pdmodel;` | `using IronPdf;` |
-| `using Apache.Pdfbox.PdModel;` | `using IronPdf;` |
+| `using org.apache.pdfbox.pdmodel;` (IKVM ports) | `using IronPdf;` |
+| `using org.apache.pdfbox.text;` (IKVM ports) | `using IronPdf;` |
+| `using org.apache.pdfbox.multipdf;` (IKVM ports) | `using IronPdf;` |
+| `using Org.Apache.Pdfbox.Pdmodel;` (MASES.NetPDF) | `using IronPdf;` |
+| `using Org.Apache.Pdfbox.Text;` (MASES.NetPDF) | `using IronPdf;` |
 
 ### Step 4: Verify Basic Operation
 
@@ -139,13 +140,17 @@ Console.WriteLine(text);
 
 ### Namespace Mapping
 
+All PDFBox .NET ports mirror the Java package hierarchy. The IKVM-based
+ports keep Java's lowercase form (`org.apache.pdfbox.*`); MASES.NetPDF
+title-cases it for C# (`Org.Apache.Pdfbox.*`).
+
 | PDFBox .NET Port Namespace | IronPDF Namespace | Purpose |
 |---------------------------|-------------------|---------|
-| `org.apache.pdfbox.pdmodel` | `IronPdf` | Core document operations |
-| `org.apache.pdfbox.text` | `IronPdf` | Text extraction |
-| `org.apache.pdfbox.multipdf` | `IronPdf` | Merge/split operations |
-| `org.apache.pdfbox.rendering` | `IronPdf` | PDF to image |
-| `org.apache.pdfbox.pdmodel.encryption` | `IronPdf` | Security/encryption |
+| `org.apache.pdfbox.pdmodel` / `Org.Apache.Pdfbox.Pdmodel` | `IronPdf` | Core document operations |
+| `org.apache.pdfbox.text` / `Org.Apache.Pdfbox.Text` | `IronPdf` | Text extraction |
+| `org.apache.pdfbox.multipdf` / `Org.Apache.Pdfbox.Multipdf` | `IronPdf` | Merge/split operations |
+| `org.apache.pdfbox.rendering` / `Org.Apache.Pdfbox.Rendering` | `IronPdf` | PDF to image |
+| `org.apache.pdfbox.pdmodel.encryption` | `IronPdf.Security` | Security/encryption |
 | `org.apache.pdfbox.pdmodel.font` | Not needed | Automatic font handling |
 | `org.apache.pdfbox.pdmodel.graphics` | Use HTML/CSS | Graphics via HTML |
 
@@ -161,7 +166,7 @@ Console.WriteLine(text);
 | `document.getNumberOfPages()` | `pdf.PageCount` | Page count |
 | `document.getPage(index)` | `pdf.Pages[index]` | Access page |
 | `document.addPage(page)` | Automatic from HTML | Pages auto-created |
-| `document.removePage(index)` | `pdf.RemovePages(index)` | Remove pages |
+| `document.removePage(index)` | `pdf.RemovePages(index)` | PDFBox: per-page; IronPDF: `RemovePages` accepts index or range |
 
 ### Text Extraction
 
@@ -821,7 +826,7 @@ using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
 ### Issue 1: Java-Style Method Names Not Found
 
 **Symptom:** `getText()`, `getNumberOfPages()` not recognized
-**Cause:** IronPDF uses .NET conventions
+**Cause:** The PDFBox .NET ports preserve Java's `camelCase` because they expose the Java API directly through IKVM or JCOBridge. IronPDF is a native .NET library and uses `PascalCase`.
 **Solution:**
 ```csharp
 // PDFBox: stripper.getText(document)

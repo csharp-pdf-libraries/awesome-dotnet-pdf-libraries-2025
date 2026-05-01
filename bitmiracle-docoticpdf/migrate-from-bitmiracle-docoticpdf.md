@@ -114,7 +114,8 @@ dotnet add package IronPdf
 // Before
 using BitMiracle.Docotic.Pdf;
 using BitMiracle.Docotic.Pdf.Layout;
-// using BitMiracle.Docotic.Pdf.HtmlToPdf; // if using HTML add-on
+// HtmlConverter from the BitMiracle.Docotic.Pdf.HtmlToPdf NuGet package
+// lives in the BitMiracle.Docotic.Pdf namespace (no extra using needed).
 
 // After
 using IronPdf;
@@ -159,9 +160,9 @@ pdf.SaveAs("output.pdf");
 
 | Docotic.Pdf Namespace | IronPDF Namespace | Notes |
 |-----------------------|-------------------|-------|
-| `BitMiracle.Docotic.Pdf` | `IronPdf` | Main namespace |
+| `BitMiracle.Docotic.Pdf` | `IronPdf` | Main namespace (also hosts `HtmlConverter` from the HtmlToPdf add-on) |
 | `BitMiracle.Docotic.Pdf.Layout` | `IronPdf` | Layout via HTML/CSS |
-| `BitMiracle.Docotic.Pdf.HtmlToPdf` | `IronPdf` | Built-in, no add-on |
+| `BitMiracle.Docotic.Pdf.HtmlToPdf` package | `IronPdf` | Built-in, no add-on required |
 
 ### Document Operations
 
@@ -181,13 +182,13 @@ pdf.SaveAs("output.pdf");
 
 | Task | Docotic.Pdf (HtmlToPdf Add-on) | IronPDF |
 |------|-------------------------------|---------|
-| HTML string to PDF | `HtmlConverter.Create(html).ToPdf()` | `renderer.RenderHtmlAsPdf(html)` |
-| HTML file to PDF | `HtmlConverter.Create(new Uri(filePath)).ToPdf()` | `renderer.RenderHtmlFileAsPdf(path)` |
-| URL to PDF | `HtmlConverter.Create(new Uri(url)).ToPdf()` | `renderer.RenderUrlAsPdf(url)` |
-| Set page size | `options.PageSize = PageSize.A4` | `renderer.RenderingOptions.PaperSize = PdfPaperSize.A4` |
-| Set margins | `options.PageMargins = new Margins(20)` | `renderer.RenderingOptions.MarginTop = 20` |
-| Set orientation | `options.PageOrientation = Orientation.Landscape` | `renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape` |
-| JavaScript wait | `options.WaitTime = TimeSpan.FromSeconds(3)` | `renderer.RenderingOptions.WaitFor.JavaScript(3000)` |
+| HTML string to PDF | `await converter.CreatePdfFromStringAsync(html)` | `renderer.RenderHtmlAsPdf(html)` |
+| HTML file to PDF | `await converter.CreatePdfAsync(filePath)` | `renderer.RenderHtmlFileAsPdf(path)` |
+| URL to PDF | `await converter.CreatePdfAsync(new Uri(url))` | `renderer.RenderUrlAsPdf(url)` |
+| Set page size | `options.Page.SetSize(PdfPaperSize.A4)` | `renderer.RenderingOptions.PaperSize = PdfPaperSize.A4` |
+| Set margins | `options.Page.MarginTop = 20` (etc.) | `renderer.RenderingOptions.MarginTop = 20` |
+| Set orientation | `options.Page.SetSize(size, isLandscape: true)` | `renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape` |
+| JavaScript wait | `options.Start.SetStartAfterDelay(3000)` | `renderer.RenderingOptions.WaitFor.JavaScript(3000)` |
 
 ### Page Operations
 
@@ -216,8 +217,8 @@ pdf.SaveAs("output.pdf");
 
 | Task | Docotic.Pdf | IronPDF |
 |------|-------------|---------|
-| Merge documents | `doc1.Append(doc2)` | `PdfDocument.Merge(pdf1, pdf2)` |
-| Merge multiple | Loop with `Append()` | `PdfDocument.Merge(pdfList)` |
+| Merge documents | `doc1.Append("file.pdf")` (path/Stream/bytes) | `PdfDocument.Merge(pdf1, pdf2)` |
+| Merge multiple | Loop with `Append(path)` per file | `PdfDocument.Merge(pdfList)` |
 | Split document | `document.CopyPage(index)` to new doc | `pdf.CopyPages(start, end)` |
 | Extract page range | Loop extraction | `pdf.CopyPages(indices)` |
 
@@ -289,22 +290,24 @@ pdf.SaveAs("output.pdf");
 **Before (Docotic.Pdf with HtmlToPdf Add-on):**
 ```csharp
 using BitMiracle.Docotic.Pdf;
-using BitMiracle.Docotic.Pdf.HtmlToPdf;
 
 class Program
 {
     static async Task Main()
     {
-        // Chromium engine must download on first use
-        using var engine = await HtmlEngine.CreateAsync();
+        // HtmlConverter downloads Chromium on first use; the API is async-only
+        using var converter = await HtmlConverter.CreateAsync();
 
         var options = new HtmlConversionOptions();
-        options.PageSize = PaperKind.A4;
-        options.PageMargins = new PageMargins(20);
+        options.Page.SetSize(PdfPaperSize.A4);
+        options.Page.MarginTop = 20;
+        options.Page.MarginBottom = 20;
+        options.Page.MarginLeft = 20;
+        options.Page.MarginRight = 20;
 
         string html = "<html><body><h1>Hello World</h1></body></html>";
 
-        using var pdf = await engine.CreatePdfAsync(html, options);
+        using var pdf = await converter.CreatePdfFromStringAsync(html, options);
         pdf.Save("output.pdf");
 
         Console.WriteLine("PDF created successfully");
@@ -342,19 +345,18 @@ class Program
 **Before (Docotic.Pdf with HtmlToPdf Add-on):**
 ```csharp
 using BitMiracle.Docotic.Pdf;
-using BitMiracle.Docotic.Pdf.HtmlToPdf;
 
 class Program
 {
     static async Task Main()
     {
-        using var engine = await HtmlEngine.CreateAsync();
+        using var converter = await HtmlConverter.CreateAsync();
 
         var options = new HtmlConversionOptions();
-        options.PageOrientation = PageOrientation.Landscape;
-        options.WaitTime = TimeSpan.FromSeconds(5); // Wait for JS
+        options.Page.SetSize(PdfPaperSize.A4, isLandscape: true);
+        options.Start.SetStartAfterDelay(5000); // Wait 5s for JS
 
-        using var pdf = await engine.CreatePdfAsync(
+        using var pdf = await converter.CreatePdfAsync(
             new Uri("https://example.com"), options);
         pdf.Save("webpage.pdf");
     }
@@ -455,12 +457,12 @@ class Program
 {
     static void Main()
     {
+        // PdfDocument.Append accepts a file path, Stream, or byte[] —
+        // not another PdfDocument instance.
         using (var pdf1 = new PdfDocument("document1.pdf"))
-        using (var pdf2 = new PdfDocument("document2.pdf"))
-        using (var pdf3 = new PdfDocument("document3.pdf"))
         {
-            pdf1.Append(pdf2);
-            pdf1.Append(pdf3);
+            pdf1.Append("document2.pdf");
+            pdf1.Append("document3.pdf");
             pdf1.Save("merged.pdf");
         }
 
@@ -870,19 +872,18 @@ class Program
 **Before (Docotic.Pdf):**
 ```csharp
 using BitMiracle.Docotic.Pdf;
-using BitMiracle.Docotic.Pdf.HtmlToPdf;
 using Microsoft.AspNetCore.Mvc;
 
 [ApiController]
 [Route("api/[controller]")]
 public class ReportController : ControllerBase
 {
-    private readonly HtmlEngine _engine;
+    private readonly HtmlConverter _converter;
 
     public ReportController()
     {
-        // HtmlEngine is expensive to create
-        _engine = HtmlEngine.CreateAsync().GetAwaiter().GetResult();
+        // HtmlConverter is expensive to create — reuse where possible
+        _converter = HtmlConverter.CreateAsync().GetAwaiter().GetResult();
     }
 
     [HttpGet("generate")]
@@ -890,8 +891,7 @@ public class ReportController : ControllerBase
     {
         string html = "<h1>Report</h1><p>Content...</p>";
 
-        var options = new HtmlConversionOptions();
-        using var pdf = await _engine.CreatePdfAsync(html, options);
+        using var pdf = await _converter.CreatePdfFromStringAsync(html);
 
         using var stream = new MemoryStream();
         pdf.Save(stream);
@@ -902,7 +902,7 @@ public class ReportController : ControllerBase
 
     public void Dispose()
     {
-        _engine?.Dispose();
+        _converter?.Dispose();
     }
 }
 ```
@@ -933,28 +933,28 @@ public class ReportController : ControllerBase
 
 **Before (Docotic.Pdf):**
 ```csharp
-// Startup.cs - Complex setup for HtmlEngine
+// Startup.cs - Setup for HtmlConverter (expensive to construct)
 public void ConfigureServices(IServiceCollection services)
 {
-    services.AddSingleton<HtmlEngine>(sp =>
+    services.AddSingleton<HtmlConverter>(sp =>
     {
-        return HtmlEngine.CreateAsync().GetAwaiter().GetResult();
+        return HtmlConverter.CreateAsync().GetAwaiter().GetResult();
     });
 }
 
 // Service
 public class PdfService
 {
-    private readonly HtmlEngine _engine;
+    private readonly HtmlConverter _converter;
 
-    public PdfService(HtmlEngine engine)
+    public PdfService(HtmlConverter converter)
     {
-        _engine = engine;
+        _converter = converter;
     }
 
     public async Task<byte[]> CreatePdfAsync(string html)
     {
-        using var pdf = await _engine.CreatePdfAsync(html);
+        using var pdf = await _converter.CreatePdfFromStringAsync(html);
         return pdf.GetBytes();
     }
 }
@@ -997,31 +997,28 @@ public class PdfService
 **Before (Docotic.Pdf):**
 ```csharp
 using BitMiracle.Docotic.Pdf;
-using BitMiracle.Docotic.Pdf.HtmlToPdf;
 
 public class AsyncPdfGenerator
 {
-    private readonly HtmlEngine _engine;
+    private readonly HtmlConverter _converter;
 
     public AsyncPdfGenerator()
     {
-        _engine = HtmlEngine.CreateAsync().GetAwaiter().GetResult();
+        _converter = HtmlConverter.CreateAsync().GetAwaiter().GetResult();
     }
 
     public async Task<byte[]> GeneratePdfAsync(string html)
     {
-        var options = new HtmlConversionOptions
-        {
-            WaitTime = TimeSpan.FromSeconds(3)
-        };
+        var options = new HtmlConversionOptions();
+        options.Start.SetStartAfterDelay(3000); // Wait 3s for JS
 
-        using var pdf = await _engine.CreatePdfAsync(html, options);
+        using var pdf = await _converter.CreatePdfFromStringAsync(html, options);
         return pdf.GetBytes();
     }
 
     public async Task<byte[]> GenerateFromUrlAsync(Uri url)
     {
-        using var pdf = await _engine.CreatePdfAsync(url);
+        using var pdf = await _converter.CreatePdfAsync(url);
         return pdf.GetBytes();
     }
 }
@@ -1526,10 +1523,10 @@ apt-get install -y libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 \
 
 - [ ] **Update merge/split operations**
   ```csharp
-  // Before (Docotic.Pdf)
+  // Before (Docotic.Pdf) — Append accepts a path/Stream/byte[], not a PdfDocument
   var mergedPdf = new PdfDocument();
-  mergedPdf.Append(pdf1);
-  mergedPdf.Append(pdf2);
+  mergedPdf.Append("file1.pdf");
+  mergedPdf.Append("file2.pdf");
 
   // After (IronPDF)
   var mergedPdf = PdfDocument.Merge(pdf1, pdf2);

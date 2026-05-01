@@ -218,7 +218,7 @@ public class PdfService
 | `Template.Chrome.Format` | `RenderingOptions.PaperSize` | Enum value |
 | `Template.Chrome.Landscape` | `RenderingOptions.PaperOrientation` | Enum value |
 | `Template.Chrome.MediaType` | `RenderingOptions.CssMediaType` | Screen or Print |
-| `Template.Chrome.WaitForNetworkIdle` | `RenderingOptions.WaitFor.NetworkIdle()` | Wait strategy |
+| `Template.Chrome.WaitForNetworkIddle` | `RenderingOptions.WaitFor.NetworkIdle()` | jsreport API typo, real property name spelled with two d's |
 | `Template.Chrome.WaitForJS` | `RenderingOptions.WaitFor.JavaScript()` | Wait for JS |
 | `Template.Chrome.PrintBackground` | `RenderingOptions.PrintHtmlBackgrounds` | Background printing |
 | `Template.Chrome.Scale` | `RenderingOptions.Zoom` | Zoom percentage |
@@ -226,13 +226,15 @@ public class PdfService
 
 ### Placeholder Mappings (Headers/Footers)
 
-| jsreport Placeholder | IronPDF Placeholder | Notes |
-|---------------------|-------------------|-------|
-| `{#pageNum}` | `{page}` | Current page |
-| `{#numPages}` | `{total-pages}` | Total pages |
-| `{#timestamp}` | `{date}` | Current date |
-| `{#title}` | `{html-title}` | Document title |
-| `{#url}` | `{url}` | Document URL |
+jsreport's chrome-pdf recipe uses Chromium's native HTML span classes inside header/footer templates. The `{#pageNum}`-style curly-brace placeholders only exist if you use the `pdf-utils` extension. IronPDF replaces both with simple merge fields.
+
+| jsreport (chrome-pdf span class) | jsreport (pdf-utils placeholder) | IronPDF Placeholder |
+|----------------------------------|----------------------------------|---------------------|
+| `<span class="pageNumber"></span>` | `{#pageNum}` | `{page}` |
+| `<span class="totalPages"></span>` | `{#numPages}` | `{total-pages}` |
+| `<span class="date"></span>` | _(n/a)_ | `{date}` |
+| `<span class="title"></span>` | _(n/a)_ | `{html-title}` |
+| `<span class="url"></span>` | _(n/a)_ | `{url}` |
 
 ### Paper Size Mappings
 
@@ -317,7 +319,7 @@ public async Task<byte[]> ConvertUrlToPdf(string url)
             Chrome = new Chrome
             {
                 Url = url,
-                WaitForNetworkIdle = true,
+                WaitForNetworkIddle = true,  // sic: jsreport.Types property is misspelled
                 Format = "A4",
                 Landscape = true,
                 MediaType = MediaType.Print
@@ -380,8 +382,8 @@ public async Task<byte[]> CreateReportWithHeaderFooter(string html)
                     </div>",
                 FooterTemplate = @"
                     <div style='font-size:10px; width:100%;'>
-                        <span style='float:left;'>Printed: {#timestamp}</span>
-                        <span style='float:right;'>Page {#pageNum} of {#numPages}</span>
+                        <span style='float:left;'>Printed: <span class='date'></span></span>
+                        <span style='float:right;'>Page <span class='pageNumber'></span> of <span class='totalPages'></span></span>
                     </div>",
                 MarginTop = "2cm",
                 MarginBottom = "2cm"
@@ -622,7 +624,7 @@ var report = await rs.RenderAsync(new RenderRequest
             PrintBackground = true,
             Scale = 0.9,
             MediaType = MediaType.Print,
-            WaitForNetworkIdle = true
+            WaitForNetworkIddle = true  // sic in jsreport.Types
         }
     }
 });
@@ -793,7 +795,7 @@ public class JsReportPdfService : IDisposable
                     Format = "A4",
                     DisplayHeaderFooter = true,
                     HeaderTemplate = "<div style='font-size:10px;text-align:center;'>{{title}}</div>",
-                    FooterTemplate = "<div style='font-size:10px;text-align:center;'>Page {#pageNum} of {#numPages}</div>",
+                    FooterTemplate = "<div style='font-size:10px;text-align:center;'>Page <span class='pageNumber'></span> of <span class='totalPages'></span></div>",
                     MarginTop = "2cm",
                     MarginBottom = "2cm"
                 }
@@ -1021,13 +1023,15 @@ var pdf = await renderer.RenderHtmlAsPdfAsync(html);
 
 ### Issue 5: Placeholder Syntax Differences
 
-**Cause**: jsreport uses `{#pageNum}`, IronPDF uses `{page}`
+**Cause**: jsreport's chrome-pdf uses Chromium HTML span classes (`<span class="pageNumber">`); the `pdf-utils` extension adds curly-brace forms (`{#pageNum}`). IronPDF uses simple merge fields (`{page}`).
 **IronPDF Solution**: Find and replace placeholders
 
 ```csharp
-// {#pageNum} → {page}
-// {#numPages} → {total-pages}
-// {#timestamp} → {date}
+// <span class="pageNumber"></span>  →  {page}
+// <span class="totalPages"></span>  →  {total-pages}
+// <span class="date"></span>        →  {date}
+// (pdf-utils) {#pageNum}            →  {page}
+// (pdf-utils) {#numPages}           →  {total-pages}
 ```
 
 ### Issue 6: Margin Unit Differences
@@ -1212,9 +1216,11 @@ var pdf = await renderer.RenderHtmlAsPdfAsync(html);
   ```
   **Why:** IronPDF's RenderingOptions provide a unified configuration interface.
 
-- [ ] **Update placeholder syntax ({#pageNum} → {page})**
+- [ ] **Update placeholder syntax (chrome-pdf span classes or pdf-utils → IronPDF merge fields)**
   ```csharp
-  // Before
+  // Before (chrome-pdf default)
+  var header = "Page <span class='pageNumber'></span> of <span class='totalPages'></span>";
+  // Or (with pdf-utils extension)
   var header = "Page {#pageNum} of {#numPages}";
 
   // After

@@ -1,5 +1,12 @@
 # How Do I Migrate from pdforge to IronPDF in C#?
 
+> **Naming note:** pdforge rebranded to "pdf noodle" (pdfnoodle.com) in 2026. The
+> `api.pdforge.com` hostname continues to work via 301 redirects through end of
+> 2026. This guide uses `api.pdfnoodle.com` for new code and refers to the
+> service as "pdforge" for continuity with existing integrations. There is no
+> official .NET SDK on NuGet — integration is `HttpClient` against the
+> documented REST endpoints.
+
 ## Why Migrate from pdforge?
 
 pdforge is a cloud-based PDF generation API that processes your documents on external servers. While this simplifies initial setup, it introduces significant limitations for production applications:
@@ -51,11 +58,9 @@ For in-depth technical comparisons, visit the [analysis article](https://ironsof
 ## NuGet Package Changes
 
 ```bash
-# Remove pdforge packages
-dotnet remove package pdforge
-dotnet remove package PdfForge
-
-# Install IronPDF
+# pdforge has no official .NET SDK on NuGet — integration is HttpClient.
+# If your project depends only on built-in System.Net.Http, there is no
+# competitor package to remove. Just install IronPDF:
 dotnet add package IronPdf
 ```
 
@@ -64,10 +69,11 @@ dotnet add package IronPdf
 ## Namespace Changes
 
 ```csharp
-// Before: pdforge
-using PdForge;
-using PdForge.Client;
-using PdForge.Models;
+// Before: pdforge — raw HttpClient against api.pdfnoodle.com
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 
 // After: IronPDF
 using IronPdf;
@@ -78,56 +84,53 @@ using IronPdf.Rendering;
 
 ## API Mapping Reference
 
-### Core Classes
+### Core Concepts
+
+| pdforge (REST) | IronPDF | Notes |
+|---------|---------|-------|
+| `HttpClient` + `Authorization: Bearer` | `ChromePdfRenderer` | Main PDF generator |
+| JSON body `{ html, pdfParams }` | `ChromePdfRenderOptions` | HTML conversion config |
+| Same JSON body (no dedicated URL endpoint) | `RenderUrlAsPdf(url)` | URL conversion path |
+| HTTP POST → JSON envelope with `signedUrl` | `PdfDocument` | Result object |
+
+### Operations
 
 | pdforge | IronPDF | Notes |
 |---------|---------|-------|
-| `PdfClient` | `ChromePdfRenderer` | Main PDF generator |
-| `HtmlToPdfRequest` | `ChromePdfRenderOptions` | HTML conversion config |
-| `UrlToPdfRequest` | `ChromePdfRenderOptions` | URL conversion config |
-| `HtmlToPdfConverter` | `ChromePdfRenderer` | Alternative class name |
-| API response (byte[]) | `PdfDocument` | Result object |
+| `POST /v1/html-to-pdf/sync` with `{ html }` | `renderer.RenderHtmlAsPdf(html)` | HTML to PDF |
+| Fetch URL, then POST its HTML | `renderer.RenderUrlAsPdf(url)` | URL to PDF |
+| `POST` with HTML string body | `renderer.RenderHtmlAsPdf(html)` | HTML string |
+| Fetch URL first, then POST | `renderer.RenderUrlAsPdf(url)` | URL conversion |
+| `File.ReadAllText(path)` then POST | `renderer.RenderHtmlFileAsPdf(path)` | HTML file |
+| Download `signedUrl` then `File.WriteAllBytes` | `pdf.SaveAs(path)` | Save to disk |
+| `await http.GetByteArrayAsync(signedUrl)` | `pdf.BinaryData` | Get raw bytes |
+| Stream from signed URL | `pdf.Stream` | Get as stream |
 
-### Methods
+### Configuration Options (pdfParams → RenderingOptions)
 
-| pdforge | IronPDF | Notes |
-|---------|---------|-------|
-| `client.GenerateAsync(request)` | `renderer.RenderHtmlAsPdf(html)` | HTML to PDF |
-| `client.GenerateAsync(urlRequest)` | `renderer.RenderUrlAsPdf(url)` | URL to PDF |
-| `converter.ConvertHtmlString(html)` | `renderer.RenderHtmlAsPdf(html)` | HTML string |
-| `converter.ConvertUrl(url)` | `renderer.RenderUrlAsPdf(url)` | URL conversion |
-| `converter.ConvertFile(path)` | `renderer.RenderHtmlFileAsPdf(path)` | HTML file |
-| `File.WriteAllBytes(path, bytes)` | `pdf.SaveAs(path)` | Save to disk |
-| Return type: `byte[]` | `pdf.BinaryData` | Get raw bytes |
-| Return type: `Task<byte[]>` | `pdf.Stream` | Get as stream |
-
-### Configuration Options
-
-| pdforge | IronPDF (RenderingOptions) | Notes |
+| pdforge `pdfParams` | IronPDF (RenderingOptions) | Notes |
 |---------|---------------------------|-------|
-| `PageSize = PageSize.A4` | `.PaperSize = PdfPaperSize.A4` | Paper size |
-| `PageSize = PageSize.Letter` | `.PaperSize = PdfPaperSize.Letter` | US Letter |
-| `Orientation = Orientation.Landscape` | `.PaperOrientation = PdfPaperOrientation.Landscape` | Orientation |
-| `Orientation = Orientation.Portrait` | `.PaperOrientation = PdfPaperOrientation.Portrait` | Portrait |
-| `MarginTop = 20` | `.MarginTop = 20` | Top margin |
-| `MarginBottom = 20` | `.MarginBottom = 20` | Bottom margin |
-| `MarginLeft = 15` | `.MarginLeft = 15` | Left margin |
-| `MarginRight = 15` | `.MarginRight = 15` | Right margin |
-| `Header = "text"` | `.TextHeader = new TextHeaderFooter { CenterText = "text" }` | Header |
-| `Footer = "text"` | `.TextFooter = new TextHeaderFooter { CenterText = "text" }` | Footer |
-| `HeaderHtml = "<div>..."` | `.HtmlHeader = new HtmlHeaderFooter { HtmlFragment = "..." }` | HTML header |
-| `FooterHtml = "<div>..."` | `.HtmlFooter = new HtmlHeaderFooter { HtmlFragment = "..." }` | HTML footer |
-| `JavascriptDelay = 2000` | `.RenderDelay = 2000` | JS wait time (ms) |
-| `PrintBackground = true` | `.PrintHtmlBackgrounds = true` | Background rendering |
-| `Scale = 1.5` | `.Zoom = 150` | Zoom percentage |
+| `format: "A4"` | `.PaperSize = PdfPaperSize.A4` | Paper size |
+| `format: "Letter"` | `.PaperSize = PdfPaperSize.Letter` | US Letter |
+| `landscape: true` | `.PaperOrientation = PdfPaperOrientation.Landscape` | Orientation |
+| `landscape: false` | `.PaperOrientation = PdfPaperOrientation.Portrait` | Portrait |
+| `margin: { top: "20px" }` | `.MarginTop = 20` | Top margin |
+| `margin: { bottom: "20px" }` | `.MarginBottom = 20` | Bottom margin |
+| `margin: { left: "15px" }` | `.MarginLeft = 15` | Left margin |
+| `margin: { right: "15px" }` | `.MarginRight = 15` | Right margin |
+| `headerTemplate: "<div>...</div>"` | `.HtmlHeader = new HtmlHeaderFooter { HtmlFragment = "..." }` | HTML header |
+| `footerTemplate: "<div>...</div>"` | `.HtmlFooter = new HtmlHeaderFooter { HtmlFragment = "..." }` | HTML footer |
+| `displayHeaderFooter: true` | Implicit when `HtmlHeader`/`HtmlFooter` set | Header/footer visibility |
+| `printBackground: true` | `.PrintHtmlBackgrounds = true` | Background rendering |
+| `width` / `height` | `.SetCustomPaperSizeInInches(...)` | Custom page size |
 
 ### Authentication Comparison
 
 | pdforge | IronPDF |
 |---------|---------|
-| `new PdfClient("your-api-key")` | `IronPdf.License.LicenseKey = "YOUR-KEY"` |
+| `Authorization: Bearer pdfnoodle_api_...` per request | `IronPdf.License.LicenseKey = "YOUR-KEY"` |
 | Per-request authentication | One-time at startup |
-| API key in constructor | Global property |
+| API key in HTTP header | Global property |
 
 ---
 
@@ -137,25 +140,33 @@ using IronPdf.Rendering;
 
 **Before (pdforge):**
 ```csharp
-using PdForge;
-using PdForge.Client;
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 class Program
 {
     static async Task Main()
     {
-        // API key required for every client instance
-        var client = new PdfClient("your-api-key");
+        using var http = new HttpClient();
+        // Bearer token sent on every request
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
 
-        var request = new HtmlToPdfRequest
-        {
-            Html = "<html><body><h1>Hello World</h1><p>PDF content</p></body></html>"
-        };
+        var body = new { html = "<html><body><h1>Hello World</h1><p>PDF content</p></body></html>" };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
         // Data sent to external servers
-        byte[] pdfBytes = await client.GenerateAsync(request);
+        var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+        resp.EnsureSuccessStatusCode();
+
+        // Two-step: response gives a signed URL; fetch the actual bytes from it
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var signedUrl = doc.RootElement.GetProperty("signedUrl").GetString();
+        var pdfBytes = await http.GetByteArrayAsync(signedUrl);
         File.WriteAllBytes("output.pdf", pdfBytes);
     }
 }
@@ -184,29 +195,43 @@ class Program
 
 **Before (pdforge):**
 ```csharp
-using PdForge;
-using PdForge.Client;
+// pdforge has no dedicated URL-to-PDF endpoint. The pattern is to fetch the
+// page yourself and post its HTML to /v1/html-to-pdf/sync.
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 class Program
 {
     static async Task Main()
     {
-        var client = new PdfClient("your-api-key");
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
 
-        var request = new UrlToPdfRequest
+        var sourceHtml = await http.GetStringAsync("https://example.com");
+
+        var body = new
         {
-            Url = "https://example.com",
-            PageSize = PageSize.A4,
-            Orientation = Orientation.Landscape,
-            MarginTop = 20,
-            MarginBottom = 20,
-            MarginLeft = 15,
-            MarginRight = 15
+            html = sourceHtml,
+            pdfParams = new
+            {
+                format = "A4",
+                landscape = true,
+                margin = new { top = "20px", bottom = "20px", left = "15px", right = "15px" }
+            }
         };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
-        byte[] pdfBytes = await client.GenerateAsync(request);
+        var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+        resp.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var signedUrl = doc.RootElement.GetProperty("signedUrl").GetString();
+        var pdfBytes = await http.GetByteArrayAsync(signedUrl);
         File.WriteAllBytes("webpage.pdf", pdfBytes);
     }
 }
@@ -240,25 +265,45 @@ class Program
 
 **Before (pdforge):**
 ```csharp
-using PdForge;
-using PdForge.Client;
+// pdforge uses Chromium-style header/footer templates: HTML fragments containing
+// <span class="pageNumber"> / <span class="totalPages"> elements that are
+// substituted at render time. There are no plain-text {page}/{totalPages}
+// placeholders — only the templated HTML form, which requires
+// displayHeaderFooter: true.
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 class Program
 {
     static async Task Main()
     {
-        var client = new PdfClient("your-api-key");
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
 
-        var request = new HtmlToPdfRequest
+        var body = new
         {
-            Html = "<h1>Report</h1><p>Content here...</p>",
-            Header = "Company Report",
-            Footer = "Page {page} of {totalPages}"
+            html = "<h1>Report</h1><p>Content here...</p>",
+            pdfParams = new
+            {
+                displayHeaderFooter = true,
+                headerTemplate = "<div style='font-size:10px;width:100%;text-align:center;'>Company Report</div>",
+                footerTemplate = "<div style='font-size:10px;width:100%;text-align:center;'>" +
+                                 "Page <span class=\"pageNumber\"></span> of <span class=\"totalPages\"></span></div>",
+                margin = new { top = "60px", bottom = "60px" }
+            }
         };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
-        byte[] pdfBytes = await client.GenerateAsync(request);
+        var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+        resp.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var pdfBytes = await http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
         File.WriteAllBytes("report.pdf", pdfBytes);
     }
 }
@@ -299,27 +344,39 @@ class Program
 
 **Before (pdforge):**
 ```csharp
-using PdForge;
-using PdForge.Client;
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 class Program
 {
     static async Task Main()
     {
-        var client = new PdfClient("your-api-key");
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
 
-        var request = new HtmlToPdfRequest
+        var body = new
         {
-            Html = "<h1>Report Content</h1>",
-            HeaderHtml = "<div style='text-align:center;'><img src='logo.png'/> Company Name</div>",
-            FooterHtml = "<div style='text-align:center;'>Confidential - Page {page}</div>",
-            HeaderHeight = 50,
-            FooterHeight = 30
+            html = "<h1>Report Content</h1>",
+            pdfParams = new
+            {
+                displayHeaderFooter = true,
+                headerTemplate = "<div style='text-align:center;'><img src='logo.png'/> Company Name</div>",
+                footerTemplate = "<div style='text-align:center;'>Confidential - Page <span class=\"pageNumber\"></span></div>",
+                margin = new { top = "50px", bottom = "30px" }
+            }
         };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
-        byte[] pdfBytes = await client.GenerateAsync(request);
+        var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+        resp.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var pdfBytes = await http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
         File.WriteAllBytes("branded-report.pdf", pdfBytes);
     }
 }
@@ -361,35 +418,41 @@ For a complete breakdown of API authentication removal strategies and offline de
 
 **Before (pdforge):**
 ```csharp
-using PdForge;
-using PdForge.Client;
 using Microsoft.AspNetCore.Mvc;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 public class ReportController : Controller
 {
-    private readonly PdfClient _pdfClient;
+    private readonly HttpClient _http;
 
-    public ReportController()
+    public ReportController(IHttpClientFactory factory)
     {
-        _pdfClient = new PdfClient("your-api-key");
+        _http = factory.CreateClient();
+        _http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
     }
 
     [HttpGet]
     public async Task<IActionResult> GenerateReport()
     {
-        var request = new HtmlToPdfRequest
-        {
-            Html = "<h1>Sales Report</h1><p>Q4 Results</p>"
-        };
+        var body = new { html = "<h1>Sales Report</h1><p>Q4 Results</p>" };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
         try
         {
-            // Async call to external API (network latency)
-            byte[] pdfBytes = await _pdfClient.GenerateAsync(request);
+            // Async call to external API (network latency, possible rate-limit response)
+            var resp = await _http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+            resp.EnsureSuccessStatusCode();
+
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            var pdfBytes = await _http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
             return File(pdfBytes, "application/pdf", "report.pdf");
         }
-        catch (ApiException ex)
+        catch (HttpRequestException ex)
         {
             return StatusCode(500, $"PDF generation failed: {ex.Message}");
         }
@@ -436,29 +499,42 @@ public class ReportController : Controller
 
 **Before (pdforge):**
 ```csharp
-using PdForge;
-using PdForge.Client;
+// pdforge runs the underlying Chromium engine with JavaScript enabled by
+// default. There is no public `pdfParams` field for an explicit script delay
+// in the documented options — the recommended approach is to use a
+// network-idle / DOMContentLoaded signal in your page (e.g., a sentinel
+// element your script writes when ready). Below sends the page as-is and
+// relies on the engine's own load detection.
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 class Program
 {
     static async Task Main()
     {
-        var client = new PdfClient("your-api-key");
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
 
-        var request = new HtmlToPdfRequest
+        var body = new
         {
-            Html = @"
+            html = @"
                 <div id='chart'>Loading...</div>
                 <script src='https://cdn.example.com/chart.js'></script>
                 <script>renderChart('chart');</script>
-            ",
-            JavascriptDelay = 3000,  // Wait 3 seconds for JS
-            EnableJavascript = true
+            "
         };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
-        byte[] pdfBytes = await client.GenerateAsync(request);
+        var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+        resp.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var pdfBytes = await http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
         File.WriteAllBytes("chart.pdf", pdfBytes);
     }
 }
@@ -496,25 +572,37 @@ class Program
 
 **Before (pdforge):**
 ```csharp
-using PdForge;
-using PdForge.Client;
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 class Program
 {
     static async Task Main()
     {
-        var client = new PdfClient("your-api-key");
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
 
-        var request = new HtmlToPdfRequest
+        var body = new
         {
-            Html = "<h1>Custom Size Document</h1>",
-            PageWidth = 5,     // inches
-            PageHeight = 7,    // inches
+            html = "<h1>Custom Size Document</h1>",
+            pdfParams = new
+            {
+                width = "5in",
+                height = "7in"
+            }
         };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
-        byte[] pdfBytes = await client.GenerateAsync(request);
+        var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+        resp.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var pdfBytes = await http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
         File.WriteAllBytes("custom.pdf", pdfBytes);
     }
 }
@@ -548,26 +636,38 @@ class Program
 
 **Before (pdforge):**
 ```csharp
-using PdForge;
-using PdForge.Client;
+// pdforge / pdf noodle does not expose password protection or encryption
+// in its documented HTML-to-PDF parameters. The typical workaround is to
+// download the generated PDF, then encrypt it locally with a separate
+// library (e.g., qpdf, iText, or IronPDF). The fetch step is shown below;
+// the encryption step is your responsibility.
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 class Program
 {
     static async Task Main()
     {
-        var client = new PdfClient("your-api-key");
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
 
-        var request = new HtmlToPdfRequest
-        {
-            Html = "<h1>Confidential Document</h1>",
-            Password = "secret123",
-            OwnerPassword = "admin456"
-        };
+        var body = new { html = "<h1>Confidential Document</h1>" };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
-        byte[] pdfBytes = await client.GenerateAsync(request);
+        var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+        resp.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var pdfBytes = await http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
         File.WriteAllBytes("secure.pdf", pdfBytes);
+
+        // Encrypt secure.pdf with a third-party tool here — pdforge has no
+        // built-in password / owner-password parameter.
     }
 }
 ```
@@ -601,18 +701,23 @@ class Program
 
 **Before (pdforge):**
 ```csharp
-using PdForge;
-using PdForge.Client;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 class Program
 {
     static async Task Main()
     {
-        var client = new PdfClient("your-api-key");
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
 
         var documents = new List<string>
         {
@@ -621,22 +726,28 @@ class Program
             "<h1>Document 3</h1>"
         };
 
-        // Each document requires an API call (rate limits may apply)
+        // Each document is one POST. Plan rate limits apply (Starter: 60 rpm,
+        // Business: 120 rpm, Scale: 240 rpm) — handle 429 responses explicitly.
         for (int i = 0; i < documents.Count; i++)
         {
-            try
+            var body = new { html = documents[i] };
+            var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+
+            var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+
+            if (resp.StatusCode == (HttpStatusCode)429)
             {
-                var request = new HtmlToPdfRequest { Html = documents[i] };
-                byte[] pdfBytes = await client.GenerateAsync(request);
-                File.WriteAllBytes($"doc_{i + 1}.pdf", pdfBytes);
-                Console.WriteLine($"Generated doc_{i + 1}.pdf");
+                Console.WriteLine("Rate limited. Waiting...");
+                await Task.Delay(60000);
+                i--; // Retry
+                continue;
             }
-            catch (RateLimitException)
-            {
-                Console.WriteLine($"Rate limited. Waiting...");
-                await Task.Delay(60000);  // Wait a minute
-                i--;  // Retry
-            }
+            resp.EnsureSuccessStatusCode();
+
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            var pdfBytes = await http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
+            File.WriteAllBytes($"doc_{i + 1}.pdf", pdfBytes);
+            Console.WriteLine($"Generated doc_{i + 1}.pdf");
         }
     }
 }
@@ -685,43 +796,52 @@ class Program
 
 **Before (pdforge):**
 ```csharp
-using PdForge;
-using PdForge.Client;
 using System;
 using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 class Program
 {
     static async Task Main()
     {
-        var client = new PdfClient("your-api-key");
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
 
-        var request = new HtmlToPdfRequest
-        {
-            Html = "<h1>Test</h1>"
-        };
+        var body = new { html = "<h1>Test</h1>" };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
         try
         {
-            byte[] pdfBytes = await client.GenerateAsync(request);
-            File.WriteAllBytes("output.pdf", pdfBytes);
+            var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+
+            // Status-based error handling — there are no SDK exceptions.
+            if (resp.StatusCode == HttpStatusCode.Unauthorized)
+                Console.WriteLine("Invalid API key");
+            else if (resp.StatusCode == (HttpStatusCode)429)
+                Console.WriteLine("Rate limit exceeded");
+            else if (!resp.IsSuccessStatusCode)
+                Console.WriteLine($"API error: {(int)resp.StatusCode} {resp.ReasonPhrase}");
+            else
+            {
+                using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+                var pdfBytes = await http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
+                File.WriteAllBytes("output.pdf", pdfBytes);
+            }
         }
-        catch (ApiAuthenticationException ex)
+        catch (TaskCanceledException)
         {
-            Console.WriteLine($"Invalid API key: {ex.Message}");
+            Console.WriteLine("Request timed out");
         }
-        catch (RateLimitException ex)
+        catch (HttpRequestException ex)
         {
-            Console.WriteLine($"Rate limit exceeded: {ex.Message}");
-        }
-        catch (ApiTimeoutException ex)
-        {
-            Console.WriteLine($"Request timed out: {ex.Message}");
-        }
-        catch (ApiException ex)
-        {
-            Console.WriteLine($"API error: {ex.Message}");
+            Console.WriteLine($"Network error: {ex.Message}");
         }
     }
 }
@@ -771,26 +891,29 @@ class Program
 
 ## Placeholder Migration
 
-pdforge and IronPDF use slightly different placeholder syntax in headers and footers:
+pdforge inherits Chromium's header/footer template format: HTML fragments
+containing `<span class="..."></span>` elements that the rendering engine
+substitutes at print time. IronPDF uses bracketed placeholders that are
+swapped into either a `TextHeaderFooter.CenterText` or an `HtmlHeaderFooter.HtmlFragment`.
 
-| pdforge Placeholder | IronPDF Placeholder | Description |
+| pdforge (Chromium template) | IronPDF Placeholder | Description |
 |--------------------|---------------------|-------------|
-| `{page}` | `{page}` | Current page (same) |
-| `{totalPages}` | `{total-pages}` | Total pages (hyphen) |
-| `{date}` | `{date}` | Current date (same) |
-| `{time}` | `{time}` | Current time (same) |
-| `{title}` | `{html-title}` | HTML title |
-| `{url}` | `{url}` | Source URL (same) |
+| `<span class="pageNumber"></span>` | `{page}` | Current page |
+| `<span class="totalPages"></span>` | `{total-pages}` | Total pages |
+| `<span class="date"></span>` | `{date}` | Current date |
+| (no built-in time class) | `{time}` | Current time |
+| `<span class="title"></span>` | `{html-title}` | HTML title |
+| `<span class="url"></span>` | `{url}` | Source URL |
 
 **Migration Example:**
 ```csharp
-// Before (pdforge)
-Footer = "Page {page} of {totalPages}"
+// Before (pdforge): Chromium-style HTML template inside pdfParams.footerTemplate
+// "<div>Page <span class=\"pageNumber\"></span> of <span class=\"totalPages\"></span></div>"
 
 // After (IronPDF)
 renderer.RenderingOptions.TextFooter = new TextHeaderFooter
 {
-    CenterText = "Page {page} of {total-pages}"  // Note hyphen in total-pages
+    CenterText = "Page {page} of {total-pages}"
 };
 ```
 
@@ -815,7 +938,7 @@ firstChapter.SaveAs("chapter1.pdf");
 pdf.AppendPdf(anotherPdf);
 
 // Remove pages
-pdf.RemovePage(5);
+pdf.RemovePages(5);
 ```
 
 ### Text Extraction
@@ -911,8 +1034,8 @@ Console.WriteLine($"Size: {page.Width} x {page.Height}");
 ### 1. Async to Sync Conversion
 
 ```csharp
-// pdforge: Always async
-byte[] pdfBytes = await client.GenerateAsync(request);
+// pdforge: HTTP call is always async
+var resp = await http.PostAsync(".../v1/html-to-pdf/sync", json);
 
 // IronPDF: Sync by default
 var pdf = renderer.RenderHtmlAsPdf(html);
@@ -924,11 +1047,13 @@ var pdf = await Task.Run(() => renderer.RenderHtmlAsPdf(html));
 ### 2. Return Type Changes
 
 ```csharp
-// pdforge: Returns byte[]
-byte[] pdfBytes = await client.GenerateAsync(request);
+// pdforge: Two-step — JSON envelope, then fetch bytes from signedUrl
+var resp = await http.PostAsync(".../v1/html-to-pdf/sync", json);
+using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+var pdfBytes = await http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
 File.WriteAllBytes("output.pdf", pdfBytes);
 
-// IronPDF: Returns PdfDocument
+// IronPDF: Returns PdfDocument directly
 var pdf = renderer.RenderHtmlAsPdf(html);
 pdf.SaveAs("output.pdf");           // Direct save
 byte[] bytes = pdf.BinaryData;      // Get bytes
@@ -938,8 +1063,9 @@ Stream stream = pdf.Stream;         // Get stream
 ### 3. License Configuration
 
 ```csharp
-// pdforge: API key per client
-var client = new PdfClient("your-api-key");
+// pdforge: API key sent on every request
+http.DefaultRequestHeaders.Authorization =
+    new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
 
 // IronPDF: One-time at startup
 IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
@@ -949,8 +1075,8 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 ### 4. Page Size Configuration
 
 ```csharp
-// pdforge: Property on request
-request.PageSize = PageSize.A4;
+// pdforge: Field on JSON pdfParams object
+var body = new { html, pdfParams = new { format = "A4" } };
 
 // IronPDF: Property on RenderingOptions
 renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
@@ -959,13 +1085,13 @@ renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
 ### 5. Network Error Handling Removed
 
 ```csharp
-// pdforge: Handle network errors
-catch (ApiTimeoutException) { /* retry */ }
-catch (RateLimitException) { /* wait and retry */ }
+// pdforge: Handle HTTP status codes and network errors
+if (resp.StatusCode == (HttpStatusCode)429) { /* wait and retry */ }
+catch (TaskCanceledException) { /* timeout retry */ }
 
 // IronPDF: No network errors possible
 // Just handle local exceptions
-catch (IronPdfRenderingException) { /* fix HTML */ }
+catch (IronPdf.Exceptions.IronPdfRenderingException) { /* fix HTML */ }
 ```
 
 ---
@@ -1012,7 +1138,7 @@ RUN apt-get update && apt-get install -y \
 
 - [ ] Inventory all pdforge API calls in your codebase
 - [ ] Document current configuration options used
-- [ ] Identify header/footer placeholders to update
+- [ ] Identify Chromium-style header/footer templates to convert to IronPDF placeholders
 - [ ] Note async patterns that need adjustment
 - [ ] Plan IronPDF license key storage (environment variables recommended)
 - [ ] Test with IronPDF trial license first
@@ -1020,13 +1146,13 @@ RUN apt-get update && apt-get install -y \
 
 ## Post-Migration Checklist
 
-- [ ] Remove pdforge NuGet packages
-- [ ] Update all namespace imports
-- [ ] Replace API key with IronPDF license key (set once at startup)
-- [ ] Convert request objects to RenderingOptions properties
-- [ ] Update placeholder syntax (`{totalPages}` → `{total-pages}`)
+- [ ] Remove HttpClient calls to `api.pdfnoodle.com` / `api.pdforge.com`
+- [ ] Replace `System.Net.Http` imports with `IronPdf` / `IronPdf.Rendering`
+- [ ] Replace Bearer token with IronPDF license key (set once at startup)
+- [ ] Convert JSON `pdfParams` fields to RenderingOptions properties
+- [ ] Convert Chromium templates (`<span class="totalPages">`) to IronPDF placeholders (`{total-pages}`)
 - [ ] Convert async patterns if using sync methods
-- [ ] Update error handling (remove API-specific exceptions)
+- [ ] Update error handling (remove HTTP status checks, add IronPDF exception types)
 - [ ] Test PDF output quality
 - [ ] Verify offline operation works
 - [ ] Remove API credentials from configuration
@@ -1037,17 +1163,17 @@ RUN apt-get update && apt-get install -y \
 ## Find All pdforge References
 
 ```bash
-# Find pdforge usage
-grep -r "PdForge\|PdfClient\|HtmlToPdfRequest\|UrlToPdfRequest" --include="*.cs" .
+# Find pdforge / pdf noodle endpoint usage
+grep -r "api\.pdforge\.com\|api\.pdfnoodle\.com" --include="*.cs" .
 
-# Find API key references
-grep -r "api-key\|apikey\|PdfClient(" --include="*.cs" --include="*.json" .
+# Find API key / Bearer token references
+grep -r "pdfnoodle_api_\|pdforge_api_" --include="*.cs" --include="*.json" --include="*.config" .
 
-# Find placeholder patterns to migrate
-grep -r "{totalPages}" --include="*.cs" .
+# Find Chromium header/footer templates that need migrating
+grep -r "totalPages\|pageNumber\|footerTemplate\|headerTemplate" --include="*.cs" .
 
-# Find async patterns
-grep -r "GenerateAsync" --include="*.cs" .
+# Find synchronous endpoint calls
+grep -r "/v1/html-to-pdf/sync\|/v1/html-to-pdf/async" --include="*.cs" .
 ```
 
 ---
@@ -1060,11 +1186,11 @@ grep -r "GenerateAsync" --include="*.cs" .
 
 - [ ] **Inventory all pdforge usages in codebase**
   ```bash
-  grep -r "using pdforge" --include="*.cs" .
+  grep -r "api\.pdforge\.com\|api\.pdfnoodle\.com" --include="*.cs" .
   ```
   **Why:** Identify all usages to ensure complete migration coverage.
 
-- [ ] **Document current configurations**
+- [ ] **Document current `pdfParams` configurations used in your JSON requests**
   **Why:** These settings map to IronPDF's RenderingOptions. Document them now to ensure consistent output after migration.
 
 - [ ] **Obtain IronPDF license key**
@@ -1072,12 +1198,11 @@ grep -r "GenerateAsync" --include="*.cs" .
 
 ### Code Changes
 
-- [ ] **Remove old package and install IronPdf**
+- [ ] **Install IronPdf**
   ```bash
-  dotnet remove package pdforge
   dotnet add package IronPdf
   ```
-  **Why:** Clean package switch to IronPDF.
+  **Why:** pdforge has no .NET SDK to remove — you only add IronPDF and delete your HttpClient call sites.
 
 - [ ] **Add license key initialization**
   ```csharp

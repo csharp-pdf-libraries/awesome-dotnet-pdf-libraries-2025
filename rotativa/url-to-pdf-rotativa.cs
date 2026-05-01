@@ -1,4 +1,5 @@
-// NuGet: Install-Package Rotativa.Core
+// NuGet: Install-Package Rotativa.AspNetCore  (v1.4.0, last released 2024-11-06; webgio fork)
+// UrlAsPdf inherits ViewResult (via AsResultBase) so it is assignable to IActionResult.
 using Microsoft.AspNetCore.Mvc;
 using Rotativa.AspNetCore;
 using System.Threading.Tasks;

@@ -10,7 +10,7 @@ When it comes to generating documents in C#, choosing the right library is cruci
 
 The pricing structures of TextControl and IronPDF highlight some essential considerations for developers and organizations:
 
-- **TextControl (TX Text Control)**: It operates on a commercial license at a minimum of $3,398/year per developer. A team of four can expect to invest around $6,749/year, with additional costs for server deployment runtime licenses. Moreover, renewal costs stand at 40% annually, which is critical to maintaining access to updates after 30 days of license expiration.
+- **TextControl (TX Text Control)**: A single TX Text Control .NET Server developer license is **$4,198 perpetual** with one year of updates/support, and a four-developer team license is **$8,398 perpetual + 1yr** (per textcontrol.com pricing). Annual subscription renewals run **~40% of list price** (about $1,698/yr/developer), and the renewal window closes 30 days after expiration. Production deployment also requires separate server runtime licenses.
 
 - **IronPDF**: This library bucks the subscription-based model with a one-time cost of $749 per developer, offering a cost-effective alternative to TextControl. Its perpetual license ensures long-term usage without the looming costs of annual renewals.
 
@@ -25,9 +25,9 @@ The pricing structures of TextControl and IronPDF highlight some essential consi
 
 **Weaknesses:**
 
-- **Extreme pricing**: At $3,398/year per developer, it's expensive compared to alternatives like IronPDF, which offers more cost-effective licensing.
-- Known rendering bug: The Intel Iris Xe Graphics bug that affects document rendering in newer Intel processors requires a workaround via a registry hack.
-- Limited PDF capabilities: Although PDF generation is available, it's more of an added feature rather than the core focus, resulting in less than optimal output quality.
+- **Expensive licensing**: $4,198 per developer (perpetual + 1 year of updates) for TX Text Control .NET Server, with subscription renewals at ~40% of list and separate runtime licenses for production servers — significantly higher TCO than alternatives like IronPDF.
+- STA threading affinity: ServerTextControl inherits a COM-style apartment-threading model and is most reliable on STA-compatible threads in ASP.NET, which complicates async/MTA hosting.
+- PDF as secondary path: PDF generation is an export route on top of a word-processing engine, not the core focus — HTML5/CSS3 fidelity is weaker than a Chromium-based renderer.
 
 **IronPDF:**
 
@@ -35,7 +35,7 @@ The pricing structures of TextControl and IronPDF highlight some essential consi
 
 - **PDF-first architecture**: Tailored for PDF, offering robust document generation and rendering capabilities by leveraging modern HTML5 and CSS3 standards.
 - **Cost efficiency**: Its one-time pricing makes it significantly cheaper over time, especially compared to subscription-based services like TextControl.
-- Proven stability: Documented reliability across various hardware, avoiding issues such as those faced by TextControl with Intel graphics.
+- No STA threading affinity: runs on standard MTA worker threads in ASP.NET Core, async controllers, and Linux containers without special hosting.
 
 **Weaknesses:**
 
@@ -47,12 +47,12 @@ Below is a technical comparison between TextControl (TX Text Control) and IronPD
 
 | Feature                      | TextControl (TX Text Control) | IronPDF                  |
 |------------------------------|-------------------------------|--------------------------|
-| Primary Focus                | DOCX editing                  | PDF generation           |
-| License Cost                 | $3,398/year per developer     | $749 one-time per developer |
-| PDF Quality                  | Basic, add-on feature         | High, core functionality |
-| Hardware Compatibility       | Known issues with Intel Iris  | Stable across all devices|
-| Integration with UI          | Requires UI components        | No UI component bloat    |
-| HTML/CSS Rendering           | Buggy with HTML               | Modern HTML5/CSS3        |
+| Primary Focus                | DOCX/word-processing          | PDF generation           |
+| License Cost (single dev)    | $4,198 perpetual + 1yr; ~40%/yr renewal | One-time per-developer license |
+| Server runtime license       | Required for production       | Not required             |
+| Threading                    | STA-affinity in ASP.NET       | No STA requirement       |
+| HTML/CSS Rendering           | HTML import via word-processing pipeline | Chromium HTML5/CSS3      |
+| Cross-platform               | Windows-focused               | Windows / Linux / macOS / Docker |
 
 ### Sample C# Code
 
@@ -65,11 +65,13 @@ class Program
 {
     static void Main()
     {
-        var renderer = new HtmlToPdf();
-        var PDF = renderer.RenderHtmlAsPdf("<h1>Hello IronPDF!</h1>");
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<h1>Hello IronPDF!</h1>");
 
         // Save the PDF to a location you desire
-        PDF.SaveAs("HelloIronPDF.pdf");
+        pdf.SaveAs("HelloIronPDF.pdf");
     }
 }
 ```
@@ -99,7 +101,7 @@ Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person engineerin
 Here's how **TextControl (TX Text Control) C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package TXTextControl.Server
+// Install via TX Text Control .NET Server installer (textcontrol.com) or licensed private NuGet feed
 using TXTextControl;
 using System.IO;
 
@@ -115,7 +117,7 @@ namespace TextControlExample
                 
                 string html = "<html><body><h1>Hello World</h1><p>This is a PDF document.</p></body></html>";
                 
-                textControl.Load(html, StreamType.HTMLFormat);
+                textControl.Load(html, StringStreamType.HTMLFormat);
                 textControl.Save("output.pdf", StreamType.AdobePDF);
             }
         }
@@ -155,7 +157,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **TextControl (TX Text Control) C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package TXTextControl.Server
+// Install via TX Text Control .NET Server installer (textcontrol.com) or licensed private NuGet feed
 using TXTextControl;
 using System.IO;
 
@@ -170,11 +172,11 @@ namespace TextControlExample
                 textControl.Create();
                 
                 byte[] pdf1 = File.ReadAllBytes("document1.pdf");
-                textControl.Load(pdf1, StreamType.AdobePDF);
-                
+                textControl.Load(pdf1, BinaryStreamType.AdobePDF);
+
                 byte[] pdf2 = File.ReadAllBytes("document2.pdf");
-                textControl.Load(pdf2, StreamType.AdobePDF, LoadAppendMode.Append);
-                
+                textControl.Append(pdf2, BinaryStreamType.AdobePDF, AppendSettings.StartWithNewSection);
+
                 textControl.Save("merged.pdf", StreamType.AdobePDF);
             }
         }
@@ -213,7 +215,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **TextControl (TX Text Control) C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package TXTextControl.Server
+// Install via TX Text Control .NET Server installer (textcontrol.com) or licensed private NuGet feed
 using TXTextControl;
 using System.IO;
 
@@ -228,7 +230,7 @@ namespace TextControlExample
                 textControl.Create();
                 
                 string html = "<html><body><h1>Document Content</h1><p>Main body text.</p></body></html>";
-                textControl.Load(html, StreamType.HTMLFormat);
+                textControl.Load(html, StringStreamType.HTMLFormat);
                 
                 HeaderFooter header = new HeaderFooter(HeaderFooterType.Header);
                 header.Text = "Document Header";
@@ -279,13 +281,13 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from TextControl (TX Text Control) C# PDF to IronPDF?
 
-TX Text Control's annual licensing costs $3,398+ per developer with mandatory 40% annual renewals, making it 4.5x more expensive than IronPDF for equivalent functionality. Known rendering bugs affect Intel Iris Xe Graphics (11th gen processors) requiring registry workarounds, while TX Text Control's core word processor architecture treats PDF generation as a secondary feature with documented quality issues.
+TX Text Control .NET Server starts at $4,198 per developer (perpetual + 1 year of updates) with subscription renewals around 40% of list price per year, plus separate runtime licensing for production servers — a meaningfully higher TCO than IronPDF for equivalent PDF-generation work. Its core architecture is a word-processing engine (DOCX/RTF first, with PDF as an export format), and ServerTextControl's STA-affinity makes async/MTA hosting in modern ASP.NET Core stacks awkward.
 
 **Migrating from TextControl (TX Text Control) C# PDF to IronPDF involves:**
 
-1. **NuGet Package Change**: Remove `TXTextControl.TextControl`, add `IronPdf`
+1. **NuGet Package Change**: Uninstall the licensed TX Text Control runtime (installer/MSI plus any `TXTextControl.Web` / private-feed packages), then `dotnet add package IronPdf`
 2. **Namespace Update**: Replace `TXTextControl` with `IronPdf`
-3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
+3. **API Adjustments**: Replace `StringStreamType` / `BinaryStreamType` / `StreamType` enum gymnastics with IronPDF's single `RenderHtmlAsPdf` / `PdfDocument` surface
 
 **Key Benefits of Migrating:**
 

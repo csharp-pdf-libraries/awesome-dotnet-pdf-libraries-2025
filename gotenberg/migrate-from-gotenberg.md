@@ -176,9 +176,9 @@ public class PdfService
 | `POST /forms/chromium/convert/html` | `ChromePdfRenderer.RenderHtmlAsPdf()` | HTML string to PDF |
 | `POST /forms/chromium/convert/url` | `ChromePdfRenderer.RenderUrlAsPdf()` | URL to PDF |
 | `POST /forms/chromium/convert/markdown` | Render Markdown as HTML first | Use Markdig library |
-| `POST /forms/libreoffice/convert` | N/A (use different approach) | IronPDF is HTML-focused |
+| `POST /forms/libreoffice/convert` | N/A — IronPDF does not embed LibreOffice | This is a real Gotenberg strength; pair IronPDF with IronWord/IronXL or convert Office to HTML first |
 | `POST /forms/pdfengines/merge` | `PdfDocument.Merge()` | Merge multiple PDFs |
-| `POST /forms/pdfengines/convert` | `pdf.SaveAs()` with settings | PDF/A conversion |
+| `POST /forms/pdfengines/convert` | `pdf.SaveAsPdfA(...)` | PDF/A conversion |
 | `POST /forms/pdfengines/metadata/read` | `pdf.MetaData` | Read metadata |
 | `POST /forms/pdfengines/metadata/write` | `pdf.MetaData.Author = "..."` | Write metadata |
 | `GET /health` | N/A | No external service |
@@ -187,22 +187,22 @@ public class PdfService
 
 | Gotenberg Parameter | IronPDF Property | Conversion Notes |
 |--------------------|------------------|------------------|
-| `paperWidth` (inches) | `RenderingOptions.SetCustomPaperSizeInInches()` | Use method for custom |
-| `paperHeight` (inches) | `RenderingOptions.SetCustomPaperSizeInInches()` | Use method for custom |
-| `marginTop` (inches) | `RenderingOptions.MarginTop` | Multiply by 25.4 for mm |
-| `marginBottom` (inches) | `RenderingOptions.MarginBottom` | Multiply by 25.4 for mm |
-| `marginLeft` (inches) | `RenderingOptions.MarginLeft` | Multiply by 25.4 for mm |
-| `marginRight` (inches) | `RenderingOptions.MarginRight` | Multiply by 25.4 for mm |
-| `preferCssPageSize` | `RenderingOptions.UseCssPageSize` | Boolean |
+| `paperWidth` (default `8.5` in; also `pt`/`cm`) | `RenderingOptions.SetCustomPaperSizeInInches()` | Use method for custom |
+| `paperHeight` (default `11` in) | `RenderingOptions.SetCustomPaperSizeInInches()` | Use method for custom |
+| `marginTop` (default `0.39` in) | `RenderingOptions.MarginTop` | Multiply by 25.4 for mm |
+| `marginBottom` (default `0.39` in) | `RenderingOptions.MarginBottom` | Multiply by 25.4 for mm |
+| `marginLeft` (default `0.39` in) | `RenderingOptions.MarginLeft` | Multiply by 25.4 for mm |
+| `marginRight` (default `0.39` in) | `RenderingOptions.MarginRight` | Multiply by 25.4 for mm |
+| `preferCssPageSize` | (no direct equivalent — set `PaperSize` from CSS at render time) | Boolean |
 | `printBackground` | `RenderingOptions.PrintHtmlBackgrounds` | Boolean |
 | `landscape` | `RenderingOptions.PaperOrientation` | `Landscape` enum |
 | `scale` | `RenderingOptions.Zoom` | Percentage (100 = 1.0) |
 | `nativePageRanges` | `pdf.CopyPages()` | Extract specific pages |
-| `waitDelay` | `RenderingOptions.RenderDelay` | Convert to milliseconds |
-| `waitForExpression` | `RenderingOptions.WaitFor` | JavaScript expression |
-| `emulatedMediaType` | `RenderingOptions.CssMediaType` | `Screen` or `Print` |
-| `cookies` | `RenderingOptions.CustomCookies` | Dictionary |
-| `extraHttpHeaders` | `RenderingOptions.CustomHeaders` | Dictionary |
+| `waitDelay` (e.g. `"3s"`) | `RenderingOptions.WaitFor.RenderDelay(ms)` | String → milliseconds |
+| `waitForExpression` | `RenderingOptions.WaitFor.JavaScript(expr)` | JavaScript expression |
+| `emulatedMediaType` (`screen`/`print`, default `print`) | `RenderingOptions.CssMediaType` | `PdfCssMediaType.Screen` or `Print` |
+| `cookies` (JSON array) | `RenderingOptions.CustomCookies` | `Dictionary<string,string>` |
+| `extraHttpHeaders` (JSON object) | `RenderingOptions.HttpRequestHeaders` | `Dictionary<string,string>` |
 | `failOnHttpStatusCodes` | N/A (handle in code) | Check response manually |
 | `failOnConsoleExceptions` | `RenderingOptions.ThrowOnJavaScriptExceptions` | Boolean |
 | `skipNetworkIdleEvent` | N/A | IronPDF handles automatically |
@@ -225,9 +225,9 @@ If you're using the GotenbergSharpApiClient NuGet package:
 | `.WithMargins(margin)` | `RenderingOptions.MarginTop/Bottom/Left/Right` |
 | `.WithPageRanges(range)` | `pdf.CopyPages()` |
 | `.WithScale(scale)` | `RenderingOptions.Zoom` |
-| `.WithWaitDelay(delay)` | `RenderingOptions.RenderDelay` |
+| `.WithWaitDelay(delay)` | `RenderingOptions.WaitFor.RenderDelay(ms)` |
 | `.WithCookies(cookies)` | `RenderingOptions.CustomCookies` |
-| `.WithExtraHttpHeaders(headers)` | `RenderingOptions.CustomHeaders` |
+| `.WithExtraHttpHeaders(headers)` | `RenderingOptions.HttpRequestHeaders` |
 | `client.BuildRequestAsync()` | N/A (direct method call) |
 | `client.PostAsync(request)` | Synchronous call to `Render*` |
 
@@ -322,7 +322,7 @@ public byte[] UrlToPdfIronPdf(string url)
     renderer.RenderingOptions.MarginRight = 12.7;    // 0.5 inch
 
     // Wait delay (convert "3s" to milliseconds)
-    renderer.RenderingOptions.RenderDelay = 3000;
+    renderer.RenderingOptions.WaitFor.RenderDelay(3000);
 
     // Print background
     renderer.RenderingOptions.PrintHtmlBackgrounds = true;
@@ -487,7 +487,7 @@ public class PdfService
         _renderer.RenderingOptions.MarginBottom = 25.4;
         _renderer.RenderingOptions.MarginLeft = 12.7;     // 0.5 inch
         _renderer.RenderingOptions.MarginRight = 12.7;
-        _renderer.RenderingOptions.RenderDelay = 2000;
+        _renderer.RenderingOptions.WaitFor.RenderDelay(2000);
         _renderer.RenderingOptions.PrintHtmlBackgrounds = true;
     }
 
@@ -542,7 +542,7 @@ public byte[] SecureUrlToPdfIronPdf(string url, string authToken)
     var renderer = new ChromePdfRenderer();
 
     // Custom headers
-    renderer.RenderingOptions.CustomHeaders = new Dictionary<string, string>
+    renderer.RenderingOptions.HttpRequestHeaders = new Dictionary<string, string>
     {
         { "Authorization", $"Bearer {authToken}" },
         { "X-Custom-Header", "value" }
@@ -588,13 +588,13 @@ public byte[] GeneratePdfAIronPdf(string html)
     var renderer = new ChromePdfRenderer();
     var pdf = renderer.RenderHtmlAsPdf(html);
 
-    // Convert to PDF/A
-    pdf.SaveAsPdfA("output-pdfa.pdf", PdfAVersions.PdfA1a);
+    // Convert to PDF/A — note Gotenberg's pdfFormat values map to
+    // PdfAVersions.PdfA1b / PdfA2b / PdfA3b. (Gotenberg v8 lists
+    // PDF/A-1b, PDF/A-2b, PDF/A-3b — not the "-1a" level-A variants.)
+    pdf.SaveAsPdfA("output-pdfa.pdf", PdfAVersions.PdfA3b);
 
-    // Or get bytes
-    using var stream = new MemoryStream();
-    pdf.SaveAsPdfA(stream, PdfAVersions.PdfA1a);
-    return stream.ToArray();
+    // Or get bytes by reading the saved file back
+    return File.ReadAllBytes("output-pdfa.pdf");
 }
 ```
 
@@ -1058,8 +1058,9 @@ renderer.RenderingOptions.MarginTop = 0.5 * 25.4; // 12.7mm
 **Solution**:
 ```csharp
 // Gotenberg: waitDelay = "3s"
-// IronPDF: use milliseconds
-renderer.RenderingOptions.RenderDelay = 3000;
+// IronPDF: use milliseconds via the WaitFor API (the older
+// RenderingOptions.RenderDelay property has been deprecated)
+renderer.RenderingOptions.WaitFor.RenderDelay(3000);
 
 // For more control, use JavaScript wait condition
 renderer.RenderingOptions.WaitFor.JavaScript("window.dataLoaded === true");
@@ -1089,7 +1090,7 @@ renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter()
 
 **Solution**:
 ```csharp
-renderer.RenderingOptions.CustomHeaders = new Dictionary<string, string>
+renderer.RenderingOptions.HttpRequestHeaders = new Dictionary<string, string>
 {
     { "Authorization", "Bearer your-token" }
 };
@@ -1216,12 +1217,15 @@ public byte[] ConvertDocxToPdf(string docxPath)
 - [ ] **Convert wait delays from strings to milliseconds**
   ```csharp
   // Before (Gotenberg)
-  var delay = "2000";
+  // waitDelay=2s   (string with unit suffix)
 
-  // After (IronPDF)
-  renderer.RenderingOptions.WaitFor.JavaScript(2000);
+  // After (IronPDF) — fixed pause
+  renderer.RenderingOptions.WaitFor.RenderDelay(2000);
+
+  // Or, for an event-driven wait, use a JavaScript expression
+  renderer.RenderingOptions.WaitFor.JavaScript("window.dataLoaded === true");
   ```
-  **Why:** IronPDF uses integer milliseconds for JavaScript execution delays, providing clear timing control.
+  **Why:** IronPDF takes integer milliseconds for fixed delays; the older `RenderingOptions.RenderDelay` property has been deprecated in favour of `WaitFor.RenderDelay(ms)`.
 
 - [ ] **Update header/footer page number placeholders**
   ```csharp

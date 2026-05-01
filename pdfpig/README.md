@@ -6,9 +6,9 @@ When working with PDF files in C#, developers often seek robust libraries that e
 
 ### What is pdfpig?
 
-**pdfpig** is an open-source PDF reading and extraction library specifically designed for C#. As an arm of the reputable Apache PDFBox project, this library allows developers to access the content of PDFs with remarkable precision. While pdfpig shines in extraction capabilities, its scope is largely limited compared to more comprehensive libraries available on the market.
+**PdfPig** (NuGet package `PdfPig`, namespace `UglyToad.PdfPig`) is an open-source .NET PDF reading and extraction library, originally inspired by — and partially ported from — the Apache PDFBox Java project. Maintained by Eliot Jones (UglyToad) and contributors, it lets developers access the structural content of PDFs with high precision. While PdfPig shines at extraction, its scope is narrower than full-lifecycle commercial libraries: it remains pre-1.0 (current stable release on NuGet is **0.1.14**) and the project's README explicitly notes that "while the version is below 1.0.0 minor versions will change the public API without warning (SemVer will not be followed until 1.0.0 is reached)."
 
-Despite these limitations, pdfpig provides developers with reliable tools for extracting text, images, form data, and metadata from PDF files. This makes it a suitable choice for applications primarily focused on document analysis and data mining.
+PdfPig provides reliable tools for extracting text (with letter- and word-level positions), images (`page.GetImages()`), read-only form data, annotations, and metadata. It also includes a limited writer surface — `PdfDocumentBuilder` for new documents and `PdfMerger` (in `UglyToad.PdfPig.Writer`) for merging existing PDFs — but does not offer HTML-to-PDF, watermark APIs, password/encryption authoring, or digital signing. This makes it a suitable choice for applications primarily focused on document analysis, data mining, and basic concatenation.
 
 ### Why Choose pdfpig?
 
@@ -68,12 +68,15 @@ While comparing pdfpig and IronPDF, it is pertinent to highlight IronPDF's abili
 
 Below is a comparative table summarizing the key features and differences between pdfpig and IronPDF.
 
-| Feature                     | pdfpig                        | IronPDF                    |
+| Feature                     | PdfPig                        | IronPDF                    |
 |-----------------------------|-------------------------------|----------------------------|
 | **License**                 | Open Source (Apache 2.0)      | Commercial                 |
+| **NuGet package**           | `PdfPig` (v0.1.14, pre-1.0)   | `IronPdf`                  |
 | **PDF Reading/Extraction**  | Excellent                     | Excellent                  |
-| **PDF Generation**          | Limited                       | Comprehensive              |
+| **PDF Generation**          | Limited (coordinate-based via `PdfDocumentBuilder`) | Comprehensive |
+| **PDF Merging**             | Supported (`PdfMerger`)       | Supported (`PdfDocument.Merge`) |
 | **HTML to PDF**             | Not Supported                 | Supported                  |
+| **Watermarks / Encryption authoring / Signing** | Not Supported   | Supported                  |
 | **Support and Documentation** | Community Support           | Dedicated Support          |
 | **Cost**                    | Free                          | Paid                       |
 
@@ -233,28 +236,29 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from PdfPig to IronPDF?
 
-### The Reading-Only Limitation
+### The Reading-Focused Limitation
 
-PdfPig excels at PDF reading and text extraction, but cannot help when you need to:
+PdfPig excels at PDF reading and text extraction, with a limited writer surface (`PdfDocumentBuilder` for low-level coordinate-based authoring, `PdfMerger` for concatenation). It cannot help when you need to:
 
-1. **No PDF Generation**: Cannot create PDFs from HTML, URLs, or programmatically
-2. **No HTML-to-PDF**: Cannot convert web content to PDF documents
-3. **No Document Manipulation**: Cannot merge, split, or modify PDFs
-4. **No Security Features**: Cannot add passwords, encryption, or digital signatures
-5. **No Watermarks/Stamps**: Cannot add visual overlays to existing documents
-6. **No Form Filling**: Cannot programmatically fill PDF forms
+1. **No HTML-to-PDF**: Cannot convert web content (HTML/CSS/JS) to PDF documents
+2. **No URL-to-PDF**: Cannot render a live URL to PDF
+3. **Limited Document Creation**: New PDFs require manual `PdfPoint` coordinate placement; no high-level layout
+4. **No Authoring of Security Features**: Can read encrypted PDFs (with password) but cannot add passwords/encryption or digital signatures
+5. **No Watermarks/Stamps**: No high-level API for visual overlays on existing documents
+6. **No Form Filling**: Forms are read-only — values cannot be changed or added (per the project wiki)
 
 ### Quick Migration Overview
 
 | Aspect | PdfPig | IronPDF |
 |--------|--------|---------|
 | Primary Focus | Reading/Extraction | Full PDF lifecycle |
-| PDF Creation | Very limited | Comprehensive |
+| PDF Creation | Limited (coordinate-based via `PdfDocumentBuilder`) | Comprehensive (HTML/CSS) |
 | HTML to PDF | Not supported | Full Chromium engine |
-| Text Extraction | Excellent | Excellent |
-| PDF Manipulation | Not supported | Merge, split, rotate |
+| Text Extraction | Excellent (with letter/word bounding boxes) | Excellent (text only) |
+| PDF Merging | Supported (`PdfMerger`) | Supported (`PdfDocument.Merge`) |
 | Watermarks | Not supported | Full support |
-| Security/Encryption | Not supported | Full support |
+| Security/Encryption authoring | Not supported (read-only with password) | Full support |
+| Digital Signatures | Not supported | Full support |
 | Page Indexing | 1-based | 0-based |
 | License | Apache 2.0 (free) | Commercial |
 
@@ -269,9 +273,9 @@ PdfPig excels at PDF reading and text extraction, but cannot help when you need 
 | `page.GetWords()` | `pdf.ExtractTextFromPage(i)` | Text extraction |
 | `document.Information.Title` | `pdf.MetaData.Title` | Metadata access |
 | `PdfDocumentBuilder` | `ChromePdfRenderer` | PDF creation (paradigm shift) |
+| `PdfMerger.Merge(...)` | `PdfDocument.Merge(...)` | Merging supported in both |
 | _(not available)_ | `renderer.RenderHtmlAsPdf(html)` | NEW: HTML to PDF |
 | _(not available)_ | `renderer.RenderUrlAsPdf(url)` | NEW: URL to PDF |
-| _(not available)_ | `PdfDocument.Merge()` | NEW: Merge PDFs |
 | _(not available)_ | `pdf.ApplyWatermark()` | NEW: Watermarks |
 
 ### Migration Code Example

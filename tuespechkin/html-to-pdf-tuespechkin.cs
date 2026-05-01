@@ -1,4 +1,5 @@
 // NuGet: Install-Package TuesPechkin
+// NuGet: Install-Package TuesPechkin.Wkhtmltox.Win64 (native binary, Windows x64)
 using TuesPechkin;
 using System.IO;
 

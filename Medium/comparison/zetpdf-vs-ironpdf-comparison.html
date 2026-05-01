@@ -1,32 +1,47 @@
 <h1>ZetPDF vs IronPDF in C#: Which Should Your Team Choose?</h1>
 
-<p>A developer recently asked me about ZetPDF for a new project. They had seen it referenced in older blog posts and wanted to know if it could handle server-side PDF generation alongside their ASP.NET Core application. After digging into the available information, I found a product whose website content dates from 2018, no active NuGet package in standard searches, and no visible GitHub repository or recent release announcements. That investigation is worth sharing in detail.</p>
+<p>A developer recently asked me about ZetPDF for a new project. They had seen it referenced in older blog posts and wanted to know if it could handle server-side PDF generation alongside their ASP.NET Core application. ZetPDF does ship a <code>ZetPDF</code> NuGet package with an <code>HtmlToPdfConverter</code> class, but the surrounding marketing material, blog posts, and documentation skew heavily toward Windows desktop viewing — which makes the architectural fit for ASP.NET Core worth examining in detail.</p>
 
-<p>ZetPDF is marketed as a PDF viewer and rendering library for Windows desktop applications — WinForms, WPF, and Silverlight. <a href="https://ironpdf.com">IronPDF</a> is a server-side HTML-to-PDF generation engine built on headless Chromium. These libraries address fundamentally different use cases, and the comparison matters because teams sometimes evaluate them side by side without realizing the architectural gap.</p>
+<p>ZetPDF is marketed as a PDF viewer and rendering library for Windows desktop applications — WinForms, WPF, and Silverlight — with a small set of conversion helpers (<code>HtmlToPdfConverter</code>, <code>PdfMerger</code>). <a href="https://ironpdf.com">IronPDF</a> is a server-side HTML-to-PDF generation engine built on headless Chromium. These libraries address overlapping but fundamentally different use cases, and the comparison matters because teams sometimes evaluate them side by side without realizing the architectural gap.</p>
 
 <h2>What is ZetPDF and what does it actually do?</h2>
 
-<p><strong>Answer:</strong> ZetPDF is described as a PDF viewer and rendering library for Windows desktop applications. The core functionality is <em>displaying</em> PDFs in UI controls, not generating them from HTML. Features include bookmark navigation, annotations, and attachment management — all oriented around interactive PDF viewing in WinForms/WPF/Silverlight environments.</p>
+<p>ZetPDF is described as a PDF viewer and rendering library for Windows desktop applications. The marketing-facing functionality is <em>displaying</em> PDFs in UI controls — bookmark navigation, annotations, and attachment management — all oriented around interactive PDF viewing in WinForms/WPF/Silverlight environments. Alongside the viewer, the library exposes a small set of conversion helpers, including an <code>HtmlToPdfConverter</code> with <code>ConvertHtmlToPdf</code> and <code>ConvertUrlToPdf</code> methods, and a <code>PdfMerger</code> for combining files.</p>
 
-<p>The critical issue is ZetPDF's current maintenance status. Website blog posts date from 2018. No active NuGet package appears in standard searches. No visible GitHub repository or recent release announcements exist. Teams should verify current status before considering ZetPDF for new projects — the product may be discontinued or in maintenance-only mode.</p>
-
-<p>Support status is also unknown. There are no visible support channels, documentation portals, or community forums. The zetpdf.com domain shows marketing content from 2018 but no recent updates, release notes, or version history.</p>
+<p>One thing worth checking before adoption is ZetPDF's current update cadence. Public-facing blog content dates from 2018 and there is no visible GitHub repository or recent release announcement, so teams should verify the latest package version and supported runtimes directly with the vendor. The NuGet package itself does exist (<code>Install-Package ZetPDF</code>), but the surrounding documentation surface is thin compared to libraries with active developer-relations programs.</p>
 
 <h2>How does ZetPDF differ from IronPDF architecturally?</h2>
 
-<p><strong>Answer:</strong> The fundamental difference is that ZetPDF focuses on <strong>displaying PDFs in desktop UI controls</strong>, while IronPDF focuses on <strong>generating PDFs from HTML in server environments</strong>. This architectural split affects every aspect of how you use each library.</p>
+<p>The primary difference is emphasis. ZetPDF's product surface centers on <strong>displaying PDFs in desktop UI controls</strong>, with conversion helpers attached. IronPDF's product surface centers on <strong>generating PDFs from HTML in headless server environments</strong>. That emphasis shapes the API ergonomics and the runtime assumptions on each side.</p>
 
-<p>ZetPDF's focus on WinForms/WPF viewer controls suggests UI thread dependencies. Windows desktop controls typically require STAThread contexts, making them unsuitable for ASP.NET server environments. Desktop viewer controls introduce overhead for PDF generation scenarios: UI controls maintain rendering buffers, handle user interactions, and manage view state — unnecessary overhead for headless generation.</p>
+<p>ZetPDF's WinForms/WPF/Silverlight viewer controls are designed for desktop hosts and typically expect STAThread contexts and a Windows message loop. The conversion helpers (<code>HtmlToPdfConverter</code>, <code>PdfMerger</code>) are simple synchronous static-style APIs that write directly to a path; they are usable from server code, but verify behavior on non-Windows runtimes if you plan to deploy to Linux containers.</p>
 
-<p>IronPDF's <code>ChromePdfRenderer</code> class converts HTML to PDF using embedded Chromium — optimized for throughput, parallel processing, and stateless operation in ASP.NET Core, Azure Functions, AWS Lambda, or Docker containers. Cold start runs under 2 seconds, warm rendering hits 200–500ms per PDF, and async/await patterns are fully supported. No UI thread dependencies, no STAThread requirements.</p>
+<p>IronPDF's <code>ChromePdfRenderer</code> class converts HTML to PDF using embedded Chromium — designed for throughput, parallel processing, and stateless operation in ASP.NET Core, Azure Functions, AWS Lambda, or Docker containers. Async/await is supported throughout, with no UI thread or STAThread requirement.</p>
 
 <p>Server-side PDF generation benefits from headless architectures: no UI thread dependencies, stateless operation for horizontal scaling, memory-efficient rendering without view buffers, and support for async patterns without STAThread constraints.</p>
 
 <h2>How does HTML-to-PDF conversion compare between ZetPDF and IronPDF?</h2>
 
-<p><strong>Answer:</strong> This is where the comparison becomes stark. ZetPDF's HTML-to-PDF capabilities are undocumented. While the library may include PDF creation capabilities, the marketing and documentation focus on viewer controls. If HTML-to-PDF generation is included, the approach and performance characteristics are not documented in available materials.</p>
+<p>The two libraries take different shapes here. ZetPDF exposes a thin synchronous API — <code>HtmlToPdfConverter.ConvertHtmlToPdf(html, path)</code> and <code>ConvertUrlToPdf(url, path)</code> — that writes directly to a file. IronPDF exposes a renderer-based API that returns a <code>PdfDocument</code> object you can compose, modify, and stream. The renderer also supports async operation. Detailed engine internals (rendering backend, CSS3/JS support, font loading) are not extensively documented for ZetPDF, so verify against your specific HTML inputs before committing.</p>
 
-<p>IronPDF treats HTML-to-PDF as its core feature. Here is how it works in practice.</p>
+<h3>ZetPDF: Synchronous HTML-to-PDF</h3>
+
+<pre><code>// NuGet: Install-Package ZetPDF
+using ZetPDF;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        var htmlContent = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello World&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
+        converter.ConvertHtmlToPdf(htmlContent, "output.pdf");
+        Console.WriteLine("PDF created successfully");
+    }
+}</code></pre>
+
+<p>The API is intentionally minimal. There is no native watermark, password, or async API surfaced on the converter — verify the current package version's feature set if any of those matter for your use case.</p>
 
 <h3>IronPDF: Headless HTML-to-PDF Generation</h3>
 
@@ -39,6 +54,8 @@ public class IronPdfGenerator
 {
     public async Task&lt;byte[]&gt; GeneratePdfFromHtmlAsync(string html)
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var stopwatch = Stopwatch.StartNew();
 
         var renderer = new ChromePdfRenderer();
@@ -80,54 +97,23 @@ byte[] pdf = await generator.GeneratePdfFromHtmlAsync(html);
 
 <p>IronPDF's headless architecture eliminates UI dependencies. Chromium runs in isolated processes, supporting parallel operations. Learn more about the <a href="https://ironpdf.com/how-to/ironpdf-2021-chrome-rendering-engine-eap/">Chrome rendering engine architecture</a>.</p>
 
-<h3>ZetPDF: Viewer Control Approach (Hypothetical)</h3>
+<h3>ZetPDF: Viewer Control Approach</h3>
 
-<pre><code>// NOTE: This is a hypothetical example based on product descriptions.
-// ZetPDF's actual API may differ significantly.
-// Verify exact implementation in ZetPDF documentation if available.
-
-using System;
-using System.Windows.Forms;
-
-public class ZetPdfGenerator
-{
-    // Hypothetical pattern based on typical viewer control usage
-    public byte[] GeneratePdfFromHtml(string html)
-    {
-        // If ZetPDF uses viewer controls for generation,
-        // pattern might involve:
-
-        // 1. Create viewer control instance
-        // var viewer = new ZetPdfViewerControl();
-
-        // 2. Load HTML (if supported - verify in docs)
-        // viewer.LoadHtml(html);
-
-        // 3. Wait for rendering
-        // System.Threading.Thread.Sleep(1000); // Example delay
-
-        // 4. Export to PDF (if supported - verify in docs)
-        // return viewer.ExportToPdf();
-
-        throw new NotImplementedException(
-            "ZetPDF actual API unknown - verify in product documentation");
-    }
-}
-
-// Performance implications of viewer control architecture:
-// - UI thread dependency limits concurrency
-// - Control instantiation overhead (~100-500ms)
-// - Rendering buffer allocation
-// - GDI resource management
-// - STAThread requirement blocks async patterns</code></pre>
-
-<p>Performance concerns with the viewer-based approach include UI thread blocking that prevents parallel execution, control instantiation overhead, single-threaded limitations from STAThread requirements, and memory footprint from rendering buffers and view state.</p>
+<p>Beyond the conversion helpers shown above, ZetPDF's primary surface is a viewer control for WinForms/WPF/Silverlight. That viewer is intended for desktop hosts — STAThread, Windows message loop, GDI-backed rendering buffers — and is a different abstraction from a server-side renderer. If your scenario is a thick-client app where end users open and annotate PDFs, the viewer is the right tool. If it is a web service that emits PDFs from HTML on demand, the conversion helpers (rather than the viewer control) are the relevant entry point, and you should benchmark them against your throughput target.</p>
 
 <h2>How do merging and batch processing compare?</h2>
 
-<p><strong>Answer:</strong> Batch processing highlights the architectural gap. If ZetPDF's generation relies on viewer controls, performance suffers in server scenarios. Desktop controls assume single-threaded UI contexts, limiting concurrent operations. Each PDF generation might require instantiating a full viewer control stack, loading rendering buffers, and managing GDI resources.</p>
+<p>ZetPDF exposes a <code>PdfMerger.MergeFiles(paths, output)</code> API that concatenates files synchronously by path. It works, and for low-volume merging it is straightforward. For batch generation under load, the synchronous file-by-file API style means orchestrating concurrency is the caller's problem — there is no built-in async surface and no batched renderer pool.</p>
 
-<p>IronPDF processes batches in parallel with no UI thread bottleneck.</p>
+<pre><code>// NuGet: Install-Package ZetPDF
+using ZetPDF;
+using System.Collections.Generic;
+
+var merger = new PdfMerger();
+var files = new List&lt;string&gt; { "document1.pdf", "document2.pdf" };
+merger.MergeFiles(files, "merged.pdf");</code></pre>
+
+<p>IronPDF processes batches in parallel with no UI thread bottleneck and supports async/await directly on the renderer.</p>
 
 <h3>IronPDF: Parallel Async Batch Processing</h3>
 
@@ -225,61 +211,45 @@ public class PdfController : ControllerBase
 
 <h2>How do the two libraries compare feature by feature?</h2>
 
-<p><strong>Answer:</strong> The table below captures every dimension I could evaluate. Note that many ZetPDF entries are unverifiable due to the product's unclear status.</p>
+<p>The bullets below capture the dimensions worth evaluating. Several ZetPDF entries are framed as "verify" because the public documentation surface does not cover them in depth.</p>
 
-<table>
-<tr><th>Feature Category</th><th>ZetPDF</th><th>IronPDF</th></tr>
-<tr><td><strong>Maintenance Status</strong></td><td>Unclear — verify current status</td><td>Active development</td></tr>
-<tr><td><strong>Last Visible Update</strong></td><td>2018 (blog posts)</td><td>Regular updates</td></tr>
-<tr><td><strong>NuGet Availability</strong></td><td>Not found in standard search</td><td>Active package</td></tr>
-<tr><td><strong>Documentation</strong></td><td>Limited/outdated</td><td>Comprehensive and updated</td></tr>
-<tr><td><strong>Official Support</strong></td><td>Unknown</td><td>Commercial support</td></tr>
-<tr><td><strong>Community</strong></td><td>Not visible</td><td>Active</td></tr>
-<tr><td><strong>HTML to PDF</strong></td><td>Verify capabilities</td><td>Yes (core feature)</td></tr>
-<tr><td><strong>PDF Viewing</strong></td><td>Yes (primary feature)</td><td>No (generation only)</td></tr>
-<tr><td><strong>Desktop UI Controls</strong></td><td>Yes (WinForms/WPF/Silverlight)</td><td>Not applicable</td></tr>
-<tr><td><strong>Server Generation</strong></td><td>Verify if supported</td><td>Yes (designed for servers)</td></tr>
-<tr><td><strong>Headless Operation</strong></td><td>Unknown</td><td>Yes</td></tr>
-<tr><td><strong>Async/Await Support</strong></td><td>Unknown</td><td>Yes</td></tr>
-<tr><td><strong>Parallel Processing</strong></td><td>Unlikely (if UI-based)</td><td>Yes</td></tr>
-<tr><td><strong>Batch Throughput</strong></td><td>Unknown</td><td>High (10-20 PDFs/sec)</td></tr>
-<tr><td><strong>Create PDFs</strong></td><td>Verify in documentation</td><td>Yes</td></tr>
-<tr><td><strong>Merge PDFs</strong></td><td>Verify in documentation</td><td>Yes</td></tr>
-<tr><td><strong>Extract Text</strong></td><td>Verify in documentation</td><td>Yes</td></tr>
-<tr><td><strong>Annotations</strong></td><td>Yes (viewer feature)</td><td>Yes (creation, not viewing)</td></tr>
-<tr><td><strong>Bookmarks</strong></td><td>Yes (navigation feature)</td><td>Yes (creation)</td></tr>
-<tr><td><strong>UI Thread Dependency</strong></td><td>Likely (desktop controls)</td><td>None</td></tr>
-<tr><td><strong>STAThread Required</strong></td><td>Likely (WinForms/WPF)</td><td>Not required</td></tr>
-<tr><td><strong>Multi-Threading</strong></td><td>Limited (if UI-based)</td><td>Full support</td></tr>
-<tr><td><strong>Container Support</strong></td><td>Unverified</td><td>Yes (Docker)</td></tr>
-<tr><td><strong>Cloud Deployment</strong></td><td>Unverified</td><td>Yes (Azure/AWS)</td></tr>
-<tr><td><strong>Primary Use Case</strong></td><td>PDF viewing in desktop apps</td><td>PDF generation for servers</td></tr>
-<tr><td><strong>Learning Curve</strong></td><td>Unknown</td><td>Low (HTML/CSS knowledge)</td></tr>
-<tr><td><strong>Code Examples</strong></td><td>Limited availability</td><td>Extensive</td></tr>
-<tr><td><strong>API Stability</strong></td><td>Unknown</td><td>Stable</td></tr>
-</table>
+<ul>
+<li><strong>Primary use case.</strong> ZetPDF — PDF viewing in WinForms/WPF/Silverlight desktop applications, with conversion helpers attached. IronPDF — server-side PDF generation from HTML.</li>
+<li><strong>Update cadence and documentation.</strong> ZetPDF's public-facing blog content dates from 2018; the NuGet package exists but the surrounding docs and release notes are thin — verify current package version with the vendor. IronPDF ships regular updates with comprehensive documentation.</li>
+<li><strong>HTML-to-PDF API.</strong> ZetPDF — <code>HtmlToPdfConverter.ConvertHtmlToPdf(html, path)</code>, synchronous, file-path output. IronPDF — <code>ChromePdfRenderer.RenderHtmlAsPdf</code> / <code>RenderHtmlAsPdfAsync</code>, returns a composable <code>PdfDocument</code>.</li>
+<li><strong>URL-to-PDF.</strong> Both supported — <code>ConvertUrlToPdf(url, path)</code> on ZetPDF, <code>RenderUrlAsPdf</code> on IronPDF.</li>
+<li><strong>Merge PDFs.</strong> Both supported — <code>PdfMerger.MergeFiles(paths, output)</code> on ZetPDF, <code>PdfDocument.Merge(...)</code> on IronPDF.</li>
+<li><strong>PDF viewing controls.</strong> ZetPDF offers WinForms/WPF/Silverlight viewer controls. IronPDF is generation-only and ships no viewer UI.</li>
+<li><strong>Async/await.</strong> Not surfaced on ZetPDF's converter API. Native on IronPDF.</li>
+<li><strong>Headless server operation.</strong> IronPDF is designed for headless server use (ASP.NET Core, Azure Functions, AWS Lambda, Docker). ZetPDF's viewer surface is desktop-oriented; verify the converter helpers' behavior on Linux/container hosts before depending on them.</li>
+<li><strong>Watermarks.</strong> No native watermark API documented on ZetPDF's converter. IronPDF — <code>pdf.ApplyWatermark(html)</code> with HTML/CSS.</li>
+<li><strong>Password / encryption.</strong> No native password API documented on ZetPDF's converter. IronPDF — <code>pdf.SecuritySettings.UserPassword</code> / <code>OwnerPassword</code>.</li>
+<li><strong>Text extraction, digital signatures, PDF/A.</strong> Verify in current ZetPDF docs. Supported on IronPDF.</li>
+<li><strong>Annotations and bookmarks.</strong> ZetPDF supports them as viewer features. IronPDF supports them as creation features.</li>
+<li><strong>Learning curve.</strong> ZetPDF's API is small and synchronous — easy to call, easy to outgrow. IronPDF — low curve if HTML/CSS is already familiar.</li>
+</ul>
 
 <h2>Frequently Asked Questions</h2>
 
 <h3>Is ZetPDF still actively maintained?</h3>
 
-<p>This is the most important question to answer before evaluating ZetPDF. Website blog posts date from 2018. No active NuGet package appears in standard searches. No visible GitHub repository or recent release announcements exist. Verify current status directly with the vendor before considering ZetPDF for any new project.</p>
+<p>Worth checking directly with the vendor. The public-facing blog content dates from 2018 and there is no visible GitHub repository or recent release announcement, but the <code>ZetPDF</code> NuGet package itself does exist. Confirm the latest published version, target frameworks, and support channels before adopting it for a new project.</p>
 
 <h3>Can ZetPDF generate PDFs from HTML on a server?</h3>
 
-<p>ZetPDF is described as a PDF viewer and rendering library for Windows desktop applications. While the library may include PDF creation capabilities, the marketing and documentation focus on viewer controls with features like bookmark navigation and annotations. If HTML-to-PDF generation is included, the approach and performance characteristics are not documented in available materials. Teams seeking server-side PDF generation should verify whether ZetPDF supports this use case.</p>
+<p>The library exposes an <code>HtmlToPdfConverter</code> with <code>ConvertHtmlToPdf</code> and <code>ConvertUrlToPdf</code> methods, so HTML-to-PDF is part of the API. The broader product surface, however, is oriented around WinForms/WPF/Silverlight viewer controls, and the converter's documented feature set is small (no native async, watermark, or password APIs). Verify rendering behavior — CSS3 fidelity, font handling, JavaScript execution, Linux/container support — against your specific HTML inputs before committing.</p>
 
 <h3>How does IronPDF handle installation compared to ZetPDF?</h3>
 
-<p>IronPDF installs via a single NuGet command: <code>Install-Package IronPdf</code>. No UI dependencies required. ZetPDF's installation method is unknown — no active NuGet package is visible. Historical references suggest an SDK download from the website, but current availability should be verified.</p>
+<p>Both install via NuGet: <code>Install-Package IronPdf</code> and <code>Install-Package ZetPDF</code>. IronPDF has no UI dependencies and works out of the box in headless server environments. ZetPDF's package is published, but the surrounding documentation, samples, and release notes are thinner — confirm the latest version against the vendor before depending on it.</p>
 
 <h3>Can I use ZetPDF in ASP.NET Core or Docker containers?</h3>
 
-<p>ZetPDF's focus on WinForms/WPF/Silverlight viewer controls suggests UI thread dependencies that are incompatible with ASP.NET Core's thread pool model. Desktop controls require STAThread contexts and Windows message loops that server environments do not provide. IronPDF is designed specifically for these environments — ASP.NET Core, Azure Functions, AWS Lambda, and Docker containers all work out of the box.</p>
+<p>ZetPDF's viewer controls (WinForms/WPF/Silverlight) carry desktop runtime assumptions — STAThread contexts and Windows message loops — that do not map cleanly onto ASP.NET Core's thread pool model or Linux containers. The conversion helpers are simpler and may work, but verify on your target runtime. IronPDF is designed for these environments — ASP.NET Core, Azure Functions, AWS Lambda, and Docker containers all work out of the box.</p>
 
 <h3>What is the performance difference for batch PDF generation?</h3>
 
-<p>IronPDF processes 100 PDFs in 5–10 seconds on a multi-core system, achieving 10–20 PDFs per second depending on content complexity. Parallel async processing scales with available CPU cores. ZetPDF's batch performance is unknown, but if it relies on viewer controls, the architecture would force serial execution on a UI thread — potentially 50–90 seconds for the same 100 PDFs.</p>
+<p>IronPDF supports async/await directly on the renderer and parallel processing scales with available CPU cores. ZetPDF's converter API is synchronous and offers no built-in batch or async surface, so concurrency is the caller's responsibility. For high-throughput batch generation, benchmark both against representative inputs before choosing.</p>
 
 <h3>Does migrating from ZetPDF to IronPDF make sense?</h3>
 
@@ -287,9 +257,9 @@ public class PdfController : ControllerBase
 
 <h2>Which should your team choose — ZetPDF or IronPDF?</h2>
 
-<p><strong>Answer:</strong> ZetPDF and IronPDF address different use cases entirely. ZetPDF is marketed as a PDF viewer library for Windows desktop applications, optimized for displaying PDFs with user interaction features like bookmark navigation and annotations. IronPDF is a server-side <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML-to-PDF generation engine</a>, optimized for headless operation in web applications and cloud services.</p>
+<p>ZetPDF and IronPDF address overlapping but distinct use cases. ZetPDF is marketed primarily as a PDF viewer library for Windows desktop applications, with a small set of conversion helpers attached. IronPDF is a server-side <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML-to-PDF generation engine</a>, designed for headless operation in web applications and cloud services.</p>
 
-<p>If your team needs to build a desktop application where users navigate, annotate, or interact with existing PDFs, a viewer library is the right category. However, ZetPDF's current status is unclear — website content dates from 2018, no active NuGet packages are visible, and maintenance status is unknown. Verify current availability and support before adoption.</p>
+<p>If your team needs to build a desktop application where users navigate, annotate, or interact with existing PDFs, a viewer library is the right category — verify ZetPDF's current package version, supported runtimes, and support channels with the vendor before adopting it, since the public-facing material is dated.</p>
 
 <p>If your team needs server-side PDF generation, batch processing, HTML-to-PDF conversion, or cloud deployment, IronPDF is the clear choice. The headless Chromium architecture eliminates UI thread dependencies, supports async/await patterns, and scales horizontally. Install via <code>Install-Package IronPdf</code> and start converting HTML to PDF in minutes. The performance implications stem from architectural differences: desktop viewer controls introduce UI thread dependencies, STAThread requirements, and serial processing constraints that headless generation engines eliminate entirely.</p>
 

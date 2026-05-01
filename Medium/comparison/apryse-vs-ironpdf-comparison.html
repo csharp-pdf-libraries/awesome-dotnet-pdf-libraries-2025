@@ -1,16 +1,14 @@
 <h1>Apryse vs IronPDF in C#: Which PDF Library Should Your Team Choose?</h1>
 
-<p>Picture a logistics platform generating 5,000 shipping labels per hour from HTML templates. The team implements Apryse's HTML2PDF module, and two weeks into production, the Docker containers randomly freeze. Debugging reveals thread safety issues in the HTML2PDF converter — something the documentation never mentioned.</p>
+<p>Teams I have worked with on high-volume HTML-to-PDF pipelines (think shipping labels, invoices, or report generation) often hit a similar pattern when they reach for a comprehensive PDF SDK like Apryse: the HTML conversion piece is delivered as a separate module on top of a document-editing core, and the operational shape of that combination only becomes visible at scale. Container images grow with platform-specific native libraries, deployment scripts accumulate environment-specific path logic, and concurrency tuning becomes part of the workload.</p>
 
-<p>After three weeks of custom synchronization patterns and converter pooling, the containers are stable but the image has ballooned to 380MB because of platform-specific native libraries. The team now spends more time managing PDFNet resource paths than building features.</p>
-
-<p>This scenario emerges repeatedly: teams select Apryse for its comprehensive PDF manipulation capabilities, then discover the HTML-to-PDF functionality exists as an add-on module grafted onto a document-editing SDK. What looked like a complete solution becomes an exercise in managing native dependencies, configuring module paths, and debugging initialization sequences across Windows and Linux environments. I want to walk through the specific differences so you can make an informed decision.</p>
+<p>None of this means Apryse is the wrong tool — it is a capable SDK with a long heritage. It does mean that, if HTML-to-PDF is your primary workflow rather than a side feature, the architecture choice matters. I want to walk through the specific differences so you can make an informed decision.</p>
 
 <h2>What is Apryse and where does it fit?</h2>
 
-<p>Apryse (rebranded from PDFTron in 2023) is an active PDF SDK with 2025 releases. Its core strengths are low-level PDF manipulation, document viewing UIs, and comprehensive editing workflows. Documentation is now split across PDFTron legacy content and new Apryse branding, creating confusion about which APIs and namespaces apply to specific versions.</p>
+<p>Apryse (the company that produces the PDFTron SDK, rebranded under the Apryse name) is an actively maintained PDF SDK with regular releases. Its core strengths are low-level PDF manipulation, document viewing UIs, and comprehensive editing workflows. Because the rebrand is relatively recent, some documentation still uses the older PDFTron branding alongside the new Apryse pages — verify against the current docs for the exact APIs and namespaces in your version.</p>
 
-<p>The HTML2PDF module is an add-on to the document manipulation SDK, not core functionality. This architectural decision surfaces in the API design — conversion requires instantiating PDFDoc, an HTML2PDF converter, then calling Convert() on the document. The module requires separate module path configuration and may need additional licensing. Enterprise support tier is required for timely HTML2PDF issue resolution.</p>
+<p>The HTML2PDF module is delivered as an add-on to the document manipulation SDK rather than as part of the core. That architectural choice surfaces in the API shape — conversion typically involves instantiating <code>PDFDoc</code>, creating an HTML2PDF converter, and calling <code>Convert()</code> against the document. The module is distributed separately and may require its own module path configuration; check Apryse's licensing terms for whether HTML2PDF is included in your specific tier.</p>
 
 <h2>What is IronPDF and how does its approach differ?</h2>
 
@@ -20,11 +18,11 @@
 
 <h2>How does HTML-to-PDF capability compare between the two?</h2>
 
-<p><strong>Answer:</strong> This is where the architectural gap becomes most visible. Apryse's HTML2PDF module lacks a native Chromium engine — it uses older rendering technology that struggles with modern web standards. CSS Grid, Flexbox, and CSS3 animations often fail to render correctly. JavaScript frameworks (React, Vue, Angular) typically don't execute properly. There is no built-in responsive rendering — the viewport is fixed width. SVG support is limited compared to browser-based renderers.</p>
+<p>This is the area where the architectural difference is most visible. Apryse's HTML2PDF module is not Chromium-based, so support for newer CSS features (Grid, Flexbox, CSS3 animations) and for modern JavaScript frameworks (React, Vue, Angular) may be limited compared to a Chromium-driven renderer — verify the specific feature set against your Apryse version's documentation. Responsive layout and SVG handling fall under the same caveat: confirm against the current docs for what your version supports.</p>
 
-<p>Multi-threaded HTML rendering in Apryse exhibits documented thread safety problems requiring custom converter pooling. Docker deployments demand platform-specific native binaries (~40MB Windows DLL, separate Linux .so files). Resource path configuration differs between Windows and Linux, requiring environment-specific conditional logic. Module initialization sequence is fragile — wrong order between PDFNet.Initialize(), SetResourcesPath(), and HTML2PDF instantiation causes silent failures with cryptic error messages.</p>
+<p>Multi-threaded HTML rendering in Apryse may require explicit synchronization patterns or converter pooling depending on version — check the threading guidance in your release's docs. Docker deployments include platform-specific native binaries (Windows DLLs and Linux <code>.so</code> files), and resource path configuration is platform-dependent, so cross-platform deployments typically need environment-specific conditional logic. Initialization order between <code>PDFNet.Initialize()</code>, <code>SetResourcesPath()</code>, and HTML2PDF setup needs to follow the documented sequence; out-of-order calls can produce errors that are not always self-explanatory.</p>
 
-<p>IronPDF's Chromium engine handles JavaScript frameworks, external assets, and modern CSS automatically. The rendering matches what you see in Chrome print preview. For a deeper walkthrough, see the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a>.</p>
+<p>IronPDF's Chromium engine handles JavaScript frameworks, external assets, and modern CSS through the same engine that powers Chrome, so rendering tends to match what you see in Chrome print preview. For a deeper walkthrough, see the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a>.</p>
 
 <h3>Apryse PDF — Basic HTML String Rendering</h3>
 
@@ -40,7 +38,7 @@ namespace ApryseHtmlExample
         static void Main(string[] args)
         {
             // Initialize PDFNet library with license key
-            PDFNet.Initialize("YOUR_LICENSE_KEY");
+            PDFNet.Initialize("YOUR-LICENSE-KEY");
 
             // Set resource path for PDFNet libraries
             // Windows: C:\Program Files\PDFTron\Resources
@@ -51,11 +49,9 @@ namespace ApryseHtmlExample
             {
                 using (PDFDoc doc = new PDFDoc())
                 {
-                    // HTML2PDF converter requires module path configuration
                     HTML2PDF converter = new HTML2PDF();
 
-                    // Set module path - varies by platform and installation
-                    // Verify exact path in your Apryse installation docs
+                    // Module path: verify the exact location in your installation's docs
                     converter.SetModulePath("/path/to/html2pdf/module");
 
                     // HTML string to convert
@@ -73,26 +69,23 @@ namespace ApryseHtmlExample
                         &lt;/body&gt;
                         &lt;/html&gt;";
 
-                    // Insert HTML - method ordering matters
                     converter.InsertFromHtmlString(htmlContent);
 
-                    // Convert to PDF document
                     if (converter.Convert(doc))
                     {
-                        // Save with optimization options
+                        // Save with linearization for fast web view
                         doc.Save("output.pdf", SDFDoc.SaveOptions.e_linearized);
                         Console.WriteLine("PDF created successfully");
                     }
                     else
                     {
-                        Console.WriteLine("Conversion failed - check module paths");
+                        Console.WriteLine("Conversion failed");
                     }
                 }
             }
             catch (PDFNetException e)
             {
                 Console.WriteLine($"PDFNet Error: {e.Message}");
-                Console.WriteLine("Common causes: missing native DLL, incorrect resource path, module not found");
             }
             finally
             {
@@ -103,7 +96,7 @@ namespace ApryseHtmlExample
 }
 </code></pre>
 
-<p>Apryse requires three separate path configurations (license, resources, module) that vary by platform and installation. HTML2PDF module instantiation is fragile — incorrect initialization order causes silent failures. Native library dependencies (~40MB PDFNetC.dll on Windows) must be deployed alongside your application.</p>
+<p>Apryse typically involves three distinct path configurations (license, resources, module) that can vary by platform and installation. The HTML2PDF flow expects a specific initialization order; out-of-order calls may surface as errors that take some digging to interpret. Native library dependencies (such as <code>PDFNetC.dll</code> on Windows and matching <code>.so</code> files on Linux) need to be deployed alongside your application.</p>
 
 <h3>IronPDF — Basic HTML String Rendering</h3>
 
@@ -116,8 +109,8 @@ namespace IronPdfHtmlExample
     {
         static void Main(string[] args)
         {
-            // Optional: Set license key for production
-            // IronPdf.License.LicenseKey = "YOUR_LICENSE_KEY";
+            // Set license key for production
+            IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
             // Instantiate renderer
             var renderer = new ChromePdfRenderer();
@@ -148,7 +141,7 @@ namespace IronPdfHtmlExample
 
 <h2>How does URL-to-PDF conversion work in each library?</h2>
 
-<p><strong>Answer:</strong> URL conversion exposes another gap in Apryse's HTML2PDF module. JavaScript execution is severely limited — modern frameworks (React, Vue, Angular) fail to render correctly. CSS3 transforms, animations, and grid layouts are typically ignored or rendered incorrectly. HTTPS certificate validation issues require workarounds, and external asset loading (fonts from Google Fonts, images from CDNs) is unreliable without explicit configuration.</p>
+<p>URL conversion exposes the same engine difference. Apryse's HTML2PDF module is not a full browser engine, so support for executing modern JavaScript frameworks and rendering CSS3 transforms, animations, or grid layouts may be limited compared to a Chromium-based renderer — verify against your version's documentation. HTTPS handling and external asset loading (web fonts, CDN-hosted images) typically need explicit configuration in this module. IronPDF, by contrast, runs the same engine as Chrome, so JavaScript execution and external asset fetches generally work the same way they do in a browser.</p>
 
 <h3>Apryse PDF — URL to PDF Conversion</h3>
 
@@ -164,7 +157,7 @@ namespace ApryseUrlExample
     {
         static void Main(string[] args)
         {
-            PDFNet.Initialize("YOUR_LICENSE_KEY");
+            PDFNet.Initialize("YOUR-LICENSE-KEY");
             PDFNet.SetResourcesPath("/path/to/resources");
 
             try
@@ -174,27 +167,22 @@ namespace ApryseUrlExample
                     HTML2PDF converter = new HTML2PDF();
                     converter.SetModulePath("/path/to/html2pdf/module");
 
-                    // Configure converter settings
-                    // Paper size - verify exact enum values in docs
+                    // Paper size: verify exact enum values and units in your version's docs
                     converter.SetPaperSize(HTML2PDF.PrinterMode.e_Printer, 8.5, 11);
 
                     // JavaScript delay for dynamic content (milliseconds)
                     converter.SetJavaScriptDelay(2000);
 
-                    // Margins - verify units (inches/points/mm) in docs
+                    // Margins: verify units (inches/points/mm) in your version's docs
                     converter.SetMargins(0.5, 0.5, 0.5, 0.5);
 
                     // Landscape orientation
                     converter.SetLandscape(false);
 
-                    // URL to convert
                     string url = "https://example.com/page";
 
-                    // Insert from URL
-                    // Note: HTTPS certificate validation may require additional config
                     converter.InsertFromURL(url);
 
-                    // Perform conversion
                     if (converter.Convert(doc))
                     {
                         doc.Save("url_output.pdf", SDFDoc.SaveOptions.e_linearized);
@@ -203,7 +191,6 @@ namespace ApryseUrlExample
                     else
                     {
                         Console.WriteLine("URL conversion failed");
-                        Console.WriteLine("Check: network connectivity, URL validity, JavaScript delay");
                     }
                 }
             }
@@ -235,6 +222,8 @@ namespace IronPdfUrlExample
     {
         static void Main(string[] args)
         {
+            IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
             var renderer = new ChromePdfRenderer();
 
             // Configure rendering options
@@ -253,7 +242,7 @@ namespace IronPdfUrlExample
 
 <h2>How do HTML files with external assets get handled?</h2>
 
-<p>Local HTML files with relative asset paths expose one of Apryse's most fragile areas. Base URL configuration is extremely platform-dependent — incorrect file:// protocol format (a missing slash, wrong separator) causes all asset loading to fail silently. Relative paths in HTML often fail to resolve correctly, and platform differences between Windows and Linux require conditional logic throughout your code.</p>
+<p>Local HTML files with relative asset paths are an area where the difference in defaults shows up clearly. With Apryse's HTML2PDF module, base URL handling is platform-dependent: the exact <code>file://</code> protocol formatting differs between Windows and Linux, and small mistakes (a missing slash, the wrong path separator) can cause assets to fail to load. Cross-platform code typically needs conditional logic to build the correct base URL.</p>
 
 <h3>Apryse PDF — HTML File with External Assets</h3>
 
@@ -269,7 +258,7 @@ namespace ApryseFileExample
     {
         static void Main(string[] args)
         {
-            PDFNet.Initialize("YOUR_LICENSE_KEY");
+            PDFNet.Initialize("YOUR-LICENSE-KEY");
             PDFNet.SetResourcesPath("/path/to/resources");
 
             try
@@ -279,14 +268,11 @@ namespace ApryseFileExample
                     HTML2PDF converter = new HTML2PDF();
                     converter.SetModulePath("/path/to/html2pdf/module");
 
-                    // HTML file path
                     string htmlFilePath = Path.GetFullPath("template.html");
                     string baseDirectory = Path.GetDirectoryName(htmlFilePath);
 
-                    // Base URL for relative asset paths
-                    // CRITICAL: Must use file:// protocol for local files
-                    // Windows: file:///C:/path/to/assets/
-                    // Linux: file:///home/user/assets/
+                    // Base URL must use file:// protocol for local files.
+                    // Windows: file:///C:/path/to/assets/   Linux: file:///home/user/assets/
                     string baseUrl;
                     if (Environment.OSVersion.Platform == PlatformID.Win32NT)
                     {
@@ -297,15 +283,10 @@ namespace ApryseFileExample
                         baseUrl = "file://" + baseDirectory + "/";
                     }
 
-                    // Read HTML content
                     string htmlContent = File.ReadAllText(htmlFilePath);
 
-                    // Insert HTML
-                    // Note: Base URL handling varies by version - verify method in docs
+                    // Verify the exact base-URL method for your version of HTML2PDF in the docs.
                     converter.InsertFromHtmlString(htmlContent);
-
-                    // Configure for local file access
-                    // Method names may vary - verify in your version docs
 
                     if (converter.Convert(doc))
                     {
@@ -314,7 +295,6 @@ namespace ApryseFileExample
                     else
                     {
                         Console.WriteLine("Conversion failed");
-                        Console.WriteLine("Common causes: incorrect file:// URL format, missing assets, path resolution");
                     }
                 }
             }
@@ -342,9 +322,11 @@ namespace IronPdfFileExample
     {
         static void Main(string[] args)
         {
+            IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
             var renderer = new ChromePdfRenderer();
 
-            // Render HTML file—base path automatically detected
+            // Render HTML file — base path automatically detected
             var pdf = renderer.RenderHtmlFileAsPdf("template.html");
             pdf.SaveAs("file_output.pdf");
         }
@@ -356,7 +338,7 @@ namespace IronPdfFileExample
 
 <h2>What about merging, signing, forms, and advanced rendering configuration?</h2>
 
-<p><strong>Answer:</strong> Apryse scatters configuration options across multiple objects (HTML2PDF, PDFDoc, SaveOptions). Paper size units are inconsistent — some methods use inches, others points or millimeters. There is no built-in responsive rendering, breaking mobile-first designs. CSS media type (@media print) support is limited and inconsistent. Form field creation from HTML forms is not supported in the HTML2PDF module — it requires separate PDF manipulation code.</p>
+<p>Apryse spreads configuration across multiple objects (<code>HTML2PDF</code>, <code>PDFDoc</code>, <code>SaveOptions</code>) — useful when you want fine-grained control over each layer, but it can mean checking unit conventions per method (some take inches, others points or millimeters; verify per call in your version's docs). Responsive layout, <code>@media print</code> handling, and creating PDF form fields directly from HTML <code>&lt;form&gt;</code> markup may have limited or version-specific support inside the HTML2PDF module — confirm what your release supports before relying on these features. IronPDF, by contrast, consolidates rendering options on a single <code>RenderingOptions</code> object and inherits CSS and form behavior from Chromium.</p>
 
 <h3>Apryse PDF — Advanced Rendering Configuration</h3>
 
@@ -371,7 +353,7 @@ namespace ApryseConfigExample
     {
         static void Main(string[] args)
         {
-            PDFNet.Initialize("YOUR_LICENSE_KEY");
+            PDFNet.Initialize("YOUR-LICENSE-KEY");
             PDFNet.SetResourcesPath("/path/to/resources");
 
             try
@@ -381,27 +363,19 @@ namespace ApryseConfigExample
                     HTML2PDF converter = new HTML2PDF();
                     converter.SetModulePath("/path/to/html2pdf/module");
 
-                    // Paper size - verify exact enum values and units in docs
-                    // May be inches, points, or millimeters depending on mode
+                    // Paper size: verify exact enum values and units in your version's docs
                     converter.SetPaperSize(HTML2PDF.PrinterMode.e_Printer, 8.5, 11);
 
-                    // Margins - verify units (appears to be inches but confirm in docs)
+                    // Margins: verify units in your version's docs
                     converter.SetMargins(0.5, 0.5, 0.5, 0.5);
 
-                    // Landscape orientation
                     converter.SetLandscape(true);
 
                     // JavaScript delay (milliseconds)
                     converter.SetJavaScriptDelay(2000);
 
-                    // DPI setting - verify if supported in HTML2PDF module
-                    // May require separate configuration in PDFDoc
-
-                    // Print backgrounds - verify property/method name in docs
-                    // CSS media type handling unclear - may require CSS changes
-
-                    // Form field creation - NOT supported in HTML2PDF
-                    // Only available through direct PDF manipulation API
+                    // For DPI, print-background, CSS @media handling, and HTML-form-to-PDF-form
+                    // creation, consult your release's HTML2PDF docs for the supported options.
 
                     string html = @"
                         &lt;html&gt;
@@ -441,6 +415,8 @@ namespace IronPdfConfigExample
     {
         static void Main(string[] args)
         {
+            IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
             var renderer = new ChromePdfRenderer();
 
             // All rendering options in one place
@@ -473,18 +449,18 @@ namespace IronPdfConfigExample
 
 <h2>How does installation compare?</h2>
 
-<p>Installation complexity is one of the starkest differences between these two libraries. Apryse requires multiple manual steps beyond the NuGet package, while IronPDF is a single package install.</p>
+<p>Installation footprint is one of the more visible differences between the two libraries. Apryse typically involves a few manual steps in addition to the NuGet package, while IronPDF is delivered as a single package.</p>
 
 <h3>Apryse PDF Installation</h3>
 
 <pre><code>dotnet add package PDFTron.NET.x64
 
-# Manual steps:
-# 1. Download platform-specific native libraries (~40MB)
-# 2. Copy PDFNetC.dll (Windows) or .so (Linux) to output
-# 3. Download HTML2PDF module separately
+# Typical additional steps (verify against current Apryse docs):
+# 1. Download platform-specific native libraries
+# 2. Copy PDFNetC.dll (Windows) or .so (Linux) to your output directory
+# 3. Acquire the HTML2PDF module
 # 4. Configure resource paths for your platform
-# 5. Set environment variables for module location
+# 5. Set environment variables or call SetResourcesPath / SetModulePath
 </code></pre>
 
 <pre><code>using pdftron;
@@ -501,99 +477,74 @@ using pdftron.PDF.Convert;
 using IronPdf.Rendering;
 </code></pre>
 
-<p>IronPDF's single NuGet package includes everything needed — no native DLLs to copy, no module paths to configure, no platform-specific setup.</p>
+<p>IronPDF's single NuGet package bundles the rendering engine, so there are no separate native DLLs to copy or module paths to configure for typical setups.</p>
 
 <h2>How do the features stack up side by side?</h2>
 
-<table>
-<tr><th>Category</th><th>Feature</th><th>Apryse PDF</th><th>IronPDF</th></tr>
-<tr><td><strong>Status</strong></td><td>Active Development</td><td>Yes (2025)</td><td>Yes</td></tr>
-<tr><td></td><td>Product Focus</td><td>Document SDK</td><td>HTML-to-PDF</td></tr>
-<tr><td></td><td>HTML Module</td><td>Add-on</td><td>Core</td></tr>
-<tr><td><strong>Support</strong></td><td>Community Forum</td><td>Active for SDK</td><td>Active</td></tr>
-<tr><td></td><td>Enterprise Support</td><td>Required for HTML</td><td>Included</td></tr>
-<tr><td></td><td>Documentation</td><td>Fragmented</td><td>Unified</td></tr>
-<tr><td></td><td>Code Examples</td><td>Limited HTML</td><td>Extensive</td></tr>
-<tr><td><strong>Content Creation</strong></td><td>HTML5 Support</td><td>Limited</td><td>Full Chromium</td></tr>
-<tr><td></td><td>CSS3 Support</td><td>Partial</td><td>Complete</td></tr>
-<tr><td></td><td>JavaScript</td><td>Basic</td><td>Full V8</td></tr>
-<tr><td></td><td>Modern Frameworks</td><td>Poor</td><td>Excellent</td></tr>
-<tr><td></td><td>Responsive Design</td><td>No</td><td>Native</td></tr>
-<tr><td></td><td>Web Fonts</td><td>Manual config</td><td>Automatic</td></tr>
-<tr><td></td><td>SVG Rendering</td><td>Limited</td><td>Full</td></tr>
-<tr><td><strong>PDF Operations</strong></td><td>HTML to PDF</td><td>Via module</td><td>Native</td></tr>
-<tr><td></td><td>URL to PDF</td><td>Via module</td><td>Native</td></tr>
-<tr><td></td><td>File to PDF</td><td>Via module</td><td>Native</td></tr>
-<tr><td></td><td>Multi-threading</td><td>Complex</td><td>Built-in</td></tr>
-<tr><td></td><td>Async Operations</td><td>-</td><td>Native async/await</td></tr>
-<tr><td></td><td>Batch Processing</td><td>Manual</td><td>Built-in parallel</td></tr>
-<tr><td><strong>Security</strong></td><td>HTTPS Support</td><td>Basic</td><td>Full</td></tr>
-<tr><td></td><td>Authentication</td><td>Manual</td><td>Built-in</td></tr>
-<tr><td></td><td>Custom Headers</td><td>Manual WebClient</td><td>Built-in</td></tr>
-<tr><td></td><td>Certificate Validation</td><td>Workarounds</td><td>Automatic</td></tr>
-<tr><td><strong>Known Issues</strong></td><td>Installation</td><td>High complexity</td><td>Low</td></tr>
-<tr><td></td><td>Docker Image Size</td><td>350MB+</td><td>~150MB</td></tr>
-<tr><td></td><td>Cross-platform</td><td>Platform-specific</td><td>Automatic</td></tr>
-<tr><td></td><td>Resource Errors</td><td>Frequent</td><td>Not applicable</td></tr>
-<tr><td></td><td>Module Loading</td><td>Common failures</td><td>Not applicable</td></tr>
-<tr><td></td><td>Thread Safety</td><td>Known issues</td><td>Verified safe</td></tr>
-<tr><td><strong>Development</strong></td><td>Learning Curve</td><td>Steep</td><td>Shallow</td></tr>
-<tr><td></td><td>API Consistency</td><td>Fragmented</td><td>Unified</td></tr>
-<tr><td></td><td>Error Messages</td><td>Cryptic</td><td>Clear</td></tr>
-<tr><td></td><td>Debugging</td><td>Difficult</td><td>Standard .NET</td></tr>
-</table>
+<ul>
+  <li><strong>Status and focus.</strong> Both libraries are actively maintained. Apryse is positioned as a broad document SDK with HTML2PDF available as an add-on module; IronPDF is positioned around HTML-to-PDF as the core feature.</li>
+  <li><strong>Support and docs.</strong> Apryse offers a community forum alongside paid enterprise support; HTML2PDF responsiveness can depend on the support tier. IronPDF includes support with the license. Apryse documentation currently spans both PDFTron-era pages and newer Apryse pages, so checking which one matches your version is worth doing; IronPDF documentation lives under a single domain.</li>
+  <li><strong>HTML5 and CSS3.</strong> IronPDF inherits Chromium's HTML5 and CSS3 support directly. Apryse's HTML2PDF module is not Chromium-based, so support for newer features (CSS Grid, Flexbox, complex CSS3) may vary by version — verify against your release's docs.</li>
+  <li><strong>JavaScript.</strong> IronPDF runs Chromium's V8. Apryse's HTML2PDF module has its own JavaScript handling, with documented configuration for execution delay; verify modern-framework support against the docs.</li>
+  <li><strong>Responsive design and web fonts.</strong> Chromium handles responsive layout, web fonts, and SVG out of the box. With Apryse's HTML2PDF, web font and SVG behavior can require explicit configuration depending on version.</li>
+  <li><strong>HTML / URL / file conversion.</strong> Apryse routes all three through the HTML2PDF add-on module. IronPDF exposes <code>RenderHtmlAsPdf</code>, <code>RenderUrlAsPdf</code>, and <code>RenderHtmlFileAsPdf</code> directly on the renderer.</li>
+  <li><strong>Concurrency.</strong> IronPDF exposes <code>RenderHtmlAsPdfAsync</code> and similar async APIs for parallel work. Apryse's HTML2PDF threading guidance varies by version; check the docs for whether converter pooling or external synchronization is recommended for your release.</li>
+  <li><strong>HTTPS, authentication, and headers.</strong> IronPDF's URL flow accepts custom headers, credentials, and certificate handling through the renderer's options. With Apryse's HTML2PDF, these typically require manual setup or fetching content separately and passing the HTML in.</li>
+  <li><strong>Installation footprint.</strong> Apryse ships platform-specific native binaries that need to be deployed alongside the application; Docker images using Apryse tend to be larger as a result. IronPDF distributes a single NuGet package and produces smaller container images in typical setups.</li>
+  <li><strong>Cross-platform behavior.</strong> Apryse's resource and module paths are platform-specific, which usually means conditional logic for Windows vs Linux. IronPDF's package is consistent across Windows, Linux, and containers without per-platform branching.</li>
+  <li><strong>Developer ergonomics.</strong> Apryse's API reflects its C++ heritage and is split across <code>HTML2PDF</code>, <code>PDFDoc</code>, and <code>SDFDoc</code> — powerful for low-level work, more surface area to learn. IronPDF's API surface is centered on <code>ChromePdfRenderer</code> and <code>PdfDocument</code> and reads as idiomatic C#.</li>
+</ul>
 
 <h2>What does the API mapping look like between Apryse and IronPDF?</h2>
 
-<table>
-<tr><th>Apryse PDF Operation</th><th>IronPDF Equivalent</th></tr>
-<tr><td><code>PDFNet.Initialize(key)</code></td><td><code>License.LicenseKey = key</code> (optional)</td></tr>
-<tr><td><code>PDFNet.SetResourcesPath(path)</code></td><td>Not required</td></tr>
-<tr><td><code>HTML2PDF.SetModulePath(path)</code></td><td>Not required</td></tr>
-<tr><td><code>new HTML2PDF()</code></td><td><code>new ChromePdfRenderer()</code></td></tr>
-<tr><td><code>converter.InsertFromHtmlString(html)</code></td><td><code>renderer.RenderHtmlAsPdf(html)</code></td></tr>
-<tr><td><code>converter.InsertFromURL(url)</code></td><td><code>renderer.RenderUrlAsPdf(url)</code></td></tr>
-<tr><td><code>converter.Convert(doc)</code></td><td>Implicit in Render methods</td></tr>
-<tr><td><code>doc.Save(path, options)</code></td><td><code>pdf.SaveAs(path)</code></td></tr>
-<tr><td><code>converter.SetPaperSize()</code></td><td><code>renderer.RenderingOptions.PaperSize</code></td></tr>
-<tr><td><code>converter.SetMargins()</code></td><td><code>renderer.RenderingOptions.Margin*</code></td></tr>
-<tr><td><code>converter.SetLandscape()</code></td><td><code>renderer.RenderingOptions.PaperOrientation</code></td></tr>
-<tr><td><code>converter.SetJavaScriptDelay()</code></td><td><code>renderer.RenderingOptions.WaitFor.RenderDelay()</code></td></tr>
-<tr><td><code>PDFNet.Terminate()</code></td><td>Not required (automatic)</td></tr>
-</table>
+<ul>
+  <li><code>PDFNet.Initialize(key)</code> — <code>IronPdf.License.LicenseKey = key</code> (optional during development).</li>
+  <li><code>PDFNet.SetResourcesPath(path)</code> — not required in IronPDF; resources are bundled.</li>
+  <li><code>HTML2PDF.SetModulePath(path)</code> — not required in IronPDF; the rendering engine is bundled.</li>
+  <li><code>new HTML2PDF()</code> — <code>new ChromePdfRenderer()</code>.</li>
+  <li><code>converter.InsertFromHtmlString(html)</code> — <code>renderer.RenderHtmlAsPdf(html)</code>.</li>
+  <li><code>converter.InsertFromURL(url)</code> — <code>renderer.RenderUrlAsPdf(url)</code>.</li>
+  <li><code>converter.Convert(doc)</code> — implicit in IronPDF's <code>Render*AsPdf</code> methods, which return a <code>PdfDocument</code>.</li>
+  <li><code>doc.Save(path, options)</code> — <code>pdf.SaveAs(path)</code>.</li>
+  <li><code>converter.SetPaperSize(...)</code> — <code>renderer.RenderingOptions.PaperSize</code>.</li>
+  <li><code>converter.SetMargins(...)</code> — <code>renderer.RenderingOptions.MarginTop</code> / <code>MarginBottom</code> / <code>MarginLeft</code> / <code>MarginRight</code>.</li>
+  <li><code>converter.SetLandscape(...)</code> — <code>renderer.RenderingOptions.PaperOrientation</code>.</li>
+  <li><code>converter.SetJavaScriptDelay(...)</code> — <code>renderer.RenderingOptions.WaitFor.RenderDelay(...)</code>.</li>
+  <li><code>PDFNet.Terminate()</code> — not required in IronPDF; cleanup is automatic via <code>IDisposable</code>.</li>
+</ul>
 
 <h2>Frequently Asked Questions</h2>
 
 <h3>Can Apryse handle modern CSS Grid and Flexbox layouts?</h3>
 
-<p>Apryse's HTML2PDF module uses older rendering technology that struggles with modern web standards. CSS Grid, Flexbox, and CSS3 animations often fail to render correctly. IronPDF uses a Chromium engine, so if it renders in Chrome, it renders in IronPDF.</p>
+<p>Apryse's HTML2PDF module is not Chromium-based, so support for newer CSS features like Grid, Flexbox, and CSS3 animations may be limited or version-dependent — verify against the documentation for your release. IronPDF uses Chromium, so if a layout renders in Chrome it should render the same way in IronPDF.</p>
 
 <h3>Does Apryse support multi-threaded HTML-to-PDF conversion?</h3>
 
-<p>Multi-threaded HTML rendering in Apryse exhibits documented thread safety problems requiring custom converter pooling and explicit synchronization to avoid crashes. IronPDF provides built-in thread safety and native async/await support.</p>
+<p>Threading guidance for Apryse's HTML2PDF varies by version; in some releases, parallel conversion benefits from explicit synchronization or converter pooling — check the threading section of your release's docs. IronPDF exposes async APIs (such as <code>RenderHtmlAsPdfAsync</code>) and is designed for concurrent use.</p>
 
-<h3>How much larger are Docker images with Apryse compared to IronPDF?</h3>
+<h3>How do Docker image sizes compare for Apryse and IronPDF?</h3>
 
-<p>Apryse Docker deployments demand platform-specific native binaries, resulting in images of 350MB or more. IronPDF containers typically come in at around 150MB because the Chromium engine is bundled within the single NuGet package.</p>
+<p>Apryse images include platform-specific native binaries, which adds to the final image size; the exact number depends on which native components and modules are bundled. IronPDF distributes a single NuGet package that includes its rendering engine. Image sizes for both depend heavily on the base image and any other dependencies in your Dockerfile, so it's worth measuring against your own configuration.</p>
 
 <h3>Is Apryse's HTML2PDF a core feature or an add-on?</h3>
 
-<p>HTML2PDF is an add-on module to Apryse's document manipulation SDK, not core functionality. It requires separate module path configuration and may need additional licensing. IronPDF was built from the ground up with HTML-to-PDF as its core purpose.</p>
+<p>HTML2PDF is delivered as a module on top of Apryse's document SDK rather than as part of the core. It typically involves its own module path configuration and may have its own licensing terms in some tiers — confirm against your contract. IronPDF treats HTML-to-PDF as the central use case of the library.</p>
 
-<h3>What are the most common Apryse deployment issues?</h3>
+<h3>What are the common Apryse deployment considerations to plan for?</h3>
 
-<p>The most commonly reported issues include resource path configuration failures across Windows and Linux, module initialization order problems causing silent failures, native library deployment in Docker requiring manual copying of platform-specific DLLs, and memory leaks in long-running services from improper HTML2PDF disposal.</p>
+<p>Areas that frequently show up in deployment planning include resource and module path configuration on Windows vs Linux, the documented initialization order for <code>PDFNet.Initialize()</code> / <code>SetResourcesPath()</code> / HTML2PDF setup, deployment of the platform-specific native libraries in Docker, and disposal patterns for long-running services. Apryse's documentation covers each of these, so working through them up front saves time later.</p>
 
 <h3>Can I migrate from Apryse to IronPDF without rewriting my templates?</h3>
 
-<p>Yes. Because IronPDF renders standard HTML, CSS, and JavaScript through Chromium, your existing HTML templates will work without modification. The API mapping table above shows the direct equivalents — the main change is replacing Apryse's multi-step initialization and conversion pattern with IronPDF's single-call <code>RenderHtmlAsPdf()</code> method.</p>
+<p>In most cases, yes. Because IronPDF renders standard HTML, CSS, and JavaScript through Chromium, existing HTML templates typically work without modification. The API mapping above shows the direct equivalents — the main change is replacing Apryse's multi-step initialization and conversion pattern with IronPDF's single-call <code>RenderHtmlAsPdf()</code>.</p>
 
 <h2>Which should you choose?</h2>
 
-<p>Apryse PDF excels when projects need its core strengths: low-level PDF manipulation, document viewing UIs, and comprehensive editing workflows. For teams where PDF creation supplements document management, the complexity may be justified.</p>
+<p>Apryse is a strong fit for projects that lean on its core capabilities: low-level PDF manipulation, embedded viewer UIs, and comprehensive editing workflows. When PDF creation is one piece of a larger document-management story, the broader SDK can be the right tool for the job.</p>
 
-<p>However, when HTML2PDF becomes the primary workflow — generating invoices, reports, or archiving web content — the architectural mismatch surfaces quickly. Migration from Apryse to IronPDF becomes necessary when deployment complexity (native libraries, module paths, platform-specific configuration) outweighs the benefits of Apryse's non-HTML features.</p>
+<p>When HTML-to-PDF is the primary workflow — invoices, reports, web archives, customer-facing documents — the trade-offs shift. The shape of the work becomes "render HTML well in many environments," which is what IronPDF's architecture is designed for.</p>
 
-<p>IronPDF's Chromium-based approach eliminates resource path configuration, module management, and platform-specific native library deployment. The <a href="https://ironpdf.com/object-reference/api/IronPdf.ChromePdfRenderer.html">ChromePdfRenderer</a> class provides consistent results across Windows, Linux, and containers without conditional environment logic. If your codebase shows more HTML2PDF usage than direct PDFDoc manipulation, the architectural mismatch is costing you development time.</p>
+<p>IronPDF's Chromium-based approach removes the need for resource path configuration, module management, and platform-specific native library deployment in typical setups. The <a href="https://ironpdf.com/object-reference/api/IronPdf.ChromePdfRenderer.html">ChromePdfRenderer</a> class provides consistent behavior across Windows, Linux, and containers without per-environment conditional logic. If your codebase touches HTML2PDF much more than it touches direct <code>PDFDoc</code> manipulation, IronPDF is worth a closer look.</p>
 
 <p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

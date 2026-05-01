@@ -1,4 +1,4 @@
-// NuGet: Install-Package Gnostice.PDFOne.DLL
+// NuGet: Install-Package PDFOne.NET (deprecated; vendor recommends Gnostice.DocumentStudio.WinForms)
 using Gnostice.PDFOne;
 using Gnostice.PDFOne.Graphics;
 using System;

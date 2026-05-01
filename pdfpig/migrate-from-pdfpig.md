@@ -2,19 +2,19 @@
 
 ## Why Migrate from PdfPig?
 
-PdfPig is an excellent open-source library for reading and extracting content from PDFs. However, its capabilities are fundamentally limited to parsing existing documents. When your application needs to grow beyond extraction—generating PDFs, converting HTML, manipulating documents, or adding security—PdfPig cannot help.
+PdfPig (NuGet `PdfPig`, namespace `UglyToad.PdfPig`, current stable **v0.1.14**, Apache 2.0) is an excellent open-source library for reading and extracting content from PDFs. It also exposes a small writer surface — `PdfDocumentBuilder` for low-level new-document authoring and `PdfMerger` (in `UglyToad.PdfPig.Writer`) for concatenating existing PDFs. However, its capabilities are fundamentally focused on parsing existing documents. When your application needs to grow beyond extraction and basic merging — generating PDFs from HTML, watermarking, encryption authoring, signing, or filling forms — PdfPig cannot help. PdfPig is also pre-1.0, and its README explicitly warns that "while the version is below 1.0.0 minor versions will change the public API without warning (SemVer will not be followed until 1.0.0 is reached)."
 
-### The Reading-Only Limitation
+### The Reading-Focused Limitation
 
-PdfPig focuses exclusively on PDF reading:
+PdfPig is reading-first; its writer surface is intentionally narrow:
 
-1. **No PDF Generation**: Cannot create PDFs from HTML, URLs, or programmatically
-2. **No HTML-to-PDF**: Cannot convert web content to PDF documents
-3. **No Document Manipulation**: Cannot merge, split, or modify PDFs
-4. **No Security Features**: Cannot add passwords, encryption, or digital signatures
-5. **No Watermarks/Stamps**: Cannot add visual overlays to existing documents
-6. **No Form Filling**: Cannot programmatically fill PDF forms
-7. **Basic Text Layout**: Limited document creation with manual coordinate positioning only
+1. **No HTML-to-PDF / URL-to-PDF**: Cannot render web content (HTML/CSS/JS) or live URLs to PDF
+2. **Coordinate-based creation only**: New documents require manual `PdfPoint` placement via `PdfDocumentBuilder` — no high-level layout
+3. **Limited Document Manipulation**: `PdfMerger` covers concatenation, but no high-level split/rotate/edit APIs
+4. **No Security Authoring**: Can *read* encrypted PDFs (with password) but cannot *add* passwords, encryption, or digital signatures
+5. **No Watermarks/Stamps**: No high-level API for visual overlays on existing documents
+6. **No Form Filling**: Per the project wiki, "forms are readonly and values cannot be changed or added using PdfPig"
+7. **Pre-1.0 API churn**: Minor versions may break the public API without notice
 
 ### Why Choose [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/)?
 
@@ -36,19 +36,22 @@ IronPDF provides complete PDF lifecycle management:
 | Aspect | PdfPig | IronPDF |
 |--------|--------|---------|
 | Primary Focus | Reading/Extraction | Full PDF lifecycle |
-| PDF Creation | Very limited | Comprehensive html to pdf c# |
+| PDF Creation | Limited (coordinate-based via `PdfDocumentBuilder`) | Comprehensive html to pdf c# |
 | HTML to PDF | Not supported | Full Chromium engine |
 | URL to PDF | Not supported | Full support |
-| Text Extraction | Excellent | Excellent |
-| Image Extraction | Yes | Yes |
+| Text Extraction | Excellent (with bounding boxes) | Excellent (text only) |
+| Image Extraction | Yes (`page.GetImages()`) | Yes |
 | Metadata Access | Yes | Yes |
-| PDF Manipulation | Not supported | Merge, split, rotate |
+| PDF Merging | Yes (`PdfMerger`) | Yes (`PdfDocument.Merge`) |
+| PDF Split / Rotate / Edit | Not supported (high-level) | Merge, split, rotate, edit |
 | Watermarks | Not supported | Full support |
-| Security/Encryption | Not supported | Full support |
-| Form Filling | Not supported | Full support |
+| Encryption authoring | Not supported (read-only with password) | Full support |
+| Form Filling | Not supported (read-only forms) | Full support |
 | Digital Signatures | Not supported | Full support |
+| Page Indexing | 1-based | 0-based |
+| Versioning | Pre-1.0 (v0.1.14) — SemVer not followed | Stable, semver |
 | License | Apache 2.0 (free) | Commercial |
-| Support | Community | Professional |
+| Support | Community (Eliot Jones et al.) | Professional |
 
 For a side-by-side feature analysis, see the [detailed comparison](https://ironsoftware.com/suite/blog/comparison/compare-pdfpig-vs-ironpdf/).
 
@@ -141,17 +144,17 @@ using IronPdf.Rendering;
 
 ### Features Not in PdfPig (NEW in IronPDF)
 
-| Feature | IronPDF Method |
-|---------|----------------|
-| HTML to PDF | `renderer.RenderHtmlAsPdf(html)` |
-| URL to PDF | `renderer.RenderUrlAsPdf(url)` |
-| Merge PDFs | `PdfDocument.Merge(pdfs)` |
-| Split PDF | `pdf.CopyPages(start, end)` |
-| Add Watermark | `pdf.ApplyWatermark(html)` |
-| Password Protection | `pdf.SecuritySettings.UserPassword` |
-| Digital Signature | `pdf.Sign(certificate)` |
-| Fill Forms | `pdf.Form.GetFieldByName(name).Value` |
-| Add Headers/Footers | `renderer.RenderingOptions.HtmlHeader` |
+| Feature | IronPDF Method | PdfPig equivalent |
+|---------|----------------|-------------------|
+| HTML to PDF | `renderer.RenderHtmlAsPdf(html)` | Not supported |
+| URL to PDF | `renderer.RenderUrlAsPdf(url)` | Not supported |
+| Merge PDFs | `PdfDocument.Merge(pdfs)` | `PdfMerger.Merge(...)` (supported) |
+| Split PDF | `pdf.CopyPages(start, end)` | Manual via `PdfDocumentBuilder` |
+| Add Watermark | `pdf.ApplyWatermark(html)` | Not supported |
+| Password Protection | `pdf.SecuritySettings.UserPassword` | Not supported (read-only with password) |
+| Digital Signature | `pdf.Sign(certificate)` | Not supported |
+| Fill Forms | `pdf.Form.GetFieldByName(name).Value` | Not supported (forms read-only) |
+| Add Headers/Footers | `renderer.RenderingOptions.HtmlHeader` | Not supported |
 
 ---
 
@@ -532,13 +535,20 @@ class Program
 }
 ```
 
-### Example 8: Merge PDFs (Not Possible in PdfPig)
+### Example 8: Merge PDFs
 
 **Before (PdfPig):**
 ```csharp
-// NOT SUPPORTED
-// PdfPig cannot merge PDFs
-// Would need iTextSharp, PdfSharp, or similar
+// PdfPig DOES support basic merging via PdfMerger
+// (in UglyToad.PdfPig.Writer). The API takes file paths or byte
+// arrays and returns the merged PDF as a byte array.
+using UglyToad.PdfPig.Writer;
+using System.IO;
+
+byte[] mergedBytes = PdfMerger.Merge("chapter1.pdf", "chapter2.pdf", "chapter3.pdf");
+File.WriteAllBytes("complete-book.pdf", mergedBytes);
+// Note: PdfPig has no high-level split/rotate/insert; for those
+// operations PdfDocumentBuilder requires manual page-by-page rebuild.
 ```
 
 **After (IronPDF):**

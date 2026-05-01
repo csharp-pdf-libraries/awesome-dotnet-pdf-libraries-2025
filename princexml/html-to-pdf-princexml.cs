@@ -1,5 +1,6 @@
 // NuGet: Install-Package PrinceXMLWrapper
-using PrinceXMLWrapper;
+// Wrapper invokes the prince.exe binary; install Prince separately from princexml.com
+using PrinceXML.Wrapper;
 using System;
 
 class Program

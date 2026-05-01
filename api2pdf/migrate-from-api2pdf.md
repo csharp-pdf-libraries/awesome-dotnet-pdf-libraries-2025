@@ -30,16 +30,16 @@ Api2pdf operates as a cloud-based service where **your sensitive HTML and docume
 
 ### Cost Comparison
 
-Api2pdf charges **per conversion** indefinitely, while IronPDF offers a **one-time perpetual license**:
+Api2pdf charges a **$1/month base + metered usage** (bandwidth and compute seconds) indefinitely, while IronPDF offers a **one-time perpetual license**. Verify current numbers at [api2pdf.com/pricing](https://www.api2pdf.com/pricing):
 
-| Volume | Api2pdf (Annual) | IronPDF (One-Time) |
-|--------|-----------------|-------------------|
-| 10,000 PDFs/month | ~$600/year | $749 (Lite) |
-| 50,000 PDFs/month | ~$3,000/year | $749 (Lite) |
-| 100,000 PDFs/month | ~$6,000/year | $1,499 (Plus) |
-| 500,000 PDFs/month | ~$30,000/year | $2,999 (Professional) |
+| Component | Api2pdf | IronPDF |
+|-----------|---------|---------|
+| Base | $1/month | One-time license |
+| Bandwidth | $0.001 per MB | n/a (local) |
+| Compute | $0.00019551 per second | n/a (local) |
+| Volume scaling | Linear with usage and file size | Flat (Lite ~$749, Plus ~$1,499, Professional ~$2,999) |
 
-*Api2pdf pricing: ~$0.005/conversion. IronPDF pays for itself in months.*
+Heavier workloads (large files, JS-heavy pages, long render times) shift the api2pdf bill upward; IronPDF cost is fixed once licensed.
 
 ### Technical Advantages of IronPDF
 
@@ -71,11 +71,11 @@ Before migrating, identify all Api2pdf usage in your codebase:
 # Find all Api2pdf using statements
 grep -r "using Api2Pdf" --include="*.cs" .
 
-# Find Api2PdfClient instantiations
-grep -r "Api2PdfClient\|new Api2Pdf" --include="*.cs" .
+# Find Api2pdf client instantiations
+grep -r "new Api2Pdf(" --include="*.cs" .
 
-# Find all async API calls
-grep -r "FromHtmlAsync\|FromUrlAsync\|MergePdfs\|LibreOffice" --include="*.cs" .
+# Find all service group calls
+grep -r "client\.Chrome\|client\.Wkhtml\|client\.LibreOffice\|client\.PdfSharp\|HtmlToPdf\|UrlToPdf\|MergePdfs" --include="*.cs" .
 ```
 
 ### Breaking Changes to Expect
@@ -83,10 +83,10 @@ grep -r "FromHtmlAsync\|FromUrlAsync\|MergePdfs\|LibreOffice" --include="*.cs" .
 | Api2pdf Pattern | Change Required |
 |-----------------|-----------------|
 | API key authentication | Remove entirely—IronPDF runs locally |
-| Async HTTP calls | Synchronous by default (async optional) |
-| URL-based PDF retrieval | Direct in-memory PDF objects |
-| Per-call pricing/metering | No metering needed |
-| Multiple rendering engines | Single Chromium engine (better quality) |
+| HTTP-based async (or sync) calls | Synchronous by default (async optional) |
+| `result.FileUrl` download step | Direct in-memory PDF objects |
+| Metered usage (compute seconds + bandwidth) | No metering needed |
+| Multiple rendering engines (Chrome, Wkhtml, LibreOffice) | Single Chromium engine |
 | Cloud scaling | Your infrastructure scales instead |
 
 ---
@@ -114,7 +114,6 @@ Install-Package IronPdf
 ```csharp
 // ❌ Remove these
 using Api2Pdf;
-using Api2Pdf.DotNet;
 
 // ✅ Add these
 using IronPdf;
@@ -125,10 +124,13 @@ using IronPdf.Rendering;
 
 **Before (Api2pdf):**
 ```csharp
-var a2pClient = new Api2PdfClient("YOUR_API_KEY");
-var response = await a2pClient.HeadlessChrome.FromHtmlAsync("<h1>Hello</h1>");
-var pdfUrl = response.Pdf;
-// Then download PDF from URL...
+var client = new Api2Pdf("YOUR_API_KEY");
+var result = await client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest
+{
+    Html = "<h1>Hello</h1>"
+});
+var pdfUrl = result.FileUrl;
+// Then download PDF from URL (or call result.GetFileBytes() / result.SaveFile(...))
 ```
 
 **After (IronPDF):**
@@ -158,7 +160,6 @@ IronPdf.License.LicenseKey = "YOUR-IRONPDF-LICENSE-KEY";
 | Api2pdf Namespace | IronPDF Namespace | Purpose |
 |-------------------|-------------------|---------|
 | `Api2Pdf` | `IronPdf` | Core PDF functionality |
-| `Api2Pdf.DotNet` | `IronPdf` | .NET-specific classes |
 | N/A | `IronPdf.Rendering` | Rendering options |
 | N/A | `IronPdf.Editing` | PDF editing features |
 | N/A | `IronPdf.Forms` | PDF form handling |
@@ -168,10 +169,10 @@ IronPdf.License.LicenseKey = "YOUR-IRONPDF-LICENSE-KEY";
 
 | Api2pdf Class | IronPDF Equivalent | Notes |
 |---------------|-------------------|-------|
-| `Api2PdfClient` | `ChromePdfRenderer` | Main rendering class |
-| `Api2PdfResult` | `PdfDocument` | Represents the PDF |
-| `HeadlessChromeOptions` | `ChromePdfRenderOptions` | Rendering configuration |
-| `WkhtmlHtmlToPdfRequest` | `ChromePdfRenderOptions` | IronPDF uses Chromium for all rendering |
+| `Api2Pdf` (client) | `ChromePdfRenderer` | Main rendering class |
+| `Api2PdfResult` | `PdfDocument` | Represents the PDF (api2pdf returns a result wrapper around `FileUrl`) |
+| `ChromeHtmlToPdfOptions` | `ChromePdfRenderOptions` | Chrome rendering configuration |
+| `WkhtmlHtmlToPdfRequest` | `ChromePdfRenderer` | IronPDF uses Chromium for all rendering |
 | N/A | `HtmlToPdf` | Legacy renderer (use ChromePdfRenderer) |
 
 ### Complete Method Mapping
@@ -180,24 +181,24 @@ IronPdf.License.LicenseKey = "YOUR-IRONPDF-LICENSE-KEY";
 
 | Api2pdf Method | IronPDF Method | Notes |
 |----------------|----------------|-------|
-| `HeadlessChrome.FromHtmlAsync(html)` | `renderer.RenderHtmlAsPdf(html)` | Synchronous by default |
-| `HeadlessChrome.FromHtmlAsync(html, options)` | `renderer.RenderHtmlAsPdf(html)` | Set options on renderer first |
-| `WkHtml.FromHtmlAsync(html)` | `renderer.RenderHtmlAsPdf(html)` | Use Chromium instead of wkhtmltopdf |
-| `WkHtml.FromHtmlAsync(html, options)` | `renderer.RenderHtmlAsPdf(html)` | Configure via RenderingOptions |
+| `client.Chrome.HtmlToPdf(new ChromeHtmlToPdfRequest { Html = html })` | `renderer.RenderHtmlAsPdf(html)` | Synchronous |
+| `client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest { Html, Options })` | `renderer.RenderHtmlAsPdfAsync(html)` | Set options on renderer first |
+| `client.Wkhtml.HtmlToPdf(new WkhtmlHtmlToPdfRequest { Html = html })` | `renderer.RenderHtmlAsPdf(html)` | Use Chromium instead of wkhtmltopdf |
+| `client.Wkhtml.HtmlToPdfAsync(...)` | `renderer.RenderHtmlAsPdfAsync(html)` | Configure via RenderingOptions |
 
 #### URL to PDF Conversion
 
 | Api2pdf Method | IronPDF Method | Notes |
 |----------------|----------------|-------|
-| `HeadlessChrome.FromUrlAsync(url)` | `renderer.RenderUrlAsPdf(url)` | Full page capture |
-| `HeadlessChrome.FromUrlAsync(url, options)` | `renderer.RenderUrlAsPdf(url)` | Configure via RenderingOptions |
-| `WkHtml.FromUrlAsync(url)` | `renderer.RenderUrlAsPdf(url)` | Use Chromium for better results |
+| `client.Chrome.UrlToPdf("https://...")` | `renderer.RenderUrlAsPdf(url)` | Full page capture |
+| `client.Chrome.UrlToPdfAsync(new ChromeUrlToPdfRequest { Url, Options })` | `renderer.RenderUrlAsPdfAsync(url)` | Configure via RenderingOptions |
+| `client.Wkhtml.UrlToPdf("https://...")` | `renderer.RenderUrlAsPdf(url)` | Use Chromium for better results |
 
 #### Document Conversion (LibreOffice)
 
 | Api2pdf Method | IronPDF Method | Notes |
 |----------------|----------------|-------|
-| `LibreOffice.ConvertAsync(url)` | `PdfDocument.FromFile(path)` | IronPDF opens existing PDFs |
+| `client.LibreOffice.AnyToPdf(new LibreFileConversionRequest { Url })` | `PdfDocument.FromFile(path)` | IronPDF opens existing PDFs |
 | N/A | `renderer.RenderHtmlAsPdf(html)` | Convert HTML tables to PDF |
 
 *Note: For Office document conversion, consider using IronWord, IronXL, or keeping a subset of Api2pdf calls.*
@@ -206,15 +207,16 @@ IronPdf.License.LicenseKey = "YOUR-IRONPDF-LICENSE-KEY";
 
 | Api2pdf Method | IronPDF Method | Notes |
 |----------------|----------------|-------|
-| `PdfSharp.MergePdfsAsync(urls)` | `PdfDocument.Merge(pdfs)` | Merge PdfDocument objects |
-| `PdfSharp.MergePdfsAsync(request)` | `PdfDocument.Merge(pdf1, pdf2, ...)` | Accepts multiple PDFs |
+| `client.PdfSharp.MergePdfs(new PdfMergeRequest { Urls })` | `PdfDocument.Merge(pdfs)` | Merge PdfDocument objects |
+| `client.PdfSharp.MergePdfsAsync(...)` | `PdfDocument.Merge(pdf1, pdf2, ...)` | Accepts multiple PDFs |
 
 #### PDF Output
 
 | Api2pdf Property | IronPDF Method | Notes |
 |------------------|----------------|-------|
-| `response.Pdf` (URL) | `pdf.SaveAs(path)` | Save to file |
-| `response.Pdf` (download) | `pdf.BinaryData` | Get as byte array |
+| `result.FileUrl` (URL) | `pdf.SaveAs(path)` | Save to file |
+| `result.GetFileBytes()` | `pdf.BinaryData` | Get as byte array |
+| `result.SaveFile(path)` | `pdf.SaveAs(path)` | Direct file save |
 | N/A | `pdf.Stream` | Get as MemoryStream |
 | N/A | `pdf.SaveAsAsync(path)` | Async file save |
 
@@ -222,8 +224,8 @@ IronPdf.License.LicenseKey = "YOUR-IRONPDF-LICENSE-KEY";
 
 | Api2pdf Method | IronPDF Property | Notes |
 |----------------|------------------|-------|
-| `PdfSharp.SetPasswordAsync(url, password)` | `pdf.SecuritySettings.OwnerPassword` | Owner password |
-| N/A | `pdf.SecuritySettings.UserPassword` | User password |
+| `client.PdfSharp.SetPassword(new PdfPasswordRequest { Url, OwnerPassword, UserPassword })` | `pdf.SecuritySettings.OwnerPassword` | Owner password |
+| Same request | `pdf.SecuritySettings.UserPassword` | User password |
 | N/A | `pdf.SecuritySettings.AllowUserPrinting` | Print permission |
 | N/A | `pdf.SecuritySettings.AllowUserCopyPasteContent` | Copy permission |
 | N/A | `pdf.SecuritySettings.AllowUserEdits` | Edit permission |
@@ -232,19 +234,20 @@ IronPdf.License.LicenseKey = "YOUR-IRONPDF-LICENSE-KEY";
 
 | Api2pdf Method | IronPDF Method | Notes |
 |----------------|----------------|-------|
-| `HeadlessChrome.HtmlToImageAsync(html)` | `pdf.RasterizeToImageFiles(path)` | Render pages as images |
-| `HeadlessChrome.UrlToImageAsync(url)` | `pdf.ToBitmap()` | Get System.Drawing.Bitmap |
+| `client.Chrome.HtmlToImage(new ChromeHtmlToImageRequest { Html })` | `pdf.RasterizeToImageFiles(path)` | Render pages as images |
+| `client.Chrome.UrlToImage("https://...")` | `pdf.ToBitmap()` | Get System.Drawing.Bitmap |
 
-#### Rendering Options
+#### Rendering Options (`ChromeHtmlToPdfOptions`)
 
 | Api2pdf Option | IronPDF Option | Notes |
 |----------------|----------------|-------|
 | `Landscape = true` | `RenderingOptions.PaperOrientation = Landscape` | Page orientation |
-| `PageSize = "A4"` | `RenderingOptions.PaperSize = PdfPaperSize.A4` | Paper size |
+| `PreferCSSPageSize = true` / `Format` | `RenderingOptions.PaperSize = PdfPaperSize.A4` | Paper size |
 | `PrintBackground = true` | `RenderingOptions.PrintHtmlBackgrounds = true` | Background colors |
-| `MarginTop`, etc. | `RenderingOptions.MarginTop`, etc. | Margins in mm |
+| `MarginTop`, etc. (string with units) | `RenderingOptions.MarginTop`, etc. | Margins in mm |
 | `Delay = 5000` | `RenderingOptions.WaitFor.RenderDelay(5000)` | Wait before render |
 | `Scale = 0.8` | `RenderingOptions.Zoom = 80` | Zoom percentage |
+| `DisplayHeaderFooter` + `HeaderTemplate` / `FooterTemplate` | `RenderingOptions.HtmlHeader` / `HtmlFooter` | Headers/footers |
 | N/A | `RenderingOptions.CssMediaType = Print` | CSS media type |
 | N/A | `RenderingOptions.EnableJavaScript = true` | JS execution |
 
@@ -256,28 +259,27 @@ IronPdf.License.LicenseKey = "YOUR-IRONPDF-LICENSE-KEY";
 
 **Before (Api2pdf):**
 ```csharp
-using Api2Pdf.DotNet;
+using Api2Pdf;
 
 class Program
 {
     static async Task Main()
     {
-        var a2pClient = new Api2PdfClient("YOUR_API_KEY");
-        var response = await a2pClient.HeadlessChrome.FromHtmlAsync(
-            "<h1>Hello World</h1><p>This is my PDF</p>"
-        );
-
-        if (response.Success)
+        var client = new Api2Pdf("YOUR_API_KEY");
+        var result = await client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest
         {
-            Console.WriteLine($"PDF available at: {response.Pdf}");
-            // Download PDF from URL
-            using var httpClient = new HttpClient();
-            var pdfBytes = await httpClient.GetByteArrayAsync(response.Pdf);
-            File.WriteAllBytes("output.pdf", pdfBytes);
+            Html = "<h1>Hello World</h1><p>This is my PDF</p>"
+        });
+
+        if (result.Success)
+        {
+            Console.WriteLine($"PDF available at: {result.FileUrl}");
+            // result.GetFileBytes() will download from FileUrl when needed
+            File.WriteAllBytes("output.pdf", result.GetFileBytes());
         }
         else
         {
-            Console.WriteLine($"Error: {response.Error}");
+            Console.WriteLine($"Error: {result.Error}");
         }
     }
 }
@@ -309,24 +311,24 @@ class Program
 
 **Before (Api2pdf):**
 ```csharp
-using Api2Pdf.DotNet;
+using Api2Pdf;
 
-var a2pClient = new Api2PdfClient("YOUR_API_KEY");
-var options = new HeadlessChromeOptions
+var client = new Api2Pdf("YOUR_API_KEY");
+var request = new ChromeUrlToPdfRequest
 {
-    Landscape = true,
-    PrintBackground = true,
-    MarginTop = 10,
-    MarginBottom = 10,
-    Delay = 3000 // Wait 3 seconds for JS
+    Url = "https://example.com/report",
+    Options = new ChromeUrlToPdfOptions
+    {
+        Landscape = true,
+        PrintBackground = true,
+        MarginTop = "10mm",
+        MarginBottom = "10mm",
+        Delay = 3000 // Wait 3 seconds for JS
+    }
 };
 
-var response = await a2pClient.HeadlessChrome.FromUrlAsync(
-    "https://example.com/report",
-    options
-);
-
-// Download and save PDF...
+var result = await client.Chrome.UrlToPdfAsync(request);
+// Download from result.FileUrl or call result.GetFileBytes() / result.SaveFile(...)
 ```
 
 **After (IronPDF):**
@@ -351,9 +353,9 @@ pdf.SaveAs("report.pdf");
 
 **Before (Api2pdf):**
 ```csharp
-using Api2Pdf.DotNet;
+using Api2Pdf;
 
-var a2pClient = new Api2PdfClient("YOUR_API_KEY");
+var client = new Api2Pdf("YOUR_API_KEY");
 
 var pdfUrls = new List<string>
 {
@@ -362,12 +364,12 @@ var pdfUrls = new List<string>
     "https://example.com/pdf3.pdf"
 };
 
-var request = new PdfMergeRequest { Urls = pdfUrls };
-var response = await a2pClient.PdfSharp.MergePdfsAsync(request);
+var result = await client.PdfSharp.MergePdfsAsync(new PdfMergeRequest { Urls = pdfUrls });
 
-if (response.Success)
+if (result.Success)
 {
-    // Download merged PDF from response.Pdf URL
+    // Download merged PDF from result.FileUrl
+    File.WriteAllBytes("merged.pdf", result.GetFileBytes());
 }
 ```
 
@@ -393,18 +395,23 @@ var mergedFromList = PdfDocument.Merge(pdfs);
 
 **Before (Api2pdf):**
 ```csharp
-using Api2Pdf.DotNet;
+using Api2Pdf;
 
-var a2pClient = new Api2PdfClient("YOUR_API_KEY");
+var client = new Api2Pdf("YOUR_API_KEY");
 
 // Generate PDF first
-var pdfResponse = await a2pClient.HeadlessChrome.FromHtmlAsync("<h1>Confidential</h1>");
+var pdfResult = await client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest
+{
+    Html = "<h1>Confidential</h1>"
+});
 
-// Then add password protection
-var protectedResponse = await a2pClient.PdfSharp.SetPasswordAsync(
-    pdfResponse.Pdf,
-    "secretpassword"
-);
+// Then add password protection in a second round-trip
+var protectedResult = await client.PdfSharp.SetPasswordAsync(new PdfPasswordRequest
+{
+    Url = pdfResult.FileUrl,
+    UserPassword = "user-password",
+    OwnerPassword = "owner-password"
+});
 ```
 
 **After (IronPDF):**
@@ -428,19 +435,21 @@ pdf.SaveAs("protected.pdf");
 
 **Before (Api2pdf):**
 ```csharp
-using Api2Pdf.DotNet;
+using Api2Pdf;
 
-var a2pClient = new Api2PdfClient("YOUR_API_KEY");
+var client = new Api2Pdf("YOUR_API_KEY");
 
 string htmlContent = File.ReadAllText("template.html");
 
-var options = new HeadlessChromeOptions
+var result = await client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest
 {
-    PrintBackground = true,
-    Scale = 0.9
-};
-
-var response = await a2pClient.HeadlessChrome.FromHtmlAsync(htmlContent, options);
+    Html = htmlContent,
+    Options = new ChromeHtmlToPdfOptions
+    {
+        PrintBackground = true,
+        Scale = 0.9
+    }
+});
 ```
 
 **After (IronPDF):**
@@ -467,16 +476,20 @@ var pdf2 = renderer.RenderHtmlAsPdf(htmlContent);
 
 **Before (Api2pdf):**
 ```csharp
-using Api2Pdf.DotNet;
+using Api2Pdf;
 
-var a2pClient = new Api2PdfClient("YOUR_API_KEY");
+var client = new Api2Pdf("YOUR_API_KEY");
 
-var response = await a2pClient.HeadlessChrome.HtmlToImageAsync(
-    "<h1>Preview Image</h1>",
-    new HeadlessChromeImageOptions { Width = 800, Height = 600 }
-);
+var result = await client.Chrome.HtmlToImageAsync(new ChromeHtmlToImageRequest
+{
+    Html = "<h1>Preview Image</h1>",
+    Options = new ChromeHtmlToImageOptions
+    {
+        ViewPortOptions = new ViewPortOptions { Width = 800, Height = 600 }
+    }
+});
 
-// Download image from response URL
+// Download image from result.FileUrl (or call result.GetFileBytes())
 ```
 
 **After (IronPDF):**
@@ -499,17 +512,20 @@ images[0].Save("preview.png");
 
 **Before (Api2pdf):**
 ```csharp
-using Api2Pdf.DotNet;
+using Api2Pdf;
 
-var a2pClient = new Api2PdfClient("YOUR_API_KEY");
+var client = new Api2Pdf("YOUR_API_KEY");
 
-var options = new HeadlessChromeOptions
+var result = await client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest
 {
-    HeaderHtml = "<div style='font-size:10px'>Company Header</div>",
-    FooterHtml = "<div style='font-size:10px'>Page <span class='pageNumber'></span></div>"
-};
-
-var response = await a2pClient.HeadlessChrome.FromHtmlAsync(html, options);
+    Html = html,
+    Options = new ChromeHtmlToPdfOptions
+    {
+        DisplayHeaderFooter = true,
+        HeaderTemplate = "<div style='font-size:10px'>Company Header</div>",
+        FooterTemplate = "<div style='font-size:10px'>Page <span class='pageNumber'></span></div>"
+    }
+});
 ```
 
 **After (IronPDF):**
@@ -539,11 +555,14 @@ pdf.SaveAs("with-headers.pdf");
 
 **Before (Api2pdf):**
 ```csharp
-using Api2Pdf.DotNet;
+using Api2Pdf;
 
-// Api2pdf is always async (HTTP calls)
-var a2pClient = new Api2PdfClient("YOUR_API_KEY");
-var response = await a2pClient.HeadlessChrome.FromHtmlAsync("<h1>Hello</h1>");
+// Api2pdf is HTTP-based; the SDK exposes both sync and async variants
+var client = new Api2Pdf("YOUR_API_KEY");
+var result = await client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest
+{
+    Html = "<h1>Hello</h1>"
+});
 ```
 
 **After (IronPDF):**
@@ -639,23 +658,26 @@ string rangeText = pdf.ExtractTextFromPages(
 [ApiController]
 public class PdfController : ControllerBase
 {
-    private readonly Api2PdfClient _client;
+    private readonly Api2Pdf _client;
 
     public PdfController()
     {
-        _client = new Api2PdfClient("YOUR_API_KEY");
+        _client = new Api2Pdf("YOUR_API_KEY");
     }
 
     [HttpGet("generate")]
     public async Task<IActionResult> GeneratePdf()
     {
-        var response = await _client.HeadlessChrome.FromHtmlAsync("<h1>Report</h1>");
+        var result = await _client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest
+        {
+            Html = "<h1>Report</h1>"
+        });
 
-        if (!response.Success)
-            return BadRequest(response.Error);
+        if (!result.Success)
+            return BadRequest(result.Error);
 
         // Redirect to download URL
-        return Redirect(response.Pdf);
+        return Redirect(result.FileUrl);
     }
 }
 ```
@@ -787,19 +809,19 @@ public class BlazorPdfService
 
 **Before (Api2pdf):**
 ```csharp
-var response = await a2pClient.HeadlessChrome.FromHtmlAsync(html);
+var result = await client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest { Html = html });
 
-if (!response.Success)
+if (!result.Success)
 {
-    // Handle error from response object
-    Console.WriteLine($"Error: {response.Error}");
+    // Handle error from result object
+    Console.WriteLine($"Error: {result.Error}");
     return;
 }
 
-// Check for HTTP errors during download
+// Check for HTTP errors when materializing the file
 try
 {
-    var pdfBytes = await httpClient.GetByteArrayAsync(response.Pdf);
+    var pdfBytes = result.GetFileBytes();
 }
 catch (HttpRequestException ex)
 {
@@ -998,7 +1020,7 @@ renderer.RenderingOptions.WaitFor.RenderDelay(1000);
 **Solution:** IronPDF doesn't need API keys—it runs locally!
 ```csharp
 // ❌ Remove this (Api2pdf pattern)
-var client = new Api2PdfClient("API_KEY");
+var client = new Api2Pdf("API_KEY");
 
 // ✅ Just create renderer
 var renderer = new ChromePdfRenderer();
@@ -1077,8 +1099,8 @@ renderer.RenderingOptions.CustomCssUrl = "path/to/custom.css";
 - [ ] **Document current Api2pdf usage patterns**
   ```csharp
   // Before (Api2pdf)
-  var api2PdfClient = new Api2PdfClient("your-api-key");
-  var response = api2PdfClient.Chrome.ConvertHtml(html);
+  var client = new Api2Pdf("your-api-key");
+  var result = client.Chrome.HtmlToPdf(new ChromeHtmlToPdfRequest { Html = html });
 
   // After (IronPDF)
   var renderer = new ChromePdfRenderer();
@@ -1086,15 +1108,15 @@ renderer.RenderingOptions.CustomCssUrl = "path/to/custom.css";
   ```
   **Why:** Understanding current usage helps map functionality to IronPDF equivalents.
 
-- [ ] **List all `Api2PdfClient` instantiations**
+- [ ] **List all `new Api2Pdf(...)` instantiations**
   ```csharp
   // Before (Api2pdf)
-  var client = new Api2PdfClient("your-api-key");
+  var client = new Api2Pdf("your-api-key");
 
   // After (IronPDF)
-  // No direct client instantiation needed
+  // No API-key client needed; instantiate ChromePdfRenderer directly
   ```
-  **Why:** IronPDF does not require a client object, simplifying initialization.
+  **Why:** IronPDF does not require a credentialed client object, simplifying initialization.
 
 - [ ] **Identify all rendering engines used (Chrome, WkHtml, LibreOffice)**
   **Why:** IronPDF uses a modern Chromium engine, which may affect rendering results.
@@ -1166,10 +1188,10 @@ renderer.RenderingOptions.CustomCssUrl = "path/to/custom.css";
   ```
   **Why:** Ensure your code references the correct library.
 
-- [ ] **Replace `Api2PdfClient` with `ChromePdfRenderer`**
+- [ ] **Replace `Api2Pdf` client with `ChromePdfRenderer`**
   ```csharp
   // Before (Api2pdf)
-  var client = new Api2PdfClient("your-api-key");
+  var client = new Api2Pdf("your-api-key");
 
   // After (IronPDF)
   var renderer = new ChromePdfRenderer();
@@ -1179,7 +1201,7 @@ renderer.RenderingOptions.CustomCssUrl = "path/to/custom.css";
 - [ ] **Convert async patterns (if using sync)**
   ```csharp
   // Before (Api2pdf)
-  var response = await api2PdfClient.Chrome.ConvertHtmlAsync(html);
+  var result = await client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest { Html = html });
 
   // After (IronPDF)
   var pdf = await renderer.RenderHtmlAsPdfAsync(html);

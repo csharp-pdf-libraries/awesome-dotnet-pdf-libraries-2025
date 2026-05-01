@@ -1,6 +1,6 @@
 # PDF Duo .NET + C# + PDF
 
-PDF Duo .NET is an elusive and lesser-known library in the .NET ecosystem aimed at converting HTML and other formats to PDF. While many developers might find themselves intrigued by the potential utility of PDF Duo .NET for PDF generation in C#, the obscurity of this library presents significant challenges. PDF Duo .NET is characterized by limited documentation, sparse community engagement, and uncertainty in support and maintenance, making it less than ideal for any production-grade application.
+PDF Duo .NET, from DuoDimension Software, is a lesser-known HTML-to-PDF component for .NET. Its last public release (v2.4) shipped in December 2010 and targets only .NET Framework 1.1 through 3.5; it is not distributed via NuGet. PDF Duo .NET is characterized by limited documentation, sparse community engagement, and ~15 years of inactivity, making it a poor choice for production-grade applications on modern .NET runtimes.
 
 A contrasting option that many developers might consider as a reliable alternative is IronPDF. With a robust presence in the PDF generation landscape, detailed documentation, and active support networks, IronPDF offers a solid choice for developers requiring PDF functionalities.
 
@@ -31,17 +31,23 @@ See the [complete feature breakdown](https://ironsoftware.com/suite/blog/compari
 Here's how **PDF Duo .NET** handles this:
 
 ```csharp
-// NuGet: Install-Package PDFDuo.NET
-using PDFDuo;
+// PDF Duo .NET is not on NuGet — reference PDFDuo.dll from the vendor download.
+using DuoDimension;
 using System;
+using System.IO;
 
 class Program
 {
     static void Main()
     {
-        var converter = new HtmlToPdfConverter();
-        var htmlContent = "<h1>Hello World</h1><p>This is a PDF document.</p>";
-        converter.ConvertHtmlString(htmlContent, "output.pdf");
+        // OpenHTML accepts a file path, URL, or stream; there is no documented
+        // "convert HTML string" call, so write the markup to a temp file first.
+        var tempHtml = Path.GetTempFileName() + ".html";
+        File.WriteAllText(tempHtml, "<h1>Hello World</h1><p>This is a PDF document.</p>");
+
+        var conv = new HtmlToPdf();
+        conv.OpenHTML(tempHtml);
+        conv.SavePDF("output.pdf");
         Console.WriteLine("PDF created successfully!");
     }
 }
@@ -76,16 +82,17 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **PDF Duo .NET** handles this:
 
 ```csharp
-// NuGet: Install-Package PDFDuo.NET
-using PDFDuo;
+// PDF Duo .NET is not on NuGet — reference PDFDuo.dll from the vendor download.
+using DuoDimension;
 using System;
 
 class Program
 {
     static void Main()
     {
-        var converter = new HtmlToPdfConverter();
-        converter.ConvertUrl("https://www.example.com", "webpage.pdf");
+        var conv = new HtmlToPdf();
+        conv.OpenHTML("https://www.example.com");
+        conv.SavePDF("webpage.pdf");
         Console.WriteLine("Webpage converted to PDF!");
     }
 }
@@ -116,22 +123,28 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Do I PDF Merging?
 
-Here's how **PDF Duo .NET** handles this:
+**PDF Duo .NET does not provide a native PDF-merge API.** The documented surface is HTML-to-PDF only, so teams that needed to merge typically rendered each PDF with PDF Duo and then concatenated them with a separate library (commonly iTextSharp 4.x in 2010-era projects):
 
 ```csharp
-// NuGet: Install-Package PDFDuo.NET
-using PDFDuo;
+// PDF Duo .NET is not on NuGet — reference PDFDuo.dll from the vendor download.
+using DuoDimension;
 using System;
 
 class Program
 {
     static void Main()
     {
-        var merger = new PdfMerger();
-        merger.AddFile("document1.pdf");
-        merger.AddFile("document2.pdf");
-        merger.Merge("merged.pdf");
-        Console.WriteLine("PDFs merged successfully!");
+        // Render each source HTML to its own PDF
+        var conv = new HtmlToPdf();
+        conv.OpenHTML("page1.html");
+        conv.SavePDF("document1.pdf");
+
+        conv = new HtmlToPdf();
+        conv.OpenHTML("page2.html");
+        conv.SavePDF("document2.pdf");
+
+        // Merging into a single PDF requires another library (e.g., iTextSharp).
+        Console.WriteLine("PDF Duo has no native merge — combine output with another library.");
     }
 }
 ```
@@ -166,66 +179,68 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 PDF Duo .NET presents significant risks for production applications:
 
-1. **Unclear Provenance**: Unknown developer/company, no verifiable support channel
-2. **Abandoned Status**: No recent updates, sparse documentation
-3. **Unknown Rendering Engine**: No transparency about underlying technology
-4. **Missing Features**: No headers/footers, watermarks, or security features
-5. **Zero Community**: Virtually no Stack Overflow presence or community help
+1. **Vendor**: DuoDimension Software (duodimension.com) — small ISV, no public roadmap
+2. **Abandoned Status**: Last public release v2.4 dated December 10, 2010; no documented updates since
+3. **Pre-modern Targeting**: Documented support for .NET Framework 1.1–3.5 only — no .NET Core / .NET 5+ / Linux / Docker story
+4. **Not on NuGet**: DLL download from the vendor; no SemVer or transitive resolution
+5. **Unknown Rendering Engine**: Vendor materials do not disclose the HTML/CSS engine used
+6. **Narrow Feature Set**: HTML-to-PDF only — no native merge, watermark, encryption, signing, forms, or text extraction
+7. **Negligible Community**: No GitHub repo, no meaningful Stack Overflow tag
 
 ### Quick Migration Overview
 
 | Aspect | PDF Duo .NET | IronPDF |
 |--------|--------------|---------|
-| Maintenance | Abandoned/Unknown | Active development |
-| Documentation | Nearly non-existent | Comprehensive |
-| Rendering Engine | Unknown | Chromium-based |
-| Support | None | Professional support |
-| Headers/Footers | Not supported | Full HTML support |
-| Watermarks | Not supported | HTML-based watermarks |
-| Security | Not supported | Encryption & permissions |
-| Community | None | Active community |
+| Last release | v2.4 (December 2010) | Active development |
+| Distribution | DLL download from duodimension.com | NuGet `IronPdf` |
+| Runtime support | .NET Framework 1.1 - 3.5 | .NET FX 4.6.2+, .NET 6/7/8/9/10, Linux, macOS, Docker |
+| Documentation | One vendor product page | Comprehensive docs + API reference |
+| Rendering engine | Not disclosed | Chromium-based |
+| Support | None visible | Professional support |
+| Headers/Footers | Not in documented API | Full HTML support |
+| Watermarks | Not in documented API | HTML-based watermarks |
+| Security | Not in documented API | Encryption + permissions |
+| PDF merge | Not in documented API | `PdfDocument.Merge` |
+| Community | Negligible | Active community |
 
 ### Key API Mappings
 
 | PDF Duo .NET | IronPDF | Notes |
 |--------------|---------|-------|
-| `new HtmlToPdfConverter()` | `new ChromePdfRenderer()` | Modern renderer |
-| `converter.ConvertHtmlString(html, path)` | `renderer.RenderHtmlAsPdf(html).SaveAs(path)` | Chainable API |
-| `converter.ConvertUrl(url, path)` | `renderer.RenderUrlAsPdf(url).SaveAs(path)` | URL rendering |
-| `converter.ConvertHtmlFile(file, path)` | `renderer.RenderHtmlFileAsPdf(file).SaveAs(path)` | File input |
-| `new PdfMerger()` | `PdfDocument.Merge()` | Static method |
-| `merger.AddFile(path)` | `PdfDocument.FromFile(path)` | Load first |
-| `merger.Merge(output)` | `merged.SaveAs(output)` | After merge |
-| `converter.PageWidth = ...` | `renderer.RenderingOptions.PaperSize` | Use PdfPaperSize |
-| `converter.PageHeight = ...` | `renderer.RenderingOptions.SetCustomPaperSize()` | Custom sizes |
-| `converter.Margins = new Margins(...)` | Individual margin properties | MarginTop, etc. |
-| _(not available)_ | `HtmlHeaderFooter` | NEW feature |
-| _(not available)_ | `pdf.ApplyWatermark()` | NEW feature |
-| _(not available)_ | `pdf.SecuritySettings` | NEW feature |
-| _(not available)_ | `pdf.ExtractAllText()` | NEW feature |
+| `new DuoDimension.HtmlToPdf()` | `new ChromePdfRenderer()` | Modern renderer |
+| `conv.OpenHTML(htmlFile); conv.SavePDF(path);` | `renderer.RenderHtmlFileAsPdf(htmlFile).SaveAs(path)` | File input |
+| `conv.OpenHTML(url); conv.SavePDF(path);` | `renderer.RenderUrlAsPdf(url).SaveAs(path)` | URL rendering |
+| _(write string to temp .html, then `OpenHTML`)_ | `renderer.RenderHtmlAsPdf(html).SaveAs(path)` | Direct HTML string |
+| _(not in documented API)_ | `PdfDocument.Merge(pdf1, pdf2)` | NEW: native merge |
+| _(not in documented API)_ | `HtmlHeaderFooter` | NEW: headers/footers |
+| _(not in documented API)_ | `pdf.ApplyWatermark()` | NEW: watermarks |
+| _(not in documented API)_ | `pdf.SecuritySettings` | NEW: encryption |
+| _(not in documented API)_ | `pdf.ExtractAllText()` | NEW: text extraction |
+| _(no settings/options object)_ | `renderer.RenderingOptions.PaperSize` | Use `PdfPaperSize` |
+| _(no settings/options object)_ | `RenderingOptions.MarginTop` etc. | Individual margin properties |
 
 ### Migration Code Example
 
 **Before (PDF Duo .NET):**
 ```csharp
-using PDFDuo;
+using DuoDimension;
+using System.IO;
 
 public class PdfDuoService
 {
     public void CreatePdf(string html, string outputPath)
     {
-        var converter = new HtmlToPdfConverter();
+        // PDF Duo's HtmlToPdf does not document a settings object covering
+        // page size or margins; OpenHTML / SavePDF is the public surface.
+        var tempHtml = Path.GetTempFileName() + ".html";
+        File.WriteAllText(tempHtml, html);
 
-        // Limited configuration options
-        converter.PageWidth = 8.5f;
-        converter.PageHeight = 11f;
-        converter.Margins = new Margins(0.5f, 0.5f, 0.5f, 0.5f);
+        var conv = new HtmlToPdf();
+        conv.OpenHTML(tempHtml);
+        conv.SavePDF(outputPath);
 
-        converter.ConvertHtmlString(html, outputPath);
-
-        // No headers, footers, watermarks, or security
-        // No way to add page numbers
-        // No text extraction capability
+        // No headers, footers, watermarks, security, page numbers,
+        // or text extraction in the documented API.
     }
 }
 ```
@@ -289,43 +304,38 @@ public class PdfService
 
 ### Critical Migration Notes
 
-1. **Margins Object → Individual Properties**:
+1. **No settings object → IronPDF `RenderingOptions`**:
    ```csharp
-   // PDF Duo: converter.Margins = new Margins(top, right, bottom, left)
-   // IronPDF: Individual properties in millimeters
+   // PDF Duo: HtmlToPdf has no documented settings object for paper size or margins.
+   // IronPDF: explicit options on RenderingOptions
+   renderer.RenderingOptions.PaperSize = PdfPaperSize.Letter;
    renderer.RenderingOptions.MarginTop = 15;
    renderer.RenderingOptions.MarginBottom = 15;
    ```
 
-2. **Page Size → PaperSize Enum**:
+2. **No native merge → static `PdfDocument.Merge`**:
    ```csharp
-   // PDF Duo: converter.PageWidth = 8.5f; converter.PageHeight = 11f;
-   // IronPDF: Use built-in paper sizes
-   renderer.RenderingOptions.PaperSize = PdfPaperSize.Letter;
-   ```
-
-3. **Merger Pattern → Static Merge**:
-   ```csharp
-   // PDF Duo: merger.AddFile(path); merger.Merge(output);
-   // IronPDF: Load files, then static merge
+   // PDF Duo: no merge API; teams paired it with iTextSharp 4.x.
+   // IronPDF: load files, then static merge
    var merged = PdfDocument.Merge(pdf1, pdf2);
    ```
 
-4. **NEW Feature - Page Numbers**: Use `{page}` and `{total-pages}` placeholders
+3. **NEW Feature - Page Numbers**: Use `{page}` and `{total-pages}` placeholders
    ```csharp
    HtmlFragment = "Page {page} of {total-pages}"
    ```
 
-5. **NEW Feature - Watermarks**: HTML-based with full CSS support
+4. **NEW Feature - Watermarks**: HTML-based with full CSS support
    ```csharp
    pdf.ApplyWatermark("<div style='...'>DRAFT</div>");
    ```
 
-### NuGet Package Migration
+### Package / Reference Migration
 
 ```bash
-# Remove PDF Duo .NET
-dotnet remove package PDFDuo.NET
+# PDF Duo .NET is not on NuGet — remove the project reference to PDFDuo.dll
+# in Visual Studio (References -> right-click -> Remove) and delete the
+# vendored binary.
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -335,7 +345,7 @@ dotnet add package IronPdf
 
 ```bash
 # Find PDF Duo usage in your codebase
-grep -r "PDFDuo\|HtmlToPdfConverter\|PdfMerger" --include="*.cs" .
+grep -r "DuoDimension\|HtmlToPdf\b\|OpenHTML\|SavePDF" --include="*.cs" .
 ```
 
 **Ready for the complete migration?** The full guide includes:
@@ -355,12 +365,13 @@ Here's a more structured comparison between PDF Duo .NET and IronPDF:
 
 | Feature                  | PDF Duo .NET                          | IronPDF             |
 |--------------------------|---------------------------------------|---------------------|
-| **Documentation**        | Limited and hard to find              | Comprehensive       |
-| **Community Support**    | Minimal, potential risks of abandonment | Active community    |
-| **Updates**              | Sporadic, unclear maintenance         | Regular and reliable|
-| **HTML/CSS Support**     | Limited                               | Full support        |
-| **Ease of Use**          | Unknown due to limited documentation  | User-friendly       |
-| **Support Services**     | Unknown                               | Professional support|
+| **Last release**         | v2.4 (December 2010)                   | Active             |
+| **Distribution**         | DLL from duodimension.com (no NuGet) | NuGet `IronPdf`    |
+| **Runtime**              | .NET Framework 1.1 - 3.5              | .NET FX 4.6.2+, .NET 6/7/8/9/10, Linux, macOS, Docker |
+| **Documentation**        | One vendor product page                | Comprehensive       |
+| **Community Support**    | Negligible                             | Active community    |
+| **HTML/CSS Support**     | Engine not disclosed                   | Modern Chromium     |
+| **Support Services**     | None visible                           | Professional support|
 
 ## Exploring the Code: PDF Duo .NET vs. IronPDF
 
@@ -391,9 +402,10 @@ A simple IronPDF usage example, illustrating its capability, could be structured
 ```csharp
 using IronPdf;
 
-var Renderer = new HtmlToPdf();
-var PDF = Renderer.RenderUrlAsPdf("https://example.com");
-PDF.SaveAs("example.pdf");
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderUrlAsPdf("https://example.com");
+pdf.SaveAs("example.pdf");
 ```
 
 By merely scratching the surface with IronPDF, developers can appreciate the library’s straightforward approach — further cemented by its active and thriving support system.

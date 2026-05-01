@@ -55,8 +55,8 @@ class Program
 {
     static void Main()
     {
-        // Create an instance of HtmlToPdf
-        var renderer = new HtmlToPdf();
+        // Create an instance of ChromePdfRenderer
+        var renderer = new ChromePdfRenderer();
 
         // Convert HTML file to PDF
         var pdf = renderer.RenderUrlAsPdf("https://example.com");
@@ -78,7 +78,7 @@ This snippet illustrates the simplicity and powerful capabilities of IronPDF. Fo
 Here's how **WebView2 (Microsoft Edge) C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package Microsoft.Web.WebView2.WinForms
+// NuGet: Install-Package Microsoft.Web.WebView2
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -94,11 +94,9 @@ class Program
         
         webView.CoreWebView2.NavigateToString("<html><body><h1>Hello World</h1></body></html>");
         await Task.Delay(2000);
-        
-        await webView.CoreWebView2.CallDevToolsProtocolMethodAsync(
-            "Page.printToPDF",
-            "{}"
-        );
+
+        // PrintToPdfAsync(path, settings) returns Task<bool>; null = default settings
+        bool ok = await webView.CoreWebView2.PrintToPdfAsync("output.pdf", null);
     }
 }
 ```
@@ -129,7 +127,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **WebView2 (Microsoft Edge) C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package Microsoft.Web.WebView2.WinForms
+// NuGet: Install-Package Microsoft.Web.WebView2
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -148,15 +146,16 @@ class Program
         
         await Task.Delay(3000);
         
-        var printSettings = webView.CoreWebView2.Environment.CreatePrintSettings();
+        // CreatePrintSettings() lives on CoreWebView2Environment; margins/dimensions are inches
+        CoreWebView2PrintSettings printSettings = webView.CoreWebView2.Environment.CreatePrintSettings();
         printSettings.Orientation = CoreWebView2PrintOrientation.Landscape;
-        printSettings.MarginTop = 0.5;
-        printSettings.MarginBottom = 0.5;
-        
-        using (var stream = await webView.CoreWebView2.PrintToPdfAsync("custom.pdf", printSettings))
-        {
-            Console.WriteLine("Custom PDF created");
-        }
+        printSettings.MarginTop = 0.5;     // inches
+        printSettings.MarginBottom = 0.5;  // inches
+        printSettings.ShouldPrintBackgrounds = true;
+
+        // PrintToPdfAsync returns Task<bool>, not a Stream
+        bool ok = await webView.CoreWebView2.PrintToPdfAsync("custom.pdf", printSettings);
+        Console.WriteLine(ok ? "Custom PDF created" : "PrintToPdfAsync returned false");
     }
 }
 ```
@@ -198,7 +197,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **WebView2 (Microsoft Edge) C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package Microsoft.Web.WebView2.WinForms
+// NuGet: Install-Package Microsoft.Web.WebView2
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -278,7 +277,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **WebView2 (Microsoft Edge) C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package Microsoft.Web.WebView2.WinForms
+// NuGet: Install-Package Microsoft.Web.WebView2
 using System;
 using System.IO;
 using System.Threading.Tasks;

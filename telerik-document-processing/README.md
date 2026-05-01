@@ -42,26 +42,22 @@ IronPDF stands out as a modern, C# library that simplifies the conversion of HTM
 
 ### Installing Telerik Document Processing
 
-Begin by integrating Telerik Document Processing into your C# project:
+Begin by integrating Telerik Document Processing into your C# project. Document Processing is shipped via Telerik's NuGet feed; install the WordsProcessing (Flow) and PDF export packages:
 
 ```csharp
-using Telerik.Windows.Documents;
-using Telerik.Windows.Documents.Model;
-using Telerik.Windows.Documents.FormatProviders.Pdf;
+// NuGet: Telerik.Documents.Flow
+// NuGet: Telerik.Documents.Flow.FormatProviders.Pdf
+using Telerik.Windows.Documents.Flow.Model;
+using Telerik.Windows.Documents.Flow.FormatProviders.Pdf;
+using System.IO;
 
-// Define your PDF document.
-RadDocument document = new RadDocument();
+// Build a flow document programmatically.
+RadFlowDocument document = new RadFlowDocument();
+Section section = document.Sections.AddSection();
+Paragraph paragraph = section.Blocks.AddParagraph();
+paragraph.Inlines.AddRun("Hello from Telerik Document Processing!");
 
-// Create a section and add paragraphs.
-Section section = new Section();
-Paragraph paragraph = new Paragraph();
-paragraph.Inlines.Add(new Span("Hello from Telerik Document Processing!"));
-section.Blocks.Add(paragraph);
-
-// Add section to document.
-document.Sections.Add(section);
-
-// Export to PDF.
+// Export to PDF via the Flow → PDF format provider.
 PdfFormatProvider pdfProvider = new PdfFormatProvider();
 using (Stream output = File.Create("TelerikPDF.pdf"))
 {
@@ -76,9 +72,11 @@ Here's a brief look into converting HTML to PDF using IronPDF:
 ```csharp
 using IronPdf;
 
-var Renderer = new HtmlToPdf();
-var PDF = Renderer.RenderHtmlAsPdf("<h1>Hello from IronPDF</h1>");
-PDF.SaveAs("IronPDFOutput.pdf");
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf("<h1>Hello from IronPDF</h1>");
+pdf.SaveAs("IronPDFOutput.pdf");
 ```
 
 For more detailed tutorials and guides, refer to IronPDF's [HTML to PDF conversion guide](https://ironpdf.com/how-to/html-file-to-pdf/) and explore their extensive [tutorials](https://ironpdf.com/tutorials/).

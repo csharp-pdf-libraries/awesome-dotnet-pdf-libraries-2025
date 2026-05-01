@@ -1,26 +1,27 @@
-// NuGet: Install-Package PdfiumViewer
+// NuGet: Install-Package PdfiumViewer  (representative open-source PDFium wrapper)
+// PdfiumViewer and PDFiumCore do not expose PDF merge APIs - PDFium itself
+// is a rendering / parsing engine, not a document-authoring engine.
+// (Patagames Pdfium.Net.SDK exposes some document-edit operations but is commercial.)
 using PdfiumViewer;
 using System;
 using System.IO;
 using System.Collections.Generic;
 
-// Note: PdfiumViewer does not have native PDF merging functionality
-// You would need to use additional libraries or implement custom logic
 class Program
 {
     static void Main()
     {
-        List<string> pdfFiles = new List<string> 
-        { 
-            "document1.pdf", 
-            "document2.pdf", 
-            "document3.pdf" 
+        List<string> pdfFiles = new List<string>
+        {
+            "document1.pdf",
+            "document2.pdf",
+            "document3.pdf"
         };
-        
-        // PdfiumViewer is primarily for rendering/viewing
-        // PDF merging is not natively supported
-        // You would need to use another library like iTextSharp or PdfSharp
-        
-        Console.WriteLine("PDF merging not natively supported in PdfiumViewer");
+
+        // To merge PDFs from a PDFium wrapper you must reach for another library
+        // (PdfSharp, iText, IronPDF) or, with Patagames Pdfium.Net.SDK, use its
+        // document-edit APIs.
+
+        Console.WriteLine("PDF merging is not supported by PdfiumViewer / PDFiumCore.");
     }
 }

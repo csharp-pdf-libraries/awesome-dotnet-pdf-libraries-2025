@@ -16,7 +16,7 @@ GemBox.Pdf is a commercial .NET component designed primarily for handling PDF fi
 
 Despite its strengths, GemBox.Pdf is not without its drawbacks:
 
-- **20 Paragraph Limit in Free Version**: The free version is significantly restricted, hindering its utility for applications that require comprehensive PDF operations. The limitation includes the content of table cells, making it infeasible for generating complex tabular data.
+- **2-Page Limit in Free Mode**: The free version throws `FreeLimitReachedException` when reading or writing a PDF beyond 2 pages, hindering its utility for applications that require comprehensive PDF operations. (Source: gemboxsoftware.com/pdf/free-version.)
 - **No HTML-to-PDF Capabilities**: Unlike some alternatives, GemBox.Pdf lacks direct HTML-to-PDF conversion, requiring users to construct documents programmatically.
 - **Limited Feature Set**: When compared to more comprehensive libraries, GemBox.Pdf has fewer features, which might limit its application in more demanding scenarios.
 
@@ -34,7 +34,7 @@ Check out the [in-depth comparison](https://ironsoftware.com/suite/blog/comparis
 
 ### Strengths of IronPDF
 
-- **Full-Featured Trial**: IronPDF offers a trial without limitations on paragraph counts, in contrast to some other libraries, making it accessible for thorough evaluation.
+- **Full-Featured Trial**: IronPDF offers a trial without per-document page caps, in contrast to GemBox.Pdf's 2-page free-mode ceiling, making it accessible for thorough evaluation.
 - **Ease of Use**: With tutorials and extensive documentation [here](https://ironpdf.com/tutorials/), integrating IronPDF into applications is straightforward.
 - **Solid Performance**: IronPDF is engineered for speed and efficiency, making it suitable for high-performance applications.
 
@@ -46,7 +46,7 @@ Below is a comparative table that highlights the distinctions between GemBox.Pdf
 |---------------------------------------------|--------------------------------------|----------------------------------------|
 | **Primary License**                         | Commercial (Free limited)            | Commercial (Free trial available)      |
 | **HTML-to-PDF Conversion**                  | No                                   | Yes                                    |
-| **Paragraph Limit in Free Version**         | Yes (20 paragraph limit)             | No                                     |
+| **Free Version Cap**                        | 2-page limit (FreeLimitReachedException) | Watermarked output, no page cap    |
 | **Advanced Features (e.g., Digital Signature, Watermarking)** | Limited                              | Yes                                    |
 | **Deployment Requirements**                 | .NET Compatible                      | .NET Compatible                        |
 | **Ease of Use**                             | Moderate                             | High                                   |
@@ -59,6 +59,7 @@ Let us consider a basic C# example to demonstrate the usage of GemBox.Pdf for re
 ```csharp
 using System;
 using GemBox.Pdf;
+using GemBox.Pdf.Content;
 
 class Program
 {
@@ -73,13 +74,11 @@ class Program
             // Get the first page of the document.
             var firstPage = document.Pages[0];
 
-            // Add a simple text to the first page.
-            firstPage.Content.Elements.Add(
-                new PdfTextElement("Hello, World!", new PdfPoint(100, 100))
-                {
-                    Font = PdfFont.Create("Helvetica", 12),
-                    Color = new PdfRgbColor(0, 0, 0)
-                });
+            // Add formatted text at a fixed PDF user-space coordinate.
+            using var formattedText = new PdfFormattedText();
+            formattedText.FontSize = 12;
+            formattedText.Append("Hello, World!");
+            firstPage.Content.DrawText(formattedText, new PdfPoint(100, 100));
 
             // Save the modified document to a new file.
             document.Save("output.pdf");
@@ -164,12 +163,11 @@ class Program
         using (var document = new PdfDocument())
         {
             var page = document.Pages.Add();
-            var formattedText = new PdfFormattedText()
-            {
-                Text = "Hello World",
-                FontSize = 24
-            };
-            
+            // PdfFormattedText has no Text property; use Append/AppendLine.
+            var formattedText = new PdfFormattedText();
+            formattedText.FontSize = 24;
+            formattedText.Append("Hello World");
+
             page.Content.DrawText(formattedText, new PdfPoint(100, 700));
             document.Save("output.pdf");
         }
@@ -214,17 +212,20 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **GemBox.Pdf C# PDF: An In-Depth Comparison with IronPDF** handles this:
 
 ```csharp
-// NuGet: Install-Package GemBox.Pdf
-using GemBox.Pdf;
-using GemBox.Pdf.Content;
+// NuGet: Install-Package GemBox.Document
+// NOTE: GemBox.Pdf does NOT support HTML-to-PDF. PdfDocument.Load only opens
+// existing PDF files. To convert HTML to PDF you must use the separate
+// GemBox.Document product (different SKU, different license).
+using GemBox.Document;
 
 class Program
 {
     static void Main()
     {
         ComponentInfo.SetLicense("FREE-LIMITED-KEY");
-        
-        var document = PdfDocument.Load("input.html");
+
+        // GemBox.Document loads HTML and saves as PDF.
+        var document = DocumentModel.Load("input.html");
         document.Save("output.pdf");
     }
 }
@@ -257,20 +258,20 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 GemBox.Pdf has significant limitations that make migration worthwhile:
 
-1. **20 Paragraph Limit in Free Version**: Table cells count toward this limit—a 10-row, 5-column table uses 50 "paragraphs," making the free version unusable
-2. **No HTML-to-PDF Conversion**: Must construct documents programmatically with coordinate calculations
+1. **2-Page Free-Mode Limit**: GemBox.Pdf throws `FreeLimitReachedException` once a document exceeds 2 pages, making the free version unusable for anything beyond a one-page invoice
+2. **No HTML-to-PDF Conversion**: `PdfDocument.Load` only opens existing PDF files; converting HTML requires the separate GemBox.Document SKU
 3. **Coordinate-Based Layout**: Calculate exact X/Y positions for every element—no flow layout
-4. **Table Cell Counting**: The paragraph limit makes even basic business documents impossible in free version
+4. **Multi-SKU Office Conversion**: Word→PDF needs GemBox.Document, Excel→PDF needs GemBox.Spreadsheet — each licensed separately
 5. **Programmatic Only**: Every design change requires recalculating coordinates
 
 ### Quick Migration Overview
 
 | Aspect | GemBox.Pdf | IronPDF |
 |--------|------------|---------|
-| Free Version Limits | 20 paragraphs (includes table cells!) | Watermark only, no content limits |
-| HTML-to-PDF | Not supported | Full Chromium engine |
+| Free Version Limits | 2-page max (FreeLimitReachedException) | Watermark only, no page cap |
+| HTML-to-PDF | Not supported (needs GemBox.Document) | Full Chromium engine |
 | Layout Approach | Coordinate-based, manual | HTML/CSS flow layout |
-| Tables | Count toward paragraph limit | Unlimited, use HTML tables |
+| Word/Excel → PDF | Separate SKUs (GemBox.Document / GemBox.Spreadsheet) | Render via HTML |
 | Modern CSS | Not applicable | Flexbox, Grid, CSS3 |
 | JavaScript | Not applicable | Full JavaScript execution |
 | Design Changes | Recalculate coordinates | Edit HTML/CSS |

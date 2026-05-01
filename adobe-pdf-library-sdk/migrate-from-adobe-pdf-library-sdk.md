@@ -2,7 +2,8 @@
 
 > **Migration Complexity:** High
 > **Estimated Time:** 4-8 hours for typical projects
-> **Last Updated:** December 2024
+> **Last Updated:** April 2026
+> **Verified against:** APDFL 18.62 (`Adobe.PDF.Library.LM.NET` on NuGet), namespace `Datalogics.PDFL`
 
 ## Table of Contents
 
@@ -25,11 +26,13 @@ Adobe PDF Library SDK (via Datalogics) is an enterprise-grade PDF engine with Ad
 
 ### The Case for Leaving Adobe PDF Library SDK
 
-**Prohibitive Licensing Costs**: Adobe PDF Library SDK is priced at enterprise levels, often reaching tens of thousands of dollars annually. This pricing model makes it impractical for small to mid-sized businesses, startups, or individual developers.
+**Sales-Led, Bespoke Licensing**: Datalogics does not publish list pricing. Internal-use deployments start around $5,999/year (per Datalogics' pricing pages), while OEM, ISV, and SaaS customers negotiate per-platform fees plus per-deployment royalties or revenue-share. Total cost is typically out of reach for small to mid-sized teams and almost always requires a sales conversation.
 
-**Complex Native SDK Integration**: The SDK is built on native C++ code requiring platform-specific binaries, careful memory management, and explicit initialization/termination patterns. This adds significant development overhead.
+**Complex Native SDK Integration**: The SDK wraps a native C/C++ engine that shares lineage with Acrobat itself. The .NET binding (`Datalogics.PDFL`) requires platform-specific runtime binaries (the NuGet `Adobe.PDF.Library.LM.NET` package ships x64 Windows, Linux, and macOS ARM payloads), careful memory management, and explicit `Library.Initialize` / `Library.Terminate` lifecycle.
 
-**Overkill for Most Projects**: The SDK provides the full Adobe PDF engine—powerful but excessive for projects that primarily need HTML-to-PDF conversion, basic manipulation, or document generation.
+**No Built-in HTML Renderer**: APDFL's documented conversion list covers PDF/A, PDF/X, ZUGFeRD, EPS, PS, XPS, and Office formats — but not HTML. Producing a PDF from an HTML string with APDFL alone means hand-building pages, fonts, and content runs, or pairing APDFL with a separate HTML rendering engine. IronPDF's Chromium-based renderer removes that gap entirely.
+
+**Overkill for Most Projects**: The SDK provides the full Acrobat-derived PDF engine — powerful but excessive for teams whose main need is HTML-to-PDF, basic manipulation, or document generation.
 
 **Low-Level API Design**: Creating PDFs requires constructing pages, content streams, text runs, and fonts programmatically. Simple tasks like "render this HTML" become complex multi-step operations.
 
@@ -41,11 +44,12 @@ The transition from Adobe's complex enterprise SDK to IronPDF's streamlined appr
 
 | Adobe PDF Library Limitation | IronPDF Solution |
 |------------------------------|------------------|
-| Enterprise pricing ($10K-$50K+/year) | Affordable per-developer licensing |
-| Native SDK, platform-specific builds | Pure .NET, cross-platform NuGet |
-| Manual page/content construction | HTML/CSS rendering engine |
-| Explicit Library.Initialize/Terminate | Automatic initialization |
-| Complex coordinate-based layout | Standard web layout model |
+| Sales-led pricing, OEM/SaaS royalties on top | Transparent per-developer / per-deployment pricing |
+| Native runtime payloads per platform | Pure .NET package, single NuGet for all targets |
+| No native HTML-to-PDF renderer | Chromium-based HTML/CSS engine |
+| Manual page/content construction | HTML/CSS rendering pipeline |
+| Explicit `Library.Initialize` / `Terminate` | Automatic initialization |
+| PostScript-point coordinates | Standard CSS layout model |
 | Manual font embedding | Automatic font handling |
 
 ---
@@ -64,9 +68,9 @@ The transition from Adobe's complex enterprise SDK to IronPDF's streamlined appr
 Run these commands in your solution directory:
 
 ```bash
-grep -r "using Datalogics" --include="*.cs" .
-grep -r "Adobe.PDF.Library" --include="*.csproj" .
-grep -r "Library.Initialize\|Library.Terminate" --include="*.cs" .
+grep -r "using Datalogics.PDFL" --include="*.cs" .
+grep -r "Adobe.PDF.Library.LM.NET\|Adobe.PDF.Library.LM.NETFramework" --include="*.csproj" .
+grep -r "Library.Initialize\|Library.Terminate\|new Library(" --include="*.cs" .
 ```
 
 ### Breaking Changes to Anticipate
@@ -87,7 +91,9 @@ grep -r "Library.Initialize\|Library.Terminate" --include="*.cs" .
 ### Step 1: Update NuGet Packages
 
 ```bash
-# Remove Adobe PDF Library
+# Remove Adobe PDF Library (also: Adobe.PDF.Library.LM.NETFramework
+# for .NET Framework projects, plus any add-on packages such as
+# Adobe.PDF.Library.FormsExtension.LM.NET)
 dotnet remove package Adobe.PDF.Library.LM.NET
 
 # Install IronPDF
@@ -107,9 +113,8 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 | Find | Replace With |
 |------|--------------|
 | `using Datalogics.PDFL;` | `using IronPdf;` |
-| `using Datalogics.PDFL.Document;` | `using IronPdf;` |
-| `using Datalogics.PDFL.Page;` | `using IronPdf;` |
-| `using Datalogics.PDFL.Content;` | `using IronPdf;` |
+
+> APDFL exposes a single root namespace, `Datalogics.PDFL`. Document, Page, Content, Font, and Color all live in that namespace — there are no `Datalogics.PDFL.Document` / `Datalogics.PDFL.Page` sub-namespaces to swap out.
 
 ### Step 4: Verify Basic Operation
 
@@ -157,16 +162,16 @@ pdf.SaveAs("output.pdf");
 
 ### Namespace Mapping
 
-| Adobe PDF Library Namespace | IronPDF Namespace | Purpose |
-|-----------------------------|-------------------|---------|
-| `Datalogics.PDFL` | `IronPdf` | Core functionality |
-| `Datalogics.PDFL.Document` | `IronPdf` | Document operations |
-| `Datalogics.PDFL.Page` | `IronPdf` | Page operations |
-| `Datalogics.PDFL.Content` | `IronPdf.Editing` | Content manipulation |
-| `Datalogics.PDFL.Text` | `IronPdf` | Text operations |
-| `Datalogics.PDFL.Image` | `IronPdf.Editing` | Image operations |
-| `Datalogics.PDFL.Font` | Not needed | Automatic font handling |
-| `Datalogics.PDFL.Color` | Use HTML/CSS | Color via CSS |
+| Adobe PDF Library Type | IronPDF Equivalent | Purpose |
+|------------------------|-------------------|---------|
+| `Datalogics.PDFL` (root namespace) | `IronPdf` | Core types live here on both sides |
+| `Datalogics.PDFL.Document` (class) | `IronPdf.PdfDocument` | Document operations |
+| `Datalogics.PDFL.Page` (class) | `IronPdf.PdfPageInfo` / `pdf.Pages` | Page operations |
+| `Datalogics.PDFL.Content` (class) | Use HTML | Content via HTML |
+| `Datalogics.PDFL.Text` / `TextRun` | Use HTML | Text via HTML |
+| `Datalogics.PDFL.Image` (class) | `<img>` tag in HTML | Images via HTML |
+| `Datalogics.PDFL.Font` (class) | Not needed | Automatic font handling |
+| `Datalogics.PDFL.Color` (class) | Use CSS color | Color via CSS |
 
 ### Library Lifecycle Methods
 
@@ -184,10 +189,10 @@ pdf.SaveAs("output.pdf");
 | `new Document()` | `new ChromePdfRenderer()` | Renderer for HTML |
 | `new Document(path)` | `PdfDocument.FromFile(path)` | Load existing PDF |
 | `doc.CreatePage(index, rect)` | Automatic from HTML | Pages auto-created |
-| `doc.Save(flags, path)` | `pdf.SaveAs(path)` | Save to file |
+| `doc.Save(SaveFlags.Full, path)` | `pdf.SaveAs(path)` | Save to file |
 | `doc.NumPages` | `pdf.PageCount` | Page count |
 | `doc.GetPage(index)` | `pdf.Pages[index]` | Access page |
-| `doc.InsertPages(...)` | `PdfDocument.Merge()` | Merge documents |
+| `doc.InsertPages(insertAfter, src, start, count, flags)` | `PdfDocument.Merge(...)` | Merge documents |
 | `doc.DeletePages(...)` | `pdf.RemovePages(index)` | Remove pages |
 
 ### Page Operations
@@ -216,8 +221,8 @@ pdf.SaveAs("output.pdf");
 
 | Adobe Method | IronPDF Method | Notes |
 |--------------|----------------|-------|
-| `new Watermark(doc, textParams, wmParams)` | `pdf.ApplyWatermark(html)` | HTML watermark |
-| `WatermarkParams.Opacity` | CSS `opacity` | Opacity via CSS |
+| `doc.Watermark(textParams, wmParams)` | `pdf.ApplyWatermark(html)` | HTML watermark |
+| `WatermarkParams.Opacity` (0.0-1.0) | `opacity` parameter (0-100) | Integer percentage on IronPDF |
 | `WatermarkParams.Rotation` | `rotation` parameter | Rotation angle |
 | Manual page iteration | Automatic all pages | Applied globally |
 
@@ -255,47 +260,41 @@ pdf.SaveAs("output.pdf");
 
 ### Example 1: HTML to PDF (Most Common)
 
+APDFL has no built-in HTML renderer. The "Before" snippet below is the closest equivalent: low-level page and content construction that mimics the layout an HTML document would produce.
+
 **Before (Adobe PDF Library SDK):**
 ```csharp
 using Datalogics.PDFL;
 
 public void CreatePdfFromContent()
 {
-    Library.LicenseKey = "ADOBE-KEY";
-    Library.Initialize();
-    try
+    using (Library lib = new Library())
+    using (Document doc = new Document())
     {
-        using (Document doc = new Document())
+        Rect pageRect = new Rect(0, 0, 612, 792); // US Letter, points
+        using (Page page = doc.CreatePage(Document.BeforeFirstPage, pageRect))
         {
-            Rect pageRect = new Rect(0, 0, 612, 792);
-            using (Page page = doc.CreatePage(Document.BeforeFirstPage, pageRect))
-            {
-                Content content = page.Content;
+            Content content = page.Content;
 
-                // Create and configure font
-                Font titleFont = new Font("Arial", FontCreateFlags.Embedded);
-                Font bodyFont = new Font("Times New Roman", FontCreateFlags.Embedded);
+            // Create and configure font
+            Font titleFont = new Font("Arial", FontCreateFlags.Embedded);
+            Font bodyFont  = new Font("Times New Roman", FontCreateFlags.Embedded);
 
-                // Add title
-                Text title = new Text();
-                title.AddRun(new TextRun("Document Title", titleFont, 24,
-                    new Point(72, 720)));
-                content.AddElement(title);
+            // Add title
+            Text title = new Text();
+            title.AddRun(new TextRun("Document Title", titleFont, 24,
+                new Point(72, 720)));
+            content.AddElement(title);
 
-                // Add paragraph
-                Text body = new Text();
-                body.AddRun(new TextRun("This is the body text of the document.",
-                    bodyFont, 12, new Point(72, 680)));
-                content.AddElement(body);
+            // Add paragraph
+            Text body = new Text();
+            body.AddRun(new TextRun("This is the body text of the document.",
+                bodyFont, 12, new Point(72, 680)));
+            content.AddElement(body);
 
-                page.UpdateContent();
-            }
-            doc.Save(SaveFlags.Full, "output.pdf");
+            page.UpdateContent();
         }
-    }
-    finally
-    {
-        Library.Terminate();
+        doc.Save(SaveFlags.Full, "output.pdf");
     }
 }
 ```
@@ -337,29 +336,22 @@ using Datalogics.PDFL;
 
 public void MergePdfs(string[] inputFiles, string outputPath)
 {
-    Library.Initialize();
-    try
+    using (Library lib = new Library())
+    using (Document mergedDoc = new Document(inputFiles[0]))
     {
-        using (Document mergedDoc = new Document(inputFiles[0]))
+        for (int i = 1; i < inputFiles.Length; i++)
         {
-            for (int i = 1; i < inputFiles.Length; i++)
+            using (Document doc = new Document(inputFiles[i]))
             {
-                using (Document doc = new Document(inputFiles[i]))
-                {
-                    mergedDoc.InsertPages(
-                        Document.LastPage,
-                        doc,
-                        0,
-                        Document.AllPages,
-                        PageInsertFlags.None);
-                }
+                mergedDoc.InsertPages(
+                    Document.LastPage,
+                    doc,
+                    0,
+                    Document.AllPages,
+                    PageInsertFlags.Bookmarks | PageInsertFlags.Threads);
             }
-            mergedDoc.Save(SaveFlags.Full, outputPath);
         }
-    }
-    finally
-    {
-        Library.Terminate();
+        mergedDoc.Save(SaveFlags.Full, outputPath);
     }
 }
 ```
@@ -389,32 +381,23 @@ using Datalogics.PDFL;
 
 public void AddWatermark(string inputPath, string outputPath)
 {
-    Library.Initialize();
-    try
+    using (Library lib = new Library())
+    using (Document doc = new Document(inputPath))
     {
-        using (Document doc = new Document(inputPath))
-        {
-            WatermarkParams wmParams = new WatermarkParams();
-            wmParams.Opacity = 0.5;
-            wmParams.Rotation = 45.0;
-            wmParams.VerticalAlignment = WatermarkVerticalAlignment.Center;
-            wmParams.HorizontalAlignment = WatermarkHorizontalAlignment.Center;
-            wmParams.Scale = -1; // Auto scale
+        WatermarkParams wmParams = new WatermarkParams();
+        wmParams.Opacity = 0.5;
+        wmParams.Rotation = 45.0;
+        wmParams.Scale = -1; // Auto scale
 
-            WatermarkTextParams textParams = new WatermarkTextParams();
-            textParams.Text = "CONFIDENTIAL";
-            textParams.Color = new Datalogics.PDFL.Color(0.8, 0.8, 0.8);
-            textParams.FontName = "Helvetica";
-            textParams.FontSize = 72;
+        WatermarkTextParams textParams = new WatermarkTextParams();
+        textParams.Text = "CONFIDENTIAL";
+        textParams.Color = new Color(0.8, 0.8, 0.8);
+        textParams.TextAlign = HorizontalAlignment.Center;
 
-            Watermark watermark = new Watermark(doc, textParams, wmParams);
+        // Apply watermark via the Document.Watermark(...) method.
+        doc.Watermark(textParams, wmParams);
 
-            doc.Save(SaveFlags.Full, outputPath);
-        }
-    }
-    finally
-    {
-        Library.Terminate();
+        doc.Save(SaveFlags.Full, outputPath);
     }
 }
 ```
@@ -427,6 +410,7 @@ public void AddWatermark(string inputPath, string outputPath)
 {
     using var pdf = PdfDocument.FromFile(inputPath);
 
+    // opacity is an integer 0-100 in IronPDF (not a 0.0-1.0 fraction).
     pdf.ApplyWatermark(
         "<h1 style='color:lightgray;font-size:72px;font-family:Helvetica;'>CONFIDENTIAL</h1>",
         rotation: 45,
@@ -617,8 +601,9 @@ public void CreatePdfWithHeaderFooter(string html, string outputPath)
 
 **Before (Adobe PDF Library SDK):**
 ```csharp
-// Adobe PDF Library doesn't have built-in URL rendering
-// Would require external HTML renderer + conversion
+// APDFL has no built-in HTML/URL rendering pipeline. To render a URL you
+// would either run an external Chromium/WebView process and pipe its
+// output through APDFL, or pair APDFL with a separate HTML-to-PDF engine.
 ```
 
 **After (IronPDF):**
@@ -950,14 +935,15 @@ var renderer = new ChromePdfRenderer();
 
 ### Issue 1: "Library Not Initialized" Equivalent
 
-**Symptom:** Looking for Initialize/Terminate pattern
-**Cause:** Adobe pattern not needed
+**Symptom:** Looking for Initialize/Terminate or `using (Library lib = new Library())` pattern
+**Cause:** APDFL requires explicit lifecycle; IronPDF does not
 **Solution:**
 ```csharp
-// Adobe
-Library.Initialize();
-try { /* code */ }
-finally { Library.Terminate(); }
+// APDFL
+using (Library lib = new Library())
+{
+    /* PDF code */
+}
 
 // IronPDF - just use directly
 var renderer = new ChromePdfRenderer();
@@ -1099,11 +1085,16 @@ pdf.SaveAs(path);
 
 ### During Migration
 
-- [ ] **Remove Adobe.PDF.Library NuGet package**
+- [ ] **Remove the Adobe PDF Library NuGet package(s)**
   ```bash
-  dotnet remove package Adobe.PDF.Library
+  # .NET 6/7/8 projects
+  dotnet remove package Adobe.PDF.Library.LM.NET
+  # .NET Framework projects
+  dotnet remove package Adobe.PDF.Library.LM.NETFramework
+  # Any APDFL add-ons (Forms Extension, etc.)
+  dotnet remove package Adobe.PDF.Library.FormsExtension.LM.NET
   ```
-  **Why:** Clean removal of the old library to prevent conflicts.
+  **Why:** Clean removal of the old library and its add-ons to prevent conflicts.
 
 - [ ] **Remove manual DLL references**
   **Why:** Eliminate dependencies on platform-specific binaries for a cleaner setup.

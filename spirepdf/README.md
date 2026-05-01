@@ -103,11 +103,13 @@ class Program
     static void Main()
     {
         PdfDocument pdf = new PdfDocument();
-        PdfHtmlLayoutFormat htmlLayoutFormat = new PdfHtmlLayoutFormat();
-        
+        PdfPageSettings setting = new PdfPageSettings { Size = PdfPageSize.A4 };
+        PdfHtmlLayoutFormat htmlLayoutFormat = new PdfHtmlLayoutFormat { IsWaiting = false };
+
         string htmlString = "<html><body><h1>Hello World</h1><p>This is a PDF from HTML.</p></body></html>";
-        
-        pdf.LoadFromHTML(htmlString, false, true, true);
+
+        // HTML-string overload (4 args). 4-bool form is the URL overload.
+        pdf.LoadFromHTML(htmlString, true, setting, htmlLayoutFormat);
         pdf.SaveToFile("output.pdf");
         pdf.Close();
     }
@@ -277,11 +279,11 @@ namespace PDFConversion
     {
         static void Main(string[] args)
         {
-            // Create HTML to PDF renderer
-            HtmlToPdf Renderer = new HtmlToPdf();
+            // Create HTML to PDF renderer (Chromium-based)
+            ChromePdfRenderer Renderer = new ChromePdfRenderer();
 
             // Render an HTML file to a PDF document with true text rendering
-            Renderer.RenderHTMLFileAsPdf("path/to/your.html").SaveAs("result.pdf");
+            Renderer.RenderHtmlFileAsPdf("path/to/your.html").SaveAs("result.pdf");
         }
     }
 }

@@ -7,6 +7,7 @@ class Program
 {
     static void Main(string[] args)
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
         var renderer = new ChromePdfRenderer();
         renderer.RenderingOptions.PaperOrientation = IronPdf.Rendering.PdfPaperOrientation.Landscape;
         renderer.RenderingOptions.CssMediaType = IronPdf.Rendering.PdfCssMediaType.Print;

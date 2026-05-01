@@ -6,6 +6,8 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var renderer = new ChromePdfRenderer();
         
         // Configure headers and footers

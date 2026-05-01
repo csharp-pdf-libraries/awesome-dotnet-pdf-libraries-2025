@@ -1,15 +1,19 @@
-// NuGet: Install-Package PSPDFKit.Dotnet
-using PSPDFKit.Pdf;
-using System.Threading.Tasks;
+// NuGet: Install-Package GdPicture
+// Nutrient .NET SDK is built on GdPicture.NET (Nutrient acquired ORPALIS/GdPicture and
+// rebranded from PSPDFKit to Nutrient on 2024-10-23). Requires Chrome or Edge installed
+// on the host for HTML rendering. Pricing is sales-led; contact nutrient.io/sdk/pricing.
+using GdPicture14;
 
 class Program
 {
-    static async Task Main()
+    static void Main()
     {
+        // Write the HTML to a file so the converter can ingest it.
         var htmlContent = "<html><body><h1>Hello World</h1></body></html>";
-        
-        using var processor = await PdfProcessor.CreateAsync();
-        var document = await processor.GeneratePdfFromHtmlStringAsync(htmlContent);
-        await document.SaveAsync("output.pdf");
+        System.IO.File.WriteAllText("input.html", htmlContent);
+
+        using var converter = new GdPictureDocumentConverter();
+        converter.LoadFromFile("input.html", DocumentFormat.DocumentFormatHTML);
+        converter.SaveAsPDF("output.pdf");
     }
 }

@@ -16,6 +16,8 @@
 
 ## Why Migrate from BCL EasyPDF SDK to IronPDF
 
+> **Vendor status:** BCL Technologies was acquired by Apryse (formerly PDFTron) in March 2020. The bcltechnologies.com site now redirects to apryse.com, and Apryse steers new users toward the Apryse PDF SDK. easyPDF SDK is still supported for existing customers but is best treated as a legacy product.
+
 ### The Problem with BCL EasyPDF SDK
 
 BCL EasyPDF SDK relies on several problematic technologies that create deployment nightmares:
@@ -54,7 +56,8 @@ The [complete migration walkthrough](https://ironpdf.com/blog/migration-guides/m
 | **.NET Support** | Limited .NET Core | Full .NET 5/6/7/8/9 |
 | **Async Support** | Callback-based | Native async/await |
 | **Container Support** | None | Full Docker/Kubernetes |
-| **Licensing** | Per-server | Per-developer |
+| **Licensing** | Per-developer dev licence + per-server production licence | Per-developer (server count not separately metered) |
+| **Distribution** | MSI installer + DLL reference (no NuGet package) | NuGet (`IronPdf`) |
 
 ---
 
@@ -103,14 +106,14 @@ grep -r "PageOrientation\|TimeOut\|PrintOffice" --include="*.cs" .
 
 ### Step 1: Remove BCL EasyPDF SDK
 
-BCL EasyPDF SDK is typically installed via:
-- MSI installer
-- Manual DLL references
-- GAC registration
+There is no NuGet package for the easyPDF SDK itself. It ships as an MSI that installs the COM components plus the .NET assemblies (`BCL.easyPDF.PDFConverter.dll` for .NET Framework, `BCL.easyPDF.PDFConverter.NetCore.dll` for .NET Core). Typical installation footprint:
+- MSI installer (registers virtual printer driver and COM types)
+- Manual DLL references in the .csproj
+- GAC registration for the COM interop assemblies
 
 Remove all references:
 1. Uninstall BCL EasyPDF SDK from Programs and Features
-2. Remove DLL references from your project
+2. Remove DLL `<Reference>` entries from your `.csproj`
 3. Remove COM interop references
 4. Clean up GAC entries if present
 
@@ -128,11 +131,13 @@ Install-Package IronPdf
 
 ### Step 3: Update Namespaces
 
+The real top-level namespace is `BCL.easyPDF` (lowercase `e`). Sub-namespaces vary by SDK component.
+
 ```csharp
 // ❌ Remove these
 using BCL.easyPDF;
-using BCL.easyPDF.Interop;
 using BCL.easyPDF.PDFConverter;
+using BCL.easyPDF.PDFProcessor;
 using BCL.easyPDF.Printer;
 
 // ✅ Add these
@@ -179,11 +184,11 @@ pdf.SaveAs("output.pdf");
 
 | BCL EasyPDF Namespace | IronPDF Namespace | Purpose |
 |-----------------------|-------------------|---------|
-| `BCL.easyPDF` | `IronPdf` | Core functionality |
-| `BCL.easyPDF.Interop` | `IronPdf` | Interop (not needed) |
-| `BCL.easyPDF.PDFConverter` | `IronPdf` | PDF conversion |
-| `BCL.easyPDF.Printer` | `IronPdf` | No printer needed |
-| `BCL.easyPDF.Office` | N/A | No Office needed |
+| `BCL.easyPDF` | `IronPdf` | Root namespace |
+| `BCL.easyPDF.PDFConverter` | `IronPdf` | HTML / Office to PDF |
+| `BCL.easyPDF.PDFProcessor` | `IronPdf` | PDF manipulation |
+| `BCL.easyPDF.Printer` | `IronPdf` | No virtual printer needed |
+| `BCL.easyPDF.Office` | N/A | No Office automation needed |
 
 ### Core Class Mapping
 
@@ -226,7 +231,7 @@ pdf.SaveAs("output.pdf");
 |--------------------|----------------|-------|
 | `doc.Append(doc2)` | `PdfDocument.Merge(pdf1, pdf2)` | Merge PDFs |
 | `doc.ExtractPages(start, end)` | `pdf.CopyPages(start, end)` | Extract pages |
-| `doc.DeletePage(index)` | `pdf.RemovePage(index)` | Remove page |
+| `doc.DeletePage(index)` | `pdf.RemovePages(index)` | Remove page |
 | `doc.RotatePage(index, angle)` | `pdf.RotatePage(index, angle)` | Rotate page |
 | `doc.GetPageCount()` | `pdf.PageCount` | Page count |
 | `doc.Save(path)` | `pdf.SaveAs(path)` | Save PDF |
@@ -1144,7 +1149,10 @@ IronPdf.License.LicenseKey = "IRONPDF-KEY";
 
 - [ ] **Uninstall BCL EasyPDF SDK**
   ```bash
-  dotnet remove package BCL.easyPDF
+  # easyPDF SDK has no NuGet package — uninstall the MSI from
+  # "Programs and Features" and remove DLL <Reference> entries
+  # (BCL.easyPDF.PDFConverter.dll / BCL.easyPDF.PDFConverter.NetCore.dll)
+  # from your .csproj.
   ```
   **Why:** Remove old dependencies to prevent conflicts.
 
@@ -1278,9 +1286,9 @@ IronPdf.License.LicenseKey = "IRONPDF-KEY";
 - **Stack Overflow**: Search `[ironpdf]` tag
 
 ### BCL EasyPDF References
-- **BCL Technologies Website**: https://www.bcltechnologies.com/
-- **BCL easyPDF SDK**: https://www.bcltechnologies.com/easypdf/sdk/
-- **.NET API Reference**: https://www.pdfonline.com/Easypdf/sdk/usermanual/
+- **Apryse (current owner, acquired BCL March 2020)**: https://apryse.com/brands/bcl-technologies
+- **BCL easyPDF SDK product page (redirects to Apryse)**: https://www.bcltechnologies.com/easypdf/sdk/
+- **.NET API Reference (legacy site, still live)**: https://www.pdfonline.com/Easypdf/sdk/usermanual/
 
 ---
 

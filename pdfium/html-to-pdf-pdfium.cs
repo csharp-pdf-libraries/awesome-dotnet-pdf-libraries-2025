@@ -1,21 +1,21 @@
-// NuGet: Install-Package PdfiumViewer
+// NuGet: Install-Package PdfiumViewer  (representative PDFium wrapper)
+// PDFium is a PDF rendering / parsing engine. It has NO HTML parser, so no
+// PDFium .NET wrapper (PdfiumViewer, PdfiumViewer.Updated, PDFiumCore,
+// Pdfium.Net.SDK) can convert HTML to PDF on its own.
 using PdfiumViewer;
+using System;
 using System.IO;
 using System.Drawing.Printing;
 
-// Note: PdfiumViewer is primarily for viewing/rendering PDFs, not creating them from HTML
-// For HTML to PDF with Pdfium.NET, you would need additional libraries
-// This example shows a limitation of Pdfium.NET
 class Program
 {
     static void Main()
     {
-        // Pdfium.NET does not have native HTML to PDF conversion
-        // You would need to use a separate library to convert HTML to PDF
-        // then use Pdfium for manipulation
+        // PDFium has no native HTML-to-PDF capability.
+        // Produce the PDF with another engine (wkhtmltopdf, headless Chromium,
+        // IronPDF, etc.) and then load it with PdfDocument.Load(...) for rendering.
         string htmlContent = "<h1>Hello World</h1>";
-        
-        // This functionality is not directly available in Pdfium.NET
-        Console.WriteLine("HTML to PDF conversion not natively supported in Pdfium.NET");
+
+        Console.WriteLine("HTML to PDF conversion is not supported by PDFium.");
     }
 }

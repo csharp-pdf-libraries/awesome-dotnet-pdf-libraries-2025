@@ -1,31 +1,38 @@
 # How Do I Migrate from Tall Components (TallPDF, PDFKit) to IronPDF in C#?
 
-## ⚠️ CRITICAL: Tall Components is Discontinued
+## ⚠️ Tall Components is Closed to New Customers
 
-**Tall Components has been acquired by Apryse and is no longer available.** New licenses cannot be purchased, and existing users are being redirected to iText SDK. If you're still using Tall Components, migration is not optional - it's mandatory.
+**TallComponents was acquired by Apryse on May 27, 2025** ([press release](https://apryse.com/blog/apryse-acquires-tallcomponents)). The vendor's site now redirects to `apryse.com/brands/tallcomponents`, where Apryse states plainly: "We are no longer offering new licenses for TallComponents products" and points new buyers to the **iText SDK** (also owned by Apryse). Existing customers continue to receive support, and the NuGet packages remain published — `TallComponents.PDFKit5` was last refreshed in April 2026 — but no road-map development is happening on the TallComponents brand. Migrating now avoids a forced cutover later.
 
-### Why You Must Migrate Now
+### Why You Should Plan a Migration
 
-1. **Product Discontinued**: No new licenses available since Apryse acquisition
-2. **No Support**: No bug fixes, security patches, or updates
-3. **Known Rendering Bugs**: Documented issues with blank pages, missing graphics, and font problems
-4. **No HTML Support**: Only XML-based document creation - completely unsuitable for modern web workflows
-5. **Legacy Architecture**: Built for a different era of .NET development
-6. **Vendor Lock-in Risk**: Being pushed toward expensive iText SDK
+1. **Closed to new licenses**: post-acquisition, the only forward path Apryse offers is iText
+2. **No road-map**: existing-customer support only — no new features, framework targets, or HTML5 engine
+3. **XHTML-only HTML pipeline**: `XhtmlParagraph` parses **XHTML 1.0 Strict / XHTML 1.1 + CSS 2.1**, not modern HTML5/CSS3/JavaScript. That is unusable for most current marketing/dashboard HTML
+4. **Legacy package shape**: PDFKit 4.x targets .NET Framework 2.0; PDFKit5 targets .NET Standard 2.0 — fine, but no .NET 8+ TFM is published
+5. **Strategic dead end**: development energy at Apryse is concentrated on Apryse SDK (PDFTron) and iText, not TallComponents
 
 ### The Tall Components Problem
 
-Before discontinuation, Tall Components was already problematic:
+Modern HTML, the typical input for PDF generation today, only round-trips through TallComponents if it is XHTML-compliant:
 
 ```csharp
-// Tall Components: Verbose XML-based approach
+// TallPDF (NuGet: TallComponents.TallPDF5)
+using TallComponents.PDF.Layout;
+using TallComponents.PDF.Layout.Paragraphs;
+
 Document document = new Document();
 Section section = document.Sections.Add();
-TextParagraph paragraph = new TextParagraph();
-paragraph.Text = "Hello World";
-paragraph.Font = new Font("Arial", 24);
-section.Paragraphs.Add(paragraph);
-document.Write("output.pdf");
+
+// XhtmlParagraph supports XHTML 1.0/1.1 + CSS 2.1 only.
+XhtmlParagraph xhtml = new XhtmlParagraph();
+xhtml.Text = "<html><body><h1>Hello World</h1></body></html>";
+section.Paragraphs.Add(xhtml);
+
+using (var fs = new FileStream("output.pdf", FileMode.Create))
+{
+    document.Write(fs);
+}
 ```
 
 IronPDF offers a modern, HTML-based approach:
@@ -46,10 +53,13 @@ The full transition from TallPDF and PDFKit to IronPDF—including XML-to-HTML e
 ### Step 1: Replace NuGet Packages
 
 ```bash
-# Remove Tall Components packages
-dotnet remove package TallComponents.PDF.Kit
-dotnet remove package TallComponents.PDF.Layout
-dotnet remove package TallComponents.PDF.Layout.Drawing
+# Remove TallComponents packages (use whichever your project actually
+# references — naming on nuget.org is TallComponents.PDFKit / PDFKit5 for
+# the manipulation library, and TallComponents.TallPDF / TallPDF5 / TallPDF6
+# for the layout-oriented sibling).
+dotnet remove package TallComponents.PDFKit5
+dotnet remove package TallComponents.TallPDF5
+dotnet remove package TallComponents.PDFRasterizer4
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -58,11 +68,12 @@ dotnet add package IronPdf
 ### Step 2: Update Namespaces
 
 ```csharp
-// Before
-using TallComponents.PDF.Kit;
-using TallComponents.PDF.Layout;
-using TallComponents.PDF.Layout.Drawing;
-using TallComponents.PDF.Layout.Paragraphs;
+// Before — real namespaces (no "TallComponents.PDF.Kit"; that's not a thing)
+using TallComponents.PDF;                        // Document, Page, Pages
+using TallComponents.PDF.Shapes;                 // TextShape, ImageShape (PDFKit)
+using TallComponents.PDF.Security;               // PasswordSecurity
+using TallComponents.PDF.Layout;                 // Document, Section (TallPDF)
+using TallComponents.PDF.Layout.Paragraphs;      // TextParagraph, XhtmlParagraph
 
 // After
 using IronPdf;
@@ -78,20 +89,20 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 ## API Mapping Reference
 
-| Tall Components | IronPDF | Notes |
+| TallComponents | IronPDF | Notes |
 |-----------------|---------|-------|
-| `Document` | `ChromePdfRenderer` | Create renderer |
+| `Document` (TallPDF: layout) | `ChromePdfRenderer` | Create renderer |
+| `Document` (PDFKit: manipulate) | `PdfDocument` | Load/edit existing PDFs |
 | `Section` | Automatic | Sections from HTML structure |
 | `TextParagraph` | HTML text elements | `<p>`, `<h1>`, `<div>`, etc. |
 | `ImageParagraph` | `<img>` tag | HTML images |
 | `TableParagraph` | HTML `<table>` | Standard HTML tables |
+| `XhtmlParagraph` (XHTML 1.x + CSS 2.1) | `RenderHtmlAsPdf()` (HTML5/CSS3 via Chromium) | Modern HTML works |
 | `Font` | CSS `font-family` | Web fonts supported |
-| `document.Write()` | `pdf.SaveAs()` | Save to file |
-| `document.Write(stream)` | `pdf.BinaryData` or `pdf.Stream` | Stream output |
-| `Page.Canvas` | HTML/CSS rendering | No manual canvas needed |
-| `XmlDocument.Generate()` | `RenderHtmlAsPdf()` | HTML replaces XML |
-| `PdfKit.Merger.Merge()` | `PdfDocument.Merge()` | Merge PDFs |
-| `Document.Security` | `pdf.SecuritySettings` | PDF security |
+| `document.Write(stream)` | `pdf.SaveAs()` / `pdf.BinaryData` / `pdf.Stream` | File or stream output |
+| `page.Overlay.Add(shape)` | `pdf.ApplyStamp(stamper)` | Watermark / overlay |
+| `outputDoc.Pages.Add(page.Clone())` | `PdfDocument.Merge(...)` / `pdf.AppendPdf(...)` | Merge PDFs |
+| `Document.Security = new PasswordSecurity { ... }` | `pdf.SecuritySettings` | PDF security |
 | `PageLayout` | `RenderingOptions` | Page settings |
 
 ---
@@ -400,21 +411,29 @@ pdf.SaveAs("report.pdf");
 
 ### Example 6: Merging PDFs
 
-**Tall Components:**
+**Tall Components (PDFKit.NET 5.0):**
 ```csharp
-using TallComponents.PDF.Kit;
+using TallComponents.PDF;
 
-Document doc1 = new Document("file1.pdf");
-Document doc2 = new Document("file2.pdf");
+// PDFKit has no dedicated Merger class — you append pages by cloning
+// them into a target Document. Source: PDFKit.NET 5.0 "Merge PDF files
+// in C# .NET" code sample on tallcomponents.com.
+Document outputDoc = new Document();
 
-PdfKit.Merger merger = new PdfKit.Merger();
-merger.Append(doc1);
-merger.Append(doc2);
+using (FileStream fs1 = new FileStream("file1.pdf", FileMode.Open, FileAccess.Read))
+using (FileStream fs2 = new FileStream("file2.pdf", FileMode.Open, FileAccess.Read))
+{
+    Document doc1 = new Document(fs1);
+    foreach (Page page in doc1.Pages)
+        outputDoc.Pages.Add(page.Clone()); // clone is required across documents
 
-Document merged = merger.Merge();
+    Document doc2 = new Document(fs2);
+    outputDoc.Pages.AddRange(doc2.Pages.CloneToArray());
+}
+
 using (FileStream fs = new FileStream("merged.pdf", FileMode.Create))
 {
-    merged.Write(fs);
+    outputDoc.Write(fs);
 }
 ```
 
@@ -435,22 +454,32 @@ pdf1.SaveAs("merged.pdf");
 
 ### Example 7: Security and Password Protection
 
-**Tall Components:**
+**Tall Components (PDFKit.NET):**
 ```csharp
-using TallComponents.PDF.Kit;
-using TallComponents.PDF.Kit.Security;
+using TallComponents.PDF;
+using TallComponents.PDF.Security;
 
-Document document = new Document();
-// ... create content ...
+// Load or create a Document, then assign a PasswordSecurity instance.
+// Security is a property that takes a Security object (PasswordSecurity
+// or CertificateSecurity) — it is not a flat bag of fields on Document.
+using (FileStream fs = new FileStream("input.pdf", FileMode.Open, FileAccess.Read))
+{
+    Document document = new Document(fs);
 
-// Security settings
-document.Security.OwnerPassword = "owner456";
-document.Security.UserPassword = "user123";
-document.Security.AllowPrinting = false;
-document.Security.AllowCopying = false;
-document.Security.EncryptionLevel = EncryptionLevel.AES256;
+    PasswordSecurity security = new PasswordSecurity();
+    security.OwnerPassword = "owner456";
+    security.UserPassword = "user123";
+    security.AllowPrint = false;
+    security.AllowCopy = false;
+    // AES-256 is supported in PDFKit.NET 5.0 (KeyLength.Aes256).
+    security.KeyLength = KeyLength.Aes256;
+    document.Security = security;
 
-document.Write("protected.pdf");
+    using (FileStream output = new FileStream("protected.pdf", FileMode.Create))
+    {
+        document.Write(output);
+    }
+}
 ```
 
 **IronPDF:**
@@ -471,9 +500,9 @@ pdf.SecuritySettings.AllowUserAnnotations = false;
 pdf.SaveAs("protected.pdf");
 ```
 
-### Example 8: URL to PDF (Not Possible with Tall Components)
+### Example 8: URL to PDF (limited in TallComponents)
 
-**Tall Components:** Not supported - no HTML rendering capability
+**Tall Components:** `XhtmlParagraph.Path` accepts an HTTP URL, but the parser only handles XHTML 1.0/1.1 + CSS 2.1. Modern dashboards rendered as HTML5 + JavaScript will not render correctly; there is no headless-browser engine in the box.
 
 **IronPDF:**
 ```csharp
@@ -491,21 +520,26 @@ pdf.SaveAs("dashboard.pdf");
 
 ### Example 9: Digital Signatures
 
-**Tall Components:**
+**Tall Components (PDFKit.NET):**
 ```csharp
-using TallComponents.PDF.Kit;
-using TallComponents.PDF.Kit.Signing;
+using TallComponents.PDF;
+using TallComponents.PDF.Signing;
+using System.Security.Cryptography.X509Certificates;
 
-Document document = new Document("unsigned.pdf");
+using (FileStream fs = new FileStream("unsigned.pdf", FileMode.Open, FileAccess.Read))
+{
+    Document document = new Document(fs);
 
-// Load certificate
-X509Certificate2 cert = new X509Certificate2("certificate.pfx", "password");
+    X509Certificate2 cert = new X509Certificate2("certificate.pfx", "password");
+    SignatureField field = new SignatureField("Signature1");
+    field.Sign(cert);
+    document.Fields.Add(field);
 
-// Create signature
-SignatureHandler handler = new SignatureHandler(cert);
-document.Sign(handler);
-
-document.Write("signed.pdf");
+    using (FileStream output = new FileStream("signed.pdf", FileMode.Create))
+    {
+        document.Write(output);
+    }
+}
 ```
 
 **IronPDF:**
@@ -531,49 +565,37 @@ pdf.SaveAs("signed.pdf");
 
 ## Feature Comparison
 
-| Feature | Tall Components | IronPDF |
+| Feature | TallComponents | IronPDF |
 |---------|-----------------|---------|
-| **Status** | ❌ DISCONTINUED | ✅ Active |
-| **Support** | ❌ None | ✅ Full |
-| **Updates** | ❌ None | ✅ Regular |
+| **Status** | Closed to new licenses (Apryse acquired 2025-05-27) | Active |
+| **Support** | Existing customers only | Full |
+| **Updates** | Maintenance only (PDFKit5 last refresh 2026-04) | Regular feature releases |
 | **Content Creation** | | |
-| HTML to PDF | No | Full Chromium |
-| URL to PDF | No | Yes |
-| CSS Support | No | Full CSS3 |
+| HTML to PDF | XHTML 1.0/1.1 + CSS 2.1 only (`XhtmlParagraph`) | Full HTML5/CSS3 via Chromium |
+| URL to PDF | Yes for XHTML URLs (`XhtmlParagraph.Path`) | Yes |
+| CSS Support | CSS 2.1 | Full CSS3 |
 | JavaScript | No | Full ES2024 |
-| XML Templates | Yes | Not needed |
 | **PDF Operations** | | |
-| Merge PDFs | Yes | Yes |
+| Merge PDFs | Yes (`Pages.Add(page.Clone())`) | Yes |
 | Split PDFs | Yes | Yes |
-| Watermarks | Manual | Built-in |
-| Headers/Footers | XML-based | HTML/CSS |
+| Watermarks | `page.Overlay.Add(TextShape)` | `pdf.ApplyStamp(...)` |
+| Headers/Footers | Layout DOM | HTML/CSS |
 | **Security** | | |
-| Password Protection | Yes | Yes |
-| Digital Signatures | Yes | Yes |
-| Encryption | Yes | Yes |
-| PDF/A | Limited | Yes |
-| **Known Issues** | | |
-| Blank Pages | ⚠️ Documented bug | None |
-| Missing Graphics | ⚠️ Documented bug | None |
-| Font Problems | ⚠️ Documented bug | None |
+| Password Protection | Yes (`PasswordSecurity`) | Yes |
+| Digital Signatures | Yes (`SignatureField.Sign`) | Yes |
+| Encryption | RC4 / AES-128 / AES-256 | AES-128 / AES-256 |
+| PDF/A | PDF/A-1, PDF/A-2, PDF/A-3 | Yes |
+| **Platform** | | |
+| Target Frameworks | PDFKit5: .NET Standard 2.0; PDFKit (4.x): .NET Framework 2.0 | .NET Framework 4.6.2+, .NET 6/7/8/9 |
 | **Development** | | |
-| Learning Curve | High (XML) | Low (HTML) |
-| Documentation | Outdated | Extensive |
-| Community | None | Active |
+| Documentation | Frozen at acquisition; new docs route to Apryse / iText | Maintained |
+| Community | Quiet (no new sales) | Active |
 
 ---
 
-## Known Tall Components Bugs (Documented)
+## Why "the same engine in 2026" is the real risk
 
-These issues were never fixed before discontinuation:
-
-1. **Blank Pages Bug**: Random blank pages appearing in generated PDFs
-2. **Disappearing Graphics**: Images and shapes not rendering in certain conditions
-3. **Missing Text**: Text paragraphs randomly omitted from output
-4. **Incorrect Font Rendering**: Wrong fonts or garbled characters
-5. **Memory Leaks**: Document objects not properly disposed
-
-IronPDF has none of these issues - it uses a proven Chromium rendering engine.
+The TallComponents PDF engine is unchanged from its pre-acquisition state. Apryse is not investing road-map work into it — they are routing development into Apryse SDK and iText. Any rendering edge case that was a workaround in 2024 will still be a workaround in 2027. IronPDF, by contrast, ships a Chromium-based renderer that is updated alongside the IronPDF release cadence, so HTML/CSS/JS that works in a current browser works in IronPDF.
 
 ---
 
@@ -584,7 +606,7 @@ IronPDF has none of these issues - it uses a proven Chromium rendering engine.
 - [ ] **Audit all Tall Components usage**
   ```bash
   grep -r "using TallComponents" --include="*.cs" .
-  grep -r "Document\|Section\|TextParagraph" --include="*.cs" .
+  grep -rE "XhtmlParagraph|TextParagraph|PasswordSecurity|page\.Overlay" --include="*.cs" .
   ```
   **Why:** Identify all usages to ensure complete migration coverage.
 
@@ -618,9 +640,11 @@ IronPDF has none of these issues - it uses a proven Chromium rendering engine.
 
 - [ ] **Remove TallComponents packages**
   ```bash
-  dotnet remove package TallComponents.PDF
+  dotnet remove package TallComponents.PDFKit5     # or TallComponents.PDFKit (4.x)
+  dotnet remove package TallComponents.TallPDF5    # if you used the layout sibling
+  dotnet remove package TallComponents.PDFRasterizer4
   ```
-  **Why:** Clean package switch to IronPDF.
+  **Why:** Clean package switch to IronPDF. The real package IDs on nuget.org are `TallComponents.PDFKit5` / `PDFKit`, `TallComponents.TallPDF5` / `TallPDF6`, etc. — there is no package literally named `TallComponents.PDF`.
 
 - [ ] **Install IronPdf package**
   ```bash
@@ -705,9 +729,6 @@ IronPDF has none of these issues - it uses a proven Chromium rendering engine.
 - [ ] **Compare visual output**
   **Why:** Ensure the new PDFs match or exceed the quality of the old ones.
 
-- [ ] **Verify no more blank page issues**
-  **Why:** IronPDF's rendering should eliminate blank pages, but verification is necessary.
-
 - [ ] **Test all document templates**
   **Why:** Confirm that all templates render correctly with IronPDF.
 
@@ -743,14 +764,14 @@ IronPDF has none of these issues - it uses a proven Chromium rendering engine.
 
 ## Migration Timeline Recommendation
 
-Since Tall Components is discontinued with no support:
+Since TallComponents is closed to new licenses and on maintenance-only support, plan the move at your own pace but do not stall:
 
 1. **Week 1**: Audit codebase and identify all usage
-2. **Week 2**: Convert document templates to HTML
-3. **Week 3**: Update security and merging code
+2. **Week 2**: Convert XHTML templates to HTML5
+3. **Week 3**: Update security, signing, and merge code paths
 4. **Week 4**: Testing and deployment
 
-**Do not delay** - you're running unsupported software with known rendering bugs.
+The longer you stay on TallComponents, the further your PDF stack drifts from current .NET targets and current HTML.
 
 ---
 

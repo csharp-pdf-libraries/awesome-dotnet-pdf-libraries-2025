@@ -2,7 +2,7 @@
 
 ## Why Migrate from PDFSharp to IronPDF
 
-PDFSharp requires manual positioning of every element using GDI+ style coordinates, making document generation tedious and error-prone. IronPDF supports native HTML-to-PDF conversion with modern CSS3 (including flexbox and grid), allowing you to leverage web technologies instead of calculating X,Y positions. This dramatically reduces development time and makes PDF generation maintainable through standard HTML/CSS skills.
+PDFsharp requires manual positioning of every element using GDI+ style coordinates, making document generation tedious and error-prone. PDFsharp does not support HTML-to-PDF conversion natively — only programmatic XGraphics drawing — and the community add-on `HtmlRenderer.PdfSharp` covers HTML 4.01 / CSS level 2 only (no flexbox, grid, or JavaScript). IronPDF supports native HTML-to-PDF conversion with modern CSS3 (including flexbox and grid), allowing you to leverage web technologies instead of calculating X,Y positions. This dramatically reduces development time and makes PDF generation maintainable through standard HTML/CSS skills.
 
 ### The Coordinate Calculation Problem
 
@@ -33,10 +33,14 @@ For a side-by-side feature analysis, see the [detailed comparison](https://irons
 ## NuGet Package Changes
 
 ```bash
-# Remove PDFSharp
-dotnet remove package PdfSharp
-dotnet remove package PdfSharp-wpf
-dotnet remove package PdfSharp.Charting
+# Remove PDFsharp (the official package ID is "PDFsharp" — uppercase PDF;
+# adjust if your project uses the WPF/GDI/MigraDoc variant or the
+# community PdfSharpCore port)
+dotnet remove package PDFsharp
+# dotnet remove package PDFsharp-WPF        # if you used the WPF build
+# dotnet remove package PDFsharp-GDI        # if you used the GDI build
+# dotnet remove package PDFsharp-MigraDoc   # if you used MigraDoc on top
+# dotnet remove package PdfSharpCore        # community .NET Standard port
 
 # Add IronPDF
 dotnet add package IronPdf
@@ -130,7 +134,7 @@ PdfPage page = document.AddPage();
 XGraphics gfx = XGraphics.FromPdfPage(page);
 
 // Title
-XFont titleFont = new XFont("Arial", 24, XFontStyle.Bold);
+XFont titleFont = new XFont("Arial", 24, XFontStyleEx.Bold); // PDFsharp 6.x renamed XFontStyle to XFontStyleEx
 gfx.DrawString("Invoice", titleFont, XBrushes.Black,
     new XRect(50, 50, page.Width, page.Height),
     XStringFormats.TopLeft);
@@ -237,7 +241,7 @@ PdfDocument document = new PdfDocument();
 PdfPage page = document.AddPage();
 XGraphics gfx = XGraphics.FromPdfPage(page);
 
-XFont headerFont = new XFont("Arial", 12, XFontStyle.Bold);
+XFont headerFont = new XFont("Arial", 12, XFontStyleEx.Bold); // PDFsharp 6.x: XFontStyle → XFontStyleEx
 XFont cellFont = new XFont("Arial", 10);
 XPen pen = new XPen(XColors.Black, 1);
 
@@ -424,7 +428,7 @@ PdfPage page = document.Pages[0];
 
 // Get graphics object for the page
 XGraphics gfx = XGraphics.FromPdfPage(page);
-XFont font = new XFont("Arial", 20, XFontStyle.Bold);
+XFont font = new XFont("Arial", 20, XFontStyleEx.Bold); // PDFsharp 6.x: XFontStyle → XFontStyleEx
 
 // Add watermark at calculated position
 gfx.DrawString("CONFIDENTIAL", font, XBrushes.Red,
@@ -572,7 +576,7 @@ pdf.SaveAs("website.pdf");
 - **IronPDF:** Use HTML `<table>` or CSS Grid/Flexbox for complex layouts
 
 ### 6. License Requirements
-- **PDFSharp:** Open source (MIT license)
+- **PDFsharp:** Open source (MIT license, by PDFsharp-Team / empira). PdfSharpCore (the community .NET Standard port) is also MIT.
 - **IronPDF:** Commercial product; requires license for production use (free trial available)
 
 The [migration walkthrough](https://ironpdf.com/blog/migration-guides/migrate-from-pdfsharp-to-ironpdf/) includes conversion recipes for coordinate-based drawing to HTML/CSS layouts.
@@ -637,13 +641,21 @@ grep -r "PdfSharp\|XGraphics\|XFont\|XBrush" --include="*.cs" .
 
 ### Package Changes
 
-- [ ] **Remove PdfSharp NuGet packages**
+- [ ] **Remove PDFsharp NuGet packages**
   ```bash
-  dotnet remove package PdfSharp
-  dotnet remove package PdfSharp-wpf
-  dotnet remove package PdfSharp.Charting
+  # Official PDFsharp-Team package IDs (case-sensitive on case-sensitive feeds):
+  dotnet remove package PDFsharp
+  # dotnet remove package PDFsharp-WPF
+  # dotnet remove package PDFsharp-GDI
+  # dotnet remove package PDFsharp-MigraDoc
+  # Community ports:
+  # dotnet remove package PdfSharpCore
   ```
-  **Why:** Avoid conflicts and reduce package bloat.
+  **Why:** Avoid conflicts and reduce package bloat. Confirm which variant
+  your project references — the official 6.x packages are published by
+  PDFsharp-Team under the IDs above; PdfSharpCore is a separate community
+  port (ststeiger/PdfSharpCore) and there is no official `PdfSharp.Charting`
+  package.
 
 - [ ] **Add IronPdf NuGet package**
   ```bash
@@ -694,7 +706,7 @@ grep -r "PdfSharp\|XGraphics\|XFont\|XBrush" --include="*.cs" .
 - [ ] **Replace XFont with CSS font properties**
   ```csharp
   // Before (PDFSharp)
-  var titleFont = new XFont("Arial", 24, XFontStyle.Bold);
+  var titleFont = new XFont("Arial", 24, XFontStyleEx.Bold); // PDFsharp 6.x renames XFontStyle → XFontStyleEx
   var bodyFont = new XFont("Times New Roman", 12);
 
   // After (IronPDF) - CSS in HTML

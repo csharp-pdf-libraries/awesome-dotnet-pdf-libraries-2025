@@ -2,19 +2,19 @@
 
 ## Why Migrate from wkhtmltopdf to IronPDF
 
-**wkhtmltopdf is a critical security risk.** The project has a CRITICAL severity vulnerability (CVE-2022-35583, CVSS 9.8) that allows Server-Side Request Forgery (SSRF), enabling attackers to potentially take over your infrastructure. This vulnerability will **never be patched** because the project has been **officially abandoned** since 2016-2017.
+**wkhtmltopdf is now a frozen project.** The GitHub repository was archived by the owner on **January 2, 2023**, and the wider `wkhtmltopdf` GitHub organization was marked archived in **July 2024**. The last upstream release is **0.12.6 (June 11, 2020)**; a later packaging build, **0.12.6.1-3**, shipped on May 22, 2023, but no source release has followed. CVE-2022-35583 (CVSS 9.8, CWE-918 SSRF) was published on August 22, 2022 and remains unpatched. The maintainers contend it is an input-sanitization issue rather than a wkhtmltopdf bug, but no fix has been merged and none is expected.
 
 ### The Security Crisis
 
 | Issue | Severity | Status |
 |-------|----------|--------|
-| **CVE-2022-35583** | CRITICAL (9.8/10) | **UNPATCHED** |
-| **SSRF Vulnerability** | Infrastructure takeover risk | **UNPATCHED** |
-| **Last Update** | 2016-2017 | **ABANDONED** |
-| **WebKit Version** | 2015 (Qt WebKit) | **OBSOLETE** |
+| **CVE-2022-35583** (SSRF, CWE-918) | CRITICAL (9.8/10) | **UNPATCHED — disputed by maintainers** |
+| **GitHub repo archived** | Read-only | **Jan 2, 2023** |
+| **Last upstream release** | 0.12.6 | **June 11, 2020** |
+| **Underlying engine** | Qt 4.8 (unsupported by Qt since 2015) + QtWebKit | **OBSOLETE** |
 | **CSS Grid Support** | None | Broken |
 | **Flexbox Support** | Partial | Broken |
-| **ES6+ JavaScript** | None | Broken |
+| **ES6+ JavaScript** | Limited | Broken |
 
 **Every day you continue using wkhtmltopdf, your infrastructure is at risk.**
 
@@ -22,13 +22,13 @@
 
 ## The Abandonment Problem
 
-wkhtmltopdf is not just outdated—it's a dead project with no future:
+wkhtmltopdf is a frozen project: the main GitHub repo is archived, the last release is over four years old, and the underlying Qt 4.8 / QtWebKit stack is itself unsupported upstream.
 
 | Aspect | wkhtmltopdf | IronPDF |
 |--------|-------------|---------|
-| **Security Status** | CRITICAL CVE unpatched | Zero known CVEs |
-| **Last Meaningful Update** | 2016-2017 | Active development |
-| **Rendering Engine** | Qt WebKit (2015) | Modern Chromium |
+| **Security Status** | CRITICAL CVE-2022-35583 unpatched | No critical CVEs reported |
+| **Last Upstream Release** | 0.12.6 (June 2020) | Active development |
+| **Rendering Engine** | Qt 4.8 + QtWebKit (Qt 4.8 EOL 2015) | Modern Chromium |
 | **CSS Grid** | ❌ Not supported | ✅ Full support |
 | **Flexbox** | ⚠️ Broken | ✅ Full support |
 | **ES6+ JavaScript** | ❌ Not supported | ✅ Full support |
@@ -40,17 +40,17 @@ wkhtmltopdf is not just outdated—it's a dead project with no future:
 
 ### Affected Wrapper Libraries
 
-All .NET wrappers for wkhtmltopdf inherit these vulnerabilities:
+Every .NET wrapper bundles or shells out to the same wkhtmltopdf native binary, so they all inherit its CVE exposure regardless of how active the wrapper itself is:
 
-| Wrapper Library | Status | Security Risk |
-|-----------------|--------|---------------|
-| **DinkToPdf** | Abandoned | ⚠️ CRITICAL |
-| **Rotativa** | Abandoned | ⚠️ CRITICAL |
-| **TuesPechkin** | Abandoned | ⚠️ CRITICAL |
-| **WkHtmlToPdf-DotNet** | Abandoned | ⚠️ CRITICAL |
-| **NReco.PdfGenerator** | Uses wkhtmltopdf | ⚠️ CRITICAL |
+| Wrapper Library | Latest NuGet | Security Risk |
+|-----------------|--------------|---------------|
+| **DinkToPdf** | 1.0.8 (April 2017) — abandoned | Inherits CVE-2022-35583 |
+| **Rotativa.AspNetCore** (webgio fork) | 1.4.0 (Nov 2023) — wrapper still updated, binary frozen | Inherits CVE-2022-35583 |
+| **TuesPechkin** | 2.1.1 (Jan 2015) — abandoned | Inherits CVE-2022-35583 |
+| **Haukcode.WkHtmlToPdfDotNet** (formerly `WkHtmlToPdf-DotNet`) | 1.5.95 (Oct 2024) — wrapper updated, binary frozen | Inherits CVE-2022-35583 |
+| **NReco.PdfGenerator** | 1.2.1 — wrapper updated, bundles wkhtmltopdf | Inherits CVE-2022-35583 |
 
-**If you use any of these libraries, you are vulnerable to CVE-2022-35583.**
+**If you use any of these libraries, your application is exposed to CVE-2022-35583 unless you sanitize all HTML input.**
 
 ---
 
@@ -81,7 +81,7 @@ When wkhtmltopdf renders this HTML, it fetches these URLs from your server's net
 
 ```bash
 # Remove wkhtmltopdf wrapper (whichever you're using)
-dotnet remove package WkHtmlToPdf-DotNet
+dotnet remove package Haukcode.WkHtmlToPdfDotNet
 dotnet remove package DinkToPdf
 dotnet remove package TuesPechkin
 dotnet remove package Rotativa
@@ -101,7 +101,7 @@ dotnet add package IronPdf
 
 | wkhtmltopdf Wrapper | IronPDF |
 |---------------------|---------|
-| `WkHtmlToPdfDotNet` | `IronPdf` |
+| `Haukcode.WkHtmlToPdfDotNet` (was `WkHtmlToPdfDotNet`) | `IronPdf` |
 | `DinkToPdf` | `IronPdf` |
 | `TuesPechkin` | `IronPdf` |
 | `Rotativa` | `IronPdf` |
@@ -167,10 +167,10 @@ dotnet add package IronPdf
 wkhtmltopdf input.html output.pdf
 ```
 
-**Before (C# Wrapper - WkHtmlToPdf-DotNet):**
+**Before (C# Wrapper - Haukcode.WkHtmlToPdfDotNet):**
 ```csharp
-using WkHtmlToPdfDotNet;
-using WkHtmlToPdfDotNet.Contracts;
+using Haukcode.WkHtmlToPdfDotNet;
+using Haukcode.WkHtmlToPdfDotNet.Contracts;
 using System.IO;
 
 var converter = new SynchronizedConverter(new PdfTools());
@@ -212,7 +212,7 @@ echo "<h1>Hello World</h1>" | wkhtmltopdf - output.pdf
 
 **Before (C# Wrapper):**
 ```csharp
-using WkHtmlToPdfDotNet;
+using Haukcode.WkHtmlToPdfDotNet;
 using System.IO;
 
 var converter = new SynchronizedConverter(new PdfTools());
@@ -254,7 +254,7 @@ wkhtmltopdf https://www.example.com output.pdf
 
 **Before (C# Wrapper):**
 ```csharp
-using WkHtmlToPdfDotNet;
+using Haukcode.WkHtmlToPdfDotNet;
 using System.IO;
 
 var converter = new SynchronizedConverter(new PdfTools());
@@ -302,7 +302,7 @@ wkhtmltopdf \
 
 **Before (C# Wrapper):**
 ```csharp
-using WkHtmlToPdfDotNet;
+using Haukcode.WkHtmlToPdfDotNet;
 using System.IO;
 
 var converter = new SynchronizedConverter(new PdfTools());
@@ -367,7 +367,7 @@ wkhtmltopdf \
 
 **Before (C# Wrapper):**
 ```csharp
-using WkHtmlToPdfDotNet;
+using Haukcode.WkHtmlToPdfDotNet;
 using System.IO;
 
 var converter = new SynchronizedConverter(new PdfTools());
@@ -500,7 +500,7 @@ wkhtmltopdf \
 
 **Before (C# Wrapper):**
 ```csharp
-using WkHtmlToPdfDotNet;
+using Haukcode.WkHtmlToPdfDotNet;
 using System.IO;
 
 var converter = new SynchronizedConverter(new PdfTools());
@@ -854,12 +854,12 @@ renderer.RenderingOptions.CssMediaType = PdfCssMediaType.Print;
 
 | Security Aspect | wkhtmltopdf | IronPDF |
 |-----------------|-------------|---------|
-| **Known CVEs** | CVE-2022-35583 (9.8 CRITICAL) | None |
-| **SSRF Vulnerability** | YES - Unpatched | Mitigated |
-| **Security Updates** | None since 2017 | Regular |
-| **Rendering Engine** | Qt WebKit 2015 | Modern Chromium |
+| **Known CVEs** | CVE-2022-35583 (9.8 CRITICAL, disputed) | No critical CVEs reported |
+| **SSRF Vulnerability** | YES — unpatched (maintainers say sanitize input) | Mitigated by Chromium sandbox |
+| **Security Updates** | Repo archived Jan 2, 2023; no further releases planned | Regular |
+| **Rendering Engine** | Qt 4.8 + QtWebKit (Qt 4.8 EOL 2015) | Modern Chromium |
 | **Network Isolation** | Not available | Configurable |
-| **Input Sanitization** | User responsibility | Built-in options |
+| **Input Sanitization** | User responsibility | User responsibility, but Chromium sandbox limits blast radius |
 
 ---
 
@@ -1147,11 +1147,11 @@ grep -r "wkhtmltopdf\|WkHtmlToPdf\|DinkToPdf\|Rotativa\|TuesPechkin\|NReco.PdfGe
 
 ## Why This Migration is Urgent
 
-1. **CVE-2022-35583 is actively exploitable** - SSRF attacks are common and easy to execute
-2. **No patch will ever come** - wkhtmltopdf is officially abandoned
-3. **Your infrastructure is at risk** - Internal services, cloud credentials, and sensitive data are exposed
-4. **Compliance requirements** - Security audits will flag this vulnerability
-5. **Modern web support** - Your PDFs will finally render CSS Grid and Flexbox correctly
+1. **CVE-2022-35583 is exploitable on any wkhtmltopdf 0.12.6 install that renders untrusted HTML** — SSRF via `<iframe>` / `<img>` tags reaching internal IPs.
+2. **No patch is coming** — the main GitHub repo was archived on Jan 2, 2023; the maintainers consider the issue an input-sanitization problem and will not fix it.
+3. **Your infrastructure is at risk** — internal services, cloud metadata endpoints (AWS IMDS, GCP, Azure), and sensitive data can be reached from the rendering process.
+4. **Compliance requirements** — security scanners (Snyk, Tenable, GHSA) will flag CVE-2022-35583 against any project shipping wkhtmltopdf binaries.
+5. **Modern web support** — Chromium-based rendering supports CSS Grid, Flexbox, and modern JavaScript that QtWebKit cannot.
 
 Each of these outcomes is demonstrated throughout the [wkhtmltopdf to IronPDF migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-wkhtmltopdf-to-ironpdf/).
 

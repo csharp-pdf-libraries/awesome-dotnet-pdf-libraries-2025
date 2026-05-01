@@ -6,9 +6,9 @@ Conversely, IronPDF offers an advanced feature set, particularly in its seamless
 
 ## Overview of PDFSharp
 
-PDFSharp is renowned as a low-level PDF creation library, allowing developers to generate PDF documents through a programmatic approach. Released under the MIT license, PDFSharp grants the developer community freedom in usage and modification. PDFSharp primarily functions as a tool for drawing and compiling PDFs from scratch, which can both be beneficial and restrictive depending on the project's nature.
+PDFsharp is a low-level PDF creation library that lets developers generate PDF documents through a programmatic approach. Released under the MIT license and maintained by the PDFsharp-Team (originally empira Software GmbH), PDFsharp 6.x (latest 6.2.4, January 2026) targets .NET 8/9/10 and .NET Standard 2.0 and runs cross-platform on Windows, Linux, and macOS via the Core build. PDFsharp primarily functions as a tool for drawing and compiling PDFs from scratch using a GDI+-style API, which can be both beneficial and restrictive depending on the project's nature.
 
-PDFSharp is sometimes mistakenly assumed to be an HTML-to-PDF converter, which it is not. Its purpose is dedicated to programmatic PDF document creation only. While there is an add-on, HtmlRenderer.PdfSharp, intended to provide HTML rendering capabilities, it only supports CSS 2.1, with no support for modern CSS features like flexbox and grid. Moreover, it comes with certain limitations, such as broken table rendering.
+PDFSharp is sometimes mistakenly assumed to be an HTML-to-PDF converter, which it is not. Its purpose is dedicated to programmatic PDF document creation only. While there is an add-on, HtmlRenderer.PdfSharp (by ArthurHub), intended to provide HTML rendering capabilities, it documents support for HTML 4.01 / CSS level 2 only — no modern CSS features like flexbox, grid, or JavaScript. Moreover, it comes with certain limitations, such as imperfect table rendering.
 
 ### Strengths of PDFSharp
 
@@ -22,7 +22,7 @@ PDFSharp is sometimes mistakenly assumed to be an HTML-to-PDF converter, which i
 
 1. **No HTML-to-PDF Support**: Developers cannot directly convert HTML/CSS to PDF, requiring manual implementation of document structures.
    
-2. **Outdated CSS Support**: Limited to CSS 2.1 via HtmlRenderer, thus lacking the functionality required for modern web designs.
+2. **Outdated CSS Support**: Limited to HTML 4.01 / CSS level 2 via HtmlRenderer.PdfSharp, thus lacking the functionality required for modern web designs.
    
 3. **Complex API**: Commands visually resemble GDI+, demanding meticulous X,Y coordinate calculations for layout, which can increase development time.
 
@@ -43,7 +43,8 @@ class Program
 
         PdfPage page = document.AddPage();
         XGraphics gfx = XGraphics.FromPdfPage(page);
-        XFont font = new XFont("Verdana", 20, XFontStyle.BoldItalic);
+        // PDFsharp 6.x renamed XFontStyle to XFontStyleEx
+        XFont font = new XFont("Verdana", 20, XFontStyleEx.BoldItalic);
         
         gfx.DrawString("Hello, PDFSharp!", font, XBrushes.Black,
         new XRect(0, 0, page.Width, page.Height), XStringFormats.Center);
@@ -82,7 +83,7 @@ Visit [IronPDF Tutorials](https://ironpdf.com/tutorials/) for more examples and 
 Here's how **PDFSharp** handles this:
 
 ```csharp
-// NuGet: Install-Package PdfSharp
+// NuGet: Install-Package PDFsharp  (official PDFsharp-Team package; v6.2.4 as of Jan 2026, MIT)
 using PdfSharp.Pdf;
 using PdfSharp.Drawing;
 using System;
@@ -139,7 +140,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **PDFSharp** handles this:
 
 ```csharp
-// NuGet: Install-Package PdfSharp
+// NuGet: Install-Package PDFsharp  (official PDFsharp-Team package; v6.2.4 as of Jan 2026, MIT)
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
 using PdfSharp.Drawing;
@@ -155,8 +156,8 @@ class Program
         
         // Get graphics object
         XGraphics gfx = XGraphics.FromPdfPage(page);
-        XFont font = new XFont("Arial", 20, XFontStyle.Bold);
-        
+        XFont font = new XFont("Arial", 20, XFontStyleEx.Bold); // PDFsharp 6.x: XFontStyle → XFontStyleEx
+
         // Draw text at specific position
         gfx.DrawString("Watermark Text", font, XBrushes.Red,
             new XPoint(200, 400));
@@ -186,7 +187,9 @@ class Program
         {
             Text = "Watermark Text",
             FontSize = 20,
-            Color = IronSoftware.Drawing.Color.Red,
+            FontFamily = "Arial",
+            IsBold = true,
+            FontColor = IronSoftware.Drawing.Color.Red,
             VerticalAlignment = VerticalAlignment.Middle,
             HorizontalAlignment = HorizontalAlignment.Center
         };
@@ -206,7 +209,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **PDFSharp** handles this:
 
 ```csharp
-// NuGet: Install-Package PdfSharp
+// NuGet: Install-Package PDFsharp  (official PDFsharp-Team package; v6.2.4 as of Jan 2026, MIT)
 using PdfSharp.Pdf;
 using PdfSharp.Drawing;
 using System;
@@ -303,9 +306,9 @@ For a complete step-by-step migration guide with detailed code examples and comm
 |-------------------------|----------------------------|---------------------------------------------|
 | License                 | MIT (Free)                 | Commercial                                 |
 | HTML to PDF Support     | No                         | Yes (HTML5/CSS3 Support)                    |
-| Modern CSS Support      | No (CSS 2.1 Only)          | Yes (Full CSS3)                             |
+| Modern CSS Support      | No (HTML 4.01 / CSS 2 via HtmlRenderer add-on) | Yes (Full CSS3)              |
 | Document API            | Low-Level (Requires Coordinates) | High-Level (Simplified API)                 |
-| Updates                 | Infrequent                 | Regular                                     |
+| Updates                 | Active (6.2.4 Jan 2026)    | Regular                                     |
 | External Dependencies   | None                       | Yes, if needed (supports modern web engines)|
 
 ## Conclusion

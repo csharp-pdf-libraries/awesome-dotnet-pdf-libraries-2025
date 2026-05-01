@@ -14,7 +14,7 @@
 | **Status** | **WILL NEVER BE PATCHED** |
 | **Affected** | ALL TuesPechkin versions |
 
-**wkhtmltopdf was officially abandoned in December 2022.** The maintainers explicitly stated they will NOT fix security vulnerabilities. This means every application using TuesPechkin is permanently exposed.
+**The wkhtmltopdf GitHub repository was archived in January 2023, and the packaging repository was archived in August 2023.** The maintainers have stated the project is no longer being developed and security vulnerabilities will not be fixed. This means every application using TuesPechkin is permanently exposed.
 
 ### How the Attack Works
 
@@ -243,7 +243,7 @@ var document = new HtmlToPdfDocument
 {
     GlobalSettings = {
         PaperSize = PaperKind.A4,
-        Orientation = GlobalSettings.PdfOrientation.Portrait
+        Orientation = GlobalSettings.PaperOrientation.Portrait
     },
     Objects = {
         new ObjectSettings {
@@ -391,7 +391,7 @@ var document = new HtmlToPdfDocument
 {
     GlobalSettings = {
         PaperSize = PaperKind.A4,
-        Orientation = GlobalSettings.PdfOrientation.Landscape
+        Orientation = GlobalSettings.PaperOrientation.Landscape
     },
     Objects = {
         new ObjectSettings {
@@ -593,7 +593,7 @@ using TuesPechkin;
 var document = new HtmlToPdfDocument
 {
     GlobalSettings = {
-        Orientation = GlobalSettings.PdfOrientation.Landscape,
+        Orientation = GlobalSettings.PaperOrientation.Landscape,
         PaperSize = PaperKind.A4
     },
     Objects = {

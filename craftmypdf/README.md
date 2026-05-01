@@ -225,18 +225,18 @@ CraftMyPDF and similar cloud PDF services introduce fundamental issues:
 
 1. **Your Data Leaves Your System**: Every HTML template and JSON payload is transmitted to third-party servers—creating HIPAA, GDPR, and SOC2 compliance risks for sensitive documents like invoices, contracts, and medical records.
 
-2. **Network Latency**: CraftMyPDF's own documentation states 1.5-30 seconds per PDF. IronPDF generates locally in milliseconds.
+2. **Network Latency**: Cloud PDF generation involves a network round-trip plus queue and render time (typically seconds). IronPDF generates locally in milliseconds.
 
 3. **Print-Optimized Output**: Cloud APIs often optimize for print—reducing backgrounds and simplifying colors to save "ink." The result never looks like your HTML on screen.
 
-4. **Per-PDF Costs Add Up**: 10,000 PDFs/month at $0.01-0.05 each vs. one-time perpetual license.
+4. **Per-Credit Costs Add Up**: Each PDF generation consumes 1 credit; watermarks and merges consume 0.5 credit each. 12,000 PDFs/month requires the $99/month Professional tier vs. one-time perpetual license.
 
 ### Quick Migration Overview
 
 | Aspect | CraftMyPDF | IronPDF |
 |--------|------------|---------|
 | Data Location | Cloud (leaves your system) | On-premise (stays local) |
-| Latency | 1.5-30 seconds per PDF | Milliseconds |
+| Latency | Network round-trip + render (typically seconds) | Milliseconds |
 | Pricing | Per-PDF subscription | One-time perpetual license |
 | Template System | Proprietary drag-and-drop | Any HTML/CSS/JavaScript |
 | Output Quality | Print-optimized | Pixel-perfect screen rendering |

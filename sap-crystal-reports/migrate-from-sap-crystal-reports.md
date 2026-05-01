@@ -2,26 +2,26 @@
 
 ## Why Migrate from SAP Crystal Reports?
 
-SAP Crystal Reports is a legacy enterprise reporting platform that has become increasingly burdensome for modern .NET development. Key reasons to migrate:
+SAP Crystal Reports, developer version for Microsoft Visual Studio (CR4VS) is a legacy enterprise reporting platform that has become increasingly burdensome for modern .NET development. Key reasons to migrate:
 
-1. **Massive Installation**: Crystal Reports Runtime is 500MB+ and requires complex installation
-2. **SAP Ecosystem Lock-in**: Tied to SAP's pricing, support cycles, and product roadmap
-3. **Complex Licensing**: Per-processor/per-user licensing with SAP's enterprise sales process
-4. **Legacy Architecture**: 32-bit COM dependencies that complicate modern 64-bit deployments
-5. **Deprecated Support for .NET Core**: Limited support for modern .NET platforms
-6. **Report Designer Dependency**: Requires Visual Studio extensions or standalone designer
-7. **Slow Performance**: Heavy runtime initialization and memory footprint
+1. **Heavy Runtime Installer**: Crystal Reports Runtime ships as an MSI redistributable (typically tens to a few hundred MB depending on 32/64-bit and locale) rather than a NuGet package
+2. **SAP Ecosystem Lock-in**: Tied to SAP's release cycles and product roadmap; SAP confirmed end of mainstream maintenance for CR4VS at end of 2027
+3. **Licensing**: CR4VS itself is free to download and the runtime is free to redistribute, but the Crystal Reports designer family (CR 2020 / CR 2025) and BI Platform are commercial SAP SKUs
+4. **Legacy Architecture**: COM-dependent, .NET Framework 4.x only — runtime DLLs cannot load under .NET Core / .NET 5+
+5. **No .NET Core / .NET 5+ Support**: There is no roadmap for a Crystal Reports runtime targeting modern .NET; you are pinned to .NET Framework 4.x
+6. **32-bit Runtime Discontinued**: SAP confirmed the 32-bit CR .NET runtime is discontinued after SP 39 (December 2025); future service packs are 64-bit only
+7. **Report Designer Dependency**: Requires the CR4VS Visual Studio extension or a standalone Crystal Reports designer to author `.rpt` files
 
 ### The Hidden Costs of Crystal Reports
 
 | Cost Factor | Crystal Reports | IronPDF |
 |-------------|-----------------|---------|
-| Runtime Size | 500MB+ | ~20MB |
-| Installation | Complex | NuGet package |
-| Deployment | Special installers | xcopy |
-| 64-bit Support | Problematic | Native |
-| .NET Core/5/6/7/8 | Limited | Full support |
-| Cloud Deployment | Difficult | Simple |
+| Runtime Distribution | MSI redistributable installer | NuGet package |
+| Installation | Runtime installer + VS extension | `dotnet add package IronPdf` |
+| Deployment | Run MSI on target machine | xcopy / publish |
+| 64-bit Support | Yes (32-bit runtime ends after SP 39, Dec 2025) | Native |
+| .NET Core / .NET 5+ | Not supported (Framework 4.x only) | Full support (.NET 6/8/9, Framework 4.6.2+) |
+| Linux / Docker | Not supported (Windows-only) | Supported |
 
 ---
 
@@ -30,16 +30,22 @@ SAP Crystal Reports is a legacy enterprise reporting platform that has become in
 ### Step 1: Remove Crystal Reports
 
 ```bash
-# Remove Crystal Reports packages
-dotnet remove package CrystalDecisions.CrystalReports.Engine
-dotnet remove package CrystalDecisions.Shared
-dotnet remove package CrystalDecisions.ReportAppServer
-dotnet remove package CrystalDecisions.Web
+# Crystal Reports for Visual Studio is not distributed by SAP on NuGet.
+# Projects typically reference the GAC-installed CrystalDecisions.*.dll
+# assemblies (delivered by the CR4VS / CR runtime MSI). Community-maintained
+# NuGet wrappers such as CrystalReports.Engine (publisher: ennerperez) exist
+# for build automation but are not official SAP packages.
 
-# Remove legacy assemblies from project references
-# Check for: CrystalDecisions.*.dll in project references
+# 1. Remove direct assembly references (CrystalDecisions.*.dll) from your .csproj
+# 2. If using a community NuGet wrapper, remove it:
+dotnet remove package CrystalReports.Engine
+dotnet remove package CrystalReports.Shared
+dotnet remove package CrystalReports.ReportAppServer
+dotnet remove package CrystalReports.Web
 
-# Install IronPDF
+# 3. Uninstall the Crystal Reports runtime MSI from build/deploy targets
+
+# 4. Install IronPDF
 dotnet add package IronPdf
 ```
 
@@ -693,38 +699,37 @@ pdf.SaveAs("secure_report.pdf");
 
 ## Feature Comparison
 
-| Feature | Crystal Reports | IronPDF |
-|---------|-----------------|---------|
+| Feature | Crystal Reports for VS (CR4VS) | IronPDF |
+|---------|--------------------------------|---------|
 | **Installation** | | |
-| Runtime Size | 500MB+ | ~20MB |
-| Installation Method | MSI/Setup.exe | NuGet |
-| Deployment | Complex | xcopy |
+| Runtime Distribution | MSI redistributable | NuGet package |
+| Installation Method | MSI + Visual Studio extension | `dotnet add package IronPdf` |
+| Deployment | Run runtime MSI on each target | xcopy / publish |
 | **Platform Support** | | |
-| .NET Framework | Yes | Yes |
-| .NET Core/5/6/7/8 | Limited | Full |
-| 64-bit Native | Problematic | Yes |
-| Linux/Docker | No | Yes |
-| Azure/AWS | Difficult | Simple |
+| .NET Framework 4.x | Yes | Yes (4.6.2+) |
+| .NET Core / .NET 5+ | No | Yes (.NET 6, 8, 9) |
+| 64-bit Native | Yes (32-bit ends after SP 39, Dec 2025) | Yes |
+| Linux / Docker | No (Windows-only) | Yes |
+| Visual Studio | 2012-2022 (VS 2026 pending SP 40) | Any |
 | **Development** | | |
-| Report Designer | Required | Optional (HTML) |
-| Template Format | .rpt (binary) | HTML/CSS |
-| Learning Curve | Crystal syntax | Web standards |
-| IntelliSense | No | Full C# |
+| Report Designer | Required (CR4VS extension or CR designer) | Optional (HTML) |
+| Template Format | `.rpt` (proprietary binary; not RDL) | HTML/CSS |
+| Learning Curve | Crystal Formula language | Web standards |
+| IntelliSense | Limited (designer only) | Full C# |
 | **Rendering** | | |
-| HTML to PDF | No | Full Chromium |
-| URL to PDF | No | Yes |
-| CSS Support | No | Full CSS3 |
-| JavaScript | No | Full ES2024 |
+| HTML to PDF | Not natively supported | Full Chromium |
+| URL to PDF | Not natively supported | Yes |
+| CSS Support | Not natively supported | Full CSS3 |
+| JavaScript | Not natively supported | Full ES (Chromium) |
 | **PDF Features** | | |
-| Merge PDFs | No | Yes |
-| Split PDFs | No | Yes |
-| Watermarks | Limited | Full HTML |
-| Digital Signatures | No | Yes |
-| PDF/A | No | Yes |
-| **Performance** | | |
-| Cold Start | Slow | Fast |
-| Memory Usage | High | Moderate |
-| Concurrent Reports | Limited | High |
+| Merge PDFs | Not in CR runtime | Yes |
+| Split PDFs | Not in CR runtime | Yes |
+| Watermarks | Via report design (background images, formula sections) | Full HTML overlay |
+| Digital Signatures | Not in CR runtime | Yes |
+| PDF/A export | Yes (PDF/A-1 from CR designer / runtime export) | Yes |
+| **Lifecycle** | | |
+| End of Mainstream Maintenance | CR4VS: end of 2027; CR 2020: Dec 2026; CR 2025: Dec 31, 2027 | Active |
+| Latest Release | SP 39 (Dec 5, 2025) | Current |
 
 ---
 
@@ -767,14 +772,14 @@ dotnet add package IronPdf
 # That's it - no additional installs needed
 ```
 
-### Issue 4: 32-bit/64-bit Issues
+### Issue 4: 32-bit/64-bit and .NET Framework Lock-in
 
-**Crystal Reports:** COM dependencies often require 32-bit mode.
+**Crystal Reports:** Crystal's runtime is COM-dependent and ships in separate 32-bit and 64-bit MSIs. SAP confirmed the 32-bit CR .NET runtime is discontinued after SP 39 (December 2025); future service packs are 64-bit only. The runtime targets .NET Framework 4.x and cannot be loaded under .NET Core / .NET 5+.
 
-**Solution:** IronPDF is native 64-bit:
+**Solution:** IronPDF runs on .NET Framework 4.6.2+, .NET 6, .NET 8, and .NET 9 — including Linux and Docker:
 ```csharp
 // No special configuration needed
-// Works in any .NET environment
+// Works in any modern .NET environment, x64 or AnyCPU
 ```
 
 ---
@@ -815,7 +820,10 @@ dotnet add package IronPdf
 
 - [ ] **Remove Crystal Reports packages/references**
   ```bash
-  dotnet remove package CrystalDecisions.CrystalReports.Engine
+  # CR4VS is normally referenced as GAC assemblies (CrystalDecisions.*.dll)
+  # delivered by the runtime MSI — remove these references from your .csproj.
+  # If you used a community NuGet wrapper, remove it as well:
+  dotnet remove package CrystalReports.Engine
   ```
   **Why:** Clean removal of Crystal Reports dependencies.
 

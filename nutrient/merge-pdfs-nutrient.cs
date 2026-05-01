@@ -1,18 +1,21 @@
-// NuGet: Install-Package PSPDFKit.Dotnet
-using PSPDFKit.Pdf;
-using System.Threading.Tasks;
+// NuGet: Install-Package GdPicture
+// Nutrient .NET SDK is built on GdPicture.NET. Merge is exposed through
+// GdPictureDocumentConverter.CombineToPDF (the modern path) or the older
+// GdPicturePDF.MergeDocuments overloads.
+using GdPicture14;
 using System.Collections.Generic;
 
 class Program
 {
-    static async Task Main()
+    static void Main()
     {
-        using var processor = await PdfProcessor.CreateAsync();
-        
-        var document1 = await processor.OpenAsync("document1.pdf");
-        var document2 = await processor.OpenAsync("document2.pdf");
-        
-        var mergedDocument = await processor.MergeAsync(new List<PdfDocument> { document1, document2 });
-        await mergedDocument.SaveAsync("merged.pdf");
+        IEnumerable<string> sourceFiles = new List<string>
+        {
+            "document1.pdf",
+            "document2.pdf"
+        };
+
+        using var converter = new GdPictureDocumentConverter();
+        converter.CombineToPDF(sourceFiles, "merged.pdf", PdfConformance.PDF);
     }
 }

@@ -7,6 +7,8 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var renderer = new ChromePdfRenderer();
         renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter() { HtmlFragment = "<div style='text-align:center'>My Header</div>" };
         renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter() { HtmlFragment = "<div style='text-align:center'>Page {page}</div>" };

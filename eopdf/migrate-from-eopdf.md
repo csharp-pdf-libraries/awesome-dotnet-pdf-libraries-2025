@@ -18,43 +18,38 @@
 
 ### The EO.Pdf Problems
 
-1. **Massive 126MB Package Size**: EO.Pdf bundles its own Chromium engine, resulting in a 126MB deployment footprint. This inflates Docker images, slows CI/CD pipelines, and increases infrastructure costs.
+1. **Bundled Chromium Footprint**: EO.Pdf (current NuGet version 26.1.34, March 2026) bundles its own Chromium-based renderer, which makes the install footprint larger than non-Chrome libraries. This inflates Docker images, slows CI/CD pipelines, and increases infrastructure costs.
 
-2. **Legacy Architecture Baggage**: EO.Pdf was originally built on Internet Explorer's rendering engine before migrating to Chromium. This legacy introduces:
-   - Compatibility issues from the IE era
-   - Technical debt in the API design
-   - Inconsistent behavior between versions
+2. **Legacy Architecture Baggage**: EO.Pdf's HTML-to-PDF converter was originally built on top of an embedded Internet Explorer / Trident engine before the project moved to a Chromium-based renderer in later versions. The transition has left behind some API quirks and behavior differences between versions.
 
-3. **Windows-Centric Design**: Despite marketing as "cross-platform," EO.Pdf's Linux and macOS support is limited. Many developers report issues with non-Windows deployments.
+3. **Windows-Only on .NET Core**: Despite marketing as "cross-platform," Essential Objects' own documentation states that EO.Pdf supports .NET Core 3.1 and newer **on Windows only** — Linux and macOS are not officially supported on .NET Core. See https://www.essentialobjects.com/Doc/Common/dotnetcore.html.
 
-4. **$799 Per License**: At $799 per developer license, EO.Pdf is expensive compared to alternatives offering similar or better functionality.
+4. **Per-Developer Commercial License**: EO.Pdf is sold as paid Single / 3-License Bundle / Corporate / Corporate Plus tiers (no permanent free tier — only a 30-day watermarked trial). Exact prices are shown only on the order page; verify at https://www.essentialobjects.com/order before budgeting.
 
-5. **Static Global Options**: EO.Pdf uses static `HtmlToPdf.Options` for configuration, which is not thread-safe and problematic in multi-tenant web applications.
+5. **Static Global Options**: EO.Pdf's primary HTML-to-PDF entry point is the static `HtmlToPdf` class with shared `HtmlToPdf.Options`. Mutating that global state from multiple threads is not safe and is awkward in multi-tenant web applications.
 
 ### EO.Pdf vs IronPDF Comparison
 
 | Aspect | EO.Pdf | IronPDF |
 |--------|--------|---------|
-| **Package Size** | 126MB | Optimized (~50MB) |
-| **Legacy Issues** | IE migration baggage | Clean, modern codebase |
-| **Platform Support** | Windows-focused | True cross-platform |
-| **Configuration** | Static/global | Instance-based, thread-safe |
-| **Price** | $799/developer | Competitive pricing |
-| **API Design** | Mixed (HtmlToPdf + ACM) | Unified, consistent |
-| **Documentation** | Limited | Comprehensive tutorials |
-| **Modern .NET** | .NET Standard | .NET 6/7/8/9+ native |
-| **Async Support** | Limited | Full async/await |
+| **Renderer** | Bundled Chromium (transitioned from IE/Trident) | Embedded Chromium |
+| **Legacy Issues** | IE/Trident migration baggage | Built on Chromium from the start |
+| **Platform Support** | Windows-only on .NET Core | Windows, Linux, macOS, Docker, Azure |
+| **Configuration** | Static `HtmlToPdf.Options` (global, not thread-safe) | Instance-based `ChromePdfRenderer` (thread-safe) |
+| **License model** | Single / 3-License / Corporate / Corporate Plus, paid only (30-day trial) | Per-developer commercial; free dev trial |
+| **API Design** | Mixed (`HtmlToPdf` static + ACM object model) | Unified `ChromePdfRenderer` + HTML/CSS |
+| **Modern .NET** | .NET Framework + .NET Core 3.1+ (Windows only) | .NET Framework, .NET 6/7/8/9 cross-platform |
+| **Async Support** | Limited | Full `RenderHtmlAsPdfAsync` / `RenderUrlAsPdfAsync` |
 
 ### Key Migration Benefits
 
 For comprehensive coverage, consult the [comprehensive documentation](https://ironpdf.com/blog/migration-guides/migrate-from-eo-pdf-to-ironpdf/).
 
-1. **50% Smaller Footprint**: IronPDF's optimized Chromium packaging
-2. **True Cross-Platform**: Works identically on Windows, Linux, macOS, Docker
-3. **Thread-Safe Configuration**: Instance-based renderer options
-4. **Modern API**: Consistent, intuitive method names
-5. **Better Documentation**: Extensive tutorials and examples
-6. **Active Development**: Regular updates and security patches
+1. **Cross-platform on .NET Core / .NET 6+**: Works on Linux and macOS, not just Windows
+2. **Thread-Safe Configuration**: Instance-based renderer options instead of static globals
+3. **Modern API**: Consistent, intuitive method names — `RenderHtmlAsPdf`, `RenderUrlAsPdf`, `PdfDocument.Merge`
+4. **Better Documentation**: Extensive tutorials, how-to guides, and an active object reference
+5. **Active Development**: Regular updates and security patches
 
 ---
 
@@ -85,7 +80,7 @@ Create a checklist of EO.Pdf features you use:
 - [ ] HTML to PDF conversion (`HtmlToPdf.ConvertHtml`)
 - [ ] URL to PDF conversion (`HtmlToPdf.ConvertUrl`)
 - [ ] ACM rendering (`AcmRender`, `AcmText`, `AcmBlock`)
-- [ ] PDF merging (`PdfDocument.Merge`)
+- [ ] PDF merging (static `PdfDocument.Merge(doc1, doc2, ...)` — no instance `Append` method exists in EO.Pdf)
 - [ ] Page manipulation
 - [ ] Headers and footers
 - [ ] Security/encryption
@@ -211,8 +206,8 @@ public class PdfService
 | `HtmlToPdf.ConvertUrl(url, stream)` | `pdf.BinaryData` or `pdf.Stream` | |
 | `PdfDocument.Save(path)` | `pdf.SaveAs(path)` | |
 | `PdfDocument.Save(stream)` | `pdf.Stream` | |
-| `PdfDocument.Merge(docs)` | `PdfDocument.Merge(docs)` | Static method |
-| `PdfDocument.Append(doc)` | `pdf.AppendPdf(other)` or `PdfDocument.Merge()` | |
+| `PdfDocument.Merge(doc1, doc2, ...)` | `PdfDocument.Merge(doc1, doc2, ...)` or `PdfDocument.Merge(IEnumerable<PdfDocument>)` | Static method on both sides |
+| (no `PdfDocument.Append` in EO.Pdf) | `pdf.AppendPdf(other)` or `PdfDocument.Merge(...)` | EO.Pdf only exposes static `Merge` for combining |
 | `PdfDocument.Print()` | `pdf.Print()` | Similar functionality |
 | `new PdfDocument(path)` | `PdfDocument.FromFile(path)` | Static factory |
 | `new PdfDocument(stream)` | `PdfDocument.FromStream(stream)` | |
@@ -315,9 +310,10 @@ PdfDocument doc1 = new PdfDocument("file1.pdf");
 PdfDocument doc2 = new PdfDocument("file2.pdf");
 PdfDocument doc3 = new PdfDocument("file3.pdf");
 
-doc1.Append(doc2);
-doc1.Append(doc3);
-doc1.Save("merged.pdf");
+// EO.Pdf has no instance Append(); the canonical merge is the static
+// PdfDocument.Merge(...) which returns a new combined document.
+PdfDocument merged = PdfDocument.Merge(doc1, doc2, doc3);
+merged.Save("merged.pdf");
 ```
 
 **After (IronPDF):**
@@ -892,20 +888,20 @@ var doc = PdfDocument.FromBinaryData(bytes);
 var doc = PdfDocument.FromStream(stream);
 ```
 
-### Issue 7: Package Size Still Large
+### Issue 7: Package Size
 
-**Problem:** Deployment is still large after migration.
+**Problem:** Deployment size feels large because both EO.Pdf and IronPDF ship a Chromium runtime.
 
-**Solution:** IronPDF is optimized but still includes Chromium. For minimal deployments:
+**Solution:** IronPDF includes Chromium too — the win is mostly elsewhere (cross-platform, thread-safety, async). For minimal deployments:
 - Use trimming if your target framework supports it
 - Consider platform-specific packages
 - Check IronPDF documentation for size optimization tips
 
 ### Issue 8: Linux Deployment Issues
 
-**Problem:** Application worked on Windows but fails on Linux.
+**Problem:** Application worked on Windows under EO.Pdf but cannot run on Linux at all (EO.Pdf does not officially support non-Windows targets on .NET Core).
 
-**Solution:** IronPDF has true cross-platform support:
+**Solution:** IronPDF supports Linux on .NET Core / .NET 6+:
 
 ```bash
 # Ensure required dependencies on Linux (Debian/Ubuntu)
@@ -1065,13 +1061,13 @@ FROM ironpdf/ironpdf-dotnet:latest
 
 - [ ] **Update merge operations**
   ```csharp
-  // Before
-  PdfDocument.Merge(doc1, doc2);
+  // Before (EO.Pdf — static Merge returns the combined document)
+  PdfDocument merged = PdfDocument.Merge(doc1, doc2);
 
-  // After
-  var mergedPdf = PdfDocument.Merge(doc1, doc2);
+  // After (IronPDF — same static Merge shape)
+  var merged = PdfDocument.Merge(doc1, doc2);
   ```
-  **Why:** IronPDF provides a static method for merging PDFs.
+  **Why:** Both libraries expose a static `Merge` for combining PDFs; EO.Pdf has no instance `Append()` so any code using `doc1.Append(doc2)` is invalid and needs to move to `Merge`.
 
 - [ ] **Migrate `AfterRenderPage` to `HtmlHeaderFooter`**
   ```csharp

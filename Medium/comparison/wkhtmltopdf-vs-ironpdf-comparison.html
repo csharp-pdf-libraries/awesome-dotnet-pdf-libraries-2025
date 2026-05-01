@@ -4,107 +4,64 @@
 
 <h2>What Is wkhtmltopdf?</h2>
 
-<p><strong>Answer:</strong></p>
+<p>wkhtmltopdf is an open-source command-line tool that converts HTML to PDF using a QtWebKit rendering engine that dates from the mid-2010s. It operates as an external binary — .NET code typically reaches it through a wrapper (DinkToPdf, WkHtmlToPdf-DotNet, Rotativa, NReco.PdfGenerator) that spawns the binary as a child process and exchanges HTML and PDF bytes through temporary files. For years it was the go-to free option for HTML-to-PDF conversion.</p>
 
-<p>wkhtmltopdf is an open-source command-line tool that converts HTML to PDF using a QtWebKit rendering engine from approximately 2015. It operated as an external binary — your .NET code would spawn a separate process, pass HTML via temporary files, and read the output PDF from disk. For years it was the go-to free option for HTML-to-PDF conversion.</p>
-
-<p>Development ceased in 2020 with the final stable release at version 0.12.6. The GitHub organization was officially archived on July 10, 2024, marking the project as "no longer maintained." Package managers like Homebrew disabled installations in December 2024. All .NET wrappers — DinkToPdf, Rotativa, NReco.PdfGenerator — inherit this abandonware status.</p>
+<p>Development effectively wound down with the 0.12.6 line and the project's GitHub organization was archived in late 2022, marking the project as no longer maintained. Several package managers have since disabled or deprecated installation paths. All .NET wrappers — DinkToPdf, WkHtmlToPdf-DotNet, Rotativa, NReco.PdfGenerator — depend on the same archived upstream binary.</p>
 
 <h2>What Are the Key Limitations of wkhtmltopdf?</h2>
 
-<p><strong>Answer:</strong></p>
+<p>The QtWebKit engine predates CSS Grid (browser support 2017), CSS Flexbox (widespread 2016), ES6 JavaScript (2015), and SVG 2.0. Layouts that rely on Grid typically do not render; Flexbox support is partial. JavaScript compatibility tops out around ECMAScript 5. Web Fonts loaded via CDN often require custom configuration to load reliably. Canvas support is limited.</p>
 
-<p>The QtWebKit engine predates CSS Grid (2017), CSS Flexbox (widespread 2016), ES6 JavaScript (2015), and SVG 2.0. Forms using modern layout techniques render incorrectly or fail. JavaScript compatibility stops at ECMAScript 5. No support for Web Fonts loaded via CDN without custom configuration. Canvas elements have limited support.</p>
+<p>Process spawning overhead is real and measurable — typically a few hundred milliseconds to a couple of seconds per PDF, depending on the host. Each conversion launches a separate executable, consuming memory and file handles. On Linux, headless deployments have historically required X11 dummy-server packages (xvfb) for the Qt-based binary. Public CVE records (e.g., CVE-2022-35583) remain unpatched given the project's archived state. Thread safety depends on the wrapper implementation — concurrent requests can hit file-locking issues if temp paths collide.</p>
 
-<p>Process spawning overhead adds 500ms-2s per PDF. Each conversion launches a separate executable, consuming memory and file handles. On Linux, X11 libraries are required even for headless servers. Security vulnerabilities CVE-2020-21365 and CVE-2022-35583 remain unpatched. Docker deployments require installing X11 dummy server packages. Thread safety depends on wrapper implementation — concurrent requests can cause file locking issues.</p>
-
-<p>There are no official support channels. Community forums are inactive. Unresolved GitHub issues from 2019-2024 remain open with no maintainer response. The architecture forces .NET wrappers to serialize HTML to temporary files, spawn wkhtmltopdf.exe via Process.Start, wait for completion, then read the output PDF. This file I/O overhead compounds in high-throughput scenarios. Error handling is primitive — stderr parsing for failure detection. No async API — all operations block the calling thread.</p>
+<p>There are no official support channels and community forums have been quiet. Many GitHub issues remain open without maintainer response. The wrapper architecture serializes HTML to temporary files, spawns the wkhtmltopdf binary, waits for completion, and reads the output PDF back from disk. The file I/O overhead compounds in high-throughput scenarios. Error handling is largely stderr-based. There is no first-class async API — wrappers expose synchronous Convert calls that block the calling thread.</p>
 
 <h2>How Does HTML-to-PDF Conversion Compare?</h2>
 
-<p><strong>Answer:</strong></p>
+<h3>wkhtmltopdf — HTML Conversion via Wrapper and Native Binary</h3>
 
-<h3>wkhtmltopdf — HTML Conversion via Process Spawning</h3>
-
-<pre><code>using System;
-using System.Diagnostics;
+<pre><code>// NuGet: Install-Package WkHtmlToPdf-DotNet
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 using System.IO;
-using System.Threading.Tasks;
 
 public class WkHtmlToPdfConverter
 {
-    private readonly string _wkHtmlToPdfPath;
+    private readonly IConverter _converter;
 
-    public WkHtmlToPdfConverter(string binaryPath)
+    public WkHtmlToPdfConverter()
     {
-        // Must provide path to wkhtmltopdf.exe (Windows) or wkhtmltopdf (Linux)
-        _wkHtmlToPdfPath = binaryPath;
-
-        if (!File.Exists(_wkHtmlToPdfPath))
-        {
-            throw new FileNotFoundException(
-                "wkhtmltopdf binary not found. Install separately from wkhtmltopdf.org");
-        }
+        // Wrapper loads the native wkhtmltox binary at runtime.
+        // SynchronizedConverter serializes calls onto a single thread
+        // because the underlying Qt binary is not safely concurrent.
+        _converter = new SynchronizedConverter(new PdfTools());
     }
 
     public byte[] ConvertHtmlToPdf(string html)
     {
-        // wkhtmltopdf requires file-based input for HTML strings
-        string tempHtmlFile = Path.GetTempFileName() + ".html";
-        string tempPdfFile = Path.GetTempFileName() + ".pdf";
-
-        try
+        var doc = new HtmlToPdfDocument()
         {
-            // Write HTML to temporary file
-            File.WriteAllText(tempHtmlFile, html);
-
-            // Build command-line arguments
-            var args = $"\"{tempHtmlFile}\" \"{tempPdfFile}\" " +
-                      "--quiet " +
-                      "--enable-local-file-access " +
-                      "--print-media-type";
-
-            // Spawn external process
-            var processInfo = new ProcessStartInfo
-            {
-                FileName = _wkHtmlToPdfPath,
-                Arguments = args,
-                UseShellExecute = false,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-
-            using (var process = Process.Start(processInfo))
-            {
-                // Block waiting for external process
-                process.WaitForExit();
-
-                if (process.ExitCode != 0)
+            GlobalSettings = {
+                ColorMode = ColorMode.Color,
+                Orientation = Orientation.Portrait,
+                PaperSize = PaperKind.A4
+            },
+            Objects = {
+                new ObjectSettings
                 {
-                    string error = process.StandardError.ReadToEnd();
-                    throw new Exception($"wkhtmltopdf failed: {error}");
+                    HtmlContent = html,
+                    WebSettings = { DefaultEncoding = "utf-8" }
                 }
             }
+        };
 
-            // Read generated PDF from disk
-            if (!File.Exists(tempPdfFile))
-            {
-                throw new Exception("PDF file was not created");
-            }
-
-            return File.ReadAllBytes(tempPdfFile);
-        }
-        finally
-        {
-            // Cleanup temporary files
-            if (File.Exists(tempHtmlFile)) File.Delete(tempHtmlFile);
-            if (File.Exists(tempPdfFile)) File.Delete(tempPdfFile);
-        }
+        // Synchronous, blocking call into the native binary
+        return _converter.Convert(doc);
     }
 }
 
 // Usage
-var converter = new WkHtmlToPdfConverter(@"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe");
+var converter = new WkHtmlToPdfConverter();
 
 string modernHtml = @"
 &lt;!DOCTYPE html&gt;
@@ -132,23 +89,27 @@ string modernHtml = @"
 &lt;/html&gt;";
 
 byte[] pdf = converter.ConvertHtmlToPdf(modernHtml);
-// WARNING: CSS Grid and Flexbox will not render correctly
+// CSS Grid and modern Flexbox features may not render as expected
+// on the 2015-era QtWebKit engine — verify against your layout.
 </code></pre>
 
-<p>Each conversion launches wkhtmltopdf.exe adding 500ms-2s latency, must write HTML to disk then read the PDF from disk with no streaming, blocks the calling thread with no async support, and CSS Grid/Flexbox will break because the QtWebKit engine from 2015 predates those layout specs.</p>
+<p>Each conversion ultimately runs the native wkhtmltox binary, which adds non-trivial startup latency per call, blocks the calling thread, and renders against a QtWebKit engine that predates CSS Grid and full Flexbox.</p>
 
 <h3>IronPDF — HTML Conversion with Chromium</h3>
 
-<pre><code>using IronPdf;
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
 using System.Threading.Tasks;
 
 public class IronPdfConverter
 {
     public async Task&lt;byte[]&gt; ConvertHtmlToPdfAsync(string html)
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var renderer = new ChromePdfRenderer();
 
-        // Configure modern rendering
+        // Configure print-style rendering
         renderer.RenderingOptions.CssMediaType =
             IronPdf.Rendering.PdfCssMediaType.Print;
 
@@ -186,94 +147,69 @@ string modernHtml = @"
 &lt;/html&gt;";
 
 byte[] pdf = await converter.ConvertHtmlToPdfAsync(modernHtml);
-// CSS Grid and Flexbox render pixel-perfect
+// Chromium renders CSS Grid and Flexbox to current browser standards.
 </code></pre>
 
-<p><a href="https://ironpdf.com">IronPDF</a> eliminates process spawning, supports async/await, and renders modern CSS correctly. The Chromium engine matches current browser standards. Learn more about <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF conversion</a>.</p>
+<p><a href="https://ironpdf.com">IronPDF</a> avoids spawning a separate native binary on each call, exposes async/await, and renders against a current Chromium engine. Learn more about <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF conversion</a>.</p>
 
 <h2>How Does URL-to-PDF with Authentication Compare?</h2>
 
-<p><strong>Answer:</strong></p>
+<h3>wkhtmltopdf — Limited Auth Options via the Wrapper</h3>
 
-<h3>wkhtmltopdf — Limited Auth Options via Command-Line</h3>
-
-<pre><code>using System;
-using System.Diagnostics;
-using System.IO;
+<pre><code>// NuGet: Install-Package WkHtmlToPdf-DotNet
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 
 public class WkHtmlToPdfUrlConverter
 {
-    private readonly string _wkHtmlToPdfPath;
-
-    public WkHtmlToPdfUrlConverter(string binaryPath)
-    {
-        _wkHtmlToPdfPath = binaryPath;
-    }
+    private readonly IConverter _converter =
+        new SynchronizedConverter(new PdfTools());
 
     public byte[] ConvertUrlToPdf(string url, string username, string password)
     {
-        string tempPdfFile = Path.GetTempFileName() + ".pdf";
-
-        try
+        var doc = new HtmlToPdfDocument()
         {
-            // wkhtmltopdf only supports basic HTTP auth via command-line args
-            // No support for: OAuth, bearer tokens, custom headers, cookies
-            var args = $"\"{url}\" \"{tempPdfFile}\" " +
-                      $"--username \"{username}\" " +
-                      $"--password \"{password}\" " +
-                      "--quiet";
-
-            var processInfo = new ProcessStartInfo
-            {
-                FileName = _wkHtmlToPdfPath,
-                Arguments = args,
-                UseShellExecute = false,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-
-            using (var process = Process.Start(processInfo))
-            {
-                process.WaitForExit(30000); // 30 second timeout
-
-                if (!process.HasExited)
+            GlobalSettings = {
+                ColorMode = ColorMode.Color,
+                PaperSize = PaperKind.A4
+            },
+            Objects = {
+                new ObjectSettings
                 {
-                    process.Kill();
-                    throw new TimeoutException("wkhtmltopdf timed out");
-                }
-
-                if (process.ExitCode != 0)
-                {
-                    string error = process.StandardError.ReadToEnd();
-                    throw new Exception($"Conversion failed: {error}");
+                    Page = url,
+                    // Maps to wkhtmltopdf's --username / --password flags
+                    LoadSettings =
+                    {
+                        Username = username,
+                        Password = password
+                    }
                 }
             }
+        };
 
-            return File.ReadAllBytes(tempPdfFile);
-        }
-        finally
-        {
-            if (File.Exists(tempPdfFile)) File.Delete(tempPdfFile);
-        }
+        // Synchronous, blocking call into the native binary
+        return _converter.Convert(doc);
     }
 }
 
-// Usage limitations
-var converter = new WkHtmlToPdfUrlConverter(@"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe");
+// Usage
+var converter = new WkHtmlToPdfUrlConverter();
 
-// Works: Basic HTTP auth
-byte[] pdf1 = converter.ConvertUrlToPdf("https://example.com/report", "user", "pass");
+// Basic HTTP auth is the natively supported path
+byte[] pdf1 = converter.ConvertUrlToPdf(
+    "https://example.com/report", "user", "pass");
 
-// DOES NOT WORK: OAuth bearer tokens, API keys in headers, session cookies
-// Must preprocess URLs with separate HTTP client if advanced auth needed
+// OAuth bearer tokens, API keys in arbitrary headers, and session cookies
+// are not first-class command-line flags — teams typically pre-fetch the
+// rendered HTML with a separate HttpClient and feed it as HtmlContent.
 </code></pre>
 
-<p>Only basic HTTP auth is supported. No OAuth, bearer tokens, or custom headers via command-line. No cookie support for authenticated sessions. Timeout handling is crude — you must kill the process manually if it hangs. Older QtWebKit may fail modern TLS 1.3 negotiation.</p>
+<p>The wkhtmltopdf CLI exposes basic HTTP auth via <code>--username</code> and <code>--password</code>. OAuth, bearer tokens, custom headers, and authenticated cookie sessions are not first-class flags. Timeout handling is coarse — wrappers expose the binary's exit codes rather than rich exceptions. The 2015-era QtWebKit network stack can also struggle with newer TLS configurations on some endpoints.</p>
 
 <h3>IronPDF — Full Auth and HTTP Control</h3>
 
-<pre><code>using IronPdf;
-using IronPdf.Rendering;
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
 using System.Threading.Tasks;
 
 public class IronPdfUrlConverter
@@ -282,16 +218,17 @@ public class IronPdfUrlConverter
         string url,
         string bearerToken)
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var renderer = new ChromePdfRenderer();
 
-        // Configure authentication and HTTP behavior
-        renderer.RenderingOptions.CustomCssUrl = url;
-        renderer.RenderingOptions.LoginCredentials =
-            new System.Net.NetworkCredential("user", "pass");
+        // Basic auth credentials (optional)
+        renderer.RenderingOptions.HttpLoginCredentials.NetworkUsername = "user";
+        renderer.RenderingOptions.HttpLoginCredentials.NetworkPassword = "pass";
 
-        // Add custom headers for OAuth/API auth
-        renderer.RenderingOptions.RequestHeaders.Add(
-            "Authorization", $"Bearer {bearerToken}");
+        // Custom headers for OAuth / API auth
+        renderer.RenderingOptions.HttpRequestHeaders["Authorization"] =
+            $"Bearer {bearerToken}";
 
         renderer.RenderingOptions.Timeout = 60; // seconds
 
@@ -307,63 +244,40 @@ byte[] pdf = await converter.ConvertUrlToPdfAsync(
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...");
 </code></pre>
 
-<p>IronPDF supports bearer tokens, custom headers, cookies, and timeouts. Fully async with configurable network behavior. See <a href="https://ironpdf.com/examples/pdf-generation-settings/">PDF generation settings documentation</a>.</p>
+<p>IronPDF supports bearer tokens via custom request headers, basic-auth credentials, cookies, and per-render timeouts. The API is async-first. See the <a href="https://ironpdf.com/examples/pdf-generation-settings/">PDF generation settings documentation</a> for the full surface area, and confirm exact property names against your installed IronPDF version.</p>
 
 <h2>How Does Batch Processing Performance Compare?</h2>
 
-<p><strong>Answer:</strong></p>
-
 <h3>wkhtmltopdf — Serial Processing Bottleneck</h3>
 
-<pre><code>using System;
+<pre><code>// NuGet: Install-Package WkHtmlToPdf-DotNet
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
 
 public class WkHtmlToPdfBatchProcessor
 {
-    private readonly string _wkHtmlToPdfPath;
-
-    public WkHtmlToPdfBatchProcessor(string binaryPath)
-    {
-        _wkHtmlToPdfPath = binaryPath;
-    }
+    // SynchronizedConverter serializes calls to a single worker thread
+    // because the underlying native binary is not safely concurrent.
+    private readonly IConverter _converter =
+        new SynchronizedConverter(new PdfTools());
 
     public List&lt;byte[]&gt; ProcessBatch(List&lt;string&gt; htmlDocuments)
     {
         var results = new List&lt;byte[]&gt;();
 
-        // Must process serially to avoid file locking and process conflicts
         foreach (var html in htmlDocuments)
         {
-            string tempHtml = Path.GetTempFileName() + ".html";
-            string tempPdf = Path.GetTempFileName() + ".pdf";
-
-            try
+            var doc = new HtmlToPdfDocument()
             {
-                File.WriteAllText(tempHtml, html);
+                GlobalSettings = { PaperSize = PaperKind.A4 },
+                Objects = { new ObjectSettings { HtmlContent = html } }
+            };
 
-                var args = $"\"{tempHtml}\" \"{tempPdf}\" --quiet";
-
-                using (var process = Process.Start(new ProcessStartInfo
-                {
-                    FileName = _wkHtmlToPdfPath,
-                    Arguments = args,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }))
-                {
-                    process.WaitForExit();
-                }
-
-                results.Add(File.ReadAllBytes(tempPdf));
-            }
-            finally
-            {
-                if (File.Exists(tempHtml)) File.Delete(tempHtml);
-                if (File.Exists(tempPdf)) File.Delete(tempPdf);
-            }
+            // Blocking call — waits for the native binary on each iteration
+            results.Add(_converter.Convert(doc));
         }
 
         return results;
@@ -371,7 +285,7 @@ public class WkHtmlToPdfBatchProcessor
 }
 
 // Usage
-var processor = new WkHtmlToPdfBatchProcessor(@"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe");
+var processor = new WkHtmlToPdfBatchProcessor();
 
 var htmlDocs = Enumerable.Range(1, 100)
     .Select(i =&gt; $"&lt;html&gt;&lt;body&gt;Invoice #{i}&lt;/body&gt;&lt;/html&gt;")
@@ -381,16 +295,15 @@ var stopwatch = Stopwatch.StartNew();
 List&lt;byte[]&gt; pdfs = processor.ProcessBatch(htmlDocs);
 stopwatch.Stop();
 
-Console.WriteLine($"Processed {pdfs.Count} PDFs in {stopwatch.Elapsed.TotalSeconds:F1}s");
-// Typical: 50-80 seconds for 100 PDFs (serial processing)
+// Wall-clock dominated by serial native-binary invocations.
 </code></pre>
 
-<p>Serial execution only — process spawning prevents safe concurrent operations. Two hundred file I/O operations (100 HTML writes + 100 PDF reads) for 100 conversions. The 500ms spawn cost multiplied by 100 yields 50 seconds of pure overhead before any rendering even happens.</p>
+<p>Wrapper APIs like <code>SynchronizedConverter</code> intentionally serialize calls because the underlying binary does not handle concurrent invocations safely. Each conversion pays the native-binary startup and file-handoff cost in sequence, and there is no first-class async API to overlap work.</p>
 
 <h3>IronPDF — Parallel Async Processing</h3>
 
-<pre><code>using IronPdf;
-using System;
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -400,9 +313,11 @@ public class IronPdfBatchProcessor
 {
     public async Task&lt;List&lt;byte[]&gt;&gt; ProcessBatchAsync(List&lt;string&gt; htmlDocuments)
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var renderer = new ChromePdfRenderer();
 
-        // Process in parallel with task batching
+        // Fan out renders concurrently
         var tasks = htmlDocuments.Select(async html =&gt;
         {
             using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
@@ -423,130 +338,76 @@ var htmlDocs = Enumerable.Range(1, 100)
 var stopwatch = Stopwatch.StartNew();
 List&lt;byte[]&gt; pdfs = await processor.ProcessBatchAsync(htmlDocs);
 stopwatch.Stop();
-
-Console.WriteLine($"Processed {pdfs.Count} PDFs in {stopwatch.Elapsed.TotalSeconds:F1}s");
-// Typical: 5-10 seconds for 100 PDFs (parallel processing)
 </code></pre>
 
-<p>IronPDF supports parallel async operations with no file I/O overhead. Chromium instances run concurrently. Learn more about the <a href="https://ironpdf.com/how-to/ironpdf-2021-chrome-rendering-engine-eap/">Chrome rendering engine performance</a>.</p>
+<p>IronPDF exposes async rendering and lets you fan out work across the embedded Chromium engine. Throughput depends on host hardware and tuning, but the architecture removes the per-call native-binary startup that dominates wkhtmltopdf wall time. Learn more about the <a href="https://ironpdf.com/how-to/ironpdf-2021-chrome-rendering-engine-eap/">Chrome rendering engine</a>.</p>
 
 <h2>What Does the Feature Comparison Look Like?</h2>
 
-<p><strong>Answer:</strong></p>
+<p>The two libraries sit in different lifecycle stages. wkhtmltopdf has been archived upstream and its last stable release is the 0.12.6 line; IronPDF is on an active release cadence that follows Chromium updates. That difference cascades into security posture, documentation freshness, and ongoing fixes for layout regressions.</p>
 
-<table>
-<tr><th>Aspect</th><th>wkhtmltopdf</th><th>IronPDF</th></tr>
-<tr><td><strong>Current Status</strong></td><td>Discontinued (archived July 2024)</td><td>Active development</td></tr>
-<tr><td><strong>HTML Support</strong></td><td>HTML4, CSS2.1 (2015-era WebKit)</td><td>HTML5, CSS3, modern standards</td></tr>
-<tr><td><strong>Rendering Quality</strong></td><td>Pre-Flexbox/Grid layouts only</td><td>Full modern CSS (Grid, Flexbox, etc.)</td></tr>
-<tr><td><strong>Installation</strong></td><td>External binary + wrappers + dependencies</td><td>Single NuGet package</td></tr>
-<tr><td><strong>Support</strong></td><td>None (abandonware)</td><td>Commercial support + updates</td></tr>
-<tr><td><strong>Future Viability</strong></td><td>None — no updates since 2020</td><td>Ongoing Chromium updates</td></tr>
-</table>
+<p>The rendering surface area also differs by generation. wkhtmltopdf is built on a 2015-era QtWebKit engine, which lines up with HTML4 and CSS2.1 cleanly but predates CSS Grid and full Flexbox. IronPDF embeds a current Chromium build and renders modern CSS, including Grid, Flexbox, and contemporary JavaScript, the same way an evergreen browser would.</p>
+
+<p>Installation and support tell a similar story. wkhtmltopdf needs the native binary plus a .NET wrapper plus, on Linux, an X11 stack — and there is no maintainer to escalate to. IronPDF installs as a single NuGet package with commercial support behind it, which matters when something breaks under deadline.</p>
 
 <h2>What Does the Comprehensive Feature Breakdown Reveal?</h2>
 
-<p><strong>Answer:</strong></p>
+<p><strong>Status.</strong> wkhtmltopdf is archived upstream, with 0.12.6 as the last stable release and no security updates flowing in. IronPDF is under active development and ships updates aligned with Chromium releases. Some package managers have removed or deprecated wkhtmltopdf installation paths; IronPDF is distributed via NuGet.</p>
 
-<table>
-<tr><th>Feature Category</th><th>wkhtmltopdf</th><th>IronPDF</th></tr>
-<tr><td colspan="3"><strong>Status</strong></td></tr>
-<tr><td>Maintenance Status</td><td>Discontinued (archived July 2024)</td><td>Active development</td></tr>
-<tr><td>Last Release</td><td>0.12.6 (2020)</td><td>Updated with Chromium releases</td></tr>
-<tr><td>Security Updates</td><td>None — unpatched CVEs</td><td>Regular security patches</td></tr>
-<tr><td>Package Manager Support</td><td>Disabled (Homebrew Dec 2024)</td><td>NuGet (active)</td></tr>
-<tr><td colspan="3"><strong>Support</strong></td></tr>
-<tr><td>Official Support</td><td>None</td><td>Commercial support</td></tr>
-<tr><td>Documentation</td><td>Static (no updates since 2020)</td><td>Active, updated</td></tr>
-<tr><td>Community</td><td>Inactive</td><td>Active</td></tr>
-<tr><td>Known Bugs</td><td>200+ unresolved GitHub issues</td><td>Tracked and resolved</td></tr>
-<tr><td colspan="3"><strong>Content Creation</strong></td></tr>
-<tr><td>HTML to PDF</td><td>Yes (2015-era rendering)</td><td>Yes (modern Chromium)</td></tr>
-<tr><td>URL to PDF</td><td>Yes (basic)</td><td>Yes (full HTTP control)</td></tr>
-<tr><td>HTML5 Support</td><td>No (pre-2015 WebKit)</td><td>Full HTML5</td></tr>
-<tr><td>CSS3 Grid</td><td>No</td><td>Yes</td></tr>
-<tr><td>CSS3 Flexbox</td><td>Partial</td><td>Full</td></tr>
-<tr><td>Modern JavaScript</td><td>ECMAScript 5 only</td><td>ES6+ support</td></tr>
-<tr><td>Web Fonts</td><td>Problematic</td><td>Full support</td></tr>
-<tr><td>SVG</td><td>Basic</td><td>Full SVG 2.0</td></tr>
-<tr><td>Canvas</td><td>Limited</td><td>Full support</td></tr>
-<tr><td colspan="3"><strong>PDF Operations</strong></td></tr>
-<tr><td>Create PDFs</td><td>Yes</td><td>Yes</td></tr>
-<tr><td>Merge PDFs</td><td>No (requires separate tools)</td><td>Yes (built-in)</td></tr>
-<tr><td>Split PDFs</td><td>No</td><td>Yes</td></tr>
-<tr><td>Add Headers/Footers</td><td>Via command-line args</td><td>API-configurable</td></tr>
-<tr><td>Watermarks</td><td>No</td><td>Yes</td></tr>
-<tr><td>Encryption</td><td>Via command-line</td><td>API-configurable</td></tr>
-<tr><td>Digital Signatures</td><td>No</td><td>Yes</td></tr>
-<tr><td colspan="3"><strong>Security</strong></td></tr>
-<tr><td>Unpatched CVEs</td><td>CVE-2020-21365, CVE-2022-35583</td><td>No known CVEs</td></tr>
-<tr><td>SSL/TLS Support</td><td>Outdated (TLS 1.0/1.1)</td><td>Modern TLS 1.3</td></tr>
-<tr><td>Authentication</td><td>Basic auth only</td><td>OAuth, bearer tokens, cookies</td></tr>
-<tr><td>Process Isolation</td><td>Yes (separate process)</td><td>No (in-process, sandboxed Chromium)</td></tr>
-<tr><td colspan="3"><strong>Known Issues</strong></td></tr>
-<tr><td>Archived/Discontinued</td><td>Yes (July 2024)</td><td>No</td></tr>
-<tr><td>Modern CSS Broken</td><td>Yes (Grid, Flexbox)</td><td>No</td></tr>
-<tr><td>Process Spawn Overhead</td><td>500ms-2s per PDF</td><td>No overhead</td></tr>
-<tr><td>File I/O Required</td><td>Yes (temp files)</td><td>No (memory streams)</td></tr>
-<tr><td>X11 Dependency (Linux)</td><td>Yes (requires X server)</td><td>No</td></tr>
-<tr><td>Async API</td><td>No</td><td>Yes</td></tr>
-<tr><td colspan="3"><strong>Development</strong></td></tr>
-<tr><td>.NET Integration</td><td>Via wrappers only</td><td>Native .NET library</td></tr>
-<tr><td>API Type</td><td>Command-line args</td><td>Fluent C# API</td></tr>
-<tr><td>Error Handling</td><td>stderr parsing</td><td>Typed exceptions</td></tr>
-<tr><td>Thread Safety</td><td>Wrapper-dependent</td><td>Thread-safe</td></tr>
-<tr><td>Concurrent Operations</td><td>Limited by file locking</td><td>Full parallel support</td></tr>
-<tr><td>Installation</td><td>Binary + dependencies</td><td>Single NuGet package</td></tr>
-<tr><td>Cross-Platform</td><td>Windows/Linux/macOS binaries</td><td>Windows/Linux/macOS/Docker</td></tr>
-</table>
+<p><strong>Support and community.</strong> wkhtmltopdf has no official support channel and the community has gone quiet — issue trackers carry a long backlog with little maintainer movement. IronPDF offers commercial support with maintained documentation.</p>
+
+<p><strong>Content creation.</strong> Both render HTML and URLs to PDF. wkhtmltopdf relies on a 2015-era QtWebKit engine, which is solid for HTML4 and CSS2.1 but does not support CSS Grid, only partially supports Flexbox, tops out at ECMAScript 5, can struggle with web fonts loaded over the network, and offers limited SVG/Canvas. IronPDF uses current Chromium, with full HTML5, CSS3 (Grid and Flexbox), modern JavaScript, web fonts, SVG, and Canvas.</p>
+
+<p><strong>PDF operations.</strong> wkhtmltopdf focuses on the HTML-to-PDF step itself — merging, splitting, watermarks, and digital signatures usually require a second tool in the pipeline; encryption and headers/footers are exposed through CLI flags. IronPDF exposes these as first-class API operations on the document object.</p>
+
+<p><strong>Security.</strong> Public CVE records list unpatched issues for wkhtmltopdf (e.g., CVE-2022-35583), and the project's archived state means no future patches. Verify the current advisory list against your distribution. The wkhtmltopdf binary runs out-of-process, which provides isolation but also moves the security boundary outside the .NET runtime; IronPDF runs Chromium in-process with the rendering sandbox the engine provides. wkhtmltopdf's CLI exposes basic HTTP auth; IronPDF supports custom headers, basic auth, and cookies for richer auth patterns.</p>
+
+<p><strong>Known issues.</strong> wkhtmltopdf's wrapper architecture forces per-call native-binary startup, file I/O for HTML and PDF handoff, and (historically) X11 dependencies on Linux for the Qt-based binary. There is no first-class async API. IronPDF avoids the per-call native-binary startup, exposes async, and ships without an X11 dependency.</p>
+
+<p><strong>Development experience.</strong> wkhtmltopdf integrates via wrappers; the surface looks like configuration objects translated to CLI flags, with stderr-style error reporting and wrapper-dependent thread safety (typically serialized through <code>SynchronizedConverter</code>). IronPDF is a native .NET library with typed exceptions, thread-safe rendering, and a single-package install across Windows, Linux, macOS, and Docker.</p>
 
 <h2>What Does the API Mapping Between wkhtmltopdf and IronPDF Look Like?</h2>
 
-<p><strong>Answer:</strong></p>
-
-<table>
-<tr><th>wkhtmltopdf Concept</th><th>IronPDF Equivalent</th></tr>
-<tr><td>Command-line <code>wkhtmltopdf</code></td><td><code>ChromePdfRenderer</code> class</td></tr>
-<tr><td><code>--input file.html</code></td><td><code>RenderHtmlFileAsPdf(path)</code></td></tr>
-<tr><td>stdin HTML input</td><td><code>RenderHtmlAsPdf(htmlString)</code></td></tr>
-<tr><td><code>--output file.pdf</code></td><td><code>pdf.SaveAs(path)</code> or <code>pdf.BinaryData</code></td></tr>
-<tr><td><code>--username</code> / <code>--password</code></td><td><code>RenderingOptions.LoginCredentials</code></td></tr>
-<tr><td><code>--custom-header</code></td><td><code>RenderingOptions.RequestHeaders</code></td></tr>
-<tr><td><code>--quiet</code></td><td>No equivalent (logging via IronPdf.Logging)</td></tr>
-<tr><td><code>--page-size</code></td><td><code>RenderingOptions.PaperSize</code></td></tr>
-<tr><td><code>--orientation</code></td><td><code>RenderingOptions.PaperOrientation</code></td></tr>
-<tr><td><code>--margin-*</code></td><td><code>RenderingOptions.MarginTop/Bottom/Left/Right</code></td></tr>
-<tr><td><code>--javascript-delay</code></td><td><code>RenderingOptions.WaitFor.RenderDelay()</code></td></tr>
-<tr><td><code>--print-media-type</code></td><td><code>RenderingOptions.CssMediaType</code></td></tr>
-<tr><td>Process.Start() wrapper</td><td>Native .NET library (no external process)</td></tr>
-<tr><td>File-based I/O</td><td>Direct memory streams</td></tr>
-</table>
+<ul>
+  <li>Command-line <code>wkhtmltopdf</code> — IronPDF's <code>ChromePdfRenderer</code> class.</li>
+  <li><code>--input file.html</code> — <code>RenderHtmlFileAsPdf(path)</code>.</li>
+  <li>stdin / inline HTML input — <code>RenderHtmlAsPdf(htmlString)</code>.</li>
+  <li><code>--output file.pdf</code> — <code>pdf.SaveAs(path)</code> or <code>pdf.BinaryData</code> for in-memory bytes.</li>
+  <li><code>--username</code> / <code>--password</code> — <code>RenderingOptions.HttpLoginCredentials</code> (verify exact property names against your installed version).</li>
+  <li><code>--custom-header</code> — <code>RenderingOptions.HttpRequestHeaders</code>.</li>
+  <li><code>--quiet</code> — no direct equivalent; logging is configured via <code>IronPdf.Logging</code>.</li>
+  <li><code>--page-size</code> — <code>RenderingOptions.PaperSize</code>.</li>
+  <li><code>--orientation</code> — <code>RenderingOptions.PaperOrientation</code>.</li>
+  <li><code>--margin-top/bottom/left/right</code> — <code>RenderingOptions.MarginTop/Bottom/Left/Right</code>.</li>
+  <li><code>--javascript-delay</code> — <code>RenderingOptions.WaitFor.RenderDelay()</code>.</li>
+  <li><code>--print-media-type</code> — <code>RenderingOptions.CssMediaType</code>.</li>
+  <li>Wrapper-over-native-binary architecture — native .NET library, no separate executable to deploy.</li>
+  <li>File-based I/O for HTML/PDF handoff — direct in-memory streams via <code>BinaryData</code>.</li>
+</ul>
 
 <h2>How Do You Install Each Library?</h2>
-
-<p><strong>Answer:</strong></p>
 
 <h3>wkhtmltopdf Installation</h3>
 
 <pre><code># Windows
 choco install wkhtmltopdf
-# (or download .exe installer from wkhtmltopdf.org)
+# (or download the installer from the project site, where still available)
 
 # Linux
-sudo apt-get install wkhtmltopdf xvfb  # X11 required
-# WARNING: Package may be disabled in 2024/2025
+sudo apt-get install wkhtmltopdf xvfb  # X11/xvfb commonly needed for headless
+# Some distributions and package managers have removed or deprecated the
+# wkhtmltopdf package given the upstream archived status.
 
-# Then install .NET wrapper
-Install-Package DinkToPdf
-# or Rotativa, NReco.PdfGenerator, etc.
+# Then install a .NET wrapper, e.g.
+Install-Package WkHtmlToPdf-DotNet
+# or DinkToPdf, Rotativa, NReco.PdfGenerator
 </code></pre>
 
-<pre><code>using DinkToPdf;
-using DinkToPdf.Contracts;
+<pre><code>// NuGet: Install-Package WkHtmlToPdf-DotNet
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 
-// Must configure path to wkhtmltopdf binary
-var converter = new SynchronizedConverter(
-    new PdfTools());
+var converter = new SynchronizedConverter(new PdfTools());
 
 var doc = new HtmlToPdfDocument()
 {
@@ -565,26 +426,28 @@ byte[] pdf = converter.Convert(doc);
 
 <pre><code>using IronPdf;
 
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
 var renderer = new ChromePdfRenderer();
 using var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Hello&lt;/h1&gt;");
 pdf.SaveAs("output.pdf");
 </code></pre>
 
-<p>The difference speaks for itself. One NuGet command versus a multi-step process involving OS-specific binaries, X11 servers, and wrapper packages. See the <a href="https://ironpdf.com/docs/">IronPDF documentation</a> for full setup details.</p>
+<p>One NuGet command versus a multi-step process involving OS-specific binaries, X11 packages, and a wrapper library. See the <a href="https://ironpdf.com/docs/">IronPDF documentation</a> for full setup details.</p>
 
 <h2>Frequently Asked Questions</h2>
 
 <h3>Is wkhtmltopdf still maintained?</h3>
 
-<p>No. Development ceased in 2020 with the final stable release at version 0.12.6. The GitHub organization was officially archived on July 10, 2024. Package managers like Homebrew disabled installations in December 2024. Security vulnerabilities CVE-2020-21365 and CVE-2022-35583 remain unpatched. All .NET wrappers — DinkToPdf, Rotativa, NReco.PdfGenerator — inherit this abandonware status.</p>
+<p>No. Active development wound down with the 0.12.6 release line, and the project's GitHub organization was archived in late 2022 — meaning issues and pull requests are read-only and no further upstream releases are planned. Public CVE records (e.g., CVE-2022-35583) sit unpatched. All .NET wrappers — DinkToPdf, WkHtmlToPdf-DotNet, Rotativa, NReco.PdfGenerator — depend on the same archived upstream binary.</p>
 
 <h3>Can wkhtmltopdf render modern CSS like Flexbox and Grid?</h3>
 
-<p>No. The QtWebKit engine from approximately 2015 predates CSS Grid (2017) and widespread Flexbox (2016). Grid layouts are completely unsupported. Flexbox is only partially supported. JavaScript compatibility stops at ECMAScript 5. Web Fonts loaded via CDN are problematic without custom configuration, and Canvas elements have limited support.</p>
+<p>Largely no. The QtWebKit engine inside wkhtmltopdf predates CSS Grid (browser support landed in 2017) and widely-used Flexbox (2016). Grid layouts typically do not render; Flexbox support is partial. JavaScript compatibility tops out around ECMAScript 5. Web Fonts loaded over the network often need custom configuration to load reliably, and Canvas support is limited.</p>
 
 <h3>Why is IronPDF faster for batch PDF generation?</h3>
 
-<p><a href="https://ironpdf.com">IronPDF</a> renders in-process using embedded Chromium with true parallel async execution, processing 100 PDFs in 5-10 seconds. wkhtmltopdf must process serially to avoid file locking and process conflicts, spawning a separate executable for each conversion with 500ms-2s overhead each time. A batch of 100 PDFs typically takes 50-80 seconds.</p>
+<p><a href="https://ironpdf.com">IronPDF</a> renders in-process using embedded Chromium and exposes a first-class async API, so multiple renders can be in flight at once. wkhtmltopdf wrappers serialize calls (e.g. <code>SynchronizedConverter</code>) because the underlying native binary is not safely concurrent, and each call pays a noticeable native-binary startup cost. The actual ratio depends on host hardware and document complexity — benchmark on your own workload before committing.</p>
 
 <h3>What does migration from wkhtmltopdf to IronPDF involve?</h3>
 
@@ -592,12 +455,10 @@ pdf.SaveAs("output.pdf");
 
 <h2>What Is the Decision Framework?</h2>
 
-<p><strong>Answer:</strong></p>
+<p>wkhtmltopdf served the .NET community well for roughly a decade as a free HTML-to-PDF solution, when browser engines were simpler and the layout primitives it supported were enough. The QtWebKit foundation handled HTML4 and CSS2.1 cleanly for that period. The upstream GitHub organization being archived formally marked the end of maintenance.</p>
 
-<p>wkhtmltopdf served well from 2010-2020 as a free HTML-to-PDF solution when browser engines were simpler. The QtWebKit foundation handled HTML4 and CSS2.1 adequately for that period. The July 2024 archival officially marked the end of maintenance, though development had effectively stopped in 2020.</p>
+<p>For teams still running wkhtmltopdf systems, migration tends to become necessary when modern CSS layouts (Grid, Flexbox) are required and rendering breaks, when unpatched CVE entries surface in security review, when package managers drop the package and block new deployments, when native-binary startup overhead degrades batch throughput, when Docker images need X11/xvfb workarounds, or when the QtWebKit engine no longer renders contemporary web content faithfully.</p>
 
-<p>For teams still running wkhtmltopdf systems, migration becomes necessary when modern CSS layouts (Grid, Flexbox) are required and rendering breaks, when unpatched security vulnerabilities (CVE-2020-21365, CVE-2022-35583) create compliance issues, when package managers disable installations blocking new deployments, when process spawning overhead degrades batch processing performance, when Docker deployments require X11 workarounds that complicate infrastructure, or when the 2015-era QtWebKit engine fails to render contemporary web content.</p>
-
-<p>IronPDF provides a native .NET library with a modern Chromium engine, eliminating external process dependencies. The <a href="https://ironpdf.com/object-reference/api/IronPdf.ChromePdfRenderer.html/">ChromePdfRenderer API</a> supports async patterns, modern web standards, and direct memory streams. Installation is a single NuGet package with no separate binaries or X11 requirements. The technical debt of maintaining wkhtmltopdf wrappers compounds over time — no new features, unpatched vulnerabilities, and increasing incompatibility with modern web standards. For new projects, starting with wkhtmltopdf creates legacy code from day one.</p>
+<p>IronPDF provides a native .NET library with a current Chromium engine, eliminating the separate-binary deployment story. The <a href="https://ironpdf.com/object-reference/api/IronPdf.ChromePdfRenderer.html/">ChromePdfRenderer API</a> supports async patterns, modern web standards, and direct memory streams. Installation is a single NuGet package with no separate binaries or X11 packages. The maintenance cost of keeping a wkhtmltopdf wrapper running compounds over time — no upstream fixes, unpatched advisories, and a widening gap from how modern browsers render. For new projects, starting on wkhtmltopdf means starting on legacy code on day one.</p>
 
 <p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

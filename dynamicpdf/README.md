@@ -121,7 +121,8 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **DynamicPDF C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package ceTe.DynamicPDF.CoreSuite.NET
+// NuGet: Install-Package ceTe.DynamicPDF.Converter.NET
+// HTML-to-PDF is a separate add-on; CoreSuite alone does not include it.
 using ceTe.DynamicPDF;
 using ceTe.DynamicPDF.Conversion;
 
@@ -204,16 +205,14 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ### The Product Fragmentation Problem
 
-DynamicPDF is sold as **separate products with separate licenses**:
+DynamicPDF (ceTe Software) sells PDF functionality as **separately licensed add-ons**:
 
-- **DynamicPDF Generator**: Create PDFs from scratch
-- **DynamicPDF Merger**: Merge, split, manipulate PDFs (separate purchase)
-- **DynamicPDF HTML Converter**: HTML to PDF (separate add-on)
-- **DynamicPDF Core Suite**: Combined Generator + Merger
-- **DynamicPDF ReportWriter**: Report generation
-- **DynamicPDF Print Manager**: Print PDFs
+- **DynamicPDF Core Suite**: Generator + Merger + ReportWriter, bundled into `ceTe.DynamicPDF.CoreSuite.NET` (v12.43.0, March 2026)
+- **DynamicPDF HTML Converter**: HTML-to-PDF — separate package `ceTe.DynamicPDF.HtmlConverter.NET` (v3.3.0)
+- **DynamicPDF Converter**: Office and 50+ file formats — `ceTe.DynamicPDF.Converter.NET` (v3.32.0)
+- **DynamicPDF PrintManager**, **Rasterizer**, **Viewer**: each shipped as its own NuGet package and license
 
-**A complete PDF solution requires 3-5 separate licenses with DynamicPDF. IronPDF includes everything in one package.**
+Generator, Merger, and ReportWriter were folded into Core Suite, but HTML rendering, rasterization, printing, and viewing each still require a separate purchase. **IronPDF bundles all of these into a single library and license.**
 
 ### Quick Migration Overview
 
@@ -225,7 +224,7 @@ DynamicPDF is sold as **separate products with separate licenses**:
 | CSS Support | Limited (requires add-on) | Full CSS3 with Flexbox/Grid |
 | API Style | Coordinate-based positioning | HTML/CSS + manipulation API |
 | Learning Curve | Steep (multiple APIs) | Gentle (web technologies) |
-| Modern .NET | .NET Standard 2.0 | .NET 6/7/8/9+ native |
+| Modern .NET | .NET Standard 2.0 / .NET 6 / .NET 8 / .NET Framework 4.6.2 | .NET 6/7/8/9+ native |
 
 ### Key API Mappings
 
@@ -308,12 +307,13 @@ final.SaveAs("final.pdf");
 
 1. **Paradigm Shift**: DynamicPDF uses coordinate-based positioning (X, Y, width, height). IronPDF uses HTML/CSS. This is a fundamental change in how you design documents.
 
-2. **Remove Multiple Packages**:
+2. **Remove Multiple Packages** (only those actually installed):
    ```bash
    dotnet remove package ceTe.DynamicPDF.CoreSuite.NET
-   dotnet remove package ceTe.DynamicPDF.Generator.NET
-   dotnet remove package ceTe.DynamicPDF.Merger.NET
    dotnet remove package ceTe.DynamicPDF.HtmlConverter.NET
+   dotnet remove package ceTe.DynamicPDF.Converter.NET
+   dotnet remove package ceTe.DynamicPDF.Rasterizer.NET
+   dotnet remove package ceTe.DynamicPDF.Printing.NET
    dotnet add package IronPdf
    ```
 
@@ -326,11 +326,12 @@ final.SaveAs("final.pdf");
 ### NuGet Package Migration
 
 ```bash
-# Remove all DynamicPDF packages
+# Remove all DynamicPDF packages (only those you actually have)
 dotnet remove package ceTe.DynamicPDF.CoreSuite.NET
-dotnet remove package ceTe.DynamicPDF.Generator.NET
-dotnet remove package ceTe.DynamicPDF.Merger.NET
 dotnet remove package ceTe.DynamicPDF.HtmlConverter.NET
+dotnet remove package ceTe.DynamicPDF.Converter.NET
+dotnet remove package ceTe.DynamicPDF.Rasterizer.NET
+dotnet remove package ceTe.DynamicPDF.Printing.NET
 
 # Install IronPDF
 dotnet add package IronPdf

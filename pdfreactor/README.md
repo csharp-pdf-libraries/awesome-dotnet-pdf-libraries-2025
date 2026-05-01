@@ -10,28 +10,28 @@ Despite these challenges, PDFreactor continues to be favored in situations where
 
 ### PDFreactor Sample C# Code
 
-Integrating PDFreactor into a C# application involves linking to the PDFreactor server using Java dependencies. Here is a simplified code example to demonstrate how to use PDFreactor from a C# application:
+The PDFreactor .NET integration is a Web Service client: the client library `PDFreactor.dll` (namespace `RealObjects.PDFreactor.Webservice.Client`) ships in the PDFreactor installation under `clients/netstandard2/bin/` and talks REST to a separately-installed PDFreactor Web Service running on Java/Jetty. Here is a simplified code example:
 
 ```csharp
 using System;
-using PDFreactor;
+using RealObjects.PDFreactor.Webservice.Client;
 
 public class PDFreactorDemo
 {
     public static void Main(string[] args)
     {
-        // Create a new PDFreactor instance
+        // Defaults to http://localhost:9423/service/rest
         PDFreactor pdfReactor = new PDFreactor();
 
         // Set up the configuration
         Configuration config = new Configuration();
-        config.document = "<html><body><h1>Hello, PDFreactor!</h1></body></html>";
+        config.Document = "<html><body><h1>Hello, PDFreactor!</h1></body></html>";
 
         // Convert to PDF
         Result result = pdfReactor.Convert(config);
 
         // Save PDF to file
-        System.IO.File.WriteAllBytes("output.pdf", result.document);
+        System.IO.File.WriteAllBytes("output.pdf", result.Document);
     }
 }
 ```
@@ -44,9 +44,9 @@ public class PDFreactorDemo
 
 ### Weaknesses of PDFreactor
 
-1. **Java-based Framework**: Its dependency on Java creates extra overhead in .NET applications, often requiring additional integration work.
-2. **Server Architecture Requirement**: Requires running as a separate service, adding complexity to the deployment process.
-3. **Complex Deployment**: Managing Java dependencies in a primarily .NET ecosystem can complicate the setup and increase maintenance costs.
+1. **Java Web Service Dependency**: The .NET integration is a REST client that requires the PDFreactor Web Service (Java/Jetty) running locally or remotely — your stack still needs a JRE somewhere.
+2. **Server Architecture Requirement**: Every conversion is an out-of-process HTTP round-trip to a separately deployed service.
+3. **No NuGet Distribution**: The `PDFreactor.dll` client ships inside the PDFreactor installer (`clients/netstandard2/bin/`), not on nuget.org, so dependency management is manual.
 
 ## IronPDF: A Native .NET Solution
 
@@ -81,12 +81,14 @@ public class IronPdfDemo
 {
     public static void Main(string[] args)
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         // Create a new PDF from HTML
-        var Renderer = new HtmlToPdf();
-        var PDF = Renderer.RenderHtmlAsPdf("<html><body><h1>Hello, IronPDF!</h1></body></html>");
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf("<html><body><h1>Hello, IronPDF!</h1></body></html>");
 
         // Save PDF to file
-        PDF.SaveAs("output.pdf");
+        pdf.SaveAs("output.pdf");
     }
 }
 ```
@@ -112,8 +114,10 @@ The table below provides a direct comparison of PDFreactor and IronPDF, examinin
 Here's how **PDFreactor** handles this:
 
 ```csharp
-// NuGet: Install-Package PDFreactor.Native.Windows.x64
-using RealObjects.PDFreactor;
+// PDFreactor .NET wrapper is a Web Service client (no NuGet package).
+// Reference PDFreactor.dll from <PDFreactor-install>/clients/netstandard2/bin/
+// and run the PDFreactor Web Service (Java/Jetty) locally or remotely.
+using RealObjects.PDFreactor.Webservice.Client;
 using System.IO;
 
 class Program
@@ -165,8 +169,10 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **PDFreactor** handles this:
 
 ```csharp
-// NuGet: Install-Package PDFreactor.Native.Windows.x64
-using RealObjects.PDFreactor;
+// PDFreactor .NET wrapper is a Web Service client (no NuGet package).
+// Reference PDFreactor.dll from <PDFreactor-install>/clients/netstandard2/bin/
+// and run the PDFreactor Web Service (Java/Jetty) locally or remotely.
+using RealObjects.PDFreactor.Webservice.Client;
 using System.IO;
 
 class Program
@@ -179,7 +185,10 @@ class Program
         
         Configuration config = new Configuration();
         config.Document = html;
-        config.AddUserStyleSheet("@page { @top-center { content: 'Header Text'; } @bottom-center { content: 'Page ' counter(page); } }");
+        config.UserStyleSheets = new System.Collections.Generic.List<Resource>
+        {
+            new Resource { Content = "@page { @top-center { content: 'Header Text'; } @bottom-center { content: 'Page ' counter(page); } }" }
+        };
         
         Result result = pdfReactor.Convert(config);
         
@@ -230,8 +239,10 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **PDFreactor** handles this:
 
 ```csharp
-// NuGet: Install-Package PDFreactor.Native.Windows.x64
-using RealObjects.PDFreactor;
+// PDFreactor .NET wrapper is a Web Service client (no NuGet package).
+// Reference PDFreactor.dll from <PDFreactor-install>/clients/netstandard2/bin/
+// and run the PDFreactor Web Service (Java/Jetty) locally or remotely.
+using RealObjects.PDFreactor.Webservice.Client;
 using System.IO;
 
 class Program
@@ -310,7 +321,7 @@ PDFreactor requires a Java runtime and runs as a separate server process, creati
 | `config.PageOrientation` | `RenderingOptions.PaperOrientation` | Orientation |
 | `config.PageMargins` | `RenderingOptions.MarginTop/Bottom/Left/Right` | Margins (mm) |
 | `config.EnableJavaScript = true` | `RenderingOptions.EnableJavaScript = true` | JS execution |
-| `config.AddUserStyleSheet(css)` | Embed CSS in HTML | CSS injection |
+| `config.UserStyleSheets.Add(new Resource { Content = css })` | Embed CSS in HTML | CSS injection |
 | `result.Document` (byte[]) | `pdf.BinaryData` | Raw bytes |
 | `pdfReactor.Convert(config)` | `renderer.RenderHtmlAsPdf(html)` | Convert |
 | `config.Title` | `pdf.MetaData.Title` | Metadata |
@@ -323,10 +334,11 @@ PDFreactor requires a Java runtime and runs as a separate server process, creati
 
 **Before (PDFreactor):**
 ```csharp
-using RealObjects.PDFreactor;
+using RealObjects.PDFreactor.Webservice.Client;
+using System.Collections.Generic;
 using System.IO;
 
-var pdfReactor = new PDFreactor("http://localhost:9423");
+var pdfReactor = new PDFreactor("http://localhost:9423/service/rest");
 
 var config = new Configuration
 {
@@ -336,7 +348,10 @@ var config = new Configuration
     EnableJavaScript = true
 };
 
-config.AddUserStyleSheet("@page { @bottom-center { content: 'Page ' counter(page); } }");
+config.UserStyleSheets = new List<Resource>
+{
+    new Resource { Content = "@page { @bottom-center { content: 'Page ' counter(page); } }" }
+};
 
 Result result = pdfReactor.Convert(config);
 File.WriteAllBytes("report.pdf", result.Document);
@@ -365,7 +380,7 @@ pdf.SaveAs("report.pdf");
 
 1. **No Server Required**: IronPDF runs in-process—no Java server to configure
    ```csharp
-   // PDFreactor: new PDFreactor("http://localhost:9423")
+   // PDFreactor: new PDFreactor("http://localhost:9423/service/rest")
    // IronPDF: new ChromePdfRenderer()  // No server URL
    ```
 
@@ -387,14 +402,13 @@ pdf.SaveAs("report.pdf");
    // IronPDF: var pdf = renderer.RenderHtmlAsPdf(html); byte[] bytes = pdf.BinaryData;
    ```
 
-### NuGet Package Migration
+### Package Migration
 
 ```bash
-# Remove PDFreactor
-dotnet remove package PDFreactor.NET
-dotnet remove package PDFreactor.Native.Windows.x64
+# PDFreactor isn't on NuGet — remove the direct PDFreactor.dll reference
+# from your .csproj, decommission the PDFreactor Web Service, then:
 
-# Install IronPDF
+# Install IronPDF (single in-process NuGet, no Java runtime)
 dotnet add package IronPdf
 ```
 

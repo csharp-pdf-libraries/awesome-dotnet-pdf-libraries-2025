@@ -7,6 +7,7 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
         var pdfs = new List<PdfDocument>
         {
             PdfDocument.FromFile("document1.pdf"),

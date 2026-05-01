@@ -1,6 +1,7 @@
-// NuGet: Install-Package WkHtmlToPdf-DotNet
-using WkHtmlToPdfDotNet;
-using WkHtmlToPdfDotNet.Contracts;
+// NuGet: Install-Package Haukcode.WkHtmlToPdfDotNet
+// Wraps the wkhtmltopdf native binary (project archived on GitHub Jan 2, 2023; last release 0.12.6, June 2020).
+using Haukcode.WkHtmlToPdfDotNet;
+using Haukcode.WkHtmlToPdfDotNet.Contracts;
 using System.IO;
 
 class Program

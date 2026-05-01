@@ -97,7 +97,7 @@ For in-depth technical comparisons, visit the [analysis article](https://ironsof
 Here's how **MigraDoc** handles this:
 
 ```csharp
-// NuGet: Install-Package PdfSharp-MigraDoc-GDI
+// NuGet: Install-Package PDFsharp-MigraDoc
 using MigraDoc.DocumentObjectModel;
 using MigraDoc.Rendering;
 
@@ -161,7 +161,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **MigraDoc** handles this:
 
 ```csharp
-// NuGet: Install-Package PdfSharp-MigraDoc-GDI
+// NuGet: Install-Package PDFsharp-MigraDoc
 using MigraDoc.DocumentObjectModel;
 using MigraDoc.Rendering;
 using System.Diagnostics;
@@ -213,7 +213,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **MigraDoc** handles this:
 
 ```csharp
-// NuGet: Install-Package PdfSharp-MigraDoc-GDI
+// NuGet: Install-Package PDFsharp-MigraDoc
 using MigraDoc.DocumentObjectModel;
 using MigraDoc.DocumentObjectModel.Tables;
 using MigraDoc.Rendering;

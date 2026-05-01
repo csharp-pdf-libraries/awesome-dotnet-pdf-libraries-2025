@@ -1,20 +1,20 @@
 <h1>PDFmyURL vs IronPDF: Why Cloud PDF APIs Hit a Wall When Compliance Enters the Room</h1>
 
-<p>A financial services team I worked with needed to generate thousands of compliance PDFs containing customer account data, transaction histories, and personally identifiable information. They evaluated PDFmyURL, drawn in by the "no installation" promise and a simple REST API. Three weeks into the proof of concept, the architecture team blocked the entire implementation: sending customer financial data to third-party servers violated data sovereignty policies, created GDPR compliance risks, and introduced dependency on external service availability for core business functionality. What looked like a deployment simplification became an architectural non-starter before a single line of production code shipped.</p>
+<p>Teams I have worked with in regulated environments hit the same wall when evaluating cloud PDF APIs: the "no installation" pitch is genuinely appealing right up to the moment an architecture review surfaces data-sovereignty rules. A financial services scenario captures the pattern — thousands of compliance PDFs containing customer account data and PII, a fast proof of concept built against a REST conversion service, then a hard stop because customer financial data cannot leave the security boundary. What looks like deployment simplification becomes an architectural non-starter before production code ships.</p>
 
-<p>This pattern repeats across every regulated industry I have encountered — healthcare under HIPAA, finance under SOX and PCI-DSS, government under FedRAMP, and any organization with data residency mandates. PDFmyURL's cloud-based architecture, where all HTML content and sensitive data transit through external servers, creates immediate compliance barriers. <a href="https://ironpdf.com">IronPDF</a> processes everything locally within your application's process space, with no external API calls and no third-party data transmission. This comparison breaks down where PDFmyURL works, where it does not, and how the two tools differ across code, features, and compliance.</p>
+<p>The pattern repeats across regulated industries — healthcare under HIPAA, finance under SOX and PCI-DSS, government under FedRAMP, and any organization with data residency mandates. PDFmyURL's cloud-based architecture, where HTML content and any embedded data transit through external servers, can create compliance friction in these environments. <a href="https://ironpdf.com">IronPDF</a> processes everything locally within your application's process space, with no third-party data transmission required for conversion. This comparison breaks down where PDFmyURL works, where it does not, and how the two tools differ across code, features, and compliance.</p>
 
 <h2>What is IronPDF and how does it handle PDF generation?</h2>
 
-<p><strong>Answer:</strong> IronPDF processes all PDF generation locally within your application's process space. HTML content, data, and generated PDFs never leave your infrastructure. The library embeds a Chromium rendering engine that executes entirely on your servers — whether on-premises Windows or Linux boxes, private cloud VMs, or containerized deployments. Network calls occur only when rendering URLs that your application explicitly requests, not as part of the library's operation.</p>
+<p>IronPDF processes all PDF generation locally within your application's process space. HTML content, data, and generated PDFs never leave your infrastructure. The library embeds a Chromium rendering engine that executes entirely on your servers — whether on-premises Windows or Linux boxes, private cloud VMs, or containerized deployments. Network calls occur only when rendering URLs that your application explicitly requests, not as part of the library's operation.</p>
 
 <p>This on-premises architecture addresses compliance requirements by default: data never transits to third parties, processing happens within your security boundary, and service availability depends only on your infrastructure. For applications with data governance requirements, this architectural difference often determines eligibility before any feature comparison begins. See the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> for implementation patterns.</p>
 
 <h2>What are the key limitations of PDFmyURL?</h2>
 
-<p><strong>Answer:</strong> PDFmyURL has operated as a cloud conversion service since 2008, providing a stable REST API for HTML-to-PDF conversion. The service offers tiered subscription plans based on monthly conversion volume. API stability is good and breaking changes are rare. But the limitations stack up quickly once you move beyond basic use cases.</p>
+<p>PDFmyURL is a cloud conversion service offering HTML-to-PDF conversion via a REST API and an officially supported Pdfcrowd .NET SDK wrapper. The service offers tiered subscription plans based on monthly conversion volume. The architecture is stable, but the cloud-first model introduces constraints once you move beyond basic use cases.</p>
 
-<p><strong>Data Sovereignty Compliance</strong>: Every HTML document you convert is transmitted to PDFmyURL's servers for processing. This creates compliance issues for GDPR (data transfer outside EU), HIPAA (PHI transmission to third parties), PCI-DSS (cardholder data handling), SOX (financial data controls), and FedRAMP (government data restrictions).</p>
+<p><strong>Data Sovereignty Compliance</strong>: Every HTML document you convert is transmitted to PDFmyURL's servers for processing. This can create compliance friction under GDPR (data transfer outside EU), HIPAA (PHI transmission to third parties), PCI-DSS (cardholder data handling), SOX (financial data controls), and FedRAMP (government data restrictions) — verify current vendor agreements (BAA, DPA) against your specific regulatory regime.</p>
 
 <p><strong>Offline Operation</strong>: The service requires internet connectivity for every conversion. Air-gapped environments, private networks without external access, and scenarios requiring offline functionality cannot use cloud APIs.</p>
 
@@ -28,72 +28,48 @@
 
 <p>The cloud API model also creates an architectural coupling where your application's PDF generation capability depends on external service availability, network connectivity, API quota limits, third-party infrastructure performance, and data transmission latency. For applications where PDF generation is a critical path operation — invoicing, reporting, document delivery — these dependencies introduce failure modes beyond your infrastructure control.</p>
 
-<p>Support is email-based with response times that vary by subscription tier. Complex issues may require back-and-forth troubleshooting via email rather than direct engineering contact, and most pricing tiers have no guaranteed SLA.</p>
+<p>Support is typically email-based with response handling that varies by subscription tier. Verify SLA terms against your specific pricing plan.</p>
 
 <h2>How does HTML string to PDF conversion compare between the two?</h2>
 
-<p><strong>Answer:</strong> This is the most fundamental operation, and it reveals the architectural gulf between a cloud API and a local library immediately.</p>
+<p>This is the most fundamental operation, and it shows the architectural difference between a cloud API wrapped in a thin SDK and a local rendering library.</p>
 
-<h3>PDFmyURL — HTML String to PDF via Cloud API</h3>
+<h3>PDFmyURL — HTML String to PDF via Pdfcrowd SDK</h3>
 
-<pre><code>using System;
-using System.Net.Http;
-using System.Text;
-using System.Threading.Tasks;
+<pre><code>// NuGet: Install-Package Pdfcrowd.OfficialClient
+using System;
+using Pdfcrowd;
 
 public class PdfMyUrlConverter
 {
-    private readonly HttpClient _httpClient;
-    private readonly string _apiKey;
-
-    public PdfMyUrlConverter(string apiKey)
+    public void ConvertHtmlString(string htmlContent, string outputPath)
     {
-        _apiKey = apiKey;
-        _httpClient = new HttpClient
-        {
-            BaseAddress = new Uri(&quot;https://pdfmyurl.com/&quot;),
-            Timeout = TimeSpan.FromMinutes(2) // Conversion can be slow
-        };
-    }
-
-    public async Task&lt;byte[]&gt; ConvertHtmlStringAsync(string htmlContent)
-    {
-        // Build form data with HTML content
-        var formData = new MultipartFormDataContent();
-        formData.Add(new StringContent(_apiKey), &quot;license&quot;);
-        formData.Add(new StringContent(htmlContent), &quot;html&quot;);
-
-        // Optional: Add configuration parameters
-        formData.Add(new StringContent(&quot;A4&quot;), &quot;page_size&quot;);
-        formData.Add(new StringContent(&quot;portrait&quot;), &quot;orientation&quot;);
-
         try
         {
-            // HTTP POST to cloud service
-            var response = await _httpClient.PostAsync(&quot;api&quot;, formData);
-            response.EnsureSuccessStatusCode();
+            // Credentials sent on every call; the SDK posts to the service over HTTPS
+            var client = new HtmlToPdfClient(&quot;username&quot;, &quot;apikey&quot;);
 
-            return await response.Content.ReadAsByteArrayAsync();
+            // Optional: configure page parameters
+            client.setPageSize(&quot;A4&quot;);
+            client.setOrientation(&quot;portrait&quot;);
+
+            // HTML is uploaded to the service for rendering, result written to disk
+            client.convertStringToFile(htmlContent, outputPath);
         }
-        catch (HttpRequestException ex)
+        catch (Pdfcrowd.Error why)
         {
-            // Network failure, service unavailable, or API error
-            throw new InvalidOperationException(
-                &quot;PDFmyURL conversion failed - check network and service status&quot;, ex);
-        }
-        catch (TaskCanceledException)
-        {
-            // Timeout exceeded
-            throw new TimeoutException(&quot;PDF conversion exceeded timeout&quot;);
+            // Pdfcrowd.Error wraps API, network, and quota failures
+            Console.WriteLine(&quot;PDFmyURL/Pdfcrowd error: &quot; + why);
         }
     }
 }</code></pre>
 
-<p>Issues to consider with this approach: HTML content potentially containing PII is transmitted to third-party servers. It fails without internet connectivity. You pay roundtrip network time plus server queue time on every call. API quotas may cause throttling errors. HTTP errors provide limited debugging context, and long conversions may exceed default HTTP client timeouts.</p>
+<p>Considerations with this approach: HTML content is transmitted to the service for processing, so any PII or regulated data inside the HTML leaves your boundary. It requires internet connectivity for every call. You pay roundtrip network time plus server processing time on each conversion. API quotas may cause throttling. <code>Pdfcrowd.Error</code> covers a wide range of failures (network, quota, invalid input, service availability) — disambiguating root cause typically means inspecting the error message rather than catching distinct exception types.</p>
 
 <h3>IronPDF — HTML String to PDF Locally</h3>
 
-<pre><code>using IronPdf;
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
 using System.Threading.Tasks;
 
 public class LocalPdfGenerator
@@ -102,6 +78,7 @@ public class LocalPdfGenerator
 
     public LocalPdfGenerator()
     {
+        IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
         _renderer = new ChromePdfRenderer();
     }
 
@@ -112,32 +89,31 @@ public class LocalPdfGenerator
     }
 }</code></pre>
 
-<p>All processing stays local and data never leaves your infrastructure. No network dependency means it works offline, air-gapped, and on private networks. No roundtrip overhead, no rate limiting, detailed exceptions with stack traces, and predictable performance that depends only on server hardware. For more on working with HTML strings, see the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a>.</p>
+<p>All processing stays local and data never leaves your infrastructure. No network dependency means it works offline, air-gapped, and on private networks. No roundtrip overhead, no rate limiting, detailed typed exceptions, and predictable performance that depends only on server hardware. For more on working with HTML strings, see the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a>.</p>
 
 <h2>How does URL to PDF conversion differ?</h2>
 
-<p><strong>Answer:</strong> URL conversion exposes the "double hop" problem with cloud APIs. PDFmyURL adds an extra network leg that IronPDF avoids entirely.</p>
+<p>URL conversion exposes the "double hop" pattern inherent to cloud APIs. PDFmyURL adds an extra network leg that an in-process library avoids.</p>
 
 <h3>PDFmyURL — URL to PDF</h3>
 
-<pre><code>public async Task&lt;byte[]&gt; ConvertUrlAsync(string url)
+<pre><code>// NuGet: Install-Package Pdfcrowd.OfficialClient
+using Pdfcrowd;
+
+public void ConvertUrl(string url, string outputPath)
 {
-    var formData = new MultipartFormDataContent();
-    formData.Add(new StringContent(_apiKey), &quot;license&quot;);
-    formData.Add(new StringContent(url), &quot;url&quot;);
+    var client = new HtmlToPdfClient(&quot;username&quot;, &quot;apikey&quot;);
 
-    // Configure page settings
-    formData.Add(new StringContent(&quot;Letter&quot;), &quot;page_size&quot;);
-    formData.Add(new StringContent(&quot;10mm&quot;), &quot;margin_top&quot;);
-    formData.Add(new StringContent(&quot;10mm&quot;), &quot;margin_bottom&quot;);
+    // Configure page settings via setter methods
+    client.setPageSize(&quot;Letter&quot;);
+    client.setMarginTop(&quot;10mm&quot;);
+    client.setMarginBottom(&quot;10mm&quot;);
 
-    var response = await _httpClient.PostAsync(&quot;api&quot;, formData);
-    response.EnsureSuccessStatusCode();
-
-    return await response.Content.ReadAsByteArrayAsync();
+    // SDK call goes to PDFmyURL servers, which then fetch the target URL
+    client.convertUrlToFile(url, outputPath);
 }</code></pre>
 
-<p>The double network overhead is significant: your server talks to PDFmyURL's server, which then talks to the target URL. Passing cookies and headers for authenticated URLs requires API parameters. Private intranet or localhost URLs cannot be converted. And control over JavaScript execution timing is limited.</p>
+<p>The double network overhead can be significant: your server talks to PDFmyURL's servers, which then fetch the target URL. Authenticated URLs may require passing cookies and headers as service parameters rather than at the rendering layer. Private intranet or localhost URLs cannot be reached by the cloud renderer because the request originates from PDFmyURL's infrastructure. JavaScript execution timing is configurable through SDK setters such as <code>setJavascriptDelay</code>.</p>
 
 <h3>IronPDF — URL to PDF</h3>
 
@@ -160,25 +136,28 @@ public async Task&lt;byte[]&gt; ConvertAuthenticatedUrlAsync(string url, string 
 
 <h2>How does batch conversion and merging compare?</h2>
 
-<p><strong>Answer:</strong> High-volume scenarios reveal the cost and rate-limit ceiling of cloud APIs. Every PDFmyURL conversion is a billable API call, while IronPDF processes locally with no per-unit charges and built-in merge capability.</p>
+<p>High-volume scenarios surface the per-call billing and rate-limit ceiling of cloud APIs. Every PDFmyURL conversion is a chargeable request, while a local library processes on hardware you already own and can combine results in the same process.</p>
 
 <h3>PDFmyURL — Batch Conversion</h3>
 
-<pre><code>public async Task&lt;byte[][]&gt; BatchConvertAsync(string[] htmlContents)
+<pre><code>// NuGet: Install-Package Pdfcrowd.OfficialClient
+using Pdfcrowd;
+using System.IO;
+
+public void BatchConvert(string[] htmlContents, string outputDir)
 {
-    var tasks = new List&lt;Task&lt;byte[]&gt;&gt;();
+    var client = new HtmlToPdfClient(&quot;username&quot;, &quot;apikey&quot;);
 
-    foreach (var html in htmlContents)
+    for (int i = 0; i &lt; htmlContents.Length; i++)
     {
-        // Each conversion is a separate API call
-        tasks.Add(ConvertHtmlStringAsync(html));
+        // Each conversion is a separate billable API call
+        var outputPath = Path.Combine(outputDir, $&quot;page_{i + 1}.pdf&quot;);
+        client.convertStringToFile(htmlContents[i], outputPath);
     }
-
-    // All requests go to external service
-    return await Task.WhenAll(tasks);
+    // No SDK-level merge: results must be combined with a separate tool
 }</code></pre>
 
-<p>Concurrent requests may trigger API rate limits and throttling. Multiple large uploads can saturate bandwidth. Each conversion counts against quota and billing. And there is no built-in merge — you need a separate tool to combine results.</p>
+<p>Concurrent requests may trigger API rate limits depending on subscription tier. Multiple large uploads can saturate bandwidth. Each conversion counts against quota and billing. The Pdfcrowd SDK does not include a PDF-merge primitive — combining results requires an additional library.</p>
 
 <h3>IronPDF — Batch Conversion with Merge</h3>
 
@@ -199,36 +178,38 @@ public async Task&lt;byte[]&gt; ConvertAuthenticatedUrlAsync(string url, string 
 
 <h2>How do watermarks work in each tool?</h2>
 
-<p><strong>Answer:</strong> Watermarking is where PDFmyURL's conversion-only scope becomes obvious. It may or may not support watermarks depending on your API tier, and it cannot touch existing PDFs at all. IronPDF treats watermarks as a first-class feature.</p>
+<p>Watermarking is where PDFmyURL's conversion-only scope becomes visible. The cloud service is built around HTML/URL-to-PDF; watermarking existing PDFs falls outside that scope. IronPDF treats watermarks as a first-class library feature.</p>
 
-<h3>PDFmyURL — Watermark Attempt</h3>
+<h3>PDFmyURL — Watermark via Conversion Settings</h3>
 
-<pre><code>public async Task&lt;byte[]&gt; ConvertWithWatermarkAsync(string htmlContent, string watermarkText)
+<pre><code>// NuGet: Install-Package Pdfcrowd.OfficialClient
+using Pdfcrowd;
+
+public void ConvertWithWatermark(string htmlContent, string watermarkUrl, string outputPath)
 {
-    var formData = new MultipartFormDataContent();
-    formData.Add(new StringContent(_apiKey), &quot;license&quot;);
-    formData.Add(new StringContent(htmlContent), &quot;html&quot;);
+    var client = new HtmlToPdfClient(&quot;username&quot;, &quot;apikey&quot;);
 
-    // Check API docs for watermark support (may require premium tier)
-    // Watermark configuration via API parameters (if supported)
-    formData.Add(new StringContent(watermarkText), &quot;watermark_text&quot;);
-    formData.Add(new StringContent(&quot;diagonal&quot;), &quot;watermark_style&quot;);
+    // Pdfcrowd's HTML-to-PDF SDK exposes page watermark settings via setters.
+    // Verify availability and tier-related limits against current Pdfcrowd docs.
+    client.setPageWatermarkUrl(watermarkUrl);
 
-    var response = await _httpClient.PostAsync(&quot;api&quot;, formData);
-    response.EnsureSuccessStatusCode();
-
-    return await response.Content.ReadAsByteArrayAsync();
+    client.convertStringToFile(htmlContent, outputPath);
 }</code></pre>
 
-<p>You need to verify watermark support in your API tier. Text, position, and opacity customization may have constraints. Image-based watermarks may not be supported. And you cannot add watermarks to existing PDFs — only during conversion.</p>
+<p>Watermark options are tied to the conversion call rather than to a PDF object — verify available options and any tier-related limits in the current Pdfcrowd documentation. Watermarks cannot be applied to PDFs that were not produced by the same conversion request; modifying an existing PDF is outside the scope of this SDK.</p>
 
 <h3>IronPDF — Full Watermark Control</h3>
 
-<pre><code>public async Task&lt;byte[]&gt; ConvertWithWatermarkAsync(string htmlContent, string watermarkText)
-{
-    var pdf = await _renderer.RenderHtmlAsPdfAsync(htmlContent);
+<pre><code>using IronPdf;
+using System.Threading.Tasks;
 
-    // Add text watermark to all pages
+public async Task&lt;byte[]&gt; ConvertWithWatermarkAsync(string htmlContent, string watermarkText)
+{
+    IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
+    var renderer = new ChromePdfRenderer();
+    var pdf = await renderer.RenderHtmlAsPdfAsync(htmlContent);
+
+    // Add text watermark to all pages (opacity is 0-100)
     pdf.ApplyWatermark(&quot;&lt;h1&gt;&quot; + watermarkText + &quot;&lt;/h1&gt;&quot;,
         opacity: 50,
         rotation: 45,
@@ -237,9 +218,10 @@ public async Task&lt;byte[]&gt; ConvertAuthenticatedUrlAsync(string url, string 
     return pdf.BinaryData;
 }
 
-public async Task&lt;byte[]&gt; AddImageWatermarkAsync(byte[] existingPdfBytes, string imagePath)
+public byte[] AddImageWatermark(byte[] existingPdfBytes, string imagePath)
 {
-    var pdf = PdfDocument.FromBytes(existingPdfBytes);
+    IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
+    var pdf = PdfDocument.FromBinaryData(existingPdfBytes);
 
     // Image watermark
     pdf.ApplyImageWatermark(imagePath,
@@ -249,110 +231,69 @@ public async Task&lt;byte[]&gt; AddImageWatermarkAsync(byte[] existingPdfBytes, 
     return pdf.BinaryData;
 }</code></pre>
 
-<p>Full customization with text, images, and HTML watermarks. Post-processing lets you add watermarks to any existing PDF. Precise control over position, opacity, rotation, and per-page options. All features available in the library with no tier restrictions.</p>
+<p>Customization across text, image, and HTML watermarks. Post-processing lets you add watermarks to any existing PDF. Control over position, opacity, rotation, and per-page options. All features are available in the library without per-tier feature gates.</p>
 
 <h2>How does each tool handle sensitive financial data and compliance?</h2>
 
-<p><strong>Answer:</strong> This is the question that ends most PDFmyURL evaluations in regulated environments. The compliance checklist is binary — either your data leaves your boundary or it does not.</p>
+<p>This is often the deciding question in regulated environments. The compliance criterion tends to be binary — either your data leaves your boundary or it does not.</p>
 
-<h3>PDFmyURL — Compliance Evaluation</h3>
+<h3>PDFmyURL — Compliance Considerations</h3>
 
-<pre><code>public class ComplianceEvaluation
-{
-    public void EvaluateDataSovereignty()
-    {
-        // PII/PHI transmitted to third party
-        // Data leaves security boundary
-        // Processing jurisdiction unknown
-        // No data residency guarantees
-        // BAA/DPA likely unavailable
-        // Audit trail on external servers
-        // Cannot guarantee immediate data deletion
+<p>With a cloud conversion service, HTML payloads (and any data embedded in them) transit to the vendor's infrastructure for rendering. Practical implications to verify against your regulatory regime:</p>
 
-        Console.WriteLine(&quot;FAIL: Cloud API unsuitable for regulated data&quot;);
-    }
-}</code></pre>
+<ul>
+<li>PII/PHI is transmitted to a third party — the data leaves your security boundary during conversion.</li>
+<li>Processing jurisdiction depends on the vendor's data center locations; verify residency commitments.</li>
+<li>BAA (HIPAA) and DPA (GDPR) availability depends on your subscription plan — check current vendor terms.</li>
+<li>Audit trails and retention policies are governed by the vendor's systems, not yours.</li>
+<li>Immediate data deletion guarantees depend on vendor SLA terms.</li>
+</ul>
 
-<h3>IronPDF — Compliance Evaluation</h3>
+<h3>IronPDF — Compliance Considerations</h3>
 
-<pre><code>public class ComplianceEvaluation
-{
-    public void EvaluateDataSovereignty()
-    {
-        // All processing on-premises
-        // Data never leaves security boundary
-        // Processing jurisdiction = your infrastructure
-        // Full data residency control
-        // No third-party data sharing
-        // Audit trail under your control
-        // Immediate data deletion possible
+<p>With an in-process library, the conversion happens inside your application's address space:</p>
 
-        Console.WriteLine(&quot;PASS: On-premises library meets compliance requirements&quot;);
-    }
-}</code></pre>
+<ul>
+<li>All processing is on-premises (or in your private cloud); data does not leave your security boundary.</li>
+<li>Processing jurisdiction matches your infrastructure footprint.</li>
+<li>Data residency is under your control end-to-end.</li>
+<li>No third-party data sharing is required for conversion to function.</li>
+<li>Audit trails and retention are governed by your systems and policies.</li>
+</ul>
 
 <p>For detailed HTML rendering and security options, see the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a>.</p>
 
 <h2>How do all features compare side by side?</h2>
 
-<table>
-<tr><th>Feature</th><th>PDFmyURL</th><th>IronPDF</th></tr>
-<tr><td><strong>Architecture</strong></td><td></td><td></td></tr>
-<tr><td>Processing location</td><td>Cloud (third-party servers)</td><td>On-premises (your infrastructure)</td></tr>
-<tr><td>Data transmission</td><td>All content to external service</td><td>Local only</td></tr>
-<tr><td>Network requirement</td><td>Required for every conversion</td><td>Optional (for URL fetching)</td></tr>
-<tr><td>Offline operation</td><td>No</td><td>Yes</td></tr>
-<tr><td><strong>Compliance</strong></td><td></td><td></td></tr>
-<tr><td>Data sovereignty</td><td>Data leaves boundary</td><td>Data stays local</td></tr>
-<tr><td>GDPR compliance</td><td>Complex (data transfer)</td><td>Straightforward (no transfer)</td></tr>
-<tr><td>HIPAA compliance</td><td>Requires BAA (if available)</td><td>Native (on-premises)</td></tr>
-<tr><td>Air-gapped deployment</td><td>Not supported</td><td>Fully supported</td></tr>
-<tr><td><strong>HTML Conversion</strong></td><td></td><td></td></tr>
-<tr><td>HTML string to PDF</td><td>Yes</td><td>Yes</td></tr>
-<tr><td>URL to PDF</td><td>Yes</td><td>Yes</td></tr>
-<tr><td>HTML file to PDF</td><td>Via upload</td><td>Yes (direct file access)</td></tr>
-<tr><td>Modern CSS support</td><td>Verify against docs</td><td>Full (Chromium)</td></tr>
-<tr><td>JavaScript execution</td><td>Yes</td><td>Yes (configurable timing)</td></tr>
-<tr><td><strong>PDF Operations</strong></td><td></td><td></td></tr>
-<tr><td>Merge PDFs</td><td>Check API docs</td><td>Yes (PdfDocument.Merge)</td></tr>
-<tr><td>Split PDFs</td><td>Check API docs</td><td>Yes</td></tr>
-<tr><td>Extract text</td><td>Check API docs</td><td>Yes</td></tr>
-<tr><td>Watermarks</td><td>Check API tier support</td><td>Full support</td></tr>
-<tr><td>Digital signatures</td><td>Check API docs</td><td>Yes</td></tr>
-<tr><td><strong>Performance</strong></td><td></td><td></td></tr>
-<tr><td>Latency</td><td>Network RT + processing</td><td>Processing only</td></tr>
-<tr><td>Batch processing</td><td>API rate limits</td><td>Hardware limits</td></tr>
-<tr><td>Concurrent operations</td><td>Depends on tier/quota</td><td>Depends on resources</td></tr>
-<tr><td>Caching</td><td>Unknown</td><td>Application-controlled</td></tr>
-<tr><td><strong>Development</strong></td><td></td><td></td></tr>
-<tr><td>.NET integration</td><td>Optional wrapper DLL</td><td>Native NuGet package</td></tr>
-<tr><td>Async support</td><td>HttpClient async</td><td>Task-based async</td></tr>
-<tr><td>Error handling</td><td>HTTP status codes</td><td>Rich exceptions</td></tr>
-<tr><td>Type safety</td><td>String parameters</td><td>Strongly typed</td></tr>
-<tr><td><strong>Operational</strong></td><td></td><td></td></tr>
-<tr><td>Cost model</td><td>Per-conversion or subscription</td><td>Per-license (fixed)</td></tr>
-<tr><td>Scalability</td><td>Vendor-dependent</td><td>Self-managed</td></tr>
-<tr><td>Service dependency</td><td>External (availability risk)</td><td>Internal only</td></tr>
-<tr><td>Support</td><td>Email (tier-based)</td><td>24/5 engineering</td></tr>
-</table>
+<ul>
+<li><strong>Architecture.</strong> PDFmyURL is a cloud REST service consumed in .NET via the Pdfcrowd SDK; conversions execute on vendor infrastructure. IronPDF is an in-process library that runs the renderer inside your application.</li>
+<li><strong>Data transmission.</strong> PDFmyURL uploads HTML content (and any embedded data) to the service for every call. IronPDF keeps content local; outbound network calls happen only when your code asks the renderer to fetch a URL.</li>
+<li><strong>Network requirement.</strong> PDFmyURL requires connectivity for every conversion. IronPDF works offline; air-gapped and private-network deployment are supported.</li>
+<li><strong>Compliance posture.</strong> Cloud transit means GDPR data-transfer review is required; HIPAA use depends on whether a BAA is available on your plan; FedRAMP and air-gapped scenarios are typically not eligible. IronPDF's on-premises model keeps data inside your security boundary, simplifying these reviews.</li>
+<li><strong>HTML conversion.</strong> Both convert HTML strings, URLs, and HTML files to PDF. Modern CSS and JavaScript support depends on the vendor's renderer version — verify against current Pdfcrowd docs. IronPDF uses Chromium, so CSS/JS coverage tracks current Chromium.</li>
+<li><strong>PDF operations beyond conversion.</strong> Pdfcrowd's HTML-to-PDF SDK is scoped to conversion; merge, split, text extraction, watermarking of pre-existing PDFs, and digital signatures typically require additional tooling. IronPDF includes <code>PdfDocument.Merge</code>, page splitting, text extraction, watermarking, and signing as library methods.</li>
+<li><strong>Performance characteristics.</strong> PDFmyURL latency is network roundtrip plus server processing; throughput is bounded by API rate limits and your subscription tier. IronPDF latency is local processing only; throughput is bounded by CPU and memory.</li>
+<li><strong>Development model.</strong> PDFmyURL: setter-based configuration, <code>Pdfcrowd.Error</code> wrapping all failure modes. IronPDF: strongly-typed <code>RenderingOptions</code>, typed exceptions for licensing and rendering failures, native async via <code>RenderHtmlAsPdfAsync</code>.</li>
+<li><strong>Cost model.</strong> PDFmyURL charges per-conversion or via monthly volume tiers. IronPDF uses a per-license model with no per-conversion fee.</li>
+<li><strong>Service dependency.</strong> PDFmyURL adds an external availability dependency to your PDF generation path. IronPDF has the same availability as your own application.</li>
+</ul>
 
 <h2>How do PDFmyURL concepts map to IronPDF equivalents?</h2>
 
-<table>
-<tr><th>PDFmyURL Concept</th><th>IronPDF Equivalent</th><th>Notes</th></tr>
-<tr><td>HTTP POST to /api</td><td>ChromePdfRenderer methods</td><td>REST API vs. library calls</td></tr>
-<tr><td>license parameter</td><td>IronPdf.License.LicenseKey</td><td>One-time setup vs. per-request</td></tr>
-<tr><td>html parameter</td><td>RenderHtmlAsPdf(string)</td><td>String content directly</td></tr>
-<tr><td>url parameter</td><td>RenderUrlAsPdf(string)</td><td>Same concept</td></tr>
-<tr><td>page_size parameter</td><td>RenderingOptions.PaperSize</td><td>Enum vs. string</td></tr>
-<tr><td>orientation parameter</td><td>RenderingOptions.PaperOrientation</td><td>Typed property</td></tr>
-<tr><td>margin_* parameters</td><td>RenderingOptions.MarginTop etc.</td><td>Strongly typed</td></tr>
-<tr><td>HTTP response body</td><td>PdfDocument.BinaryData</td><td>Bytes returned directly</td></tr>
-<tr><td>API quota limits</td><td>Hardware limitations</td><td>No artificial throttling</td></tr>
-<tr><td>Subscription tiers</td><td>License types</td><td>Per-deployment vs. per-use</td></tr>
-<tr><td>Network timeout</td><td>Local processing time</td><td>No network overhead</td></tr>
-<tr><td>Service uptime</td><td>Application uptime</td><td>Same availability tier</td></tr>
-</table>
+<ul>
+<li><code>new HtmlToPdfClient(user, key)</code> &mdash; <code>new ChromePdfRenderer()</code> &mdash; SDK-wrapped REST client vs. in-process renderer.</li>
+<li>Username/API key on every client &mdash; <code>IronPdf.License.LicenseKey</code> &mdash; one-time setup at startup vs. per-instance credentials.</li>
+<li><code>client.convertStringToFile(html, path)</code> &mdash; <code>renderer.RenderHtmlAsPdf(html).SaveAs(path)</code> &mdash; HTML string conversion.</li>
+<li><code>client.convertUrlToFile(url, path)</code> &mdash; <code>renderer.RenderUrlAsPdf(url).SaveAs(path)</code> &mdash; URL conversion.</li>
+<li><code>client.setPageSize("A4")</code> &mdash; <code>RenderingOptions.PaperSize = PdfPaperSize.A4</code> &mdash; string setter vs. typed enum property.</li>
+<li><code>client.setOrientation("landscape")</code> &mdash; <code>RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape</code> &mdash; typed orientation property.</li>
+<li><code>client.setMarginTop("10mm")</code> (and friends) &mdash; <code>RenderingOptions.MarginTop = 10</code> &mdash; strongly-typed numeric margins (mm).</li>
+<li>Response bytes from the SDK &mdash; <code>PdfDocument.BinaryData</code> &mdash; bytes returned directly from the document object.</li>
+<li>API quota limits &mdash; CPU/memory limits &mdash; no service-side throttling on local rendering.</li>
+<li>Subscription tiers &mdash; license types &mdash; per-deployment licensing vs. per-call billing.</li>
+<li>Network timeout &mdash; local processing time &mdash; no network leg in the conversion path.</li>
+<li>Service uptime dependency &mdash; application uptime &mdash; PDF generation lives on the same availability tier as your app.</li>
+</ul>
 
 <h2>FAQ</h2>
 

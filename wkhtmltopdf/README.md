@@ -4,11 +4,11 @@ The world of PDF generation in C# applications commonly features the use of libr
 
 ## Understanding wkhtmltopdf
 
-wkhtmltopdf is a tool that allows users to convert HTML to PDF documents. It operates directly from the command line, leveraging the power of Qt WebKit to process HTML. Despite its past popularity, the library is now grappling with significant weaknesses, particularly its abandonment and vulnerabilities such as the CRITICAL CVE-2022-35583 (9.8 severity), which is an SSRF vulnerability. This flaw allows malicious actors to potentially take over infrastructure, and unfortunately, it remains unpatched.
+wkhtmltopdf is a tool that converts HTML to PDF from the command line, built on a forked Qt 4.8 with QtWebKit. Despite its past popularity, the project is now frozen, and CVE-2022-35583 (CVSS 9.8, SSRF) — published in August 2022 — remains unpatched. The maintainers argue the issue is one of input sanitization in calling applications rather than a wkhtmltopdf bug, but no fix has been merged.
 
 ### Abandonment Concerns for wkhtmltopdf
 
-One of the most striking issues with wkhtmltopdf is that it has been officially abandoned, with the last meaningful software updates occurring around 2016-2017. This means that developers using wkhtmltopdf and its associated libraries are relying on outdated technology, which includes an outdated version of Qt WebKit from 2015. As a result, modern web standards such as CSS Grid and advanced features in JavaScript (post-ES6) are unsupported or broken. The ecosystem around wkhtmltopdf, including libraries like TuesPechkin, Rotativa, DinkToPdf, and others, are effectively frozen in time, leaving developers with limited capabilities in terms of rendering modern web documents accurately into PDFs.
+The wkhtmltopdf GitHub repository was **archived on January 2, 2023**, and the broader `wkhtmltopdf` GitHub organization was marked archived in **July 2024**. The last upstream source release is **0.12.6 from June 11, 2020**; a later packaging build (0.12.6.1-3) shipped in May 2023, but no source release has followed. The project's underlying engine is a fork of Qt 4.8 — itself unsupported by Qt since 2015 — and bundles QtWebKit, so modern web standards such as CSS Grid and post-ES6 JavaScript are missing or broken. Surrounding .NET wrappers (TuesPechkin, DinkToPdf) are likewise unmaintained; others (Haukcode.WkHtmlToPdfDotNet, Rotativa.AspNetCore, NReco.PdfGenerator) still receive wrapper updates but ship the same frozen binary.
 
 ## Comparing IronPDF
 
@@ -19,9 +19,9 @@ Here is a basic comparison between wkhtmltopdf and IronPDF, highlighting key dif
 | Feature                                       | wkhtmltopdf                                         | IronPDF                                      |
 |-----------------------------------------------|-----------------------------------------------------|----------------------------------------------|
 | Licensing                                     | LGPLv3 (Free)                                       | Commercial                                   |
-| Rendering Engine                              | Qt WebKit (2015)                                    | Current Chromium Engine                      |
-| Security Vulnerabilities                      | CVE-2022-35583, major unpatched issues               | No known CVEs                                |
-| Active Maintenance                            | Abandoned, no meaningful updates since 2017          | Actively maintained with regular releases    |
+| Rendering Engine                              | Qt 4.8 + QtWebKit (Qt 4.8 EOL 2015)                 | Current Chromium Engine                      |
+| Security Vulnerabilities                      | CVE-2022-35583 (CVSS 9.8) unpatched, disputed       | No critical CVEs reported                    |
+| Active Maintenance                            | GitHub repo archived Jan 2, 2023; last release June 2020 | Actively maintained with regular releases  |
 | Support for Modern Web Standards              | Limited (Broken flexbox, no CSS Grid)                | Full support                                 |
 | Integration and Support                       | Limited to community forums                          | Extensive documentation and dedicated support|
 | C# Integration                                | Via third-party libraries, often outdated            | Directly supported and regularly updated     |
@@ -49,9 +49,9 @@ The following are the noticeable weaknesses of wkhtmltopdf:
 Here's how **wkhtmltopdf** handles this:
 
 ```csharp
-// NuGet: Install-Package WkHtmlToPdf-DotNet
-using WkHtmlToPdfDotNet;
-using WkHtmlToPdfDotNet.Contracts;
+// NuGet: Install-Package Haukcode.WkHtmlToPdfDotNet
+using Haukcode.WkHtmlToPdfDotNet;
+using Haukcode.WkHtmlToPdfDotNet.Contracts;
 using System.IO;
 
 class Program
@@ -116,9 +116,9 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **wkhtmltopdf** handles this:
 
 ```csharp
-// NuGet: Install-Package WkHtmlToPdf-DotNet
-using WkHtmlToPdfDotNet;
-using WkHtmlToPdfDotNet.Contracts;
+// NuGet: Install-Package Haukcode.WkHtmlToPdfDotNet
+using Haukcode.WkHtmlToPdfDotNet;
+using Haukcode.WkHtmlToPdfDotNet.Contracts;
 using System.IO;
 
 class Program
@@ -173,9 +173,9 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **wkhtmltopdf** handles this:
 
 ```csharp
-// NuGet: Install-Package WkHtmlToPdf-DotNet
-using WkHtmlToPdfDotNet;
-using WkHtmlToPdfDotNet.Contracts;
+// NuGet: Install-Package Haukcode.WkHtmlToPdfDotNet
+using Haukcode.WkHtmlToPdfDotNet;
+using Haukcode.WkHtmlToPdfDotNet.Contracts;
 using System.IO;
 
 class Program
@@ -227,12 +227,12 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from wkhtmltopdf to IronPDF?
 
-wkhtmltopdf suffers from a critical SSRF vulnerability (CVE-2022-35583, severity 9.8) that remains unpatched due to project abandonment. The project has received no meaningful updates since 2016-2017, relies on Qt WebKit from 2015, and lacks modern web standards support (CSS Grid, flexbox, ES6+).
+wkhtmltopdf carries an unpatched critical SSRF vulnerability (CVE-2022-35583, CVSS 9.8). The GitHub repository was archived on January 2, 2023; the last upstream release is 0.12.6 from June 11, 2020. The underlying Qt 4.8 / QtWebKit stack is itself unsupported by Qt since 2015, and lacks modern web-standards support (CSS Grid, full Flexbox, ES6+).
 
 **Migrating from wkhtmltopdf to IronPDF involves:**
 
-1. **NuGet Package Change**: Remove `WkHtmlToPdf-DotNet`, add `IronPdf`
-2. **Namespace Update**: Replace `WkHtmlToPdfDotNet` with `IronPdf`
+1. **NuGet Package Change**: Remove `Haukcode.WkHtmlToPdfDotNet` (or whichever wrapper), add `IronPdf`
+2. **Namespace Update**: Replace `Haukcode.WkHtmlToPdfDotNet` with `IronPdf`
 3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
 
 **Key Benefits of Migrating:**
@@ -257,12 +257,14 @@ public class HtmlToPdfExample
 {
     public static void CreatePdfFromHtml()
     {
-        // Initialize the Renderer
-        var renderer = new HtmlToPdf();
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        // Initialize the renderer (current IronPDF API)
+        var renderer = new ChromePdfRenderer();
 
         // Set any rendering options
-        renderer.PrintOptions.DPI = 300;
-        renderer.PrintOptions.FitToPaperWidth = true;
+        renderer.RenderingOptions.Dpi = 300;
+        renderer.RenderingOptions.FitToPaperMode = IronPdf.Rendering.FitToPaperModes.Zoom;
 
         // Convert URL or HTML string to PDF
         var pdfDocument = renderer.RenderUrlAsPdf("https://example.com");

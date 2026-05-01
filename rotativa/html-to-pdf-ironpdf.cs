@@ -8,12 +8,14 @@ namespace IronPdfExample
     {
         static void Main(string[] args)
         {
+            IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
             var renderer = new ChromePdfRenderer();
             var htmlContent = "<h1>Hello World</h1><p>This is a PDF document.</p>";
-            
+
             var pdf = renderer.RenderHtmlAsPdf(htmlContent);
             pdf.SaveAs("output.pdf");
-            
+
             Console.WriteLine("PDF generated successfully!");
         }
     }

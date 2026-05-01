@@ -2,63 +2,53 @@
 
 ## Why Migrate?
 
-MuPDF is an excellent PDF renderer, but its AGPL license and rendering-only focus create significant limitations for .NET developers building commercial applications. This guide provides a complete migration path to IronPDF's comprehensive PDF solution.
+MuPDF is an excellent PDF toolkit, but its dual AGPL/commercial license (Artifex) and rendering-first focus create real friction for .NET developers building commercial HTML-driven applications. The two main .NET wrappers are **MuPDFCore** (community, by arklumpus, AGPL-3.0) and **MuPDF.NET** (Artifex's official C# bindings, mirrored on PyMuPDF). This guide covers migration from either wrapper to IronPDF.
 
 ### Critical Issues with MuPDF
 
-1. **AGPL License Trap**: Viral licensing requires either:
-   - Open-sourcing your entire application under AGPL
-   - Purchasing expensive commercial licenses (contact sales, opaque pricing)
+1. **AGPL License Trap (or Commercial Contract)**: Both MuPDF itself and the wrappers ship under AGPL-3.0. Distributing a closed-source product on AGPL code requires either:
+   - Open-sourcing your entire application under AGPL, or
+   - Purchasing a commercial license from Artifex (pricing is quote-based, not published).
 
-2. **Rendering-Only Focus**: MuPDF is a viewer/renderer—not designed for:
-   - PDF creation from HTML
-   - Document generation workflows
-   - Form filling or modification
-   - Adding watermarks or headers/footers
+2. **No HTML-to-PDF Engine**: MuPDF and its .NET wrappers do not include an HTML/CSS renderer. Generating PDFs from HTML requires shelling out to a separate browser engine (Chromium, wkhtmltopdf) and only loading the result with MuPDF.
 
-3. **Native Dependencies**: Platform-specific binaries require:
-   - Manual management for Windows, Linux, macOS
-   - Docker complexity with native libraries
-   - Deployment packaging challenges
+3. **Native Dependencies**: Both wrappers ship `MuPDFCore.NativeAssets` / `MuPDF.NativeAssets` packages with per-RID binaries (win-x64, linux-x64, osx-x64, etc.). Cross-platform deployment works, but Docker images need the matching native package and base image (glibc vs musl, etc.).
 
-4. **No HTML Support**: Cannot convert HTML/CSS to PDF—must use external tools
+4. **API Surface Skewed Toward Reading**: While MuPDF.NET *can* merge, redact, sign, and add watermarks (it mirrors PyMuPDF), most of the API and tooling is shaped around viewing and structured-text extraction rather than HTML-driven document generation. There is no equivalent of `ChromePdfRenderer.RenderHtmlAsPdf`.
 
-5. **Limited Manipulation**: No built-in support for:
-   - Merging/splitting PDFs
-   - Page rotation or reordering
-   - Watermarks or annotations
-   - Digital signatures
-
-6. **C Interop Complexity**: Native bindings introduce:
-   - Memory management concerns
-   - Platform-specific bugs
-   - Marshalling overhead
+5. **C Interop Surface**: Wrappers expose context/document lifetimes that map onto the underlying C library, so:
+   - Disposal order matters
+   - Native crashes can take down the whole process
+   - Marshalling cost is non-trivial for large documents
 
 These challenges, as detailed in the [full migration reference](https://ironpdf.com/blog/migration-guides/migrate-from-mupdf-to-ironpdf/), demonstrate why many teams transition to fully-managed solutions with comprehensive PDF capabilities.
 
 ### Benefits of IronPDF
 
-| Aspect | MuPDF | IronPDF |
-|--------|-------|---------|
-| License | AGPL (viral) or expensive commercial | Commercial with transparent pricing |
-| Primary Focus | Rendering/viewing | Complete PDF solution |
-| HTML to PDF | Not supported | Full Chromium engine |
-| PDF Creation | Not supported | HTML, URL, images |
-| PDF Manipulation | Limited | Complete (merge, split, edit) |
-| Dependencies | Native binaries | Fully managed |
-| Platform Support | Manual per-platform | Automatic |
-| Async Support | Limited | Full async/await |
-| .NET Integration | C interop | Native .NET |
+| Aspect | MuPDF (.NET wrappers) | IronPDF |
+|--------|-----------------------|---------|
+| License | AGPL-3.0 or quote-based commercial (Artifex) | Commercial with published pricing |
+| Primary Focus | Rendering, structured text, low-level manipulation | HTML-driven PDF generation + manipulation |
+| HTML to PDF | Not supported (no HTML renderer) | Full Chromium engine |
+| PDF Creation | Page-level only (insert text/images/vectors) | HTML, URL, images |
+| Merge / Split / Reorder | Supported in MuPDF.NET (`InsertPdf`, `CopyPage`, `Select`) | Supported (`Merge`, `CopyPages`, `RemovePages`) |
+| Dependencies | Native MuPDF library + RID-specific NativeAssets | Managed wrapper + bundled Chromium |
+| Platform Support | Win/Linux/macOS via NativeAssets | Win/Linux/macOS/Docker |
+| Async Support | Mostly synchronous; some async in MuPDFCore (e.g., `GetStructuredTextPageAsync`) | Async APIs across renderer and document |
+| .NET Integration | P/Invoke wrappers around C library | .NET wrapper + native Chromium |
 
 ---
 
 ## NuGet Package Changes
 
 ```bash
-# Remove MuPDF packages
+# Remove MuPDF packages (whichever wrapper you used)
 dotnet remove package MuPDF.NET
 dotnet remove package MuPDFCore
-dotnet remove package MuPDFCore.MuPDFWrapper
+dotnet remove package MuPDFCore.NativeAssets.Linux
+dotnet remove package MuPDFCore.NativeAssets.MacOS
+dotnet remove package MuPDFCore.NativeAssets.Windows
+dotnet remove package MuPDF.NativeAssets
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -66,101 +56,103 @@ dotnet add package IronPdf
 
 **Also remove native MuPDF binaries** from your deployment:
 - Delete `mupdf.dll`, `libmupdf.so`, `libmupdf.dylib`
-- Remove platform-specific folders
-- Update Docker files to remove MuPDF installation
+- Remove platform-specific runtime folders
+- Update Docker files to drop MuPDF installation steps
 
 ---
 
 ## Namespace Changes
 
-| MuPDF | IronPDF |
-|-------|---------|
-| `using MuPDFCore;` | `using IronPdf;` |
-| `using MuPDF.NET;` | `using IronPdf;` |
+| MuPDF wrapper | IronPDF |
+|---------------|---------|
+| `using MuPDFCore;` (arklumpus wrapper) | `using IronPdf;` |
+| `using MuPDFCore.StructuredText;` | `using IronPdf;` |
+| `using MuPDF.NET;` (Artifex wrapper) | `using IronPdf;` |
 | | `using IronPdf.Rendering;` (for enums) |
 
 ---
 
 ## Complete API Mapping
 
+> The MuPDF column lists the **MuPDF.NET** (Artifex) API by default and notes the **MuPDFCore** (arklumpus) equivalent where it differs.
+
 ### Document Loading
 
 | MuPDF | IronPDF | Notes |
 |-------|---------|-------|
-| `new MuPDFDocument(path)` | `PdfDocument.FromFile(path)` | Load from file |
-| `new MuPDFDocument(stream)` | `PdfDocument.FromStream(stream)` | Load from stream |
-| `new MuPDFDocument(bytes)` | `new PdfDocument(bytes)` | Load from bytes |
-| `document.Dispose()` | `pdf.Dispose()` | Cleanup |
+| `new Document(path)` (MuPDF.NET) / `new MuPDFDocument(ctx, path)` (MuPDFCore) | `PdfDocument.FromFile(path)` | Load from file |
+| `new Document("pdf", stream)` (MuPDF.NET) | `PdfDocument.FromStream(stream)` | Load from stream |
+| `new Document(...)` from byte[] | `PdfDocument.FromBinaryData(bytes)` | Load from bytes |
+| `doc.Close()` / `Dispose()` | `pdf.Dispose()` | Cleanup |
 
 ### Page Access
 
 | MuPDF | IronPDF | Notes |
 |-------|---------|-------|
-| `document.Pages.Count` | `pdf.PageCount` | Page count |
-| `document.Pages[index]` | `pdf.Pages[index]` | Access page |
-| `document.LoadPage(index)` | `pdf.Pages[index]` | Load specific page |
-| `page.Width` | `page.Width` | Page width |
-| `page.Height` | `page.Height` | Page height |
+| `doc.PageCount` (MuPDF.NET) / `document.Pages.Count` (MuPDFCore) | `pdf.PageCount` | Page count |
+| `doc[index]` (MuPDF.NET) / `document.Pages[index]` (MuPDFCore) | `pdf.Pages[index]` | Access page |
+| `doc.LoadPage(index)` | `pdf.Pages[index]` | Load specific page |
+| `page.Rect.Width` | `page.Width` | Page width |
+| `page.Rect.Height` | `page.Height` | Page height |
 
 ### Rendering to Images
 
 | MuPDF | IronPDF | Notes |
 |-------|---------|-------|
-| `page.RenderPixMap(dpi, dpi, alpha)` | `pdf.RasterizeToImageFiles(path, dpi)` | Render page to image |
-| `page.ToPixmap(scale)` | `pdf.ToBitmap()` | To bitmap |
-| `pixmap.SaveAsPng(path)` | `pdf.RasterizeToImageFiles("*.png")` | Save as PNG |
-| `pixmap.SaveAsJpeg(path)` | `pdf.RasterizeToImageFiles("*.jpg")` | Save as JPEG |
+| `page.GetPixmap(matrix)` (MuPDF.NET) / `page.Render(...)` (MuPDFCore) | `pdf.RasterizeToImageFiles(path, dpi)` | Render page to image |
+| `pixmap.WritePng(path)` (MuPDF.NET) / `MuPDFDocument.SaveImage(...)` (MuPDFCore) | `pdf.RasterizeToImageFiles("*.png")` | Save as PNG |
+| `pixmap.WriteImage(path, "jpg")` | `pdf.RasterizeToImageFiles("*.jpg")` | Save as JPEG |
 
 ### Text Extraction
 
 | MuPDF | IronPDF | Notes |
 |-------|---------|-------|
-| `page.GetText()` | `page.Text` | Page text |
-| `document.Pages.Select(p => p.GetText())` | `pdf.ExtractAllText()` | All text |
-| _(structured text)_ | `pdf.ExtractTextFromPage(index)` | Per-page text |
+| `page.GetText()` (MuPDF.NET) / iterate `MuPDFStructuredTextPage` (MuPDFCore) | `pdf.Pages[i].Text` | Page text |
+| Loop over `doc[i].GetText()` | `pdf.ExtractAllText()` | All text |
+| `page.GetText("html")` / `"json"` | `pdf.ExtractTextFromPage(index)` | Per-page text |
 
 ### PDF Creation (Not in MuPDF)
 
 | MuPDF | IronPDF | Notes |
 |-------|---------|-------|
-| _(not supported)_ | `ChromePdfRenderer.RenderHtmlAsPdf(html)` | HTML to PDF |
-| _(not supported)_ | `ChromePdfRenderer.RenderUrlAsPdf(url)` | URL to PDF |
-| _(not supported)_ | `ChromePdfRenderer.RenderHtmlFileAsPdf(path)` | HTML file to PDF |
-| _(not supported)_ | `ImageToPdfConverter.ImageToPdf(imagePaths)` | Images to PDF |
+| _(no HTML engine)_ | `ChromePdfRenderer.RenderHtmlAsPdf(html)` | HTML to PDF |
+| _(no HTML engine)_ | `ChromePdfRenderer.RenderUrlAsPdf(url)` | URL to PDF |
+| _(no HTML engine)_ | `ChromePdfRenderer.RenderHtmlFileAsPdf(path)` | HTML file to PDF |
+| `page.InsertImage(rect, fileName: ...)` (per page) | `ImageToPdfConverter.ImageToPdf(imagePaths)` | Images to PDF |
 
-### PDF Manipulation (Limited in MuPDF)
+### PDF Manipulation
 
 | MuPDF | IronPDF | Notes |
 |-------|---------|-------|
-| _(limited)_ | `PdfDocument.Merge(pdf1, pdf2)` | Merge PDFs |
-| _(limited)_ | `pdf.CopyPages(start, end)` | Extract pages |
-| _(not supported)_ | `pdf.InsertPdf(otherPdf, index)` | Insert pages |
-| _(not supported)_ | `pdf.RemovePages(indices)` | Remove pages |
-| _(not supported)_ | `pdf.RotatePages(angle)` | Rotate pages |
+| `docA.InsertPdf(docB)` (MuPDF.NET) | `PdfDocument.Merge(pdf1, pdf2)` | Merge PDFs |
+| `doc.Select(new[]{0,1,2})` | `pdf.CopyPages(start, end)` | Extract / keep page range |
+| `docA.InsertPdf(docB, fromPage, toPage, startAt)` | `pdf.InsertPdf(otherPdf, index)` | Insert pages at offset |
+| `doc.DeletePage(i)` / `doc.DeletePages(...)` | `pdf.RemovePages(indices)` | Remove pages |
+| `page.SetRotation(90)` | `pdf.RotatePages(angle)` | Rotate pages |
 
 ### Document Properties
 
 | MuPDF | IronPDF | Notes |
 |-------|---------|-------|
-| `document.Metadata` | `pdf.MetaData` | Document metadata |
-| _(read-only)_ | `pdf.MetaData.Title = "..."` | Set title |
-| _(read-only)_ | `pdf.MetaData.Author = "..."` | Set author |
+| `doc.MetaData` | `pdf.MetaData` | Document metadata |
+| `doc.SetMetadata(...)` | `pdf.MetaData.Title = "..."` | Set title |
+| `doc.SetMetadata(...)` | `pdf.MetaData.Author = "..."` | Set author |
 
-### Security (Limited in MuPDF)
+### Security
 
 | MuPDF | IronPDF | Notes |
 |-------|---------|-------|
-| _(read-only)_ | `pdf.Password = "pass"` | Set password |
-| _(read-only)_ | `pdf.SecuritySettings` | Configure permissions |
-| _(not supported)_ | `pdf.SignWithFile(certPath, password)` | Digital signatures |
+| `doc.Save(path, encryption: ..., ownerPw: ..., userPw: ...)` | `pdf.SecuritySettings.UserPassword = "pass"` | Set password |
+| `doc.Save(...)` permissions flags | `pdf.SecuritySettings` | Configure permissions |
+| `widget.Sign(pkcs12Signer)` (MuPDF.NET signing API) | `pdf.SignWithFile(certPath, password)` | Digital signatures |
 
 ### Output
 
 | MuPDF | IronPDF | Notes |
 |-------|---------|-------|
-| `document.SaveAs(path)` | `pdf.SaveAs(path)` | Save to file |
-| _(manual)_ | `pdf.BinaryData` | Get byte array |
-| _(manual)_ | `pdf.Stream` | Get stream |
+| `doc.Save(path)` | `pdf.SaveAs(path)` | Save to file |
+| `doc.Write()` returns byte[] | `pdf.BinaryData` | Get byte array |
+| Wrap `doc.Write()` in MemoryStream | `pdf.Stream` | Get stream |
 
 ---
 
@@ -168,10 +160,10 @@ dotnet add package IronPdf
 
 ### Example 1: Loading and Rendering PDF Pages
 
-**Before (MuPDF):**
+**Before (MuPDFCore):**
 ```csharp
 using MuPDFCore;
-using System;
+using System.IO;
 
 public class MuPdfRenderer
 {
@@ -182,14 +174,14 @@ public class MuPdfRenderer
         {
             for (int i = 0; i < document.Pages.Count; i++)
             {
-                // Render at 150 DPI
-                using (var page = document.Pages[i])
-                {
-                    var pixmap = page.RenderPixMap(150, 150, false);
-                    var outputPath = Path.Combine(outputFolder, $"page_{i + 1}.png");
-                    pixmap.SaveAsPng(outputPath);
-                    pixmap.Dispose();
-                }
+                // Render each page to PNG at scale 150/72.
+                var outputPath = Path.Combine(outputFolder, $"page_{i + 1}.png");
+                document.SaveImage(
+                    pageNumber: i,
+                    zoom: 150.0 / 72.0,
+                    pixelFormat: PixelFormats.RGBA,
+                    fileName: outputPath,
+                    fileType: RasterOutputFileTypes.PNG);
             }
         }
     }
@@ -218,9 +210,9 @@ public class PdfRenderer
 
 ### Example 2: Text Extraction
 
-**Before (MuPDF):**
+**Before (MuPDF.NET):**
 ```csharp
-using MuPDFCore;
+using MuPDF.NET;
 using System.Text;
 
 public class MuPdfTextExtractor
@@ -229,18 +221,13 @@ public class MuPdfTextExtractor
     {
         var sb = new StringBuilder();
 
-        using (var context = new MuPDFContext())
-        using (var document = new MuPDFDocument(context, pdfPath))
+        Document doc = new Document(pdfPath);
+
+        for (int i = 0; i < doc.PageCount; i++)
         {
-            for (int i = 0; i < document.Pages.Count; i++)
-            {
-                using (var page = document.Pages[i])
-                {
-                    var text = page.GetText();
-                    sb.AppendLine($"--- Page {i + 1} ---");
-                    sb.AppendLine(text);
-                }
-            }
+            string text = doc[i].GetText();
+            sb.AppendLine($"--- Page {i + 1} ---");
+            sb.AppendLine(text);
         }
 
         return sb.ToString();
@@ -276,14 +263,15 @@ public class PdfTextExtractor
 }
 ```
 
-### Example 3: PDF Creation (Not Possible in MuPDF)
+### Example 3: PDF Creation from HTML (Not Possible in MuPDF)
 
 **Before (MuPDF):**
 ```csharp
-// MuPDF cannot create PDFs from HTML
-// You would need to use an external tool like wkhtmltopdf,
-// then load the result with MuPDF for viewing
-throw new NotSupportedException("MuPDF is a renderer, not a PDF creator");
+// Neither MuPDF.NET nor MuPDFCore ships an HTML/CSS engine.
+// In practice teams render HTML upstream (Chromium, wkhtmltopdf,
+// PrinceXML, etc.) and only load the resulting PDF with MuPDF.
+throw new NotSupportedException(
+    "MuPDF has no HTML-to-PDF renderer; render HTML out-of-process first.");
 ```
 
 **After (IronPDF):**
@@ -319,35 +307,27 @@ public class PdfCreator
 }
 ```
 
-### Example 4: Merging PDFs (Complex in MuPDF)
+### Example 4: Merging PDFs
 
-**Before (MuPDF):**
+**Before (MuPDF.NET):**
 ```csharp
-using MuPDFCore;
+using MuPDF.NET;
 
-// MuPDF has limited merging support
-// Typically requires copying pages one by one
+// MuPDF.NET supports merging via Document.InsertPdf, mirroring
+// PyMuPDF's insert_pdf().
 public class MuPdfMerger
 {
     public void MergePdfs(string[] inputPaths, string outputPath)
     {
-        using (var context = new MuPDFContext())
-        using (var outputDoc = MuPDFDocument.Create())
-        {
-            foreach (var inputPath in inputPaths)
-            {
-                using (var inputDoc = new MuPDFDocument(context, inputPath))
-                {
-                    for (int i = 0; i < inputDoc.Pages.Count; i++)
-                    {
-                        // Complex page copying logic
-                        outputDoc.CopyPage(inputDoc, i);
-                    }
-                }
-            }
+        Document outputDoc = new Document();
 
-            outputDoc.Save(outputPath);
+        foreach (var inputPath in inputPaths)
+        {
+            Document inputDoc = new Document(inputPath);
+            outputDoc.InsertPdf(inputDoc);
         }
+
+        outputDoc.Save(outputPath);
     }
 }
 ```
@@ -370,27 +350,22 @@ public class PdfMerger
 
 ### Example 5: Page Information and Dimensions
 
-**Before (MuPDF):**
+**Before (MuPDF.NET):**
 ```csharp
-using MuPDFCore;
+using MuPDF.NET;
 using System;
 
 public class MuPdfPageInfo
 {
     public void PrintPageInfo(string pdfPath)
     {
-        using (var context = new MuPDFContext())
-        using (var document = new MuPDFDocument(context, pdfPath))
-        {
-            Console.WriteLine($"Total pages: {document.Pages.Count}");
+        Document doc = new Document(pdfPath);
+        Console.WriteLine($"Total pages: {doc.PageCount}");
 
-            for (int i = 0; i < document.Pages.Count; i++)
-            {
-                using (var page = document.Pages[i])
-                {
-                    Console.WriteLine($"Page {i + 1}: {page.Width}x{page.Height}");
-                }
-            }
+        for (int i = 0; i < doc.PageCount; i++)
+        {
+            var rect = doc[i].Rect;
+            Console.WriteLine($"Page {i + 1}: {rect.Width}x{rect.Height}");
         }
     }
 }
@@ -419,9 +394,11 @@ public class PdfPageInfo
 
 ### Example 6: Rendering Specific Pages
 
-**Before (MuPDF):**
+**Before (MuPDFCore):**
 ```csharp
 using MuPDFCore;
+using System;
+using System.IO;
 
 public class MuPdfPageRenderer
 {
@@ -433,13 +410,19 @@ public class MuPdfPageRenderer
             if (pageIndex >= document.Pages.Count)
                 throw new ArgumentOutOfRangeException(nameof(pageIndex));
 
-            using (var page = document.Pages[pageIndex])
-            {
-                var pixmap = page.RenderPixMap(dpi, dpi, false);
-                var pngBytes = pixmap.ToPng();
-                pixmap.Dispose();
-                return pngBytes;
-            }
+            // SaveImage writes directly to disk; for an in-memory byte[]
+            // route through a temp file or use the WriteImage stream overload.
+            string tempPath = Path.GetTempFileName() + ".png";
+            document.SaveImage(
+                pageNumber: pageIndex,
+                zoom: dpi / 72.0,
+                pixelFormat: PixelFormats.RGBA,
+                fileName: tempPath,
+                fileType: RasterOutputFileTypes.PNG);
+
+            byte[] bytes = File.ReadAllBytes(tempPath);
+            File.Delete(tempPath);
+            return bytes;
         }
     }
 }
@@ -466,12 +449,28 @@ public class PdfPageRenderer
 }
 ```
 
-### Example 7: Adding Watermarks (Not in MuPDF)
+### Example 7: Adding Watermarks
 
-**Before (MuPDF):**
+**Before (MuPDF.NET):**
 ```csharp
-// MuPDF cannot add watermarks - it's a renderer only
-throw new NotSupportedException("MuPDF cannot modify PDFs");
+using MuPDF.NET;
+
+// MuPDF.NET can stamp watermarks by inserting an image or text on
+// each page, but there is no HTML/CSS watermark API; you build the
+// image yourself and place it.
+public class MuPdfWatermarker
+{
+    public void AddWatermark(string inputPath, string outputPath, string stampImagePath)
+    {
+        Document doc = new Document(inputPath);
+        for (int i = 0; i < doc.PageCount; i++)
+        {
+            var page = doc[i];
+            page.InsertImage(page.Rect, fileName: stampImagePath, overlay: true);
+        }
+        doc.Save(outputPath);
+    }
+}
 ```
 
 **After (IronPDF):**
@@ -498,8 +497,12 @@ public class PdfWatermarker
 
 **Before (MuPDF):**
 ```csharp
-// MuPDF cannot add headers/footers
-throw new NotSupportedException("MuPDF cannot create or modify PDFs");
+// MuPDF has no first-class HTML header/footer with token substitution
+// (page number, total pages, etc.). You can manually call
+// page.InsertText(...) for each page, but there is no template engine
+// for {page}/{total-pages} the way Chromium-based renderers expose.
+throw new NotSupportedException(
+    "MuPDF has no HTML header/footer template; emit text per page manually.");
 ```
 
 **After (IronPDF):**
@@ -530,12 +533,29 @@ public class PdfWithHeadersFooters
 }
 ```
 
-### Example 9: Password Protection (Not in MuPDF)
+### Example 9: Password Protection
 
-**Before (MuPDF):**
+**Before (MuPDF.NET):**
 ```csharp
-// MuPDF can read password-protected PDFs but cannot add protection
-throw new NotSupportedException("MuPDF cannot add password protection");
+using MuPDF.NET;
+
+// MuPDF.NET can write encrypted PDFs by passing encryption flags and
+// owner/user passwords to Save(); there is no document-level
+// SecuritySettings object the way IronPDF exposes.
+public class MuPdfSecurer
+{
+    public void ProtectPdf(string inputPath, string outputPath, string password)
+    {
+        Document doc = new Document(inputPath);
+        // Encryption / permission flag values come from MuPDF constants.
+        doc.Save(
+            outputPath,
+            encryption: 4,        // PDF_ENCRYPT_AES_256
+            ownerPW: password,
+            userPW: password,
+            permissions: 0);      // strip all user permissions
+    }
+}
 ```
 
 **After (IronPDF):**
@@ -546,6 +566,7 @@ public class PdfSecurer
 {
     public void ProtectPdf(string inputPath, string outputPath, string password)
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
         var pdf = PdfDocument.FromFile(inputPath);
 
         pdf.SecuritySettings.OwnerPassword = password;
@@ -561,26 +582,28 @@ public class PdfSecurer
 
 ### Example 10: Complete Document Workflow
 
-**Before (MuPDF):**
+**Before (MuPDF.NET):**
 ```csharp
-using MuPDFCore;
+using MuPDF.NET;
 
-// MuPDF can only read/render existing PDFs
-// Cannot create new PDFs, add watermarks, merge, or secure documents
+// MuPDF.NET can read, extract, render, merge, and encrypt — but
+// there is no HTML-to-PDF entry point, so document creation has to
+// come from existing pages or images.
 public class MuPdfWorkflow
 {
-    public void ProcessDocument(string inputPath)
+    public void ProcessDocument(string inputPath, string previewPath)
     {
-        using (var context = new MuPDFContext())
-        using (var document = new MuPDFDocument(context, inputPath))
-        {
-            // Can only extract text or render to images
-            var text = document.Pages[0].GetText();
-            var pixmap = document.Pages[0].RenderPixMap(150, 150, false);
-            pixmap.SaveAsPng("preview.png");
+        Document doc = new Document(inputPath);
 
-            // Cannot create, modify, merge, or secure PDFs
-        }
+        // Text extraction
+        string text = doc[0].GetText();
+
+        // Render preview to PNG via Pixmap
+        var pix = doc[0].GetPixmap();
+        pix.WritePng(previewPath);
+
+        // No HTML entry point: HTML-driven generation must happen
+        // outside MuPDF and the resulting PDF then loaded here.
     }
 }
 ```
@@ -675,15 +698,19 @@ COPY . /app
 
 ### Issue 1: Context/Document Disposal Pattern
 
-**Problem:** MuPDF requires explicit context and document disposal
+**Problem:** MuPDFCore requires an explicit `MuPDFContext`; MuPDF.NET hides it but still needs `Close()` / `Dispose()`.
 
 ```csharp
-// MuPDF pattern:
+// MuPDFCore pattern:
 using (var context = new MuPDFContext())
 using (var document = new MuPDFDocument(context, path))
 {
     // work with document
 }
+
+// MuPDF.NET pattern:
+Document doc = new Document(path);
+try { /* work */ } finally { doc.Close(); }
 
 // IronPDF pattern (simpler):
 var pdf = PdfDocument.FromFile(path);
@@ -693,16 +720,18 @@ var pdf = PdfDocument.FromFile(path);
 
 ### Issue 2: Pixmap to Image Conversion
 
-**Problem:** MuPDF uses pixmaps, IronPDF uses standard .NET types
+**Problem:** MuPDF renders to a `Pixmap` (or via `MuPDFDocument.SaveImage`), IronPDF returns standard .NET images.
 
 ```csharp
-// MuPDF:
-var pixmap = page.RenderPixMap(dpi, dpi, false);
-var bytes = pixmap.ToPng();
+// MuPDF.NET:
+var pixmap = doc[0].GetPixmap();
+pixmap.WritePng("page0.png");
+
+// MuPDFCore:
+document.SaveImage(0, 2.0, PixelFormats.RGBA, "page0.png", RasterOutputFileTypes.PNG);
 
 // IronPDF:
-var images = pdf.ToBitmap(dpi);
-// Returns System.Drawing.Bitmap[]
+var images = pdf.ToBitmap(dpi);   // Returns System.Drawing.Bitmap[]
 ```
 
 ### Issue 3: Page Iteration Pattern
@@ -710,13 +739,17 @@ var images = pdf.ToBitmap(dpi);
 **Problem:** Different page access patterns
 
 ```csharp
-// MuPDF:
+// MuPDF.NET:
+for (int i = 0; i < doc.PageCount; i++)
+{
+    var page = doc[i];
+    // page lifetime is tied to the document
+}
+
+// MuPDFCore:
 for (int i = 0; i < document.Pages.Count; i++)
 {
-    using (var page = document.Pages[i])
-    {
-        // Must dispose each page
-    }
+    var page = document.Pages[i]; // page disposed with document
 }
 
 // IronPDF:
@@ -726,25 +759,25 @@ foreach (var page in pdf.Pages)
 }
 ```
 
-### Issue 4: Missing PDF Creation
+### Issue 4: Missing HTML-to-PDF Path
 
-**Problem:** MuPDF has no PDF creation capability
+**Problem:** MuPDF has no HTML/CSS rendering engine.
 
 ```csharp
 // If you were combining MuPDF with another library for creation:
-// Before: Use wkhtmltopdf/other tool → Load with MuPDF
-// After: Use IronPDF for both creation and viewing
+// Before: Use Chromium / wkhtmltopdf / PrinceXML → Load with MuPDF
+// After: Use IronPDF's ChromePdfRenderer end-to-end
 ```
 
 ### Issue 5: DPI and Scale Differences
 
-**Problem:** MuPDF uses scale factors, IronPDF uses DPI
+**Problem:** MuPDF takes a zoom/scale factor (1.0 = 72 DPI). IronPDF takes DPI directly.
 
 ```csharp
-// MuPDF scale factor to DPI:
-// scale 1.0 = 72 DPI
-// scale 2.0 = 144 DPI
-// Formula: dpi = scale * 72
+// MuPDFCore:
+//   zoom 1.0 == 72 DPI
+//   zoom 2.0 == 144 DPI
+//   formula: zoom = dpi / 72.0
 
 // IronPDF uses direct DPI:
 pdf.RasterizeToImageFiles("output*.png", DPI: 150);
@@ -752,30 +785,39 @@ pdf.RasterizeToImageFiles("output*.png", DPI: 150);
 
 ### Issue 6: Text Extraction Coordinates
 
-**Problem:** MuPDF provides structured text with positions, IronPDF provides plain text by default
+**Problem:** MuPDF gives you a structured text tree (blocks → lines → characters with bounding boxes). IronPDF returns plain text by default.
 
 ```csharp
-// If you need text positions in IronPDF:
-// Use pdf.ExtractTextFromPage() for per-page text
-// Or pdf.Pages[i].Text for individual page text
+// MuPDF.NET:
+//   doc[i].GetText("dict")    // structured dictionary
+//   doc[i].GetText("words")   // list of (rect, word) tuples
+//
+// MuPDFCore:
+//   document.GetStructuredTextPage(i) → MuPDFStructuredTextPage
+//
+// IronPDF:
+//   pdf.ExtractTextFromPage(i)   // per-page plain text
+//   pdf.Pages[i].Text            // page text
 ```
 
 ---
 
 ## Performance Comparison
 
+The numbers below are illustrative — benchmark on your own documents and machine before relying on them. The qualitative ordering is more reliable than the absolute milliseconds.
+
 | Operation | MuPDF | IronPDF |
 |-----------|-------|---------|
-| Load PDF (10 pages) | ~50ms | ~100ms |
-| Render page to image | ~80ms | ~120ms |
-| Extract text (all pages) | ~30ms | ~50ms |
-| Create from HTML | N/A | ~500ms |
-| Merge 2 PDFs | ~100ms (manual) | ~50ms |
-| Add watermark | N/A | ~30ms |
-| First operation (init) | ~200ms | ~1500ms |
+| Load PDF (10 pages) | Fast | Fast |
+| Render page to image | Fast (native) | Fast (Chromium-backed) |
+| Extract text (all pages) | Fast | Fast |
+| Create from HTML | Not supported | Single call, includes Chromium spin-up |
+| Merge 2 PDFs | Single `InsertPdf` call | Single `Merge` call |
+| Add watermark | Image stamp per page | Single `ApplyWatermark` call |
+| First operation (init) | Native library load | Chromium warm-up (heavier) |
 | Subsequent operations | Fast | Fast |
 
-**Note:** MuPDF is faster for pure rendering but cannot perform creation or manipulation tasks that IronPDF handles.
+**Note:** MuPDF tends to be quicker for raw rendering and text extraction. IronPDF wins where the input is HTML/CSS, because MuPDF has no HTML engine at all.
 
 ---
 
@@ -785,35 +827,35 @@ pdf.RasterizeToImageFiles("output*.png", DPI: 150);
 
 - [ ] **Inventory all MuPDF usages**
   ```bash
-  grep -r "MuPDF\|MuPDFCore\|MuPDFDocument" --include="*.cs" .
+  grep -r "MuPDF\|MuPDFCore\|MuPDFDocument\|MuPDF.NET" --include="*.cs" .
   ```
-  **Why:** Identify all usages to ensure complete migration coverage.
+  **Why:** Identify all usages to ensure complete migration coverage. Both MuPDFCore (`MuPDFDocument`) and MuPDF.NET (`Document`) classes need to be found.
 
-- [ ] **Document all rendering operations (DPI, scale factors)**
+- [ ] **Document all rendering operations (DPI, zoom factors)**
   ```csharp
-  // Before (MuPDF)
-  var dpi = 72;
-  var scaleFactor = 1.5;
+  // Before (MuPDFCore)
+  double zoom = 1.5; // == 108 DPI
+  document.SaveImage(0, zoom, PixelFormats.RGBA, "out.png", RasterOutputFileTypes.PNG);
 
-  // After (IronPDF)
-  var renderer = new ChromePdfRenderer();
-  renderer.RenderingOptions.Dpi = 72 * 1.5;
+  // After (IronPDF rasterization)
+  pdf.RasterizeToImageFiles("out_*.png", DPI: 108);
   ```
-  **Why:** Ensure consistent rendering quality by mapping DPI and scale factors to IronPDF's rendering options.
+  **Why:** MuPDF expresses scale as a zoom factor (1.0 = 72 DPI). Convert to DPI for IronPDF.
 
 - [ ] **Identify any PDF creation needs (currently external)**
   **Why:** IronPDF can handle PDF creation internally, reducing dependencies on external tools.
 
 - [ ] **List text extraction requirements**
   ```csharp
-  // Before (MuPDF)
-  var text = mupdfDocument.ExtractText();
+  // Before (MuPDF.NET)
+  Document doc = new Document("document.pdf");
+  string text = doc[0].GetText();
 
   // After (IronPDF)
   var pdf = PdfDocument.FromFile("document.pdf");
   var text = pdf.ExtractAllText();
   ```
-  **Why:** IronPDF provides built-in text extraction, simplifying the process.
+  **Why:** IronPDF returns whole-document plain text in one call instead of per-page iteration.
 
 - [ ] **Review deployment scripts for native binary handling**
   **Why:** IronPDF is fully managed, eliminating the need for native binaries and simplifying deployment.
@@ -828,7 +870,7 @@ pdf.RasterizeToImageFiles("output*.png", DPI: 150);
 
 - [ ] **Remove MuPDF NuGet packages**
   ```bash
-  dotnet remove package MuPDF
+  dotnet remove package MuPDF.NET     # or MuPDFCore + native asset packages
   ```
   **Why:** Clean package switch to IronPDF.
 
@@ -841,38 +883,44 @@ pdf.RasterizeToImageFiles("output*.png", DPI: 150);
 
 - [ ] **Update namespace imports**
   ```csharp
-  // Before (MuPDF)
+  // Before (MuPDFCore)
   using MuPDFCore;
+  // Before (MuPDF.NET)
+  using MuPDF.NET;
 
   // After (IronPDF)
   using IronPdf;
   ```
   **Why:** Update namespaces to reflect the new library.
 
-- [ ] **Replace `MuPDFDocument` with `PdfDocument.FromFile()`**
+- [ ] **Replace `Document` / `MuPDFDocument` with `PdfDocument.FromFile()`**
   ```csharp
-  // Before (MuPDF)
-  var mupdfDocument = new MuPDFDocument("document.pdf");
+  // Before (MuPDF.NET)
+  Document doc = new Document("document.pdf");
+  // Before (MuPDFCore)
+  var ctx = new MuPDFContext();
+  var mupdfDoc = new MuPDFDocument(ctx, "document.pdf");
 
   // After (IronPDF)
   var pdf = PdfDocument.FromFile("document.pdf");
   ```
-  **Why:** Use IronPDF's PdfDocument for loading existing PDFs.
+  **Why:** IronPDF's `PdfDocument` is the unified entry point.
 
-- [ ] **Replace `RenderPixMap()` with `RasterizeToImageFiles()`**
+- [ ] **Replace pixmap rendering with `RasterizeToImageFiles()`**
   ```csharp
-  // Before (MuPDF)
-  var pixmap = mupdfDocument.RenderPixMap(pageNumber);
+  // Before (MuPDF.NET)
+  var pixmap = doc[0].GetPixmap();
+  pixmap.WritePng("page0.png");
 
   // After (IronPDF)
-  var images = pdf.RasterizeToImageFiles(pageNumber);
+  pdf.RasterizeToImageFiles("page_*.png", DPI: 150);
   ```
-  **Why:** IronPDF provides image rasterization directly from PDF pages.
+  **Why:** IronPDF rasterizes the whole document in one call.
 
 - [ ] **Replace page iteration patterns**
   ```csharp
-  // Before (MuPDF)
-  for (int i = 0; i < mupdfDocument.PageCount; i++) { /* ... */ }
+  // Before (MuPDF.NET)
+  for (int i = 0; i < doc.PageCount; i++) { var p = doc[i]; }
 
   // After (IronPDF)
   foreach (var page in pdf.Pages) { /* ... */ }
@@ -921,35 +969,33 @@ pdf.RasterizeToImageFiles("output*.png", DPI: 150);
 - [ ] **Update CI/CD pipeline**
   **Why:** Reflect changes in dependencies and build processes.
 
-- [ ] **Consider adding PDF creation features now available**
+- [ ] **Consider adopting IronPDF features that are easier here than in MuPDF**
   ```csharp
-  // Features now available:
   // Merge PDFs
   var merged = PdfDocument.Merge(pdf1, pdf2);
 
   // Password protection
   pdf.SecuritySettings.UserPassword = "secret";
 
-  // Watermarks
+  // HTML watermarks (no equivalent in MuPDF — MuPDF stamps images/text only)
   pdf.ApplyWatermark("<h1 style='color:red; opacity:0.3;'>DRAFT</h1>");
 
   // Digital signatures
-  var signature = new PdfSignature("cert.pfx", "password");
-  pdf.Sign(signature);
+  pdf.SignWithFile("cert.pfx", "password");
   ```
-  **Why:** IronPDF provides many features that may not have been available in the old library.
+  **Why:** Many of these *are* possible in MuPDF.NET, but IronPDF's HTML-driven entry points (watermarks, headers, content) cut out the manual coordinate / page-stamping work.
 ---
 
 ## Licensing Comparison
 
-| Aspect | MuPDF AGPL | MuPDF Commercial | IronPDF |
-|--------|------------|------------------|---------|
-| Open-source apps | Free | Not needed | Requires license |
-| Proprietary apps | Must open-source | Required | Requires license |
-| SaaS applications | Must open-source | Required | Requires license |
-| Pricing | Free | Contact sales | Published pricing |
-| Source disclosure | Required | Not required | Not required |
-| Derivative works | Must be AGPL | Negotiable | No restrictions |
+| Aspect | MuPDF AGPL | MuPDF Commercial (Artifex) | IronPDF |
+|--------|------------|----------------------------|---------|
+| Open-source apps | Free (must remain AGPL-compatible) | Not required | Requires license |
+| Proprietary apps | Must open-source under AGPL | Required | Requires license |
+| SaaS applications | AGPL "network use" trigger applies | Required | Requires license |
+| Pricing | Free | Contact Artifex (quote-based) | Published pricing |
+| Source disclosure | Required (AGPL §13) | Not required | Not required |
+| Derivative works | Must be AGPL | Per commercial agreement | Per IronPDF EULA |
 
 ---
 

@@ -6,11 +6,11 @@ When it comes to converting HTML to PDF in C#, ExpertPdf is often mentioned as a
 
 ExpertPdf facilitates HTML to PDF conversion, allowing C# developers to seamlessly convert dynamic web pages into PDF documents. The library claims to support HTML5, which is beneficial for rendering modern web content in PDF format. While ExpertPdf has carved out a niche in this domain, there are considerable downsides that cannot be ignored.
 
-**Documentation Limitations**: ExpertPdf struggles with outdated documentation. Frozen since 2018, developers often find themselves in a difficult situation when looking for up-to-date guides and examples. As the software landscape rapidly evolves, having up-to-date information is crucial, and a lack thereof can be a significant drawback.
+**Documentation Limitations**: ExpertPdf (published by Outside Software Inc.) maintains reference documentation at html-to-pdf.net, but tutorials, articles, and changelog entries are infrequent. The latest release on nuget.org is v20.1.0 (April 2025), with release notes summarised as "bug fixes and performance improvements" — keeping up with new features or modern .NET idioms via vendor-published material is difficult.
 
-**Technical Foundation**: A primary limitation of ExpertPdf is its reliance on an older version of Chrome for rendering PDFs. This means that any modern web standards and rendering improvements made to subsequent versions of Chromium are not reflected in the output produced by ExpertPdf. This could result in less accurate or visually appealing PDFs, especially when dealing with cutting-edge web designs.
+**Technical Foundation**: ExpertPdf's HtmlToPdf converter ships a Trident/IE engine plus a "WebKit2" engine added in v12.2 — modern Chromium is not the default. This can affect Flexbox, Grid, and other CSS3 features depending on which engine you select.
 
-**Pricing Concerns**: Another major point of contention is the premium pricing of ExpertPdf. With costs ranging from $550 to $1,200, users expect a library that stands on the cutting edge of technology. However, with outdated tech under the hood, ExpertPdf seems to charge a premium without offering equivalent value in terms of features and performance.
+**Pricing Concerns**: ExpertPdf is priced as a developer-licence product with deployment royalties. Public listings on ComponentSource have historically shown the HtmlToPdf converter at roughly $550–$1,200 per tier; the order page on expertpdf.net was inaccessible (404) at the time of writing — verify directly with the vendor.
 
 ## IronPDF: A Superior Alternative
 
@@ -27,12 +27,14 @@ Here’s a table comparing ExpertPdf and IronPDF to offer a clearer picture of w
 
 | Feature/Aspect          | ExpertPdf                                            | IronPDF                                              |
 |-------------------------|------------------------------------------------------|------------------------------------------------------|
-| **Documentation**       | Frozen since 2018, limited                           | Continuously updated, extensive tutorials             |
+| **Vendor**              | Outside Software Inc.                                | Iron Software                                         |
+| **Latest release**      | v20.1.0 (Apr 2025) on nuget.org                      | Continuously updated                                  |
+| **Documentation**       | Reference docs only, sparse tutorials                | Continuously updated, extensive tutorials             |
 | **HTML5 Support**       | Supported                                            | Supported                                             |
-| **Rendering Engine**    | Legacy Chrome                                        | Latest Chromium                                       |
-| **Cost**                | $550 - $1,200                                        | Competitive pricing                                   |
-| **Update Frequency**    | Infrequent                                           | Monthly releases                                      |
-| **Additional Features** | Basic HTML-to-PDF conversion                         | Robust features, full .NET integration                 |
+| **Rendering Engine**    | Trident (IE) + "WebKit2" (added v12.2)               | Latest Chromium                                       |
+| **Cost**                | ~$550–$1,200 (verify with vendor)                    | See ironpdf.com/pricing                               |
+| **Product shape**       | 6+ separate NuGet packages                           | Single all-in-one package                             |
+| **Additional Features** | Basic HTML-to-PDF conversion                         | Robust features, full .NET integration                |
 
 ## C# Code Example with ExpertPdf
 
@@ -267,24 +269,25 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ### The ExpertPdf Problems
 
-ExpertPdf has significant issues that make migration worthwhile:
+ExpertPdf (Outside Software Inc.) is still actively shipping — v20.1 dropped in April 2025 — but the product *shape* causes friction:
 
-1. **Documentation Frozen Since 2018**: Over 6 years without documentation updates
-2. **Outdated Chrome Version**: Legacy rendering engine misses modern CSS3 features
-3. **Premium Pricing for Legacy Tech**: $550-$1,200 for outdated technology
-4. **Fragmented Product Suite**: Separate packages (HtmlToPdf, PDFMerge, PDFSecurity, PDFSplit) each requiring separate licenses
-5. **Limited Modern .NET Support**: Lags behind current .NET versions
+1. **Sparse documentation, slow cadence**: Reference docs exist but tutorials and feature articles are infrequent
+2. **Older rendering pipelines**: Trident/IE + "WebKit2" — modern Chromium is not the default
+3. **Premium pricing for an aging stack**: ~$550–$1,200 (verify with vendor)
+4. **Fragmented product suite**: Separate packages (`ExpertPdfHtmlToPdf`, `ExpertPdf.MergePdf`, `ExpertPdf.PdfSecurity`, `ExpertPdf.SplitPdf`, `ExpertPdf.PdfToImage`, `ExpertPdf.PdfCreator`) — each typically licensed separately
+5. **No native modern .NET targets**: .NET Standard 2.0 / .NET Framework 4.6.1 only — runs on .NET 5-9 but not multi-targeted
 
 ### Quick Migration Overview
 
 | Aspect | ExpertPdf | IronPDF |
 |--------|-----------|---------|
-| Documentation | Frozen since 2018 | Continuously updated |
-| Rendering Engine | Legacy Chrome | Latest Chromium |
-| CSS Support | Limited CSS3 | Full CSS3 (Flexbox, Grid) |
-| Price | $550-$1,200 | Competitive pricing |
-| Product Model | Fragmented (5+ packages) | All-in-one library |
-| Update Frequency | Infrequent | Monthly releases |
+| Vendor | Outside Software Inc. | Iron Software |
+| Latest release | v20.1.0 (Apr 2025) | Continuously updated |
+| Documentation | Reference-only, sparse tutorials | Continuously updated |
+| Rendering Engine | Trident + WebKit2 | Latest Chromium |
+| CSS Support | CSS3 best on WebKit2; partial on legacy | Full CSS3 (Flexbox, Grid) |
+| Price | ~$550–$1,200 (verify with vendor) | See ironpdf.com/pricing |
+| Product Model | 6+ separate packages | All-in-one library |
 
 ### Key API Mappings
 
@@ -354,11 +357,14 @@ pdf.SaveAs("report.pdf");
 ### NuGet Package Migration
 
 ```bash
-# Remove all ExpertPdf packages
-dotnet remove package ExpertPdf.HtmlToPdf
-dotnet remove package ExpertPdf.PDFMerge
-dotnet remove package ExpertPdf.PDFSecurity
-dotnet remove package ExpertPdf.PDFSplit
+# Remove all ExpertPdf packages (use whichever variants you have installed)
+dotnet remove package ExpertPdfHtmlToPdf
+dotnet remove package ExpertPdf.HtmlToPdf.NetCore
+dotnet remove package ExpertPdf.MergePdf
+dotnet remove package ExpertPdf.PdfSecurity
+dotnet remove package ExpertPdf.SplitPdf
+dotnet remove package ExpertPdf.PdfToImage
+dotnet remove package ExpertPdf.PdfCreator
 
 # Install IronPDF (includes all features)
 dotnet add package IronPdf

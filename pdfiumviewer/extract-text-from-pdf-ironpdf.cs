@@ -2,6 +2,8 @@
 using IronPdf;
 using System;
 
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
 string pdfPath = "document.pdf";
 
 // Open and extract text from PDF

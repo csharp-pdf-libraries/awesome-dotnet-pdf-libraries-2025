@@ -9,6 +9,8 @@ class IronPdfDatabaseReport
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         // Create database connection and fetch data
         string connString = "Server=localhost;Database=SalesDB;Integrated Security=true;";
         var dataTable = new DataTable();

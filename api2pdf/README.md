@@ -49,18 +49,21 @@ This code leverages IronPDF to convert a simple HTML string into a PDF file, sho
 Here's how **Api2pdf** handles this:
 
 ```csharp
-// NuGet: Install-Package Api2Pdf.DotNet
+// NuGet: Install-Package Api2Pdf
 using System;
 using System.Threading.Tasks;
-using Api2Pdf.DotNet;
+using Api2Pdf;
 
 class Program
 {
     static async Task Main(string[] args)
     {
-        var a2pClient = new Api2PdfClient("your-api-key");
-        var apiResponse = await a2pClient.HeadlessChrome.FromHtmlAsync("<h1>Hello World</h1>");
-        Console.WriteLine(apiResponse.Pdf);
+        var client = new Api2Pdf("your-api-key");
+        var result = await client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest
+        {
+            Html = "<h1>Hello World</h1>"
+        });
+        Console.WriteLine(result.FileUrl);
     }
 }
 ```
@@ -93,25 +96,28 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Api2pdf** handles this:
 
 ```csharp
-// NuGet: Install-Package Api2Pdf.DotNet
+// NuGet: Install-Package Api2Pdf
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using Api2Pdf.DotNet;
+using Api2Pdf;
 
 class Program
 {
     static async Task Main(string[] args)
     {
-        var a2pClient = new Api2PdfClient("your-api-key");
+        var client = new Api2Pdf("your-api-key");
         string html = File.ReadAllText("input.html");
-        var options = new HeadlessChromeOptions
+        var result = await client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest
         {
-            Landscape = true,
-            PrintBackground = true
-        };
-        var apiResponse = await a2pClient.HeadlessChrome.FromHtmlAsync(html, options);
-        Console.WriteLine(apiResponse.Pdf);
+            Html = html,
+            Options = new ChromeHtmlToPdfOptions
+            {
+                Landscape = true,
+                PrintBackground = true
+            }
+        });
+        Console.WriteLine(result.FileUrl);
     }
 }
 ```
@@ -148,18 +154,21 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Api2pdf** handles this:
 
 ```csharp
-// NuGet: Install-Package Api2Pdf.DotNet
+// NuGet: Install-Package Api2Pdf
 using System;
 using System.Threading.Tasks;
-using Api2Pdf.DotNet;
+using Api2Pdf;
 
 class Program
 {
     static async Task Main(string[] args)
     {
-        var a2pClient = new Api2PdfClient("your-api-key");
-        var apiResponse = await a2pClient.HeadlessChrome.FromUrlAsync("https://www.example.com");
-        Console.WriteLine(apiResponse.Pdf);
+        var client = new Api2Pdf("your-api-key");
+        var result = await client.Chrome.UrlToPdfAsync(new ChromeUrlToPdfRequest
+        {
+            Url = "https://www.example.com"
+        });
+        Console.WriteLine(result.FileUrl);
     }
 }
 ```
@@ -196,24 +205,24 @@ Api2pdf sends your sensitive HTML and documents to third-party servers, creating
 | Aspect | Api2pdf | IronPDF |
 |--------|---------|---------|
 | Data Handling | Sent to third-party cloud servers | Processed locally on your infrastructure |
-| Pricing | Pay-per-conversion (~$0.005/PDF) | One-time perpetual license |
+| Pricing | $1/month base + metered ($0.001/MB bandwidth, $0.00019551/sec compute) | One-time perpetual license |
 | Latency | 2-5 seconds (network round-trip) | 100-500ms (local processing) |
 | Offline | Not available | Works fully offline |
-| Installation | API key + HTTP client | Simple NuGet package |
+| Installation | API key + `Api2Pdf` NuGet wrapper or raw HTTP | Simple NuGet package |
 | Compliance | GDPR/HIPAA concerns (data leaves network) | Full compliance control |
 
 ### Key API Mappings
 
 | Common Task | Api2pdf | IronPDF |
 |-------------|---------|---------|
-| Create client | `new Api2PdfClient("API_KEY")` | `new ChromePdfRenderer()` |
-| HTML to PDF | `client.HeadlessChrome.FromHtmlAsync(html)` | `renderer.RenderHtmlAsPdf(html)` |
-| URL to PDF | `client.HeadlessChrome.FromUrlAsync(url)` | `renderer.RenderUrlAsPdf(url)` |
-| Get PDF | `response.Pdf` (URL to download) | `pdf.BinaryData` or `pdf.SaveAs()` |
-| Merge PDFs | `client.PdfSharp.MergePdfsAsync(urls)` | `PdfDocument.Merge(pdfs)` |
-| Set password | `client.PdfSharp.SetPasswordAsync(url, pwd)` | `pdf.SecuritySettings.OwnerPassword` |
+| Create client | `new Api2Pdf("API_KEY")` | `new ChromePdfRenderer()` |
+| HTML to PDF | `client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest { Html = html })` | `renderer.RenderHtmlAsPdf(html)` |
+| URL to PDF | `client.Chrome.UrlToPdfAsync(new ChromeUrlToPdfRequest { Url = url })` | `renderer.RenderUrlAsPdf(url)` |
+| Get PDF | `result.FileUrl` (URL to download) or `result.GetFileBytes()` | `pdf.BinaryData` or `pdf.SaveAs()` |
+| Merge PDFs | `client.PdfSharp.MergePdfs(new PdfMergeRequest { Urls = urls })` | `PdfDocument.Merge(pdfs)` |
+| Set password | `client.PdfSharp.SetPassword(new PdfPasswordRequest { Url = url, OwnerPassword = pwd })` | `pdf.SecuritySettings.OwnerPassword` |
 | Landscape | `options.Landscape = true` | `RenderingOptions.PaperOrientation = Landscape` |
-| Page size | `options.PageSize = "A4"` | `RenderingOptions.PaperSize = PdfPaperSize.A4` |
+| Page size | Set via `ChromeHtmlToPdfOptions` (e.g. `Format` / `PreferCSSPageSize`) | `RenderingOptions.PaperSize = PdfPaperSize.A4` |
 | Delay | `options.Delay = 3000` | `RenderingOptions.WaitFor.RenderDelay(3000)` |
 | Print background | `options.PrintBackground = true` | `RenderingOptions.PrintHtmlBackgrounds = true` |
 
@@ -221,17 +230,19 @@ Api2pdf sends your sensitive HTML and documents to third-party servers, creating
 
 **Before (Api2pdf):**
 ```csharp
-using Api2Pdf.DotNet;
+using Api2Pdf;
 
-var a2pClient = new Api2PdfClient("YOUR_API_KEY");
-var options = new HeadlessChromeOptions { Landscape = true, PrintBackground = true };
-var response = await a2pClient.HeadlessChrome.FromHtmlAsync("<h1>Report</h1>", options);
-
-if (response.Success)
+var client = new Api2Pdf("YOUR_API_KEY");
+var result = await client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest
 {
-    // Download PDF from URL
-    using var httpClient = new HttpClient();
-    var pdfBytes = await httpClient.GetByteArrayAsync(response.Pdf);
+    Html = "<h1>Report</h1>",
+    Options = new ChromeHtmlToPdfOptions { Landscape = true, PrintBackground = true }
+});
+
+if (result.Success)
+{
+    // Download PDF from FileUrl (or use result.GetFileBytes())
+    byte[] pdfBytes = result.GetFileBytes();
     File.WriteAllBytes("report.pdf", pdfBytes);
 }
 ```
@@ -273,7 +284,7 @@ dotnet add package IronPdf
 ### Find All Api2pdf References
 
 ```bash
-grep -r "using Api2Pdf\|Api2PdfClient\|HeadlessChrome\|WkHtmlToPdf" --include="*.cs" .
+grep -r "using Api2Pdf\|new Api2Pdf(\|client\.Chrome\|client\.Wkhtml\|client\.PdfSharp" --include="*.cs" .
 ```
 
 **Ready for the complete migration?** The full guide includes:

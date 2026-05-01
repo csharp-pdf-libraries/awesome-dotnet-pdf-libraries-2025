@@ -4,7 +4,7 @@ When it comes to dealing with document printing and generation in C#, developers
 
 ## Understanding RawPrint
 
-RawPrint is a collection of implementations that enable sending raw data directly to a printer. It is essential for applications that require direct command transmission to printers, bypassing conventional printer drivers. This functionality is particularly useful in scenarios where specialized printers, such as label creators using ZPL (Zebra Programming Language) or EPL (Eltron Programming Language), are employed.
+RawPrint is the NuGet package `RawPrint` (frogmorecs/RawPrint, v0.5.0, last released September 2019, now unlisted/legacy on nuget.org). It is a thin P/Invoke wrapper over `winspool.Drv` that ships a byte stream straight to the Windows print spooler with the RAW datatype. It is essential for applications that require direct command transmission to printers, bypassing conventional printer drivers. This functionality is particularly useful in scenarios where specialized printers, such as label creators using ZPL (Zebra Programming Language) or EPL (Eltron Programming Language), or thermal receipt printers using ESC/POS, are employed. The library's public API is small: a `Printer` class (implementing `IPrinter`) in the `RawPrint` namespace exposing `PrintRawFile` and `PrintRawStream` overloads.
 
 One strength of RawPrint is its simplicity in sending data streams directly to a printer. For developers targeting Windows-specific environments and requiring direct printer communication, RawPrint offers an efficient pathway bypassing intermediary layers like drivers or graphical interfaces.
 
@@ -18,90 +18,31 @@ However, RawPrint has notable limitations:
 
 ### Example Usage of RawPrint in C#
 
-To provide a clearer picture, here's a C# example simulating how RawPrint might be implemented to send data to a printer:
+To provide a clearer picture, here is the actual RawPrint package API used to send a stream of bytes to a Windows printer:
 
 ```csharp
-using System;
+// NuGet: Install-Package RawPrint
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Text;
+using RawPrint;
 
-namespace RawPrintExample
+class Program
 {
-    class Program
+    static void Main()
     {
-        [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
-        public static extern bool OpenPrinter(string src, out IntPtr hPrinter, IntPtr pd);
+        byte[] data = Encoding.ASCII.GetBytes("Raw data to send to the printer.");
 
-        [DllImport("winspool.Drv", EntryPoint = "ClosePrinter")]
-        public static extern bool ClosePrinter(IntPtr hPrinter);
-
-        [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
-        public static extern bool StartDocPrinter(IntPtr hPrinter, int level, ref DOCINFOA pDocInfo);
-
-        [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter")]
-        public static extern bool EndDocPrinter(IntPtr hPrinter);
-
-        [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter")]
-        public static extern bool StartPagePrinter(IntPtr hPrinter);
-
-        [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter")]
-        public static extern bool EndPagePrinter(IntPtr hPrinter);
-
-        [DllImport("winspool.Drv", EntryPoint = "WritePrinter")]
-        public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, int dwCount, out int dwWritten);
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
-        public class DOCINFOA
+        IPrinter printer = new Printer();
+        using (var stream = new MemoryStream(data))
         {
-            [MarshalAs(UnmanagedType.LPStr)]
-            public string pDocName;
-            [MarshalAs(UnmanagedType.LPStr)]
-            public string pOutputFile;
-            [MarshalAs(UnmanagedType.LPStr)]
-            public string pDataType;
-        }
-
-        static void Main(string[] args)
-        {
-            IntPtr hPrinter;
-            IntPtr pBytes;
-            int dwBytesWritten;
-
-            string printerName = "YourPrinterName";
-            string documentName = "RawPrint Document Example";
-            string data = "Raw data to send to the printer.";
-
-            DOCINFOA di = new DOCINFOA();
-            di.pDocName = documentName;
-            di.pDataType = "RAW";
-
-            byte[] bytes = Encoding.ASCII.GetBytes(data);
-            int length = bytes.Length;
-            pBytes = Marshal.AllocCoTaskMem(length);
-            Marshal.Copy(bytes, 0, pBytes, length);
-
-            if (OpenPrinter(printerName.Normalize(), out hPrinter, IntPtr.Zero))
-            {
-                if (StartDocPrinter(hPrinter, 1, ref di))
-                {
-                    if (StartPagePrinter(hPrinter))
-                    {
-                        WritePrinter(hPrinter, pBytes, length, out dwBytesWritten);
-                        EndPagePrinter(hPrinter);
-                    }
-                    EndDocPrinter(hPrinter);
-                }
-                ClosePrinter(hPrinter);
-            }
-
-            Marshal.FreeCoTaskMem(pBytes);
+            // PrintRawStream(printerName, stream, documentName, paused)
+            printer.PrintRawStream("YourPrinterName", stream, "RawPrint Document Example", false);
         }
     }
 }
 ```
 
-This example demonstrates the Windows-specific approach of sending raw data to a printer using DLL imports. It highlights how developers can implement RawPrint, acknowledging its powerful yet restrained scope.
+The package itself is a P/Invoke wrapper around `winspool.Drv` (`OpenPrinter`, `StartDocPrinter`, `WritePrinter`, `EndDocPrinter`, `ClosePrinter`); you do not need to write those imports yourself. This is its powerful but intentionally restrained scope.
 
 ## IronPDF: A Higher-Level Alternative
 
@@ -139,7 +80,7 @@ To encapsulate the essential differences and roles of RawPrint and IronPDF, the 
 | **PDF Creation**                     | No                                               | Yes                                              |
 | **Ideal For**                        | Direct printer access needs                      | PDF-related tasks in web and desktop apps        |
 | **Flexibility**                      | Limited due to raw byte handling                 | Extensive with multiple functionalities          |                               
-| **License**                          | Varies                                           | Commercial                                       |
+| **License**                          | No license expression declared on NuGet (verify in repo)         | Commercial                                       |
 
 ---
 

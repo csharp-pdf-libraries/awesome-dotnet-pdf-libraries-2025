@@ -1,12 +1,13 @@
 // NuGet: Install-Package IronPdf
 using IronPdf;
-using IronPdf.Rendering;
 using System;
 
 class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var renderer = new ChromePdfRenderer();
         renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter()
         {

@@ -44,22 +44,22 @@ For those unfamiliar with IronPDF, you can start by checking out their [tutorial
 
 ## How Do I Convert HTML to PDF in C# with PDFView4NET and C# PDF Solutions?
 
-Here's how **PDFView4NET and C# PDF Solutions** handles this:
+**PDFView4NET does not support HTML to PDF conversion.** The `O2S.Components.PDFView4NET` namespace contains no HTML rendering API; the toolkit's scope is rendering, viewing, and printing existing PDFs. The closest in-product workflow is to load a PDF that was produced by another tool and display or print it:
 
 ```csharp
-// NuGet: Install-Package O2S.Components.PDFView4NET
+// NuGet: Install-Package O2S.Components.PDFView4NET.Win
 using O2S.Components.PDFView4NET;
-using O2S.Components.PDFView4NET.HtmlToPdf;
 using System;
 
 class Program
 {
     static void Main()
     {
-        HtmlToPdfConverter converter = new HtmlToPdfConverter();
-        converter.NavigateUri = new Uri("https://example.com");
-        converter.ConvertHtmlToPdf();
-        converter.SavePdf("output.pdf");
+        // PDFView4NET cannot fetch a URL and emit a PDF; it can only consume one.
+        PDFDocument document = new PDFDocument();
+        document.Load("input.pdf");
+        Console.WriteLine($"Loaded {document.PageCount} page(s) for view/print.");
+        document.Close();
     }
 }
 ```
@@ -91,7 +91,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **PDFView4NET and C# PDF Solutions** handles this:
 
 ```csharp
-// NuGet: Install-Package O2S.Components.PDFView4NET
+// NuGet: Install-Package O2S.Components.PDFView4NET.Win
 using O2S.Components.PDFView4NET;
 using System;
 using System.IO;
@@ -102,13 +102,15 @@ class Program
     {
         using (FileStream fs = File.OpenRead("document.pdf"))
         {
-            PDFDocument document = new PDFDocument(fs);
+            PDFDocument document = new PDFDocument();
+            document.Load(fs);
             string text = "";
-            for (int i = 0; i < document.Pages.Count; i++)
+            for (int i = 0; i < document.PageCount; i++)
             {
                 text += document.Pages[i].ExtractText();
             }
             Console.WriteLine(text);
+            document.Close();
         }
     }
 }
@@ -138,23 +140,23 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Do I Convert an HTML String to PDF?
 
-Here's how **PDFView4NET and C# PDF Solutions** handles this:
+PDFView4NET has no API to convert an HTML string into a PDF — there is no `HtmlToPdfConverter` / `HtmlContent` surface in `O2S.Components.PDFView4NET`. To work with PDFView4NET in this scenario you must produce the PDF with a different tool (such as IronPDF) and then load the resulting file into the viewer:
 
 ```csharp
-// NuGet: Install-Package O2S.Components.PDFView4NET
+// NuGet: Install-Package O2S.Components.PDFView4NET.Win
 using O2S.Components.PDFView4NET;
-using O2S.Components.PDFView4NET.HtmlToPdf;
 using System;
 
 class Program
 {
     static void Main()
     {
-        string htmlContent = "<html><body><h1>Hello World</h1><p>This is a PDF document.</p></body></html>";
-        HtmlToPdfConverter converter = new HtmlToPdfConverter();
-        converter.HtmlContent = htmlContent;
-        converter.ConvertHtmlToPdf();
-        converter.SavePdf("document.pdf");
+        // The HTML string cannot be rendered by PDFView4NET. Assume an upstream
+        // tool produced "document.pdf"; PDFView4NET can then display or print it.
+        PDFDocument document = new PDFDocument();
+        document.Load("document.pdf");
+        Console.WriteLine($"Document ready for viewing — {document.PageCount} page(s).");
+        document.Close();
     }
 }
 ```
@@ -229,11 +231,13 @@ class Program
 {
     static void Main(string[] args)
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         // Define HTML content for the PDF
         string htmlContent = "<h1>Hello, World!</h1><p>This is a PDF generated using IronPDF.</p>";
 
         // Create a PDF document from HTML
-        HtmlToPdf renderer = new HtmlToPdf();
+        ChromePdfRenderer renderer = new ChromePdfRenderer();
         PdfDocument pdf = renderer.RenderHtmlAsPdf(htmlContent);
 
         // Save the PDF to a file

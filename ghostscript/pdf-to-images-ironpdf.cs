@@ -6,13 +6,11 @@ class IronPdfExample
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var pdf = PdfDocument.FromFile("input.pdf");
-        
-        var images = pdf.ToBitmap();
-        
-        for (int i = 0; i < images.Length; i++)
-        {
-            images[i].Save($"output_page{i + 1}.png");
-        }
+
+        // One-shot: write every page as PNG matching Ghostscript's -r300 -sDEVICE=png16m
+        pdf.RasterizeToImageFiles("output_page*.png", DPI: 300);
     }
 }

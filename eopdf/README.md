@@ -1,8 +1,8 @@
 # EO.Pdf + C# + PDF
 
-When developers look for robust PDF generation options using C#, EO.Pdf often enters the conversation due to its integration of Chrome rendering capabilities and a reputation for creating high-quality PDF documents. EO.Pdf is a commercial library offered at a price point of $799 per license and claims to deliver a rich feature set that aligns with the needs of many enterprise-level applications. Despite its popularity, EO.Pdf, however, presents a mixed bag of strengths and challenges that need careful consideration, particularly regarding its html to pdf c# implementation.
+When developers look for robust PDF generation options using C#, EO.Pdf (by Essential Objects) often enters the conversation due to its bundled Chromium-based renderer and a reputation for creating high-quality PDF documents. EO.Pdf is a paid commercial library — sold as Single License, 3-License Bundle, Corporate Bundle, and Corporate Plus tiers (no permanent free tier; the trial watermarks output for 30 days) — and claims to deliver a rich feature set that aligns with the needs of many enterprise-level applications. Despite its popularity, EO.Pdf presents a mixed bag of strengths and challenges that need careful consideration, particularly regarding its html to pdf c# implementation.
 
-EO.Pdf boasts an architecture built on a custom engine, ensuring that it no longer relies on Internet Explorer, a significant step forward. Yet, its migration to a Chromium-based system has not been without its challenges, as developers have encountered an array of compatibility issues attributed to its legacy baggage. Additionally, although EO.Pdf positions itself as a cross-platform tool, its performance and ease-of-use are primarily Windows-centric, with Linux support often seen as more of an afterthought. For developers seeking a modern c# html to pdf library, [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) provides a more streamlined alternative.
+EO.Pdf's HTML-to-PDF converter originally embedded Internet Explorer / Trident before the project moved to a Chromium-based renderer, and some legacy quirks remain across versions. More importantly, although EO.Pdf is marketed as cross-platform, Essential Objects' own .NET Core docs explicitly state that EO.Pdf supports .NET Core 3.1+ and .NET 5/6 **on Windows only** — Linux and macOS deployments are not officially supported. For developers seeking a modern c# html to pdf library that runs natively on Linux and Docker, [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) provides a more streamlined alternative.
 
 For benchmarks, pricing details, and c# html to pdf performance analysis, see the [full comparison](https://ironsoftware.com/suite/blog/comparison/compare-eo-pdf-vs-ironpdf/). 
 
@@ -76,13 +76,12 @@ class Program
     {
         PdfDocument doc1 = new PdfDocument("file1.pdf");
         PdfDocument doc2 = new PdfDocument("file2.pdf");
-        
-        PdfDocument mergedDoc = new PdfDocument();
-        mergedDoc.Append(doc1);
-        mergedDoc.Append(doc2);
-        
+
+        // EO.Pdf has no Append; merge is a static method that returns a new PdfDocument.
+        PdfDocument mergedDoc = PdfDocument.Merge(doc1, doc2);
+
         mergedDoc.Save("merged.pdf");
-        
+
         Console.WriteLine("PDFs merged successfully!");
     }
 }
@@ -217,22 +216,22 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 EO.Pdf has several significant issues:
 
-1. **Massive 126MB Package**: Bundles its own Chromium, inflating Docker images and slowing deployments
-2. **Legacy IE Baggage**: Originally built on Internet Explorer before Chrome migration, introducing compatibility issues
-3. **$799 Per License**: High cost compared to alternatives with similar or better functionality
-4. **Static Global Options**: `HtmlToPdf.Options` is not thread-safe for multi-tenant applications
-5. **Windows-Centric**: Limited Linux/macOS support despite "cross-platform" claims
+1. **Bundled Chromium increases footprint**: Like IronPDF, EO.Pdf ships its own Chromium runtime, which inflates Docker images and slows deployments
+2. **Legacy IE/Trident Baggage**: HTML-to-PDF was originally built on Internet Explorer before the migration to Chromium, leaving behind some compatibility quirks
+3. **Paid-only commercial license**: Sold as Single / 3-License / Corporate / Corporate Plus tiers (exact prices on the order page); no permanent free tier — only a 30-day watermarked trial
+4. **Static Global Options**: `HtmlToPdf.Options` is shared global state and is not thread-safe for multi-tenant applications
+5. **Windows-only on .NET Core**: Essential Objects' docs explicitly state .NET Core / .NET 5+ support is Windows-only; Linux and macOS are not officially supported
 
 ### Quick Migration Overview
 
 | Aspect | EO.Pdf | IronPDF |
 |--------|--------|---------|
-| Package Size | 126MB | ~50MB (optimized) |
-| Legacy Issues | IE migration baggage | Clean, modern codebase |
-| Configuration | Static/global (not thread-safe) | Instance-based, thread-safe |
-| Platform Support | Windows-focused | True cross-platform |
-| Price | $799/developer | Competitive pricing |
-| Documentation | Limited | Comprehensive tutorials |
+| Renderer | Bundled Chromium (was IE/Trident) | Embedded Chromium |
+| Legacy Issues | IE/Trident migration baggage | Built on Chromium from the start |
+| Configuration | Static `HtmlToPdf.Options` (not thread-safe) | Instance `ChromePdfRenderer` (thread-safe) |
+| Platform Support | Windows-only on .NET Core | Windows, Linux, macOS, Docker |
+| License model | Paid Single/3-License/Corporate/Corporate Plus | Per-developer commercial; free trial |
+| Documentation | Reference + forum | Comprehensive tutorials and how-to library |
 
 ### Key API Mappings
 
@@ -243,7 +242,7 @@ EO.Pdf has several significant issues:
 | `HtmlToPdf.Options.PageSize` | `renderer.RenderingOptions.PaperSize` | Instance, not static |
 | `HtmlToPdf.Options.OutputArea` | `MarginTop/Bottom/Left/Right` | Individual properties |
 | `new PdfDocument(path)` | `PdfDocument.FromFile(path)` | Static factory |
-| `doc.Append(other)` | `PdfDocument.Merge(doc1, doc2)` | Static merge method |
+| `PdfDocument.Merge(doc1, doc2)` | `PdfDocument.Merge(doc1, doc2)` | Both are static; EO.Pdf has no instance `Append` |
 | `doc.Security.UserPassword` | `pdf.SecuritySettings.UserPassword` | |
 | `AcmRender`, `AcmText`, `AcmBlock` | HTML/CSS | No ACM needed |
 | `AfterRenderPage` event | `HtmlHeaderFooter` | For headers/footers |
@@ -327,17 +326,17 @@ When evaluating organizations’ selection of PDF libraries, EO.Pdf frequently g
 
 | Feature                             | EO.Pdf                              | IronPDF                          |
 |-------------------------------------|-------------------------------------|----------------------------------|
-| Cost                                | $799 per license                    | Varies (competitive pricing)     |
-| Rendering Engine                    | Chromium-based                      | Optimized Chromium               |
-| Platform Support                    | Primarily Windows                   | Fully cross-platform             |
-| Library Size                        | 126MB                               | Compact & optimized              |
-| Legacy Issues                       | Yes, migration from IE              | None, modern .NET framework      |
-| Ease of Integration                 | Moderate                            | High                             |
-| Additional Resources                | Limited                             | Rich tutorials and guides        |
+| Cost                                | Paid tiers: Single / 3-License / Corporate / Corporate Plus | Per-developer commercial; free trial |
+| Rendering Engine                    | Bundled Chromium                    | Embedded Chromium                |
+| Platform Support                    | Windows-only on .NET Core           | Windows, Linux, macOS, Docker    |
+| Library Footprint                   | Bundles Chromium runtime            | Bundles Chromium runtime         |
+| Legacy Issues                       | Yes, migration from IE/Trident      | Built on Chromium from the start |
+| Ease of Integration                 | Static-class API + ACM object model | Instance-based renderer + HTML/CSS |
+| Additional Resources                | Reference docs + forum              | Tutorials, how-to guides, samples |
 
 ## Key Strengths and Weaknesses
 
-EO.Pdf’s principal strength lies in its Chromium-based rendering, which translates to a high level of W3C compliance. Compared to other libraries with similar claims, EO.Pdf competes well on this front. However, its significant footprint of 126MB can pose an unnecessary burden, particularly in scenarios where deployment size is a consideration. The prior reliance on Internet Explorer also adds unwanted complexity due to legacies that might result in compatibility problems during its migration phase.
+EO.Pdf’s principal strength lies in its Chromium-based rendering, which translates to a high level of W3C compliance. Compared to other libraries with similar claims, EO.Pdf competes well on this front. However, bundling a full Chromium runtime adds a meaningful deployment footprint — a tradeoff shared by other Chromium-backed libraries — and the prior reliance on Internet Explorer / Trident leaves behind some legacy quirks that occasionally surface as cross-version differences.
 
 In contrast, [IronPDF](https://ironpdf.com/how-to/html-file-to-pdf/) provides a smoother ride for developers needing streamlined integration as their focus is on ease-of-use. IronPDF has focused efforts on creating detailed [tutorials](https://ironpdf.com/tutorials/) and how-to guides that enable developers to ramp up quickly and effectively.
 

@@ -201,7 +201,7 @@ public async Task UrlToPdfAsync(string url)
     // Navigate with wait strategy
     await page.GoToAsync(url, new NavigationOptions
     {
-        WaitUntil = new[] { WaitUntilNavigation.NetworkIdle2 }
+        WaitUntil = new[] { WaitUntilNavigation.Networkidle2 }
     });
 
     // Generate PDF with options
@@ -994,7 +994,7 @@ grep -r "PuppeteerSharp\|BrowserFetcher\|Puppeteer.LaunchAsync\|page.PdfAsync" -
   // Before (PuppeteerSharp)
   await page.GoToAsync(url, new NavigationOptions
   {
-      WaitUntil = new[] { WaitUntilNavigation.NetworkIdle2 }
+      WaitUntil = new[] { WaitUntilNavigation.Networkidle2 }
   });
   await page.PdfAsync("output.pdf");
 

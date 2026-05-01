@@ -1,4 +1,4 @@
-// NuGet: Install-Package PdfSharp
+// NuGet: Install-Package PDFsharp  (official PDFsharp-Team package; v6.2.4 as of Jan 2026, MIT)
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
 using PdfSharp.Drawing;
@@ -14,7 +14,8 @@ class Program
         
         // Get graphics object
         XGraphics gfx = XGraphics.FromPdfPage(page);
-        XFont font = new XFont("Arial", 20, XFontStyle.Bold);
+        // Note: in PDFsharp 6.x, XFontStyle was renamed to XFontStyleEx
+        XFont font = new XFont("Arial", 20, XFontStyleEx.Bold);
         
         // Draw text at specific position
         gfx.DrawString("Watermark Text", font, XBrushes.Red,

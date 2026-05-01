@@ -4,9 +4,9 @@ In the realm of document processing, particularly for converting HTML to PDF in 
 
 ## Understanding PrinceXML
 
-PrinceXML is a sophisticated tool designed to excel at converting HTML content into print-perfect PDF documents through its dedicated support for CSS Paged Media specifications. This specialization allows PrinceXML to render documents with high fidelity to intended print designs—a valuable attribute for industries requiring detailed print styling, like publishing or legal documentation.
+PrinceXML (current version 16.2, released January 2026) is a sophisticated tool by YesLogic designed to excel at converting HTML and XML content into print-perfect PDF documents through its dedicated support for CSS Paged Media specifications. This specialization allows PrinceXML to render documents with high fidelity to intended print designs—a valuable attribute for industries requiring detailed print styling, like publishing or legal documentation. Prince ships native binaries for Windows, Linux, and macOS.
 
-However, PrinceXML is not a .NET library and operates as a separate command-line tool, which may complicate integration for environments that prefer pure .NET solutions. Its reliance on a separate server process involves additional system resource management and potentially increased complexity for project deployments. This can be a drawback for developers seeking seamless integration into C# applications without the overhead of process management.
+However, PrinceXML is not a .NET library and operates as a separate command-line executable invoked from C# via the official `PrinceXMLWrapper` NuGet package (which shells out to `prince.exe`). Its reliance on a separate process involves additional system resource management and potentially increased complexity for project deployments. Prince is also available under a free non-commercial license that stamps a YesLogic logo watermark on the first page of the output; commercial use requires a paid license.
 
 ### C# Code Example: Using PrinceXML
 
@@ -69,7 +69,7 @@ Here's how **PrinceXML** handles this:
 
 ```csharp
 // NuGet: Install-Package PrinceXMLWrapper
-using PrinceXMLWrapper;
+using PrinceXML.Wrapper;
 using System;
 
 class Program
@@ -94,6 +94,7 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
         var renderer = new ChromePdfRenderer();
         var pdf = renderer.RenderHtmlFileAsPdf("input.html");
         pdf.SaveAs("output.pdf");
@@ -112,7 +113,7 @@ Here's how **PrinceXML** handles this:
 
 ```csharp
 // NuGet: Install-Package PrinceXMLWrapper
-using PrinceXMLWrapper;
+using PrinceXML.Wrapper;
 using System;
 
 class Program
@@ -120,9 +121,9 @@ class Program
     static void Main()
     {
         Prince prince = new Prince("C:\\Program Files\\Prince\\engine\\bin\\prince.exe");
-        prince.SetJavaScript(true);
-        prince.SetEncrypt(true);
-        prince.SetPDFTitle("Website Export");
+        prince.JavaScript = true;
+        prince.Encrypt = true;
+        prince.PdfTitle = "Website Export";
         prince.Convert("https://example.com", "webpage.pdf");
         Console.WriteLine("URL converted to PDF");
     }
@@ -140,12 +141,14 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
         var renderer = new ChromePdfRenderer();
         renderer.RenderingOptions.EnableJavaScript = true;
-        renderer.RenderingOptions.PdfTitle = "Website Export";
-        
+        renderer.RenderingOptions.Title = "Website Export";
+
         var pdf = renderer.RenderUrlAsPdf("https://example.com");
-        pdf.Encrypt("password");
+        pdf.SecuritySettings.OwnerPassword = "owner-password";
+        pdf.SecuritySettings.UserPassword = "user-password";
         pdf.SaveAs("webpage.pdf");
         Console.WriteLine("URL converted to PDF");
     }
@@ -162,19 +165,18 @@ Here's how **PrinceXML** handles this:
 
 ```csharp
 // NuGet: Install-Package PrinceXMLWrapper
-using PrinceXMLWrapper;
+using PrinceXML.Wrapper;
 using System;
-using System.IO;
 
 class Program
 {
     static void Main()
     {
         string html = "<html><head><style>body { font-family: Arial; color: blue; }</style></head><body><h1>Hello World</h1></body></html>";
-        File.WriteAllText("temp.html", html);
-        
+
         Prince prince = new Prince("C:\\Program Files\\Prince\\engine\\bin\\prince.exe");
-        prince.Convert("temp.html", "styled-output.pdf");
+        // ConvertString accepts a raw HTML/XML string directly — no temp file required
+        prince.ConvertString(html, "styled-output.pdf");
         Console.WriteLine("Styled PDF created");
     }
 }
@@ -191,8 +193,9 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
         string html = "<html><head><style>body { font-family: Arial; color: blue; }</style></head><body><h1>Hello World</h1></body></html>";
-        
+
         var renderer = new ChromePdfRenderer();
         var pdf = renderer.RenderHtmlAsPdf(html);
         pdf.SaveAs("styled-output.pdf");
@@ -232,14 +235,14 @@ Below is a comparison table distilling the key differences between PrinceXML and
 
 | Feature                 | PrinceXML                                                | IronPDF                                                   |
 |-------------------------|----------------------------------------------------------|-----------------------------------------------------------|
-| **License**             | Commercial ($495+)                                       | Commercial Perpetual (Developer-based)                     |
-| **Integration**         | Command-line tool                                        | .NET Library (Native)                                      |
-| **CSS Paged Media**     | Yes                                                      | No (General HTML to PDF conversion)                        |
-| **HTML Rendering**      | CSS Paged Media support (Print-focused)                  | Chromium-based full HTML support                           |
-| **Cross-Platform**      | Yes                                                      | Yes                                                        |
-| **PDF Manipulation**    | Generation Only                                          | Extensive (Edit, Merge, Split, Signature, etc.)            |
-| **Deployment Complexity**| Requires separate server process management            | Integrated, no external dependencies                        |
-| **Ease of Use**         | Moderate - Requires command-line integration             | Simple - API-based                                         |
+| **License**             | Commercial: Desktop $495 / Server $3,800; free non-commercial use with logo watermark | Commercial perpetual (developer-based); free trial / dev license |
+| **Integration**         | External binary invoked from C# via `PrinceXMLWrapper`   | .NET Library (Native)                                      |
+| **CSS Paged Media**     | Full support including margin boxes, named pages, `string-set` | Partial — `@page size`/`margin` plus `HtmlHeader`/`HtmlFooter` for margin-box equivalents |
+| **HTML Rendering**      | Prince's own engine, print-focused                       | Chromium-based full HTML support                           |
+| **Cross-Platform**      | Windows, Linux, macOS native binaries                    | Windows, Linux, macOS, Docker                              |
+| **PDF Manipulation**    | Generation only (no merge/split/sign)                    | Extensive (Edit, Merge, Split, Signature, etc.)            |
+| **Deployment Complexity**| Requires installing the Prince binary on every server  | Single NuGet, no external dependencies                     |
+| **Ease of Use**         | Moderate — wrapper still spawns an external process       | Simple — pure-managed API calls                            |
 
 ## Strengths and Weaknesses
 

@@ -1,3 +1,4 @@
+// REST API only - no official .NET SDK. See https://craftmypdf.com/docs/
 // NuGet: Install-Package RestSharp
 using System;
 using RestSharp;

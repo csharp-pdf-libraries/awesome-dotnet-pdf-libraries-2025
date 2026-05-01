@@ -1,10 +1,10 @@
 # Gnostice (Document Studio .NET, PDFOne) C# PDF Library
 
-Gnostice (Document Studio .NET, PDFOne) is a commercial suite designed for multi-format document processing. This comprehensive toolkit includes capabilities to create, modify, and manage documents across a variety of formats, including PDF. Gnostice (Document Studio .NET, PDFOne) is marketed as a versatile solution for developers working with .NET, offering specific component libraries across different .NET applications like WinForms, WPF, ASP.NET, and Xamarin. However, the practical usability is marred by several limitations and the common frustrations of platform fragmentation, particularly in html to pdf c# scenarios.
+Gnostice (Document Studio .NET, PDFOne) is a commercial suite designed for multi-format document processing. This comprehensive toolkit includes capabilities to create, modify, and manage documents across a variety of formats, including PDF. Gnostice is marketed as a versatile solution for developers working with .NET, offering specific component libraries across different .NET applications like WinForms, WPF, ASP.NET, and Xamarin. Note that the original `PDFOne.NET` NuGet package (last release 24.1.60, July 1, 2024) has been **deprecated**; Gnostice now directs developers to `Gnostice.DocumentStudio.*` packages (latest 25.2.499, December 22, 2025). The practical usability of both product lines is marred by platform fragmentation, particularly in html to pdf c# scenarios.
 
 ## Overview of Features and Limitations
 
-The Gnostice suite comes with a robust list of features and tool sets. It offers basic PDF manipulation functions—such as conversion, creation, and editing—to support document lifecycle management in a .NET environment. Unfortunately, the toolset is plagued with documented limitations. According to Gnostice's own documentation, it does not support external CSS, dynamic JavaScript, or even digital signatures. Critical functionalities like handling password-protected documents, generating tables of contents, and supporting right-to-left Unicode scripts such as Arabic and Hebrew are lacking.
+The Gnostice suite comes with a robust list of features and tool sets. It offers basic PDF manipulation functions—such as conversion, creation, and editing—to support document lifecycle management in a .NET environment. Unfortunately, the toolset is plagued with documented limitations. According to Gnostice's own documentation, it does not support external CSS or dynamic JavaScript in HTML-to-PDF conversion, and historically lacked right-to-left Unicode scripts such as Arabic and Hebrew. While password-based AES encryption (via `SetEncryption`) and digital signatures have been added in newer releases, the HTML rendering engine remains text-and-image based with no Chromium-class CSS3 support.
 
 The lack of full CSS support is particularly notable, as CSS is crucial for styling web-based documents. The absence of these features severely limits the usability of Gnostice for more advanced applications, especially those that depend on dynamic content or need to meet complex document styling requirements.
 
@@ -43,8 +43,8 @@ Here is a comparison of some of the essential features between Gnostice (Documen
 | Multiple Platform Support       | Yes, but fragmented                     | Yes, unified                        |
 | CSS Support                     | No external CSS                         | Full CSS support including external |
 | JavaScript Execution            | No                                      | Yes                                 |
-| Digital Signatures              | No                                      | Yes                                 |
-| Password-Protected Docs         | No                                      | Yes                                 |
+| Digital Signatures              | Limited (added in later versions)       | Yes                                 |
+| Password-Protected Docs         | Yes (AES via SetEncryption)             | Yes                                 |
 | Memory Issues                   | Yes, reported                           | No reported issues                  |
 | Image Handling                  | Known problems                          | Reliable                            |
 | Right-to-Left Unicode Support   | No                                      | Yes                                 |
@@ -58,7 +58,7 @@ Overall, while Gnostice provides basic document manipulation functionality, its 
 Here's how **Gnostice (Document Studio .NET, PDFOne) C# PDF Library** handles this:
 
 ```csharp
-// NuGet: Install-Package Gnostice.PDFOne.DLL
+// NuGet: Install-Package PDFOne.NET (deprecated; vendor recommends Gnostice.DocumentStudio.WinForms)
 using Gnostice.PDFOne;
 using Gnostice.PDFOne.Document;
 using System;
@@ -118,7 +118,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Gnostice (Document Studio .NET, PDFOne) C# PDF Library** handles this:
 
 ```csharp
-// NuGet: Install-Package Gnostice.PDFOne.DLL
+// NuGet: Install-Package PDFOne.NET (deprecated; vendor recommends Gnostice.DocumentStudio.WinForms)
 using Gnostice.PDFOne;
 using Gnostice.PDFOne.Graphics;
 using System;
@@ -176,7 +176,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Gnostice (Document Studio .NET, PDFOne) C# PDF Library** handles this:
 
 ```csharp
-// NuGet: Install-Package Gnostice.PDFOne.DLL
+// NuGet: Install-Package PDFOne.NET (deprecated; vendor recommends Gnostice.DocumentStudio.WinForms)
 using Gnostice.PDFOne;
 using Gnostice.PDFOne.Graphics;
 using System;

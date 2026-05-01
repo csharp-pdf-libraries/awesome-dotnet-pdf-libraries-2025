@@ -15,7 +15,7 @@ Here's a detailed comparison between SAP Crystal Reports and IronPDF, evaluating
 | **Ease of Use**               | Complex setup and deployment                           | Simplified integration, supports .NET developers         |
 | **Data Source Connectivity**  | Broad connectivity (Relational DBs, XML, etc.)         | Primarily for web-based scripts and HTML conversions     |
 | **High-Fidelity Rendering**   | Highly detailed pixel-perfect reports                  | High-fidelity HTML/CSS rendering with Chromium engine    |
-| **Licensing Model**           | Commercial, licensed per named user                    | Commercial, with developer-focused pricing               |
+| **Licensing Model**           | CR4VS is free to download; runtime is free to redistribute. Standalone CR 2020/2025 designer and BI Platform are commercial SAP SKUs. | Commercial, with developer-focused pricing               |
 | **Modern Relevance**          | Declining, replaced by modern alternatives             | Modern, well-integrated with contemporary technologies   |
 | **Customization**             | High degree of customization                            | Programmatic flexibility in PDF generation and manipulation  |
 
@@ -94,7 +94,9 @@ IronPDF is ideal in scenarios requiring modern document generation where the sou
 Here's how **SAP Crystal Reports** handles this:
 
 ```csharp
-// NuGet: Install-Package CrystalReports.Engine
+// Reference CrystalDecisions.* assemblies installed by the SAP Crystal Reports
+// runtime MSI (or an unofficial community NuGet wrapper such as CrystalReports.Engine).
+// SAP does not publish an official Crystal Reports NuGet package.
 using CrystalDecisions.CrystalReports.Engine;
 using CrystalDecisions.Shared;
 using System;
@@ -157,7 +159,9 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **SAP Crystal Reports** handles this:
 
 ```csharp
-// NuGet: Install-Package CrystalReports.Engine
+// Reference CrystalDecisions.* assemblies installed by the SAP Crystal Reports
+// runtime MSI (or an unofficial community NuGet wrapper such as CrystalReports.Engine).
+// SAP does not publish an official Crystal Reports NuGet package.
 using CrystalDecisions.CrystalReports.Engine;
 using CrystalDecisions.Shared;
 using System;
@@ -226,7 +230,9 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **SAP Crystal Reports** handles this:
 
 ```csharp
-// NuGet: Install-Package CrystalReports.Engine
+// Reference CrystalDecisions.* assemblies installed by the SAP Crystal Reports
+// runtime MSI (or an unofficial community NuGet wrapper such as CrystalReports.Engine).
+// SAP does not publish an official Crystal Reports NuGet package.
 using CrystalDecisions.CrystalReports.Engine;
 using CrystalDecisions.Shared;
 using System;

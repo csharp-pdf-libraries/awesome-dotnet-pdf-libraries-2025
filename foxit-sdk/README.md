@@ -27,8 +27,11 @@ A comprehensive breakdown of features and capabilities is available in the [comp
 ### C# Code Example
 
 ```csharp
-// Example to initialize and create a simple PDF using Foxit SDK
-using Foxit.PDF;
+// Example to initialize and create a simple PDF using Foxit PDF SDK for .NET
+// NuGet: Install-Package Foxit.SDK.Dotnet
+using foxit;
+using foxit.common;
+using foxit.pdf;
 using System;
 
 namespace FoxitSDKExample
@@ -37,27 +40,32 @@ namespace FoxitSDKExample
     {
         static void Main(string[] args)
         {
-            // Initialize the PDF module
-            PDFLibrary.Initialize();
+            // Initialize the SDK with your serial number and key
+            ErrorCode err = Library.Initialize("sn", "key");
+            if (err != ErrorCode.e_ErrSuccess)
+            {
+                Console.WriteLine("Failed to initialize Foxit PDF SDK");
+                return;
+            }
 
-            // Create a new document
-            PDFDocument document = new PDFDocument();
+            try
+            {
+                // Create a new blank document and add a page
+                using (PDFDoc document = new PDFDoc())
+                {
+                    PDFPage page = document.InsertPage(0, 612.0f, 792.0f);
+                    page.StartParse((int)PDFPage.ParseFlags.e_ParsePageNormal, null, false);
 
-            // Add a page
-            PDFPage page = document.CreatePage();
+                    // Save the document
+                    document.SaveAs("output.pdf", (int)PDFDoc.SaveFlags.e_SaveFlagNoOriginal);
+                }
 
-            // Draw text on the page
-            page.StartEditing();
-            page.DrawText("Hello, Foxit SDK!", 100, 100);
-            page.EndEditing();
-
-            // Save the document
-            document.SaveToFile("output.pdf");
-
-            // Dispose the objects
-            document.Dispose();
-
-            Console.WriteLine("PDF created successfully.");
+                Console.WriteLine("PDF created successfully.");
+            }
+            finally
+            {
+                Library.Release();
+            }
         }
     }
 }
@@ -87,10 +95,12 @@ Jacob Mellor is the CTO of Iron Software, where he leads a team of 50+ developer
 Here's how **Foxit SDK** handles this:
 
 ```csharp
-// NuGet: Install-Package Foxit.SDK
-using Foxit.SDK;
-using Foxit.SDK.Common;
-using Foxit.SDK.PDFConversion;
+// NuGet: Install-Package Foxit.SDK.Dotnet
+// Note: HTML-to-PDF needs the separate Foxit HTML2PDF engine binaries
+// (engine_path), available from Foxit support/sales — not in NuGet.
+using foxit;
+using foxit.common;
+using foxit.addon.conversion;
 using System;
 
 class Program
@@ -98,17 +108,20 @@ class Program
     static void Main()
     {
         Library.Initialize("sn", "key");
-        
+
         HTML2PDFSettingData settingData = new HTML2PDFSettingData();
         settingData.page_width = 612.0f;
         settingData.page_height = 792.0f;
         settingData.page_mode = HTML2PDFPageMode.e_HTML2PDFPageModeSinglePage;
-        
-        using (HTML2PDF html2pdf = new HTML2PDF(settingData))
-        {
-            html2pdf.Convert("<html><body><h1>Hello World</h1></body></html>", "output.pdf");
-        }
-        
+
+        Convert.FromHTML(
+            "<html><body><h1>Hello World</h1></body></html>",
+            "C:\\Foxit\\html2pdf_engine",   // engine_path (separate download)
+            "",                              // cookies path
+            settingData,
+            "output.pdf",
+            30);                             // timeout (seconds)
+
         Library.Release();
     }
 }
@@ -141,10 +154,10 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Foxit SDK** handles this:
 
 ```csharp
-// NuGet: Install-Package Foxit.SDK
-using Foxit.SDK;
-using Foxit.SDK.Common;
-using Foxit.SDK.PDFDoc;
+// NuGet: Install-Package Foxit.SDK.Dotnet
+using foxit;
+using foxit.common;
+using foxit.pdf;
 using System;
 
 class Program
@@ -152,26 +165,37 @@ class Program
     static void Main()
     {
         Library.Initialize("sn", "key");
-        
+
         using (PDFDoc doc = new PDFDoc("input.pdf"))
         {
             doc.Load("");
-            
-            Watermark watermark = new Watermark(doc, "Confidential", 
-                new Font(Font.StandardID.e_StdIDHelvetica), 48.0f, 0xFF0000FF);
-            
+
             WatermarkSettings settings = new WatermarkSettings();
-            settings.flags = Watermark.e_WatermarkFlagASPageContents;
-            settings.position = Watermark.Position.e_PosCenter;
+            settings.flags = (int)Watermark.Flags.e_FlagASPageContents;
+            settings.position = Position.e_PosCenter;
             settings.rotation = -45.0f;
-            settings.opacity = 0.5f;
-            
-            watermark.SetSettings(settings);
-            watermark.InsertToAllPages();
-            
-            doc.SaveAs("output.pdf", PDFDoc.SaveFlags.e_SaveFlagNoOriginal);
+            settings.opacity = 50;
+
+            WatermarkTextProperties props = new WatermarkTextProperties();
+            props.font = new Font(Font.StandardID.e_StdIDHelvetica);
+            props.font_size = 48.0f;
+            props.color = 0xFF0000;
+            props.alignment = Alignment.e_AlignmentCenter;
+
+            Watermark watermark = new Watermark(doc, "Confidential", props, settings);
+
+            // No InsertToAllPages helper — iterate pages explicitly.
+            for (int i = 0; i < doc.GetPageCount(); i++)
+            {
+                using (PDFPage page = doc.GetPage(i))
+                {
+                    watermark.InsertToPage(page);
+                }
+            }
+
+            doc.SaveAs("output.pdf", (int)PDFDoc.SaveFlags.e_SaveFlagNoOriginal);
         }
-        
+
         Library.Release();
     }
 }
@@ -213,10 +237,12 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Foxit SDK** handles this:
 
 ```csharp
-// NuGet: Install-Package Foxit.SDK
-using Foxit.SDK;
-using Foxit.SDK.Common;
-using Foxit.SDK.PDFConversion;
+// NuGet: Install-Package Foxit.SDK.Dotnet
+// Convert.FromHTML accepts either a literal HTML string or a URL in
+// the first argument; the URL form is what does URL-to-PDF.
+using foxit;
+using foxit.common;
+using foxit.addon.conversion;
 using System;
 
 class Program
@@ -224,17 +250,20 @@ class Program
     static void Main()
     {
         Library.Initialize("sn", "key");
-        
+
         HTML2PDFSettingData settingData = new HTML2PDFSettingData();
         settingData.page_width = 612.0f;
         settingData.page_height = 792.0f;
         settingData.page_mode = HTML2PDFPageMode.e_HTML2PDFPageModeSinglePage;
-        
-        using (HTML2PDF html2pdf = new HTML2PDF(settingData))
-        {
-            html2pdf.ConvertFromURL("https://www.example.com", "output.pdf");
-        }
-        
+
+        Convert.FromHTML(
+            "https://www.example.com",
+            "C:\\Foxit\\html2pdf_engine",   // engine_path (separate download)
+            "",                              // cookies path
+            settingData,
+            "output.pdf",
+            30);                             // timeout (seconds)
+
         Library.Release();
     }
 }
@@ -270,20 +299,20 @@ Foxit PDF SDK is a powerful enterprise-level library with significant complexity
 
 1. **Complex Licensing System**: Multiple products, SKUs, and license types (per-developer, per-server, OEM, etc.) make choosing difficult
 2. **Enterprise Pricing**: Pricing tailored for large organizations, prohibitive for smaller teams
-3. **Manual Installation**: Requires manual DLL references or private NuGet feeds—no simple public NuGet package
+3. **Heavy Native Package**: The public NuGet package (`Foxit.SDK.Dotnet`) is ~240 MB and HTML-to-PDF requires a separate engine download obtained from Foxit support
 4. **Verbose API**: `Library.Initialize()`, `Library.Release()`, ErrorCode checking add boilerplate
-5. **Separate HTML Add-on**: HTML to PDF conversion requires additional add-on purchase
+5. **Separate HTML Engine**: HTML-to-PDF requires the HTML2PDF engine binaries, distributed separately from Foxit support/sales
 6. **C++ Heritage**: API patterns reflect C++ origins, feeling less natural in modern C#
 
 ### Quick Migration Overview
 
 | Aspect | Foxit SDK | IronPDF |
 |--------|-----------|---------|
-| Installation | Manual DLLs/private feeds | Simple NuGet package |
-| Licensing | Complex, enterprise-focused | Transparent, all sizes |
+| Installation | `Foxit.SDK.Dotnet` (~240 MB) + separate HTML2PDF engine | Simple NuGet package |
+| Licensing | Sales-led, per-developer per-platform | Transparent, all sizes |
 | Initialization | `Library.Initialize(sn, key)` + `Library.Release()` | Set license key once |
 | Error Handling | ErrorCode enums | Standard .NET exceptions |
-| HTML to PDF | Separate add-on | Built-in Chromium |
+| HTML to PDF | Separate engine download | Built-in Chromium |
 | API Style | C++ heritage, verbose | Modern .NET patterns |
 | Resource Cleanup | Manual `Close()`/`Release()` | IDisposable/automatic |
 
@@ -299,10 +328,9 @@ Foxit PDF SDK is a powerful enterprise-level library with significant complexity
 | `doc.GetPage(index)` | `pdf.Pages[index]` | Page access |
 | `doc.SaveAs(path, flags)` | `pdf.SaveAs(path)` | Save document |
 | `doc.Close()` | `pdf.Dispose()` or using | Cleanup |
-| `new HTML2PDF(settings)` | `new ChromePdfRenderer()` | HTML conversion |
-| `html2pdf.Convert(html, path)` | `renderer.RenderHtmlAsPdf(html)` | Convert HTML |
-| `html2pdf.ConvertFromURL(url, path)` | `renderer.RenderUrlAsPdf(url)` | URL conversion |
-| `new Watermark(doc, text, font, size)` | `new TextStamper()` | Watermarks |
+| `Convert.FromHTML(html, engine, ...)` | `renderer.RenderHtmlAsPdf(html)` | Convert HTML |
+| `Convert.FromHTML(url, engine, ...)` | `renderer.RenderUrlAsPdf(url)` | URL conversion |
+| `new Watermark(doc, text, props, settings)` | `new TextStamper()` | Watermarks |
 | `doc.GetMetadata()` | `pdf.MetaData` | Metadata access |
 | `doc.SetSecurityHandler()` | `pdf.SecuritySettings` | Security |
 | `new TextPage(page)` | `pdf.ExtractTextFromPage(i)` | Text extraction |
@@ -332,10 +360,13 @@ try
     settings.page_height = 792.0f;
     settings.page_margin_top = 72.0f;
 
-    using (HTML2PDF html2pdf = new HTML2PDF(settings))
-    {
-        html2pdf.Convert("<h1>Hello World</h1>", "output.pdf");
-    }
+    Convert.FromHTML(
+        "<h1>Hello World</h1>",
+        @"C:\Foxit\html2pdf_engine",  // engine_path (separate download)
+        "",                            // cookies path
+        settings,
+        "output.pdf",
+        30);                           // timeout (seconds)
 }
 finally
 {
@@ -379,11 +410,9 @@ pdf.SaveAs("output.pdf");
 ### NuGet Package Migration
 
 ```bash
-# Foxit SDK typically requires manual DLL removal from .csproj
-# Remove references like:
-# <Reference Include="fsdk_dotnet">
-#     <HintPath>..\libs\Foxit\fsdk_dotnet.dll</HintPath>
-# </Reference>
+# Remove the Foxit NuGet reference from your csproj:
+dotnet remove package Foxit.SDK.Dotnet
+# (and delete any HTML2PDF engine folders shipped separately)
 
 # Install IronPDF
 dotnet add package IronPdf

@@ -1,4 +1,6 @@
-// SSRS - SQL Server Reporting Services
+// SSRS - SQL Server Reporting Services (LocalReport, in-process RDLC rendering)
+// NuGet: Install-Package Microsoft.ReportingServices.ReportViewerControl.WebForms (v150.1652.0, .NET Framework only)
+// For .NET Core/.NET 5+ no official Microsoft package exists; community port is ReportViewerCore.NETCore.
 using System;
 using System.Data;
 using System.Data.SqlClient;

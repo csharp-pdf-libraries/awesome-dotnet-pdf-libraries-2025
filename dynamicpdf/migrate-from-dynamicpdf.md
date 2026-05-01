@@ -18,16 +18,16 @@
 
 ### The Product Fragmentation Problem
 
-DynamicPDF is sold as **separate products with separate licenses**:
+DynamicPDF (ceTe Software) sells PDF functionality as **multiple products with separate licenses**:
 
-1. **DynamicPDF Generator**: Create PDFs from scratch
-2. **DynamicPDF Merger**: Merge, split, and manipulate existing PDFs
-3. **DynamicPDF Core Suite**: Combined Generator and Merger
-4. **DynamicPDF ReportWriter**: Report generation
-5. **DynamicPDF HTML Converter**: HTML to PDF conversion (separate add-on)
-6. **DynamicPDF Print Manager**: Print PDFs programmatically
+1. **DynamicPDF Core Suite**: Bundles Generator + Merger + ReportWriter into one package (`ceTe.DynamicPDF.CoreSuite.NET`, v12.43.0 as of March 2026)
+2. **DynamicPDF HTML Converter**: HTML-to-PDF conversion as a separate add-on (`ceTe.DynamicPDF.HtmlConverter.NET`, v3.3.0)
+3. **DynamicPDF Converter**: Office / 50+ file formats to PDF (`ceTe.DynamicPDF.Converter.NET`, v3.32.0) — also exposes an HtmlConverter class
+4. **DynamicPDF PrintManager**: Programmatic PDF printing (`ceTe.DynamicPDF.Printing.NET`)
+5. **DynamicPDF Rasterizer**: PDF-to-image (`ceTe.DynamicPDF.Rasterizer.NET`)
+6. **DynamicPDF Viewer**: WinForms/WPF viewer control (`ceTe.DynamicPDF.Viewer.NET`)
 
-**Each product requires a separate license.** A complete PDF solution can cost 3-5x what you'd expect.
+Generator, Merger, and ReportWriter are no longer published as standalone NuGet packages — they live inside Core Suite. Even so, perpetual licenses run **$1,149–$2,769 for Core Suite alone**, and HTML conversion, rasterization, printing, and viewing each require a separate purchase. Annual subscription bundles range from **$479 (Essentials)** to **$1,499 (Ultimate)** at dynamicpdf.com.
 
 ### DynamicPDF vs IronPDF Comparison
 
@@ -40,7 +40,7 @@ DynamicPDF is sold as **separate products with separate licenses**:
 | **JavaScript** | Limited support | Full ES6+ support |
 | **API Style** | Coordinate-based positioning | HTML/CSS + manipulation API |
 | **Learning Curve** | Steep (multiple APIs) | Gentle (web technologies) |
-| **Modern .NET** | .NET Standard 2.0 | .NET 6/7/8/9+ native |
+| **Modern .NET** | .NET Standard 2.0 / .NET 6 / .NET 8 / .NET Framework 4.6.2 | .NET 6/7/8/9+ native |
 | **Documentation** | Spread across products | Unified documentation |
 | **Pricing Clarity** | Complex tiers | Transparent pricing |
 
@@ -72,10 +72,10 @@ dotnet list package | grep -i dynamic
 ```
 
 **Common packages to look for:**
-- `ceTe.DynamicPDF.CoreSuite.NET`
-- `ceTe.DynamicPDF.Generator.NET`
-- `ceTe.DynamicPDF.Merger.NET`
-- `ceTe.DynamicPDF.HtmlConverter.NET`
+- `ceTe.DynamicPDF.CoreSuite.NET` (Generator + Merger + ReportWriter)
+- `ceTe.DynamicPDF.HtmlConverter.NET` (HTML-to-PDF add-on)
+- `ceTe.DynamicPDF.Converter.NET` (Office / multi-format to PDF)
+- `ceTe.DynamicPDF.Rasterizer.NET`, `ceTe.DynamicPDF.Printing.NET`, `ceTe.DynamicPDF.Viewer.NET` (separate add-ons)
 
 ### 2. Document Current Functionality
 
@@ -97,11 +97,13 @@ Create a checklist of features you're using:
 ### 3. Set Up IronPDF
 
 ```bash
-# Remove DynamicPDF packages
+# Remove DynamicPDF packages (only those you actually have)
 dotnet remove package ceTe.DynamicPDF.CoreSuite.NET
-dotnet remove package ceTe.DynamicPDF.Generator.NET
-dotnet remove package ceTe.DynamicPDF.Merger.NET
 dotnet remove package ceTe.DynamicPDF.HtmlConverter.NET
+dotnet remove package ceTe.DynamicPDF.Converter.NET
+dotnet remove package ceTe.DynamicPDF.Rasterizer.NET
+dotnet remove package ceTe.DynamicPDF.Printing.NET
+dotnet remove package ceTe.DynamicPDF.Viewer.NET
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -1133,29 +1135,25 @@ var pdf = await renderer.RenderHtmlAsPdfAsync(html);
   ```bash
   dotnet remove package ceTe.DynamicPDF.CoreSuite.NET
   ```
-  **Why:** Remove unnecessary packages to avoid conflicts and reduce bloat.
-
-- [ ] **Remove `ceTe.DynamicPDF.Generator.NET`**
-  ```bash
-  dotnet remove package ceTe.DynamicPDF.Generator.NET
-  ```
-  **Why:** Transition to IronPDF's all-in-one package.
-
-- [ ] **Remove `ceTe.DynamicPDF.Merger.NET`**
-  ```bash
-  dotnet remove package ceTe.DynamicPDF.Merger.NET
-  ```
-  **Why:** IronPDF handles merging natively without separate packages.
+  **Why:** Core Suite already includes Generator, Merger, and ReportWriter — there are no separate Generator.NET / Merger.NET / ReportWriter.NET packages on nuget.org.
 
 - [ ] **Remove `ceTe.DynamicPDF.HtmlConverter.NET`**
   ```bash
   dotnet remove package ceTe.DynamicPDF.HtmlConverter.NET
   ```
-  **Why:** IronPDF includes HTML conversion capabilities.
+  **Why:** IronPDF includes HTML conversion natively, eliminating this add-on.
 
-- [ ] **Remove any other DynamicPDF packages**
+- [ ] **Remove `ceTe.DynamicPDF.Converter.NET`** (if used for HTML or Office conversion)
   ```bash
-  dotnet remove package ceTe.DynamicPDF.*
+  dotnet remove package ceTe.DynamicPDF.Converter.NET
+  ```
+  **Why:** IronPDF handles HTML rendering and (via DocumentX) Office conversion under one license.
+
+- [ ] **Remove any other DynamicPDF add-ons** (`Rasterizer`, `Printing`, `Viewer`, etc.)
+  ```bash
+  dotnet remove package ceTe.DynamicPDF.Rasterizer.NET
+  dotnet remove package ceTe.DynamicPDF.Printing.NET
+  dotnet remove package ceTe.DynamicPDF.Viewer.NET
   ```
   **Why:** Ensure all DynamicPDF dependencies are removed.
 

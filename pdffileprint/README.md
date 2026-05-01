@@ -1,6 +1,6 @@
 # PDFFilePrint + C# + PDF
 
-In the realm of document processing and management, PDFs are an essential medium. Whether it's for presenting reports, sharing necessary information, or ensuring document security and integrity, PDFs are ubiquitous. When it comes to printing these documents programmatically, a specific utility readily available is PDFFilePrint. PDFFilePrint is a practical tool specifically designed for printing PDF files, especially from C# applications. In this article, we will take an in-depth look at PDFFilePrint, exploring its uses, strengths, weaknesses, and how it stands in comparison to IronPDF, a comprehensive PDF solution in the .NET ecosystem.
+In the realm of document processing and management, PDFs are an essential medium. Whether it's for presenting reports, sharing necessary information, or ensuring document security and integrity, PDFs are ubiquitous. When it comes to printing these documents programmatically, one option in the .NET ecosystem is [PDFFilePrint](https://www.nuget.org/packages/PDFFilePrint/), a small open-source NuGet package (MIT, by Christian Andersen) that wraps PdfiumViewer and Google's Pdfium to send existing PDF or XPS files to a printer driver. In this article, we will take an in-depth look at PDFFilePrint, exploring its uses, strengths, weaknesses, and how it stands in comparison to IronPDF, a comprehensive PDF solution in the .NET ecosystem.
 
 ## Overview of PDFFilePrint
 
@@ -9,80 +9,55 @@ In the realm of document processing and management, PDFs are an essential medium
 PDFFilePrint is built with a singular focus on providing a seamless printing experience for PDF files. Here are a few key strengths:
 
 - **Simplicity and Focus**: PDFFilePrint specializes solely in printing PDFs, making it straightforward for developers to handle complex documents with minimal fuss. This simplicity makes it attractive for those with singular printing needs.
-  
-- **C# Integration**: One of the primary advantages for C# developers is the integration capability with .NET applications. Leveraging PDFFilePrint within a C# project allows developers to streamline their PDF printing workflows.
+
+- **C# Integration**: It ships as a standard NuGet package (`PDFFilePrint`, latest 1.0.3 from February 2020) and exposes a small `FilePrint` class, so dropping it into a .NET Framework 4.6.1+ project is straightforward.
 
 ### Weaknesses
 
 Despite its strengths, PDFFilePrint also faces some limitations:
 
-- **Printing Utility Only**: PDFFilePrint's functionality is limited to printing. It lacks features for creating or modifying PDF files, which might be limiting for more comprehensive document management systems.
+- **Printing Utility Only**: PDFFilePrint's functionality is limited to printing existing PDF/XPS files. It cannot create, edit, merge, or modify PDFs.
 
-- **Limited Integration**: Often relying on command-line operations, PDFFilePrint may not meet the needs for seamless integration into applications that require more robust APIs.
+- **Config-File-Driven API**: The public surface is essentially `new FilePrint(path, null).Print()`. Printer name, paper size, copy count, and "print to file" mode are read from `app.config` (`Properties.Settings.Default`), not passed as a strongly-typed options object.
 
-- **Windows-Specific**: As it relies heavily on Windows printing systems, it may not be the best choice for environments using other operating systems.
+- **Windows + .NET Framework Only**: PDFFilePrint targets net461 and pulls in PdfiumViewer's Win32 native binaries. There is no .NET Core / .NET 6+ TFM and no Linux/macOS support.
+
+- **Effectively Unmaintained**: No release since 1.0.3 (2020-02-10) and no public source repository linked from the NuGet listing.
 
 ## C# Code Example with PDFFilePrint
 
-Utilizing PDFFilePrint in a C# application is straightforward. Below is an example demonstrating how PDFFilePrint can be used to print a PDF document:
+Utilizing PDFFilePrint in a C# application is straightforward. The package exposes a `FilePrint` class whose constructor takes the source PDF and an optional output file (used when "print to file" mode is enabled in app.config). Calling `Print()` then sends the document to the printer configured in `Properties.Settings.Default`:
 
 ```csharp
-using System;
-using System.Diagnostics;
+// NuGet: Install-Package PDFFilePrint
+using PDFFilePrint;
 
 class Program
 {
     static void Main(string[] args)
     {
-        string printerName = "Your Printer Name";
-        string filePath = "sample.pdf";
+        // Override the printer configured in app.config at runtime if you need to.
+        Properties.Settings.Default.PrinterName = "Your Printer Name";
 
-        ProcessStartInfo startInfo = new ProcessStartInfo
-        {
-            FileName = "PDFFilePrint.exe",
-            Arguments = $"-printer \"{printerName}\" \"{filePath}\"",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-
-        using (Process process = new Process { StartInfo = startInfo })
-        {
-            process.Start();
-            string output = process.StandardOutput.ReadToEnd();
-            string error = process.StandardError.ReadToEnd();
-
-            Console.WriteLine("Output: " + output);
-            Console.WriteLine("Error: " + error);
-        }
+        var fileprint = new FilePrint("sample.pdf", null);
+        fileprint.Print();
     }
 }
 ```
 
-This code snippet sets up a `ProcessStartInfo` to run the `PDFFilePrint.exe` command-line tool, specifying the printer and the PDF file to be printed.
+This snippet relies on the `FilePrint` class from the `PDFFilePrint` namespace and on `Properties.Settings.Default` keys that the NuGet package wires into the consuming project's `app.config`.
 
 ---
 
 ## How Do I Convert HTML to PDF in C# with PDFFilePrint?
 
-Here's how **PDFFilePrint** handles this:
+**You can't.** PDFFilePrint is a print-only wrapper around Pdfium — its public API (`FilePrint.Print()`) only consumes existing PDF/XPS files. There is no `CreateFromHtml`, `SaveToFile`, or document-creation method. To go from HTML to a printed page with PDFFilePrint you would have to render the HTML with a separate library first:
 
 ```csharp
-// NuGet: Install-Package PDFFilePrint
-using System;
-using PDFFilePrint;
-
-class Program
-{
-    static void Main()
-    {
-        var pdf = new PDFFile();
-        string htmlContent = "<html><body><h1>Hello World</h1></body></html>";
-        pdf.CreateFromHtml(htmlContent);
-        pdf.SaveToFile("output.pdf");
-    }
-}
+// PDFFilePrint cannot render HTML. You need a renderer in front of it.
+throw new NotSupportedException(
+    "PDFFilePrint cannot convert HTML to PDF. Render the HTML to a PDF " +
+    "with another library, then pass the path to new FilePrint(path, null).Print().");
 ```
 
 **With IronPDF**, the same task is simpler and more intuitive:
@@ -110,22 +85,13 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Do I Convert a URL to PDF in .NET?
 
-Here's how **PDFFilePrint** handles this:
+**Again, you can't with PDFFilePrint alone.** It cannot fetch a URL or render HTML — it only sends an existing PDF/XPS to a printer. You'd need a separate renderer (IronPDF, PuppeteerSharp, wkhtmltopdf) to produce the PDF first, and only then could you hand that file to `FilePrint`:
 
 ```csharp
-// NuGet: Install-Package PDFFilePrint
-using System;
-using PDFFilePrint;
-
-class Program
-{
-    static void Main()
-    {
-        var pdf = new PDFFile();
-        pdf.CreateFromUrl("https://www.example.com");
-        pdf.SaveToFile("webpage.pdf");
-    }
-}
+// PDFFilePrint cannot render URLs.
+throw new NotSupportedException(
+    "PDFFilePrint cannot convert URLs to PDF. Render the URL to a PDF with " +
+    "another library first, then call new FilePrint(pdfPath, null).Print().");
 ```
 
 **With IronPDF**, the same task is simpler and more intuitive:
@@ -152,7 +118,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Do I Print PDF File?
 
-Here's how **PDFFilePrint** handles this:
+This is the one job PDFFilePrint is built for. The full API is essentially this:
 
 ```csharp
 // NuGet: Install-Package PDFFilePrint
@@ -163,27 +129,37 @@ class Program
 {
     static void Main()
     {
-        var pdf = new PDFFile();
-        pdf.LoadFromFile("document.pdf");
-        pdf.Print("Default Printer");
+        // Optional: override the configured printer / copy count at runtime.
+        Properties.Settings.Default.PrinterName = "Default Printer";
+
+        var fileprint = new FilePrint("document.pdf", null);
+        fileprint.Print();
         Console.WriteLine("PDF sent to printer");
     }
 }
 ```
 
-**With IronPDF**, the same task is simpler and more intuitive:
+**With IronPDF**, the same task plugs into `System.Drawing.Printing` and works on .NET Framework 4.6.2+ and .NET 6/7/8/9/10:
 
 ```csharp
 // NuGet: Install-Package IronPdf
 using IronPdf;
 using System;
+using System.Drawing.Printing;
 
 class Program
 {
     static void Main()
     {
         var pdf = PdfDocument.FromFile("document.pdf");
+
+        // Silent print to the default printer
         pdf.Print();
+
+        // Or specify printer / copies / page range / duplex via PrinterSettings:
+        // var settings = new PrinterSettings { PrinterName = "HP LaserJet" };
+        // pdf.GetPrintDocument(settings).Print();
+
         Console.WriteLine("PDF sent to printer");
     }
 }
@@ -195,41 +171,42 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from PDFFilePrint to IronPDF?
 
-### The Command-Line Dependency Problem
+### The Print-Only Limitation
 
 PDFFilePrint's architecture creates significant limitations:
 
-1. **Printing-Only**: Cannot create, edit, merge, or manipulate PDFs
-2. **Command-Line Dependency**: Requires external executable, Process.Start() calls
-3. **Windows-Only**: Relies on Windows printing subsystem
-4. **No .NET Integration**: No native API, no NuGet package, no IntelliSense
-5. **External Process Management**: Must handle process lifecycle, exit codes, errors
-6. **Deployment Complexity**: Must bundle PDFFilePrint.exe with application
+1. **Printing-Only**: Cannot create, edit, merge, or manipulate PDFs — only sends existing PDFs/XPS to a printer.
+2. **Config-File-Driven**: Settings live in `app.config` (`Properties.Settings.Default`) rather than a strongly-typed options object.
+3. **Windows + .NET Framework Only**: net461 with Win32 native Pdfium binaries; no Linux / macOS / .NET Core support.
+4. **Limited Print Knobs**: No first-class API for duplex, page range, orientation, or color — those rely on the printer driver default.
+5. **Effectively Unmaintained**: Last release 1.0.3 in February 2020, no public source repository linked.
+6. **Pairing Required**: To go from HTML/URL/images to a printed page you have to bolt on a separate renderer.
 
 ### Quick Migration Overview
 
 | Aspect | PDFFilePrint | IronPDF |
 |--------|--------------|---------|
-| Type | Command-line utility | Native .NET library |
-| Integration | Process.Start() | Direct API calls |
-| PDF Printing | ✓ | ✓ |
-| PDF Creation | ✗ | ✓ (HTML, URL, images) |
-| PDF Manipulation | ✗ | ✓ (merge, split, edit) |
-| Cross-Platform | Windows only | Windows, Linux, macOS |
-| Error Handling | Parse stdout/stderr | Native exceptions |
-| NuGet Package | ✗ | ✓ |
+| Type | Pdfium print wrapper | Full PDF library + renderer |
+| Last release | 1.0.3 (Feb 2020) | Active, 2026 releases |
+| Integration | `new FilePrint(...).Print()` | Direct `PdfDocument` API |
+| PDF Printing | Yes | Yes |
+| PDF Creation | No | Yes (HTML, URL, images) |
+| PDF Manipulation | No | Yes (merge, split, edit) |
+| Cross-Platform | Windows / net461 only | Windows, Linux, macOS |
+| Error Handling | Plain exceptions from Pdfium | Native exceptions |
+| NuGet Package | `PDFFilePrint` 1.0.3 (MIT) | `IronPdf` |
 
 ### Key API Mappings
 
-| PDFFilePrint Command | IronPDF API | Notes |
+| PDFFilePrint API | IronPDF API | Notes |
 |---------------------|-------------|-------|
-| `PDFFilePrint.exe "file.pdf" "Printer"` | `pdf.Print("Printer")` | Basic printing |
-| `-printer "Name"` | `PrintSettings.PrinterName = "Name"` | Printer selection |
-| `-copies N` | `PrintSettings.NumberOfCopies = N` | Copy count |
-| `-silent` | `PrintSettings.ShowPrintDialog = false` | Silent mode |
-| `-pages "1-5"` | `PrintSettings.FromPage`, `PrintSettings.ToPage` | Page range |
-| `-orientation landscape` | `PrintSettings.PaperOrientation = Landscape` | Orientation |
-| `-duplex` | `PrintSettings.Duplex = Duplex.Vertical` | Double-sided |
+| `new FilePrint(path, null).Print()` | `PdfDocument.FromFile(path).Print()` | Basic printing |
+| `Settings.Default.PrinterName` | `PrinterSettings.PrinterName` | Printer selection |
+| `Settings.Default.Copies` | `PrinterSettings.Copies` | Copy count |
+| _(always silent)_ | `pdf.Print()` (silent) vs `pdf.Print(true)` (dialog) | Silent mode |
+| _(driver default)_ | `PrinterSettings.FromPage`, `ToPage` | Page range |
+| _(driver default)_ | `PageSettings.Landscape` | Orientation |
+| _(driver default)_ | `PrinterSettings.Duplex` | Double-sided |
 | _(not available)_ | `ChromePdfRenderer.RenderHtmlAsPdf()` | NEW: Create PDFs |
 | _(not available)_ | `PdfDocument.Merge()` | NEW: Merge PDFs |
 | _(not available)_ | `pdf.ApplyWatermark()` | NEW: Watermarks |
@@ -238,36 +215,19 @@ PDFFilePrint's architecture creates significant limitations:
 
 **Before (PDFFilePrint):**
 ```csharp
-using System.Diagnostics;
+using PDFFilePrint;
 
 public class PrintService
 {
-    private readonly string _pdfFilePrintPath = @"C:\tools\PDFFilePrint.exe";
-
     public void PrintPdf(string pdfPath, string printerName, int copies)
     {
-        var args = $"-silent -copies {copies} -printer \"{printerName}\" \"{pdfPath}\"";
+        // PDFFilePrint reads everything from app.config; mutate Settings.Default
+        // before instantiating FilePrint to override at runtime.
+        Properties.Settings.Default.PrinterName = printerName;
+        Properties.Settings.Default.Copies = copies;
 
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = _pdfFilePrintPath,
-            Arguments = args,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-
-        using (var process = Process.Start(startInfo))
-        {
-            process.WaitForExit();
-
-            if (process.ExitCode != 0)
-            {
-                var error = process.StandardError.ReadToEnd();
-                throw new Exception($"Print failed: {error}");
-            }
-        }
+        var fileprint = new FilePrint(pdfPath, null);
+        fileprint.Print();
     }
 }
 ```
@@ -275,6 +235,7 @@ public class PrintService
 **After (IronPDF):**
 ```csharp
 using IronPdf;
+using System.Drawing.Printing;
 
 public class PrintService
 {
@@ -287,14 +248,13 @@ public class PrintService
     {
         var pdf = PdfDocument.FromFile(pdfPath);
 
-        var settings = new PrintSettings
+        var settings = new PrinterSettings
         {
-            ShowPrintDialog = false,
             PrinterName = printerName,
-            NumberOfCopies = copies
+            Copies = (short)copies
         };
 
-        pdf.Print(settings);
+        pdf.GetPrintDocument(settings).Print();
     }
 
     // NEW: Can also create and print in one step
@@ -309,37 +269,36 @@ public class PrintService
 
 ### Critical Migration Notes
 
-1. **Process.Start → Direct API**:
+1. **app.config → Strongly-Typed Options**:
    ```csharp
-   // PDFFilePrint: Process.Start("PDFFilePrint.exe", args)
-   // IronPDF: pdf.Print(settings)
+   // PDFFilePrint: Properties.Settings.Default.PrinterName = "..."
+   // IronPDF:      new PrinterSettings { PrinterName = "..." }
    ```
 
-2. **Silent Flag → ShowPrintDialog**:
+2. **Always-Silent → `pdf.Print()` (silent) or `pdf.Print(true)` (dialog)**:
    ```csharp
-   // PDFFilePrint: -silent
-   // IronPDF: ShowPrintDialog = false (inverted logic)
+   // PDFFilePrint is always silent. IronPDF is silent by default; pass true to show dialog.
    ```
 
-3. **Exit Code → Exception Handling**:
+3. **Plain Exceptions → Typed Exceptions**:
    ```csharp
-   // PDFFilePrint: if (process.ExitCode != 0) throw ...
-   // IronPDF: try { pdf.Print(); } catch { }
+   // PDFFilePrint: catch (Exception ex) { ... }
+   // IronPDF: catch (IronPdf.Exceptions.IronPdfException ex) { ... }
    ```
 
-4. **Path Quoting No Longer Needed**:
+4. **Cross-Platform Support**:
    ```csharp
-   // PDFFilePrint: Arguments = $"\"{pathWithSpaces}\""
-   // IronPDF: PdfDocument.FromFile(pathWithSpaces)
+   // PDFFilePrint: Windows / net461 only.
+   // IronPDF: Windows, Linux (CUPS), macOS, Docker; net462+ and .NET 6/7/8/9/10.
    ```
 
-5. **Remove PDFFilePrint.exe from Deployment**: No external executable needed
+5. **No External Executable Either Way**: Both are NuGet packages — there is no `PDFFilePrint.exe` to bundle.
 
 ### NuGet Package Migration
 
 ```bash
-# No package to remove - PDFFilePrint has no NuGet package
-# Remove bundled PDFFilePrint.exe from your project
+# Remove PDFFilePrint
+dotnet remove package PDFFilePrint
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -348,11 +307,12 @@ dotnet add package IronPdf
 ### Find All PDFFilePrint References
 
 ```bash
-# Find command-line execution patterns
-grep -r "PDFFilePrint\|ProcessStartInfo.*pdf\|Process.Start.*print" --include="*.cs" .
+# Find PDFFilePrint API usages
+grep -r "using PDFFilePrint\|new FilePrint" --include="*.cs" .
 
-# Find batch scripts
-find . -name "*.bat" -o -name "*.cmd" | xargs grep -l "PDFFilePrint"
+# Find related app.config keys
+grep -r "PrinterName\|PaperName\|PrintToFile\|DefaultPrintToDirectory" \
+    --include="*.config" --include="*.settings" .
 ```
 
 **Ready for the complete migration?** The full guide includes:
@@ -375,17 +335,17 @@ IronPDF is renowned for its extensive range of features that go beyond printing.
 
 | Feature                  | PDFFilePrint                          | IronPDF |
 |--------------------------|---------------------------------------|---------|
-| **Primary Functionality**| PDF Printing                          | Comprehensive PDF API |
-| **Operating System**     | Windows Specific                      | Cross-Platform |
+| **Primary Functionality**| PDF/XPS Printing                      | Comprehensive PDF API |
+| **Operating System**     | Windows-only (net461)                 | Windows, Linux, macOS, Docker |
 | **PDF Generation**       | Not Supported                         | Fully Supported |
-| **APIs for Developers**  | Command-line based                    | C# SDK available |
+| **APIs for Developers**  | Small `FilePrint` class + app.config  | Full C# SDK |
 | **HTML to PDF C# Support**| None                                 | Native html to pdf c# library |
 | **PDF Editing**          | Not Supported                         | Supported |
-| **Licensing**            | Varies (Depends on source)            | Commercial Licensing |
-| **Integration Ease**     | Limited, requires additional setup    | Easy with clean APIs |
-| **Cost**                 | Generally low                          | Variable (based on features) |
-| **Community Support**    | Limited                                | Strong Community & Support |
-| **Documentation**        | Basic                                  | Extensive and Developer-Friendly |
+| **Licensing**            | MIT (free, open source)               | Commercial Licensing |
+| **Integration Ease**     | Limited, app.config-driven            | Easy with clean APIs |
+| **Cost**                 | Free                                  | Variable (based on features) |
+| **Community Support**    | None (last release Feb 2020)          | Strong Community & Support |
+| **Documentation**        | Minimal NuGet description             | Extensive and Developer-Friendly |
 
 ## [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/): A Comprehensive PDF Solution
 

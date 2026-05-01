@@ -1,26 +1,26 @@
 <h1>Telerik Document Processing vs IronPDF in C#: Which Should Your Team Choose?</h1>
 
-<p>Your application needs to generate PDF reports from HTML dashboard exports, and a developer suggests Telerik Document Processing because "it has HTML support." Initial implementation reveals the HtmlFormatProvider converts HTML to a RadFlowDocument&mdash;an intermediate word-processing document model&mdash;before exporting to PDF. CSS Grid layouts vanish because the flow document model has no equivalent. Flexbox containers collapse into paragraphs. The two-step conversion (HTML &rarr; flow document &rarr; PDF) introduces unpredictable layout transformations where complex HTML structures don't survive the intermediary format's constraints.</p>
+<p>Your application needs to generate PDF reports from HTML dashboard exports, and a developer suggests Telerik Document Processing because "it has HTML support." Initial implementation reveals that <code>HtmlFormatProvider</code> imports HTML into a <code>RadFlowDocument</code>&mdash;an intermediate word-processing document model&mdash;which <code>PdfFormatProvider</code> then exports to PDF. Because the flow document model is a paginated word-processing model rather than a browser layout model, modern CSS layout features such as CSS Grid and Flexbox typically don't translate directly. The two-step conversion (HTML &rarr; flow document &rarr; PDF) introduces a layout-mapping step where complex HTML structures may not survive the intermediary format's constraints.</p>
 
-<p>This troubleshooting pattern repeats across teams that expect Telerik Document Processing to function as an HTML-to-PDF renderer when its architecture serves a different purpose. I've worked through these scenarios with .NET teams, and in this article I'll walk through the architectural differences, show you the code, and help you decide which library fits your workflow.</p>
+<p>Teams I have worked with hit this pattern when they expect Telerik Document Processing to function as an HTML-to-PDF renderer when its architecture serves a different purpose. In this article I'll walk through the architectural differences, show you the code, and help you decide which library fits your workflow.</p>
 
 <h2>What Is Telerik Document Processing?</h2>
 
-<p><strong>Answer:</strong> Telerik Document Processing is an active PDF library with quarterly releases (2025 Q1&ndash;Q4). It dropped .NET 6 support in 2025 Q1, requiring .NET 8 as the minimum version. Regular updates add features like OCR, AI-powered document insights, and PDF/A compliance. The product is commercially supported as part of Telerik's broader suite.</p>
+<p>Telerik Document Processing is an actively maintained set of .NET document libraries from Progress Telerik with regular release updates. Recent releases have moved the supported .NET baseline forward; check the current Telerik release notes for the exact .NET versions supported by your version. The product ships as part of Telerik's broader DevCraft suite and is commercially supported.</p>
 
-<p>The library excels at programmatic PDF construction&mdash;drawing shapes, positioning text precisely, creating tables from data structures. HTML-to-PDF is not its primary design. Telerik's HTML conversion uses a two-step process: HtmlFormatProvider imports HTML into a RadFlowDocument (intermediate word-processing model), then PdfFormatProvider exports that flow document to PDF. This indirect conversion creates multiple failure points where HTML elements must map to flow document equivalents, CSS properties must translate to flow document formatting, and layout constraints of the flow model limit what HTML structures can express.</p>
+<p>The library is designed for programmatic document construction&mdash;drawing shapes, positioning text precisely, building tables from data structures&mdash;across PDF, Word, and Excel through <code>RadFixedDocument</code>, <code>RadFlowDocument</code>, and <code>RadSpreadDocument</code>. HTML-to-PDF is one of several supported flows rather than the primary design target. Telerik's HTML conversion is a two-step process: <code>HtmlFormatProvider</code> imports HTML into a <code>RadFlowDocument</code> (a word-processing flow model), then <code>PdfFormatProvider</code> exports that flow document to PDF. Because HTML elements must map to flow-document equivalents and CSS must translate to flow-document formatting, the layout constraints of the flow model define what HTML structures can be expressed in the output.</p>
 
 <h2>What Is IronPDF?</h2>
 
-<p><strong>Answer:</strong> <a href="https://ironpdf.com/tutorials/html-to-pdf/">IronPDF</a> uses Chromium&mdash;the same rendering engine that powers Google Chrome&mdash;to convert HTML directly to PDF. There's no intermediate format, no flow document translation, no layout model conversion. The HTML you write renders identically to Chrome's print preview because it's literally using Chrome's rendering pipeline. CSS Grid works, Flexbox works, modern JavaScript executes, web fonts load&mdash;everything that works in a browser works in the PDF.</p>
+<p><a href="https://ironpdf.com/tutorials/html-to-pdf/">IronPDF</a> uses Chromium&mdash;the same rendering engine that powers Google Chrome&mdash;to convert HTML directly to PDF. There's no intermediate flow-document format and no layout-model translation. The HTML you write renders the way Chrome renders it because it is using Chrome's rendering pipeline. CSS Grid, Flexbox, modern JavaScript, and web fonts work in the PDF the same way they work in a browser tab.</p>
 
 <p>This direct rendering approach eliminates the troubleshooting loop of "why did my layout break during conversion?" If it displays correctly in Chrome, it will appear identically in the PDF. The <a href="https://ironpdf.com/object-reference/api/IronPdf.ChromePdfRenderer.html">ChromePdfRenderer</a> class produces PDFs that match Chrome browser output exactly, and for teams building from HTML templates, this architectural match between development environment and output determines whether layout debugging is straightforward or perpetually mysterious.</p>
 
 <h2>How Does HTML-to-PDF Conversion Differ Between the Two?</h2>
 
-<p><strong>Answer:</strong> This is where the architectural gap becomes immediately visible. Telerik converts HTML through a two-step pipeline (HTML &rarr; RadFlowDocument &rarr; PDF), while IronPDF renders HTML directly through Chromium in a single pass (HTML &rarr; PDF).</p>
+<p>This is where the architectural difference is most visible. Telerik converts HTML through a two-step pipeline (HTML &rarr; <code>RadFlowDocument</code> &rarr; PDF), while IronPDF renders HTML directly through Chromium in a single pass (HTML &rarr; PDF).</p>
 
-<p>The difference matters most with modern CSS. CSS Grid, Flexbox, transforms, transitions, and animations have no flow document equivalent in Telerik and fail silently during conversion. JavaScript doesn't execute either&mdash;single-page applications, dynamic content loading, and AJAX-populated sections don't work because there's no browser engine executing scripts.</p>
+<p>The difference matters most with modern CSS. CSS Grid, Flexbox, transforms, transitions, and animations do not have direct equivalents in the flow-document model, so they typically do not survive the import step. JavaScript does not execute either&mdash;single-page applications, dynamic content loading, and AJAX-populated sections will not run because the conversion does not include a browser engine. Verify against your specific Telerik version for any features that have been added.</p>
 
 <h3>Telerik Document Processing &mdash; HTML via Flow Document</h3>
 
@@ -48,18 +48,15 @@ public class TelerikHtmlConverter
 
     public async Task&lt;byte[]&gt; ConvertUrlToPdfAsync(string url)
     {
-        // Must download HTML first - no browser engine to render URLs
+        // Download the HTML before passing it to HtmlFormatProvider
         using (var httpClient = new HttpClient())
         {
             string html = await httpClient.GetStringAsync(url);
 
-            // External resources (images, CSS) may not load correctly
-            // Base URL handling is manual
             HtmlFormatProvider htmlProvider = new HtmlFormatProvider();
             htmlProvider.ImportSettings.LoadFromUri += (sender, args) =&gt;
             {
-                // Custom logic required to resolve relative URLs
-                // Images must be downloaded separately
+                // Resolve relative URLs and supply resource bytes here
             };
 
             RadFlowDocument flowDocument = htmlProvider.Import(html);
@@ -71,7 +68,7 @@ public class TelerikHtmlConverter
 
     public async Task&lt;byte[]&gt; ConvertComplexHtmlAsync(string htmlWithModernCss)
     {
-        // HTML with CSS Grid, Flexbox, or modern features
+        // HTML using CSS Grid and Flexbox layout
         string html = @&quot;
             &lt;style&gt;
                 .grid-container {
@@ -93,23 +90,17 @@ public class TelerikHtmlConverter
         HtmlFormatProvider htmlProvider = new HtmlFormatProvider();
         RadFlowDocument flowDocument = htmlProvider.Import(html);
 
-        // Grid layout is lost - flow document has no grid concept
-        // Content appears as sequential paragraphs instead
-        // No error thrown, layout just wrong
-
         PdfFormatProvider pdfProvider = new PdfFormatProvider();
         return pdfProvider.Export(flowDocument);
     }
 
     public byte[] ConvertHtmlWithImages(string htmlContent)
     {
-        // Image handling requires special configuration
         HtmlFormatProvider htmlProvider = new HtmlFormatProvider();
 
-        // Must configure image loading explicitly
+        // Provide image bytes via the LoadFromUri callback
         htmlProvider.ImportSettings.LoadFromUri += (sender, e) =&gt;
         {
-            // Download and provide image data manually
             if (e.Uri.EndsWith(&quot;.jpg&quot;) || e.Uri.EndsWith(&quot;.png&quot;))
             {
                 using (var client = new System.Net.WebClient())
@@ -126,15 +117,15 @@ public class TelerikHtmlConverter
     }
 }</code></pre>
 
-<p>Here are the troubleshooting observations from typical implementations:</p>
+<p>A few architectural points are worth knowing before relying on this pipeline for HTML-heavy work:</p>
 
 <ul>
-<li>CSS Grid/Flexbox disappears&mdash;flow document model has no equivalent, layouts collapse to linear paragraphs without error messages</li>
-<li>Two-format mental model required&mdash;debugging requires understanding both RadFlowDocument (word processing model) and RadFixedDocument (PDF model)</li>
-<li>External resources fail silently&mdash;images, CSS files, fonts must be loaded manually with no browser engine to fetch resources automatically</li>
-<li>No JavaScript execution&mdash;dynamic content, AJAX-loaded sections, SPAs don't work</li>
-<li>Layout transformation surprises&mdash;flow-to-PDF conversion applies pagination and reflow that may not match HTML intent</li>
-<li>No direct preview&mdash;can't preview in Chrome because output won't match due to flow document conversion changes</li>
+<li>CSS Grid and Flexbox are layout-model features the flow document does not natively express, so layouts using them typically reflow to a linear sequence&mdash;verify against your version.</li>
+<li>The mental model spans two document types: <code>RadFlowDocument</code> for the word-processing flow model and <code>RadFixedDocument</code> for the fixed PDF model, so debugging an HTML-to-PDF flow may require reasoning about both.</li>
+<li>External resources (images, CSS, fonts) are resolved through the <code>LoadFromUri</code> callback on <code>ImportSettings</code> rather than by a browser fetcher, so resource resolution is application code rather than automatic.</li>
+<li>JavaScript is not executed by the converter; dynamic content, AJAX-loaded sections, and SPAs need to be pre-rendered before import.</li>
+<li>The flow-to-PDF step applies its own pagination and reflow rules, which may differ from what a browser layout engine would produce.</li>
+<li>There is no Chrome-equivalent preview during development because the rendered output is shaped by the flow-document model rather than a browser layout.</li>
 </ul>
 
 <h3>IronPDF &mdash; Direct Chromium Rendering</h3>
@@ -148,6 +139,7 @@ public class IronPdfHtmlConverter
 
     public IronPdfHtmlConverter()
     {
+        IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
         _renderer = new ChromePdfRenderer();
     }
 
@@ -209,18 +201,15 @@ public class IronPdfHtmlConverter
 
 <h2>How Do You Merge PDFs and Apply Digital Signatures?</h2>
 
-<p><strong>Answer:</strong> Both libraries support merging PDFs, extracting text, digital signatures, and form filling. Telerik provides these through its programmatic RadFixedDocument API, which is comprehensive and well-documented for code-driven operations. IronPDF provides the same operations but keeps the workflow HTML-centric, with PDF manipulation built on top of the rendering engine.</p>
+<p>Both libraries support merging PDFs, extracting text, digital signatures, and form filling. Telerik provides these through its programmatic <code>RadFixedDocument</code> API, which is comprehensive and well-documented for code-driven PDF operations. IronPDF provides the same operations but keeps the workflow HTML-centric, with PDF manipulation built on top of the rendering engine.</p>
 
-<p>The key difference is installation complexity. Telerik requires multiple packages for HTML-to-PDF: <code>Telerik.Documents.Core</code>, <code>Telerik.Documents.Fixed</code>, <code>Telerik.Documents.Flow</code>, <code>Telerik.Documents.Flow.FormatProviders.Html</code>, <code>Telerik.Documents.Flow.FormatProviders.Pdf</code>, plus <code>Telerik.Documents.ImageUtils</code> for images. Each adds dependencies and version alignment requirements.</p>
+<p>One practical difference is installation footprint. Telerik's HTML-to-PDF flow uses the <code>Telerik.Documents.Flow</code> package (which contains <code>HtmlFormatProvider</code> and <code>RadFlowDocument</code>) together with <code>Telerik.Documents.Flow.FormatProviders.Pdf</code> for the PDF export. Fixed-document operations such as merging or watermarking add <code>Telerik.Documents.Fixed</code>. Each component pulls its own dependencies and needs to be kept on aligned versions.</p>
 
 <h3>Telerik Document Processing Installation</h3>
 
-<pre><code>Install-Package Telerik.Documents.Core
-Install-Package Telerik.Documents.Fixed
-Install-Package Telerik.Documents.Flow
-Install-Package Telerik.Documents.Flow.FormatProviders.Html
+<pre><code>Install-Package Telerik.Documents.Flow
 Install-Package Telerik.Documents.Flow.FormatProviders.Pdf
-Install-Package Telerik.Documents.ImageUtils</code></pre>
+Install-Package Telerik.Documents.Fixed</code></pre>
 
 <pre><code>using Telerik.Windows.Documents.Flow.FormatProviders.Html;
 using Telerik.Windows.Documents.Flow.FormatProviders.Pdf;
@@ -240,198 +229,58 @@ IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
 var renderer = new ChromePdfRenderer();
 var pdf = await renderer.RenderHtmlAsPdfAsync(html);</code></pre>
 
-<p>IronPDF consolidates everything into a single package. For comprehensive rendering configuration, see the <a href="https://ironpdf.com/object-reference/api/IronPdf.ChromePdfRenderer.html">ChromePdfRenderer API reference</a>.</p>
+<p>IronPDF consolidates HTML rendering and PDF manipulation into a single package. For comprehensive rendering configuration, see the <a href="https://ironpdf.com/object-reference/api/IronPdf.ChromePdfRenderer.html">ChromePdfRenderer API reference</a>.</p>
 
 <h2>How Do the Two Libraries Compare Feature by Feature?</h2>
 
-<table>
-<thead>
-<tr>
-<th>Feature</th>
-<th>Telerik Document Processing</th>
-<th>IronPDF</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Status &amp; Support</strong></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>Active development</td>
-<td>Yes (quarterly releases)</td>
-<td>Yes (frequent updates)</td>
-</tr>
-<tr>
-<td>.NET versions</td>
-<td>Framework, 8, 9, 10</td>
-<td>Framework, Core, 5+</td>
-</tr>
-<tr>
-<td>Commercial support</td>
-<td>Ticket system</td>
-<td>24/5 engineering</td>
-</tr>
-<tr>
-<td><strong>HTML Conversion</strong></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>HTML rendering</td>
-<td>Indirect (via flow doc)</td>
-<td>Direct (Chromium)</td>
-</tr>
-<tr>
-<td>CSS3 support</td>
-<td>Limited (flow model)</td>
-<td>Complete (browser)</td>
-</tr>
-<tr>
-<td>CSS Grid</td>
-<td>No</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Flexbox</td>
-<td>Partial</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>JavaScript</td>
-<td>No</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>External resources</td>
-<td>Manual loading</td>
-<td>Automatic</td>
-</tr>
-<tr>
-<td>Web fonts</td>
-<td>Limited</td>
-<td>Full support</td>
-</tr>
-<tr>
-<td><strong>PDF Operations</strong></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>Create from scratch</td>
-<td>Yes (programmatic API)</td>
-<td>Yes (HTML or code)</td>
-</tr>
-<tr>
-<td>Merge PDFs</td>
-<td>Yes</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Extract text</td>
-<td>Yes</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Digital signatures</td>
-<td>Yes</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Form filling</td>
-<td>Yes</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td><strong>Development</strong></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>Primary design</td>
-<td>Programmatic construction</td>
-<td>HTML rendering</td>
-</tr>
-<tr>
-<td>Async operations</td>
-<td>Limited</td>
-<td>Full async/await</td>
-</tr>
-<tr>
-<td>Package count</td>
-<td>5&ndash;7 packages</td>
-<td>1 package</td>
-</tr>
-<tr>
-<td>Installation size</td>
-<td>~40MB</td>
-<td>~150&ndash;200MB</td>
-</tr>
-<tr>
-<td>Preview capability</td>
-<td>Export to DOCX/PDF</td>
-<td>Chrome print preview</td>
-</tr>
-<tr>
-<td><strong>Architecture</strong></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>HTML approach</td>
-<td>Secondary feature</td>
-<td>Primary design</td>
-</tr>
-<tr>
-<td>Conversion steps</td>
-<td>2 (HTML&rarr;Flow&rarr;PDF)</td>
-<td>1 (HTML&rarr;PDF)</td>
-</tr>
-<tr>
-<td>Layout model</td>
-<td>Flow document</td>
-<td>Browser rendering</td>
-</tr>
-<tr>
-<td>Debugging complexity</td>
-<td>2 format models</td>
-<td>1 rendering model</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><strong>Status and support.</strong> Both products are actively maintained commercial libraries. Telerik ships on a regular release cadence as part of the DevCraft suite with ticket-based support; IronPDF ships frequent updates with engineering-level support.</li>
+<li><strong>Supported .NET targets.</strong> Both libraries cover .NET Framework and modern .NET. Check each vendor's current release notes for the exact supported runtime range, since both have moved their baselines forward.</li>
+<li><strong>HTML rendering approach.</strong> Telerik takes an indirect path through <code>RadFlowDocument</code>; IronPDF renders directly through the Chromium engine.</li>
+<li><strong>CSS3 coverage.</strong> Telerik's CSS support is bounded by what the flow-document model can express; IronPDF inherits Chromium's CSS coverage, including CSS Grid and Flexbox.</li>
+<li><strong>JavaScript.</strong> Telerik does not execute JavaScript during HTML import. IronPDF runs scripts as part of the Chromium render pass.</li>
+<li><strong>External resources and web fonts.</strong> Telerik resolves remote resources through the <code>LoadFromUri</code> callback on <code>ImportSettings</code>; IronPDF fetches resources through Chromium the same way a browser does.</li>
+<li><strong>PDF operations.</strong> Both libraries support creating PDFs from scratch, merging, text extraction, digital signatures, and form filling. Telerik exposes these on its <code>RadFixedDocument</code> programmatic API; IronPDF exposes them on <code>PdfDocument</code>.</li>
+<li><strong>Office-document interop.</strong> Telerik can also convert Word and Excel documents through <code>RadWordsProcessing</code> and <code>RadSpreadProcessing</code>&mdash;a capability IronPDF does not provide directly.</li>
+<li><strong>Primary design intent.</strong> Telerik is designed primarily for programmatic document construction across PDF, Word, and Excel; IronPDF is designed primarily for HTML-driven PDF rendering.</li>
+<li><strong>Async surface.</strong> IronPDF exposes async/await throughout its public API; Telerik's HTML-to-PDF flow is largely synchronous.</li>
+<li><strong>Package footprint.</strong> Telerik's HTML-to-PDF flow combines <code>Telerik.Documents.Flow</code>, <code>Telerik.Documents.Flow.FormatProviders.Pdf</code>, and (for fixed-document operations) <code>Telerik.Documents.Fixed</code>; IronPDF ships as a single <code>IronPdf</code> package with its native binaries bundled, which makes its disk footprint larger.</li>
+<li><strong>Preview workflow.</strong> Telerik output reflects the flow-document layout, so previewing in a browser does not match the PDF; IronPDF output matches Chrome's print preview because it is the same engine.</li>
+<li><strong>Conversion steps.</strong> Telerik HTML-to-PDF is a two-step pipeline (HTML &rarr; <code>RadFlowDocument</code> &rarr; PDF); IronPDF is a single Chromium pass (HTML &rarr; PDF).</li>
+<li><strong>Debugging surface.</strong> Telerik debugging spans both the flow-document model and the fixed-document model; IronPDF debugging is grounded in the browser layout you can preview in Chrome.</li>
+</ul>
 
 <h2>Frequently Asked Questions</h2>
 
 <h3>Why does my CSS Grid layout vanish when using Telerik Document Processing?</h3>
 
-<p>Telerik's HtmlFormatProvider converts HTML into a RadFlowDocument&mdash;an intermediate word-processing model that predates CSS Grid. The flow document has no grid concept, so grid layouts collapse into sequential paragraphs without any error thrown. To work around this, you'd need to rewrite your HTML using tables, which the flow document model understands. IronPDF's Chromium engine supports CSS Grid natively because it renders HTML using the same engine as Chrome.</p>
+<p>Telerik's <code>HtmlFormatProvider</code> imports HTML into a <code>RadFlowDocument</code>&mdash;a word-processing flow model that predates CSS Grid. The flow document does not represent grid layout, so grid-based HTML typically reflows into sequential paragraphs during import. A common workaround is to rewrite the layout using tables, which the flow-document model does represent. IronPDF's Chromium engine supports CSS Grid the same way Chrome does because it is the same engine.</p>
 
 <h3>Can Telerik Document Processing execute JavaScript during conversion?</h3>
 
-<p>No. The HtmlFormatProvider parses static HTML only. There is no browser engine executing scripts. Single-page applications, dynamic content loading, and AJAX-populated sections don't work. If your workflow depends on JavaScript execution, IronPDF's Chromium engine runs the full V8 JavaScript engine during rendering.</p>
+<p>The HTML-to-PDF flow through <code>HtmlFormatProvider</code> imports static HTML; it does not execute scripts. Single-page applications, dynamic content loading, and AJAX-populated sections need to be pre-rendered before import. IronPDF's Chromium engine runs the V8 JavaScript engine during rendering, so dynamic content can be produced inline.</p>
 
 <h3>Why does Telerik require so many NuGet packages for HTML-to-PDF?</h3>
 
-<p>HTML-to-PDF in Telerik requires multiple packages: <code>Telerik.Documents.Core</code>, <code>Telerik.Documents.Fixed</code>, <code>Telerik.Documents.Flow</code>, <code>Telerik.Documents.Flow.FormatProviders.Html</code>, <code>Telerik.Documents.Flow.FormatProviders.Pdf</code>, and <code>Telerik.Documents.ImageUtils</code>. Each handles a different piece of the pipeline. IronPDF consolidates everything into a single NuGet package: <code>dotnet add package IronPdf</code>.</p>
+<p>The HTML-to-PDF flow combines <code>Telerik.Documents.Flow</code> (which contains <code>HtmlFormatProvider</code> and <code>RadFlowDocument</code>) with <code>Telerik.Documents.Flow.FormatProviders.Pdf</code> for the PDF export step. If you also need fixed-document operations such as merging or watermarking, add <code>Telerik.Documents.Fixed</code>. IronPDF consolidates HTML rendering and PDF manipulation into a single NuGet package: <code>dotnet add package IronPdf</code>.</p>
 
 <h3>How do I debug layout issues in Telerik's two-step conversion?</h3>
 
-<p>When HTML renders incorrectly through Telerik, the problem could be in the HTML &rarr; flow document import, the flow document &rarr; PDF export, or the interaction between both steps. One debugging strategy is to export the intermediate flow document to DOCX to see the intermediate format, then check if your HTML constructs have flow document equivalents. IronPDF eliminates this by using a single rendering pass&mdash;if it works in Chrome's print preview, it works in the PDF.</p>
+<p>When HTML renders unexpectedly through Telerik, the difference can come from the HTML &rarr; flow document import, the flow document &rarr; PDF export, or the interaction between both steps. One useful debugging strategy is to export the intermediate flow document to DOCX, inspect it, and check whether the HTML constructs you used have direct flow-document equivalents. IronPDF removes this layer by using a single Chromium render pass&mdash;if it looks right in Chrome's print preview, it should look the same in the PDF.</p>
 
 <h3>Does Telerik Document Processing handle external images automatically?</h3>
 
-<p>No. Images require manual loading through the <code>LoadFromUri</code> event on <code>ImportSettings</code>. You must download and provide image bytes yourself, resolve relative URLs manually, and handle errors in your event handler. Failures are silent. IronPDF's browser engine handles resource fetching automatically, including relative/absolute URLs, caching, and retries.</p>
+<p>External images are resolved through the <code>LoadFromUri</code> event on <code>ImportSettings</code>. The application supplies image bytes in the event handler, resolves relative URLs against a base URL, and handles its own error reporting. IronPDF's Chromium engine fetches resources the same way a browser does, including relative and absolute URLs.</p>
 
 <h3>Which library is better for programmatic PDF construction rather than HTML conversion?</h3>
 
-<p>Telerik Document Processing excels at programmatic PDF construction. Its RadFixedDocument API provides precise control over positioning, drawing, and structure. If your workflow centers on building PDFs from data structures rather than HTML templates, and your organization already licenses the Telerik DevCraft suite, Telerik's comprehensive programmatic tools may be the better fit. IronPDF is the stronger choice when HTML-to-PDF is the primary requirement.</p>
+<p>Telerik Document Processing is well suited to programmatic PDF construction. Its <code>RadFixedDocument</code> API provides precise control over positioning, drawing, and structure, and the broader Telerik suite covers Word and Excel as well. If your workflow centers on building PDFs from data structures rather than HTML templates, and your organization already licenses the Telerik DevCraft suite, Telerik's programmatic tools are a strong fit. IronPDF is the stronger choice when HTML-to-PDF is the primary requirement.</p>
 
 <h2>Which Should Your Team Choose?</h2>
 
 <p>Telerik Document Processing built its reputation on programmatic PDF construction&mdash;creating documents through code with precise control over positioning, drawing, and structure. The RadFixedDocument API excels when requirements demand coordinate-level positioning or when C# developers own the entire document creation workflow. For teams that primarily build PDFs from data structures, need the full suite of Telerik document libraries (Word, Excel, PDF), and use HTML conversion for less than 10% of PDF generation, Telerik provides comprehensive, well-documented tools that integrate with the broader Telerik ecosystem.</p>
 
-<p>IronPDF architecturally inverts this priority: HTML rendering is the foundation, not the add-on. The Chromium engine doesn't interpret or translate HTML&mdash;it renders it directly using the same code that powers Chrome browsers. This architectural alignment means troubleshooting becomes "does it work in Chrome?" rather than "how do I map this HTML to flow document concepts?" For applications where HTML templates drive PDF generation, where modern CSS features are essential, or where JavaScript execution is required, this fundamental design difference determines whether development proceeds smoothly or perpetually debugs conversion edge cases.</p>
+<p>IronPDF inverts that priority: HTML rendering is the foundation rather than an add-on path. The Chromium engine renders HTML directly with the same code that powers Chrome browsers, so troubleshooting tends to look like "does it work in Chrome?" rather than "how do I map this HTML to flow-document concepts?" For applications where HTML templates drive PDF generation, where modern CSS features are essential, or where JavaScript execution is required, that design difference is the main reason to choose IronPDF.</p>
 
 <p>For comprehensive examples, review the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a>, and see the <a href="https://ironpdf.com/object-reference/api/IronPdf.ChromePdfRenderer.html">ChromePdfRenderer API reference</a> for configuration options.</p>
 

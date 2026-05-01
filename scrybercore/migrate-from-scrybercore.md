@@ -2,27 +2,27 @@
 
 ## Why Migrate from Scryber.Core?
 
-Scryber.Core is an open-source PDF library that uses XML/HTML templates with a custom parsing engine. While it offers data binding capabilities, several limitations drive developers to migrate:
+Scryber.Core (maintained by Richard Hewitson — `richard-scryber` on GitHub, current version 9.3.1) is an open-source PDF library that parses XHTML+CSS templates with its own layout engine — not a browser. While it supports CSS styling, Handlebars-style `{{ }}` data binding, and SVG, several limitations drive developers to migrate:
 
-1. **LGPL License Concerns**: Requires source disclosure in some commercial scenarios
-2. **Custom Template Syntax**: Proprietary binding syntax requires learning curve
-3. **Limited CSS Support**: Not a full browser-based renderer
-4. **Smaller Community**: Less documentation and community examples
-5. **No JavaScript Execution**: Static rendering only
-6. **Complex Configuration**: XML-heavy configuration approach
+1. **LGPL v3 License**: Source-disclosure obligations apply if you modify Scryber itself; static linking in closed-source apps is permitted but the terms still constrain how you ship modifications.
+2. **XHTML-strict Input**: Templates must be valid XML — most real-world HTML needs to be cleaned up before Scryber will parse it.
+3. **Non-browser Renderer**: A custom layout engine, not Chromium — modern CSS (Grid, Flexbox subset, container queries) and any JavaScript are not executed.
+4. **Smaller Community**: ~226 GitHub stars, ~36 forks; fewer worked examples than mainstream libraries.
+5. **No JavaScript Execution**: Static rendering only — charts, SPAs, and dynamic widgets must be pre-rendered.
+6. **Manual URL Fetch**: No native URL-to-PDF; you fetch HTML yourself with `HttpClient` and feed it in.
 
 ### Quick Comparison
 
 | Aspect | Scryber.Core | IronPDF |
 |--------|--------------|---------|
-| License | LGPL (restrictive) | Commercial |
-| Rendering Engine | Custom | Chromium |
-| CSS Support | Limited | Full CSS3 |
-| JavaScript | No | Full ES2024 |
-| Template Binding | Proprietary XML | Standard (Razor, etc.) |
-| Learning Curve | Custom syntax | Standard HTML/CSS |
-| Async Support | Limited | Full |
-| Documentation | Basic | Extensive |
+| License | LGPL v3 | Commercial |
+| Rendering Engine | Custom XHTML/CSS layout engine | Chromium |
+| CSS Support | Subset (no Grid, partial Flexbox) | Full CSS3 |
+| JavaScript | No | Full (Chromium V8) |
+| Template Binding | Handlebars-style `{{ }}` + `<template>` | Standard (Razor, RazorLight, etc.) |
+| Input Strictness | Requires well-formed XHTML | Accepts real-world HTML |
+| Async Support | `PDFAsync` helper for MVC; sync core | Full async API |
+| Documentation | Read-the-docs site + samples | Extensive |
 
 ---
 
@@ -42,10 +42,10 @@ dotnet add package IronPdf
 
 ```csharp
 // Before
-using Scryber.Components;
-using Scryber.Components.Pdf;
-using Scryber.PDF;
-using Scryber.Styles;
+using Scryber.Components;     // Document, Page, etc.
+using Scryber.Drawing;        // Units, colours
+using Scryber.PDF;            // RenderOptions / OutputCompressionType
+using Scryber.Styles;         // Style elements (older XML template usage)
 
 // After
 using IronPdf;
@@ -63,16 +63,13 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 | Scryber.Core | IronPDF | Notes |
 |--------------|---------|-------|
-| `Document.ParseDocument(html)` | `renderer.RenderHtmlAsPdf(html)` | HTML rendering |
-| `Document.ParseTemplate(path)` | `renderer.RenderHtmlFileAsPdf(path)` | File rendering |
-| `doc.SaveAsPDF(path)` | `pdf.SaveAs(path)` | Save to file |
-| `doc.SaveAsPDF(stream)` | `pdf.Stream` or `pdf.BinaryData` | Get stream/bytes |
-| `doc.Info.Title` | `pdf.MetaData.Title` | Metadata |
-| `doc.Info.Author` | `pdf.MetaData.Author` | Metadata |
-| `PDFPage` | `pdf.Pages[i]` | Page access |
-| `PDFLayoutDocument` | `RenderingOptions` | Layout control |
-| `PDFStyle` | CSS in HTML | Styling |
-| Data binding (`{{value}}`) | Razor/String interpolation | Templating |
+| `Document.ParseDocument(reader, "", ParseSourceType.DynamicContent)` | `renderer.RenderHtmlAsPdf(html)` | Parse in-memory HTML |
+| `Document.ParseDocument(path)` | `renderer.RenderHtmlFileAsPdf(path)` | File-based template |
+| `doc.SaveAsPDF(stream)` | `pdf.SaveAs(path)` / `pdf.BinaryData` | Output |
+| `doc.Info.Title` / `doc.Info.Author` | `pdf.MetaData.Title` / `pdf.MetaData.Author` | Metadata |
+| `doc.RenderOptions` | `renderer.RenderingOptions` | Output-side options |
+| `@page` CSS in template | `renderer.RenderingOptions.PaperSize` / margins | Page layout |
+| Handlebars `{{value}}` + `<template>` | Razor / string interpolation | Templating |
 
 ---
 
@@ -83,6 +80,7 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 **Scryber.Core:**
 ```csharp
 using Scryber.Components;
+using System.IO;
 
 var html = @"<html xmlns='http://www.w3.org/1999/xhtml'>
     <body>
@@ -91,9 +89,11 @@ var html = @"<html xmlns='http://www.w3.org/1999/xhtml'>
     </body>
 </html>";
 
-using (var doc = Document.ParseDocument(new System.IO.StringReader(html), ParseSourceType.DynamicContent))
+using (var reader = new StringReader(html))
+using (var doc = Document.ParseDocument(reader, string.Empty, ParseSourceType.DynamicContent))
+using (var stream = new FileStream("output.pdf", FileMode.Create))
 {
-    doc.SaveAsPDF("output.pdf");
+    doc.SaveAsPDF(stream);
 }
 ```
 
@@ -116,30 +116,28 @@ pdf.SaveAs("output.pdf");
 
 ### Example 2: Template with Data Binding
 
-**Scryber.Core (proprietary binding):**
+**Scryber.Core (XHTML + Handlebars-style binding):**
 ```csharp
 using Scryber.Components;
+using System.IO;
 
-// Scryber XML template with binding
-var template = @"<?xml version='1.0' encoding='utf-8' ?>
-<pdf:Document xmlns:pdf='http://www.scryber.co.uk/schemas/core/release/v1/Scryber.Components.xsd'>
-    <Pages>
-        <pdf:Page>
-            <Content>
-                <pdf:H1 text='{{model.Title}}' />
-                <pdf:Para text='Customer: {{model.CustomerName}}' />
-                <pdf:Para text='Amount: {{model.Amount}}' />
-            </Content>
-        </pdf:Page>
-    </Pages>
-</pdf:Document>";
+// Scryber 6+ favours XHTML with {{ }} binding via doc.Params
+var template = @"<html xmlns='http://www.w3.org/1999/xhtml'>
+    <body>
+        <h1>{{model.Title}}</h1>
+        <p>Customer: {{model.CustomerName}}</p>
+        <p>Amount: {{model.Amount}}</p>
+    </body>
+</html>";
 
 var model = new { Title = "Invoice", CustomerName = "John Doe", Amount = "$150.00" };
 
-using (var doc = Document.ParseDocument(new System.IO.StringReader(template), ParseSourceType.DynamicContent))
+using (var reader = new StringReader(template))
+using (var doc = Document.ParseDocument(reader, string.Empty, ParseSourceType.DynamicContent))
+using (var stream = new FileStream("invoice.pdf", FileMode.Create))
 {
     doc.Params["model"] = model;
-    doc.SaveAsPDF("invoice.pdf");
+    doc.SaveAsPDF(stream);
 }
 ```
 
@@ -176,16 +174,20 @@ pdf.SaveAs("invoice.pdf");
 **Scryber.Core:**
 ```csharp
 using Scryber.Components;
+using System.IO;
 using System.Net.Http;
 
-// Must fetch HTML manually
+// Scryber has no native URL-to-PDF — fetch the HTML yourself.
+// Note: most live HTML is not valid XHTML; expect to clean it
+// (e.g., HtmlAgilityPack) before Scryber will parse it.
 var client = new HttpClient();
 var html = await client.GetStringAsync("https://example.com");
 
-// Parse and save
-using (var doc = Document.ParseDocument(new System.IO.StringReader(html), ParseSourceType.DynamicContent))
+using (var reader = new StringReader(html))
+using (var doc = Document.ParseDocument(reader, string.Empty, ParseSourceType.DynamicContent))
+using (var stream = new FileStream("webpage.pdf", FileMode.Create))
 {
-    doc.SaveAsPDF("webpage.pdf");
+    doc.SaveAsPDF(stream);
 }
 ```
 
@@ -205,25 +207,17 @@ pdf.SaveAs("webpage.pdf");
 
 **Scryber.Core:**
 ```csharp
-using Scryber.Components;
-using Scryber.Styles;
-
-var template = @"<?xml version='1.0' encoding='utf-8' ?>
-<pdf:Document xmlns:pdf='http://www.scryber.co.uk/schemas/core/release/v1/Scryber.Components.xsd'>
-    <Styles>
-        <pdf:Style applied-type='pdf:Page'>
-            <pdf:Size paper-size='A4' orientation='Portrait' />
-            <pdf:Margins all='20pt' />
-        </pdf:Style>
-    </Styles>
-    <Pages>
-        <pdf:Page>
-            <Content>
-                <pdf:H1 text='Report' />
-            </Content>
-        </pdf:Page>
-    </Pages>
-</pdf:Document>";
+// Page size and margins are declared in the template via @page CSS.
+var template = @"<html xmlns='http://www.w3.org/1999/xhtml'>
+    <head>
+        <style>
+            @page { size: A4 portrait; margin: 20pt; }
+        </style>
+    </head>
+    <body>
+        <h1>Report</h1>
+    </body>
+</html>";
 ```
 
 **IronPDF:**
@@ -250,23 +244,20 @@ pdf.SaveAs("report.pdf");
 
 **Scryber.Core:**
 ```csharp
-// XML-based header/footer definition required
-var template = @"<?xml version='1.0' encoding='utf-8' ?>
-<pdf:Document xmlns:pdf='http://www.scryber.co.uk/schemas/core/release/v1/Scryber.Components.xsd'>
-    <Pages>
-        <pdf:Section>
-            <Header>
-                <pdf:Para text='Company Report' />
-            </Header>
-            <Footer>
-                <pdf:Para text='Page {{pagenum}} of {{pagetotal}}' />
-            </Footer>
-            <Content>
-                <pdf:H1 text='Content Here' />
-            </Content>
-        </pdf:Section>
-    </Pages>
-</pdf:Document>";
+// Headers and footers live in the XHTML template via @page margin boxes
+// or explicit <header> / <footer> sections; Scryber resolves page-number
+// expressions at layout time.
+var template = @"<html xmlns='http://www.w3.org/1999/xhtml'>
+    <head>
+        <style>
+            @page { @top-center { content: 'Company Report'; }
+                    @bottom-center { content: 'Page ' counter(page) ' of ' counter(pages); } }
+        </style>
+    </head>
+    <body>
+        <h1>Content Here</h1>
+    </body>
+</html>";
 ```
 
 **IronPDF:**
@@ -303,8 +294,9 @@ pdf.SaveAs("report.pdf");
 
 **Scryber.Core:**
 ```csharp
-// Limited built-in merge support
-// Often requires external library
+// Scryber has no PDF-to-PDF merge API — its mandate is generating
+// new PDFs from XHTML. To combine existing PDFs you need a separate
+// library (PdfSharp, iText, etc.).
 ```
 
 **IronPDF:**
@@ -323,12 +315,13 @@ merged.SaveAs("complete_book.pdf");
 
 **Scryber.Core:**
 ```csharp
-using (var doc = Document.ParseDocument(reader, ParseSourceType.DynamicContent))
+using (var doc = Document.ParseDocument(reader, string.Empty, ParseSourceType.DynamicContent))
+using (var stream = new FileStream("output.pdf", FileMode.Create))
 {
     doc.Info.Title = "My Document";
     doc.Info.Author = "John Doe";
-    // Limited security options
-    doc.SaveAsPDF("output.pdf");
+    // Encryption / password protection is not part of the public API.
+    doc.SaveAsPDF(stream);
 }
 ```
 
@@ -360,35 +353,35 @@ pdf.SaveAs("protected.pdf");
 
 | Feature | Scryber.Core | IronPDF |
 |---------|--------------|---------|
-| HTML to PDF | Basic | Full Chromium |
-| URL to PDF | Manual fetch | Native support |
-| CSS Grid | Limited | Full support |
-| Flexbox | Limited | Full support |
-| JavaScript | No | Full ES2024 |
-| Data Binding | Proprietary XML | Use Razor/Handlebars |
-| Headers/Footers | XML-based | HTML/CSS |
-| Merge PDFs | Limited | Built-in |
-| Split PDFs | No | Yes |
-| Watermarks | Basic | Full HTML |
-| Digital Signatures | No | Yes |
-| PDF/A | No | Yes |
-| Password Protection | Basic | Full |
-| Async Support | Limited | Full |
-| Cross-Platform | Yes | Yes |
+| HTML to PDF | XHTML+CSS via custom layout engine | Full Chromium |
+| URL to PDF | Manual fetch only | Native `RenderUrlAsPdf` |
+| CSS Grid | Not supported | Full support |
+| Flexbox | Partial | Full support |
+| JavaScript | Not executed | Full (V8) |
+| Data Binding | `{{ }}` Handlebars + `doc.Params` | Razor / RazorLight / interpolation |
+| Headers/Footers | `@page` margin boxes / template sections | HtmlHeaderFooter with `{page}` `{total-pages}` |
+| Merge PDFs | Not supported | Built-in `PdfDocument.Merge` |
+| Split PDFs | Not supported | Yes |
+| Watermarks | Via overlay HTML in template | Native `ApplyStamp` / `ApplyWatermark` |
+| Digital Signatures | Not supported | Yes |
+| PDF/A | Not supported | Yes (PDF/A-1b, PDF/A-3) |
+| Password Protection | Not supported | Full (user/owner + permissions) |
+| Async Support | `PDFAsync` MVC helper; sync core | Full async surface |
+| Cross-Platform | Yes (.NET Std 2.0/2.1, .NET 8/9/10) | Yes |
 
 ---
 
 ## Template Migration Patterns
 
-### Migrating Proprietary Binding to Standard Templates
+### Migrating Scryber Binding to Standard Templates
 
-**Scryber Binding:**
+**Scryber Binding (XHTML + Handlebars):**
 ```xml
-<pdf:Para text='{{model.Name}}' />
-<pdf:Para text='Total: {{model.Total:C}}' />
-<pdf:ForEach on='{{model.Items}}'>
-    <pdf:Para text='{{.Name}}: {{.Price}}' />
-</pdf:ForEach>
+<p>{{model.Name}}</p>
+<p>Total: {{model.Total}}</p>
+<template data-bind='{{model.Items}}'>
+    <p>{{.Name}}: {{.Price}}</p>
+</template>
 ```
 
 **IronPDF with C# String Interpolation:**
@@ -422,27 +415,27 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 
 - [ ] **Audit all Scryber templates**
   ```bash
-  grep -r "<scryber:Document" --include="*.xml" .
+  grep -rE "ParseDocument|Scryber\.Components" --include="*.cs" --include="*.html" --include="*.xhtml" .
   ```
-  **Why:** Identify all Scryber templates to ensure they are converted to HTML for IronPDF.
+  **Why:** Identify every call site and template so they can all be re-rendered through IronPDF.
 
 - [ ] **Document data binding patterns used**
   ```xml
-  <!-- Before (Scryber) -->
-  <scryber:TextField Value="{{dataBinding}}" />
-
-  <!-- Document these patterns for conversion -->
+  <!-- Before (Scryber XHTML) -->
+  <p>{{model.Name}}</p>
+  <template data-bind='{{model.Items}}'><p>{{.Name}}</p></template>
   ```
-  **Why:** Scryber uses proprietary data binding that needs to be converted to standard templating like Razor.
+  **Why:** Scryber's `{{ }}` + `<template>` constructs need to be re-expressed in Razor or string interpolation.
 
 - [ ] **Identify custom styles**
-  ```xml
+  ```html
   <!-- Before (Scryber) -->
-  <scryber:Style>
-      <scryber:Font Size="12pt" />
-  </scryber:Style>
+  <style>
+      @page { size: A4; margin: 20pt; }
+      h1 { font-size: 24pt; }
+  </style>
   ```
-  **Why:** Custom styles need to be translated into CSS for IronPDF's HTML-based rendering.
+  **Why:** `@page` rules and unit-suffixed sizes need to be mapped to IronPDF's RenderingOptions or kept as standard CSS.
 
 - [ ] **Obtain IronPDF license key**
   **Why:** IronPDF requires a license key for production use. Free trial available at https://ironpdf.com/
@@ -459,64 +452,61 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 - [ ] **Update namespaces**
   ```csharp
   // Before (Scryber)
-  using Scryber;
+  using Scryber.Components;
+  using Scryber.PDF;
 
   // After (IronPDF)
   using IronPdf;
   ```
-  **Why:** Ensure code references the correct library for PDF operations.
+  **Why:** IronPDF consolidates the Scryber.Components / Scryber.PDF / Scryber.Drawing tree under a single `IronPdf` namespace.
 
-- [ ] **Convert XML templates to HTML**
+- [ ] **Convert XHTML templates to plain HTML**
   ```html
-  <!-- Before (Scryber) -->
-  <scryber:Document>
-      <scryber:TextField Value="{{data}}" />
-  </scryber:Document>
-
-  <!-- After (IronPDF) -->
-  <html>
-      <body>
-          <p>@Model.Data</p>
-      </body>
+  <!-- Before (Scryber — must be valid XHTML with namespace) -->
+  <html xmlns="http://www.w3.org/1999/xhtml">
+      <body><p>{{model.Data}}</p></body>
   </html>
-  ```
-  **Why:** IronPDF uses standard HTML, allowing for more flexible and powerful templating.
 
-- [ ] **Replace proprietary binding with standard templating**
+  <!-- After (IronPDF — any well-formed HTML5) -->
+  <html><body><p>@Model.Data</p></body></html>
+  ```
+  **Why:** IronPDF parses with Chromium, so the strict XHTML namespace requirement and well-formedness rules go away.
+
+- [ ] **Replace `{{ }}` binding with standard templating**
   ```csharp
   // Before (Scryber)
-  var template = "<scryber:TextField Value=\"{{data}}\" />";
+  doc.Params["model"] = model; // template uses {{model.Data}}
 
   // After (IronPDF)
-  var template = "<p>@Model.Data</p>";
+  var html = $"<p>{model.Data}</p>"; // or Razor / RazorLight
   ```
-  **Why:** Use familiar templating engines like Razor for better maintainability and readability.
+  **Why:** Razor and string interpolation are first-class .NET tooling — debuggable and refactor-safe.
 
-- [ ] **Update page settings to RenderingOptions**
+- [ ] **Move `@page` CSS to RenderingOptions**
   ```csharp
-  // Before (Scryber)
-  var doc = new PDFDocument();
-  doc.PageSize = PageSize.A4;
+  // Before (Scryber — in template CSS)
+  // @page { size: A4 portrait; margin: 20pt; }
 
   // After (IronPDF)
   var renderer = new ChromePdfRenderer();
-  renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+  renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+  renderer.RenderingOptions.MarginTop = 20;
   ```
-  **Why:** Centralize page settings using IronPDF's RenderingOptions for consistency.
+  **Why:** RenderingOptions is the single API surface for page geometry in IronPDF.
 
-- [ ] **Convert headers/footers to HTML**
+- [ ] **Convert template-bound headers/footers to HtmlHeaderFooter**
   ```csharp
-  // Before (Scryber)
-  doc.Header = "Page [page] of [total]";
+  // Before (Scryber — @page margin boxes in CSS)
+  // @page { @bottom-center { content: 'Page ' counter(page); } }
 
   // After (IronPDF)
-  renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter()
+  renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter()
   {
       HtmlFragment = "<div style='text-align:center;'>Page {page} of {total-pages}</div>",
       MaxHeight = 25
   };
   ```
-  **Why:** Utilize HTML for dynamic headers/footers with placeholders for enhanced flexibility.
+  **Why:** IronPDF's `{page}` / `{total-pages}` placeholders replace Scryber's CSS counter expressions.
 
 - [ ] **Add license initialization**
   ```csharp

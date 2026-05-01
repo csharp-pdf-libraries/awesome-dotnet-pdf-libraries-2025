@@ -18,15 +18,15 @@
 
 ### The FoNet (FO.NET) Challenges
 
-FoNet is an XSL-FO to PDF renderer that has significant limitations for modern development:
+FoNet (FO.NET) is an unmaintained C# port of an early pre-1.0 build of Apache FOP. It is licensed under Apache 2.0 and has significant limitations for modern development:
 
-1. **Obsolete Technology**: XSL-FO (Extensible Stylesheet Language Formatting Objects) is a W3C specification from 2001 that has seen no updates since 2006 and is largely considered obsolete
-2. **Steep Learning Curve**: XSL-FO requires learning complex XML-based markup with specialized formatting objects (fo:block, fo:table, fo:page-sequence, etc.)
-3. **No HTML/CSS Support**: Cannot render HTML or CSS—requires manual conversion from HTML to XSL-FO markup
-4. **Abandoned/Unmaintained**: The original CodePlex repository is defunct; GitHub forks are no longer actively maintained
-5. **Windows-Only**: FoNet has internal dependencies on System.Drawing that prevent it from working on Linux/macOS
-6. **Limited Modern Features**: No JavaScript support, no CSS3, no flexbox/grid, no modern web fonts
-7. **No URL Rendering**: Cannot directly render web pages—requires manual HTML-to-XSL-FO conversion
+1. **Obsolete Technology**: XSL-FO (Extensible Stylesheet Language Formatting Objects) is a W3C specification from 2001; the W3C closed the XSL-FO Working Group in 2013 and the language has had no further development.
+2. **Abandoned/Unmaintained**: The original CodePlex repository is defunct. The `Fonet` package on nuget.org was last published in **April 2011** (v1.0.0) and targets **.NET Framework 2.0**. The community fork `Fonet.Standard` (.NET Standard 2.0) was last published in **May 2020** (v1.0.5) — also no longer actively developed. Forks (`prepare/FO.NET`, `nholik/FO.Net`, `hahmed/Fo.Net`) are dormant.
+3. **Steep Learning Curve**: XSL-FO requires complex XML-based markup with specialized formatting objects (`fo:block`, `fo:table`, `fo:page-sequence`, etc.).
+4. **No HTML/CSS Support**: Cannot render HTML or CSS — you must transform HTML to XSL-FO yourself (typically via XSLT).
+5. **Windows-Only in practice**: The legacy `Fonet` build depends on `System.Drawing` GDI+ APIs that effectively limit it to Windows.
+6. **Limited Modern Features**: No JavaScript engine, no CSS3 (flexbox/grid), no modern web font loading.
+7. **No URL Rendering**: Cannot fetch or render web pages directly — requires manual HTML-to-XSL-FO conversion.
 
 ### Benefits of IronPDF
 
@@ -39,7 +39,8 @@ FoNet is an XSL-FO to PDF renderer that has significant limitations for modern d
 | CSS Support | None | Full CSS3 (Flexbox, Grid) |
 | JavaScript | None | Full JavaScript support |
 | URL Rendering | Not supported | Built-in |
-| Modern Features | Limited | Headers, footers, watermarks, security |
+| Security | Basic password encryption (legacy RC4); no signatures, no fine-grained permissions | UserPassword/OwnerPassword, AES-256, digital signatures, permission flags |
+| Modern Features | Limited | Headers, footers, watermarks, full security toolkit |
 | Documentation | Outdated | Comprehensive tutorials |
 
 ### Why the Switch Makes Sense
@@ -899,10 +900,27 @@ public byte[] GeneratePdfFromUrl(string url)
 
 ### Example 6: PDF Security
 
-**Before (FoNet - limited security):**
+**Before (FoNet — basic password encryption only):**
 ```csharp
-// FoNet has very limited PDF security options
-// Must use post-processing with another library
+// FO.NET supports PDF encryption via PdfRendererOptions:
+//   UserPassword / OwnerPassword trigger encryption when either is set.
+// It does NOT support digital signatures, granular permissions
+// (print / copy / annotate flags), or modern AES-256 encryption —
+// only the legacy 40/128-bit RC4 scheme inherited from early Apache FOP.
+using Fonet;
+using Fonet.Render.Pdf;
+using System.IO;
+
+var driver = FonetDriver.Make();
+driver.Options = new PdfRendererOptions
+{
+    Title         = "Confidential Report",
+    Author        = "Company Name",
+    UserPassword  = "user456",
+    OwnerPassword = "owner123",
+};
+driver.Render(new StringReader(xslFo),
+    new FileStream("secured.pdf", FileMode.Create));
 ```
 
 **After (IronPDF - comprehensive security):**

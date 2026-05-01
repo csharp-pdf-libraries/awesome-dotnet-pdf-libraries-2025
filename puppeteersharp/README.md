@@ -36,8 +36,8 @@ namespace PuppeteerSharpExample
     {
         static async Task Main(string[] args)
         {
-            // Download Chromium if not already available
-            await new BrowserFetcher().DownloadAsync(BrowserFetcher.DefaultChromiumRevision);
+            // Download Chromium if not already available (modern API, v11+)
+            await new BrowserFetcher().DownloadAsync();
             
             // Launch a headless browser
             await using var browser = await Puppeteer.LaunchAsync(new LaunchOptions
@@ -288,7 +288,7 @@ Let's take a look at the support across different .NET versions:
 | Library       | .NET Framework 4.7.2 | .NET Core 3.1 | .NET 6-8 | .NET 10 |
 |---------------|-----------------------|---------------|----------|---------|
 | IronPDF       | ✅ Full               | ✅ Full       | ✅ Full  | ✅ Full |
-| PuppeteerSharp| ⚠️ Limited          | ✅ Full       | ✅ Full  | ❌ Pending |
+| PuppeteerSharp| ✅ via netstandard2.0 | ✅ Full       | ✅ Full  | ✅ Full |
 
 IronPDF’s extensive support across .NET platforms ensures developers can leverage it in various environments without encountering compatibility issues, providing a flexible choice for modern .NET applications.
 

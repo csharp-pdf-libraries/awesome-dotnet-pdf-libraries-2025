@@ -6,6 +6,8 @@ class IronPdfHtmlToPdf
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         // Create a ChromePdfRenderer instance
         var renderer = new ChromePdfRenderer();
         

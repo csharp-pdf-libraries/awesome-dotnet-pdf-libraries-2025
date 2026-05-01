@@ -36,10 +36,10 @@ Developers turning to **ComPDFKit** may find documentation gaps compared to Iron
 
 ### C# Code Example
 
-Using ComPDFKit for a simple PDF creation:
+Using ComPDFKit to create a blank PDF and write it to disk:
 
 ```csharp
-using ComPDFKit.PDF;
+using ComPDFKit.PDFDocument;
 
 namespace PDFExample
 {
@@ -47,22 +47,20 @@ namespace PDFExample
     {
         static void Main(string[] args)
         {
-            // Initialize a new document
-            PDFDocument document = new PDFDocument();
+            // License must be initialized once before any document operation
+            // CPDFSDKVerifier.LicenseVerify(devKey, devSecret, userKey, userSecret);
 
-            // Create a new page
-            PDFPage page = document.CreatePage();
+            // Create a new in-memory document
+            CPDFDocument document = CPDFDocument.CreateDocument();
 
-            // Add text to the page
-            PDFTextElement textElement = new PDFTextElement
-            {
-                Text = "Hello, World!",
-                Position = new PDFPosition(100, 100) // X, Y Coordinates
-            };
-            page.AddElement(textElement);
+            // Insert an A4 page (595 x 842 points) at index 0
+            document.InsertPage(0, 595, 842, string.Empty);
 
             // Save the document to a file
-            document.Save("HelloWorld.pdf");
+            document.WriteToFilePath("HelloWorld.pdf");
+
+            // Manual cleanup - required by ComPDFKit
+            document.Release();
         }
     }
 }
@@ -112,16 +110,14 @@ class Program
 {
     static void Main()
     {
+        // ComPDFKit has no native HTML-to-PDF rendering.
+        // The .NET SDK only creates blank pages and lets you place primitives.
         var document = CPDFDocument.CreateDocument();
-        var page = document.InsertPage(0, 595, 842, "");
-        
-        // ComPDFKit requires manual HTML rendering
-        // Native HTML to PDF not directly supported
-        var editor = page.GetEditor();
-        editor.BeginEdit(CPDFEditType.EditText);
-        editor.CreateTextWidget(new System.Drawing.RectangleF(50, 50, 500, 700), "HTML content here");
-        editor.EndEdit();
-        
+        document.InsertPage(0, 595, 842, string.Empty);
+
+        // To convert HTML, use ComPDFKit's separate cloud Conversion API
+        // (different SKU). See https://api.compdf.com/api-libraries
+
         document.WriteToFilePath("output.pdf");
         document.Release();
     }
@@ -139,6 +135,8 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var renderer = new ChromePdfRenderer();
         var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1><p>This is HTML content.</p>");
         pdf.SaveAs("output.pdf");
@@ -157,31 +155,29 @@ Here's how **ComPDFKit** handles this:
 ```csharp
 // NuGet: Install-Package ComPDFKit.NetCore
 using ComPDFKit.PDFDocument;
-using ComPDFKit.PDFPage;
+using ComPDFKit.PDFWatermark;
 using System;
-using System.Drawing;
 
 class Program
 {
     static void Main()
     {
         var document = CPDFDocument.InitWithFilePath("input.pdf");
-        
-        for (int i = 0; i < document.PageCount; i++)
-        {
-            var page = document.PageAtIndex(i);
-            var editor = page.GetEditor();
-            editor.BeginEdit(CPDFEditType.EditText);
-            
-            var textArea = editor.CreateTextArea();
-            textArea.SetText("CONFIDENTIAL");
-            textArea.SetFontSize(48);
-            textArea.SetTransparency(128);
-            
-            editor.EndEdit();
-            page.Release();
-        }
-        
+
+        CPDFWatermark watermark = document.InitWatermark(
+            C_Watermark_Type.WATERMARK_TYPE_TEXT);
+        watermark.SetText("CONFIDENTIAL");
+        watermark.SetFontName("Helvetica");
+        watermark.SetFontSize(48);
+        watermark.SetTextRGBColor(255, 0, 0);
+        watermark.SetRotation(45);
+        watermark.SetOpacity(76); // 0..255
+        watermark.SetVertalign(C_Watermark_Vertalign.WATERMARK_VERTALIGN_CENTER);
+        watermark.SetHorizalign(C_Watermark_Horizalign.WATERMARK_HORIZALIGN_CENTER);
+        watermark.SetPages($"0-{document.PageCount - 1}");
+        watermark.SetFront(true);
+        watermark.CreateWatermark();
+
         document.WriteToFilePath("watermarked.pdf");
         document.Release();
     }
@@ -200,13 +196,15 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var pdf = PdfDocument.FromFile("input.pdf");
-        
+
         pdf.ApplyWatermark("<h1 style='color:rgba(255,0,0,0.3);'>CONFIDENTIAL</h1>",
             rotation: 45,
             verticalAlignment: VerticalAlignment.Middle,
             horizontalAlignment: HorizontalAlignment.Center);
-        
+
         pdf.SaveAs("watermarked.pdf");
     }
 }
@@ -255,9 +253,11 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var pdf1 = PdfDocument.FromFile("file1.pdf");
         var pdf2 = PdfDocument.FromFile("file2.pdf");
-        
+
         var merged = PdfDocument.Merge(new List<PdfDocument> { pdf1, pdf2 });
         merged.SaveAs("merged.pdf");
     }
@@ -296,8 +296,8 @@ ComPDFKit is a newer market entrant with cross-platform PDF capabilities, but it
 | Access page | `document.PageAtIndex(i)` | `pdf.Pages[i]` |
 | Extract text | `textPage.GetText(0, count)` | `pdf.ExtractAllText()` |
 | Merge PDFs | `doc1.ImportPagesAtIndex(doc2, range, index)` | `PdfDocument.Merge(pdf1, pdf2)` |
-| Add watermark | Via editor with `SetTransparency()` | `pdf.ApplyWatermark(html)` |
-| Form fields | Loop through `form.GetField(i)` | `pdf.Form.SetFieldValue(name, value)` |
+| Add watermark | `document.InitWatermark(...)` + `CPDFWatermark.CreateWatermark()` | `pdf.ApplyWatermark(html)` |
+| Form fields | Walk widget annotations on each page | `pdf.Form.SetFieldValue(name, value)` |
 | Sign PDF | `CPDFSigner.SignDocument()` | `pdf.Sign(signature)` |
 | PDF to images | `page.RenderPageBitmap()` | `pdf.RasterizeToImageFiles()` |
 

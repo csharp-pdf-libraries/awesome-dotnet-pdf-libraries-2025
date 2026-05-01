@@ -4,7 +4,7 @@ In the world of document management and PDF processing, Ghostscript has long bee
 
 ## Ghostscript: An Overview
 
-Ghostscript, an open-source tool available under the [AGPL license](https://www.ghostscript.com), serves as a PDF and PostScript interpreter. Its ability to convert, render, and manage PDF documents is rooted in decades of development. Ghostscript excels in environments requiring robust command-line tools and script-driven processing operations. However, for C# developers, the transition into integrating a command-line tool like Ghostscript isn't seamless.
+Ghostscript, maintained by Artifex Software under a [dual AGPL-3.0 / commercial license](https://artifex.com/licensing) (current native release line 10.x, with 10.05.x landing in 2025 and 10.07.0 in early 2026), serves as a PostScript and PDF interpreter. Its ability to convert, render, and manage PDF documents is rooted in decades of development. From .NET it is typically consumed via the `Ghostscript.NET` NuGet wrapper (v1.3.3, also AGPL/commercial-dual, targeting .NET Standard 2.0), which P/Invokes the native `gsdll32.dll`/`gsdll64.dll`. Ghostscript excels in environments requiring robust command-line-style PostScript and PDF processing. However, for C# developers, integrating it isn't seamless.
 
 **Strengths of Ghostscript:**
 
@@ -37,7 +37,7 @@ Unlike Ghostscript, where integration requires executing console commands and ha
 ```csharp
 using IronPdf;
 
-var Renderer = new HtmlToPdf();
+var Renderer = new ChromePdfRenderer();
 var PDF = Renderer.RenderHtmlAsPdf("<h1>Hello, World!</h1>");
 PDF.SaveAs("output.pdf");
 ```
@@ -97,10 +97,12 @@ class IronPdfExample
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var renderer = new ChromePdfRenderer();
-        
+
         string htmlContent = "<html><body><h1>Hello World</h1></body></html>";
-        
+
         var pdf = renderer.RenderHtmlAsPdf(htmlContent);
         pdf.SaveAs("output.pdf");
     }
@@ -158,14 +160,12 @@ class IronPdfExample
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var pdf = PdfDocument.FromFile("input.pdf");
-        
-        var images = pdf.ToBitmap();
-        
-        for (int i = 0; i < images.Length; i++)
-        {
-            images[i].Save($"output_page{i + 1}.png");
-        }
+
+        // One-shot: write every page as PNG matching Ghostscript's -r300 -sDEVICE=png16m
+        pdf.RasterizeToImageFiles("output_page*.png", DPI: 300);
     }
 }
 ```
@@ -220,13 +220,15 @@ class IronPdfExample
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var pdfs = new List<PdfDocument>
         {
             PdfDocument.FromFile("file1.pdf"),
             PdfDocument.FromFile("file2.pdf"),
             PdfDocument.FromFile("file3.pdf")
         };
-        
+
         var merged = PdfDocument.Merge(pdfs);
         merged.SaveAs("merged.pdf");
     }
@@ -243,7 +245,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 Ghostscript presents several challenges for modern .NET development:
 
-1. **AGPL License Restrictions**: Ghostscript's AGPL license requires source code disclosure unless you purchase an expensive commercial license from Artifex
+1. **AGPL-3.0 License Restrictions**: Both Ghostscript itself and the `Ghostscript.NET` wrapper are dual-licensed under AGPL-3.0 or commercial — AGPL's network-copyleft clause requires releasing the corresponding source of your larger application unless you purchase a commercial license from Artifex
 2. **Command-Line Interface**: Fundamentally a CLI tool—using it from C# requires process spawning, string arguments, and stderr parsing
 3. **External Binary Dependency**: Must install separately, manage PATH variables, ensure version compatibility across environments
 4. **No HTML-to-PDF Support**: Ghostscript cannot convert HTML to PDF—requires external tools like wkhtmltopdf
@@ -254,7 +256,7 @@ Ghostscript presents several challenges for modern .NET development:
 
 | Aspect | Ghostscript | IronPDF |
 |--------|-------------|---------|
-| License | AGPL (viral) or expensive commercial | Commercial with clear terms |
+| License | AGPL-3.0 (network-copyleft) or Artifex commercial | Commercial with clear terms |
 | Integration | Command-line process spawning | Native .NET library |
 | API Design | String-based switches | Typed, IntelliSense-enabled API |
 | Error Handling | Parse stderr text | .NET exceptions |

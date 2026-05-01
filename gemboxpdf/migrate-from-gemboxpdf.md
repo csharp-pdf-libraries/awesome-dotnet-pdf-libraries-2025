@@ -20,17 +20,17 @@
 
 GemBox.Pdf is a capable .NET PDF component, but it has significant limitations that affect real-world development:
 
-1. **20 Paragraph Limit in Free Version**: The free version restricts you to 20 paragraphs, and table cells count toward this limit. A simple 10-row, 5-column table uses 50 "paragraphs," making the free version unusable for even basic documents.
+1. **2-Page Limit in Free Mode**: The free version throws `FreeLimitReachedException` when you load or save a PDF with more than 2 pages. Anything beyond a one-page receipt or two-page invoice requires a paid license. (Source: gemboxsoftware.com/pdf/free-version.)
 
-2. **No HTML-to-PDF Conversion**: GemBox.Pdf requires programmatic document construction. You must calculate coordinates and manually position every element—there's no simple "render this HTML" capability.
+2. **No HTML-to-PDF Conversion**: GemBox.Pdf cannot render HTML. `PdfDocument.Load` only opens existing PDF files, not HTML. To convert HTML to PDF you must buy the separate **GemBox.Document** product — that's a different SKU with its own license key. (Confirmed by GemBox staff on forum.gemboxsoftware.com.)
 
-3. **Coordinate-Based Layout**: Unlike HTML/CSS where layout flows naturally, GemBox.Pdf requires you to calculate exact X/Y positions for every text element, image, and shape.
+3. **Coordinate-Based Layout**: GemBox.Pdf is a low-level PDF content-stream API. To place text you compute X/Y in PDF user-space units and call `page.Content.DrawText(formattedText, new PdfPoint(x, y))`. There is no flow layout.
 
-4. **Limited Feature Set**: Compared to comprehensive PDF libraries, GemBox.Pdf focuses on basic operations—reading, writing, merging, splitting—without advanced features like form filling, digital signatures, or watermarking in the same intuitive way.
+4. **Office-to-PDF Requires Other SKUs**: Word→PDF needs **GemBox.Document**, Excel→PDF needs **GemBox.Spreadsheet**, email parsing needs **GemBox.Email**. Each is licensed separately; the GemBox.Bundle covers all of them but costs more.
 
 5. **Programmatic Only**: Every design change requires code changes. Want to tweak spacing? Recalculate coordinates. Want a different font size? Adjust all Y positions below it.
 
-6. **Table Cell Counting**: The paragraph limit counts table cells, not just visible paragraphs. This makes the free version practically worthless for business documents with tables.
+6. **Commercial-License Pricing**: Single-developer license is $890 (renewal $534), small-team (10 devs) is $4,450, large-team (50 devs) is $13,350. (Source: gemboxsoftware.com/pdf/pricing.)
 
 7. **Learning Curve for Design**: Developers must think in coordinates rather than document flow, making simple tasks like "add a paragraph" surprisingly complex.
 
@@ -40,10 +40,10 @@ For best practices, consult the [complete guide](https://ironpdf.com/blog/migrat
 
 | Aspect | GemBox.Pdf | IronPDF |
 |--------|------------|---------|
-| Free Version Limits | 20 paragraphs (includes table cells) | Watermark only, no content limits |
-| HTML-to-PDF | Not supported | Full Chromium engine |
+| Free Version Limits | 2-page max (FreeLimitReachedException) | Watermark only, no page limit |
+| HTML-to-PDF | Not supported (need GemBox.Document) | Full Chromium engine |
+| Word/Excel → PDF | Separate SKUs (GemBox.Document / GemBox.Spreadsheet) | Render via HTML pipeline |
 | Layout Approach | Coordinate-based, manual | HTML/CSS flow layout |
-| Tables | Count toward paragraph limit | Unlimited, use HTML tables |
 | Modern CSS | Not applicable | Flexbox, Grid, CSS3 animations |
 | JavaScript Support | Not applicable | Full JavaScript execution |
 | Design Changes | Recalculate coordinates | Edit HTML/CSS |
@@ -169,7 +169,7 @@ pdf.SaveAs("output.pdf");
 **Key Differences:**
 - No coordinate calculations needed
 - HTML/CSS instead of programmatic layout
-- No paragraph limits
+- No 2-page free-mode ceiling
 - Simpler, more readable code
 
 ---
@@ -351,7 +351,7 @@ class Program
 
 ### Example 2: Creating Tables (The Biggest Improvement!)
 
-**Before (GemBox.Pdf) - Each cell counts toward 20-paragraph limit:**
+**Before (GemBox.Pdf) - Coordinate-based layout, capped at 2 pages in free mode:**
 ```csharp
 using GemBox.Pdf;
 using GemBox.Pdf.Content;
@@ -368,7 +368,7 @@ class Program
             ("Widget A", 19.99m, 5),
             ("Widget B", 29.99m, 3),
             ("Widget C", 9.99m, 10),
-            // Can only add a few more rows before hitting 20-paragraph limit!
+            // Free mode caps the saved file at 2 pages; long product lists need a paid license.
         };
 
         using (var document = new PdfDocument())
@@ -1091,11 +1091,11 @@ var html = @"
     </div>";
 ```
 
-### Issue 2: 20-Paragraph Limit Errors in Old Code
+### Issue 2: FreeLimitReachedException in Old Code
 
-**Problem:** Migrated code no longer has paragraph limits.
+**Problem:** GemBox.Pdf throws `FreeLimitReachedException` when a free-license document exceeds 2 pages.
 
-**Solution:** This is fixed automatically! IronPDF has no content limits.
+**Solution:** IronPDF has no per-document page cap (its free mode adds a watermark instead), so the exception path goes away after migration.
 
 ### Issue 3: PdfPoint Not Found
 
@@ -1200,8 +1200,8 @@ pdf.ApplyStamp(stamper);
   ```
   **Why:** HTML/CSS provides a more flexible and intuitive layout system.
 
-- [ ] **Evaluate current paragraph limits affecting your code**
-  **Why:** IronPDF does not have paragraph limits, allowing for more complex documents without restrictions.
+- [ ] **Evaluate the 2-page free-mode ceiling affecting your code**
+  **Why:** IronPDF does not impose a per-document page cap, so any place that fails on FreeLimitReachedException can be retired.
 
 - [ ] **Obtain IronPDF license key**
   **Why:** IronPDF requires a license key for production use. Free trial available at https://ironpdf.com/
@@ -1319,8 +1319,8 @@ pdf.ApplyStamp(stamper);
 - [ ] **Validate document appearance matches expectations**
   **Why:** IronPDF's rendering engine may produce different results; verify key documents.
 
-- [ ] **Test table generation (previously limited by 20-paragraph rule)**
-  **Why:** Ensure tables render correctly without paragraph limits.
+- [ ] **Test multi-page output (previously capped at 2 pages in free mode)**
+  **Why:** Ensure long documents render correctly now that the page cap is gone.
 
 - [ ] **Verify text extraction works correctly**
   **Why:** Ensure that text can be extracted as expected from generated PDFs.
@@ -1351,8 +1351,8 @@ pdf.ApplyStamp(stamper);
 - [ ] **Monitor production for any issues**
   **Why:** Quickly identify and resolve any issues that arise post-migration.
 
-- [ ] **Enjoy unlimited content without paragraph limits!**
-  **Why:** IronPDF allows for more complex and feature-rich PDFs without restrictions.
+- [ ] **Enjoy unlimited page counts without a free-mode cap!**
+  **Why:** IronPDF allows for more complex and feature-rich PDFs without per-document restrictions.
 ---
 
 ## Additional Resources

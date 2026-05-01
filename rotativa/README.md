@@ -27,9 +27,9 @@ Despite its initial popularity and ease of use, Rotativa is somewhat limited by 
 
 ### Weaknesses
 
-- **ASP.NET MVC Only**: One of the primary limitations of Rotativa is its exclusivity to ASP.NET MVC, making it unsuitable for projects built on Razor Pages, Blazor, minimal APIs, or other .NET Core applications.
-- **Abandoned Maintenance**: Rotativa has not seen any updates or maintenance for years, which exposes its users to both functional and security vulnerabilities.
-- **Security Concerns**: All users of Rotativa are subject to the security vulnerabilities inherent in `wkhtmltopdf`, including notable issues like CVE-2022-35583.
+- **ASP.NET MVC Focused**: The original `Rotativa` package targets classic ASP.NET MVC 5 (last release v1.7.3, 2017). The community fork `Rotativa.AspNetCore` (webgio, v1.4.0 released 2024-11-06) supports .NET Core 3.1, .NET 5/6/7/8 — but both still depend on the wkhtmltopdf binary.
+- **Abandoned Underlying Binary**: The wkhtmltopdf GitHub repository was archived on 2023-01-02. While the C# wrappers continue to receive minor updates, the actual rendering engine receives no security fixes.
+- **Security Concerns**: Both Rotativa packages bundle wkhtmltopdf 0.12.6, which has the unpatched SSRF vulnerability CVE-2022-35583 (CVSS 9.8). The wkhtmltopdf project explicitly warns against using it with untrusted HTML.
 - **Threading Issues**: Users have reported threading issues due to the synchronization limitations of `wkhtmltopdf`.
 
 ## IronPDF: A Modern Alternative
@@ -49,9 +49,10 @@ using IronPdf;
 
 public void CreatePdfFromHtml()
 {
-    var Renderer = new HtmlToPdf();
-    var Pdf = Renderer.RenderHtmlAsPdf("<h1>Hello World</h1>");
-    Pdf.SaveAs("output.pdf");
+    IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+    var renderer = new ChromePdfRenderer();
+    var pdf = renderer.RenderHtmlAsPdf("<h1>Hello World</h1>");
+    pdf.SaveAs("output.pdf");
 }
 ```
 
@@ -67,7 +68,7 @@ For more information about using IronPDF to generate PDFs, you can explore the f
 Here's how **Rotativa** handles this:
 
 ```csharp
-// NuGet: Install-Package Rotativa.Core
+// NuGet: Install-Package Rotativa.AspNetCore
 using Microsoft.AspNetCore.Mvc;
 using Rotativa.AspNetCore;
 using System.Threading.Tasks;
@@ -125,7 +126,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Rotativa** handles this:
 
 ```csharp
-// NuGet: Install-Package Rotativa.Core
+// NuGet: Install-Package Rotativa.AspNetCore
 using Microsoft.AspNetCore.Mvc;
 using Rotativa.AspNetCore;
 using System.Threading.Tasks;
@@ -136,7 +137,7 @@ namespace RotativaExample
     {
         public async Task<IActionResult> ConvertUrlToPdf()
         {
-            // Rotativa works within MVC framework and returns ActionResult
+            // UrlAsPdf inherits ViewResult (via AsResultBase), assignable to IActionResult
             return new UrlAsPdf("https://www.example.com")
             {
                 FileName = "webpage.pdf",
@@ -181,7 +182,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Rotativa** handles this:
 
 ```csharp
-// NuGet: Install-Package Rotativa.Core
+// NuGet: Install-Package Rotativa.AspNetCore
 using Microsoft.AspNetCore.Mvc;
 using Rotativa.AspNetCore;
 using Rotativa.AspNetCore.Options;
@@ -196,8 +197,9 @@ namespace RotativaExample
             return new ViewAsPdf("Report")
             {
                 PageSize = Size.A4,
+                // Margins(top, right, bottom, left)
                 PageMargins = new Margins(20, 10, 20, 10),
-                CustomSwitches = "--header-center \"Page Header\" --footer-center \"Page [page] of [toPage]\""
+                CustomSwitches = "--header-center \"Page Header\" --footer-center \"Page [page] of [topage]\""
             };
         }
     }

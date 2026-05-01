@@ -21,30 +21,28 @@
 
 ## Why Migrate to IronPDF
 
-ActivePDF Toolkit has been a powerful PDF manipulation library, but its acquisition by Foxit has created significant uncertainty for developers relying on the platform.
+ActivePDF Toolkit has been a powerful PDF manipulation library, but its acquisition by PDFTron (now Apryse) has folded it into a much larger product portfolio, creating uncertainty for developers who picked ActivePDF specifically for its server-side automation focus.
 
 ### The Case for Leaving ActivePDF
 
-**Uncertain Product Future**: ActivePDF's acquisition by Foxit raises questions about the product's long-term development trajectory. Developers face potential risks of the toolkit becoming a legacy product with reduced support and innovation.
+**Brand and roadmap uncertainty**: PDFTron acquired ActivePDF on June 23, 2020, and PDFTron itself rebranded to Apryse in February 2023. ActivePDF still ships under its own name (Toolkit, WebGrabber, DocConverter, Server, Meridian) but is now one of several brands inside Apryse, alongside the flagship Apryse SDK.
 
-**Licensing Complications**: The transition period following the acquisition has introduced licensing uncertainties. Machine-locked licensing can complicate deployments, especially in cloud and containerized environments.
+**Stateful, COM-derived API surface**: ActivePDF Toolkit's design comes from its long history as a COM/native component. Calls like `OpenOutputFile`/`CloseOutputFile`, integer return codes (0 for success, non-zero for errors), and the explicit `MergeFile(file, startPage, endPage)` pattern are accurate to the docs but don't fit modern .NET idioms (exceptions, `using`, async).
 
-**Legacy Codebase Concerns**: ActivePDF's architecture reflects an older design philosophy with stateful toolkit patterns (`OpenOutputFile`, `CloseOutputFile`) that don't align with modern .NET conventions.
+**Native dependency footprint**: Starting with Toolkit 10, the native libraries are no longer auto-copied to the system folder, so the constructor frequently needs an explicit `CoreLibPath` pointing at the installed directory (e.g. `new Toolkit(CoreLibPath: @"C:\Program Files\ActivePDF\Toolkit\bin")`). This complicates Docker, CI, and any deployment without an installer.
 
-**Installation Complexity**: ActivePDF often requires manual DLL references and path configuration (`new Toolkit(@"C:\Program Files\ActivePDF\...")`), unlike modern NuGet-based package management.
-
-**Limited Modern .NET Support**: While ActivePDF supports .NET, its focus has historically been on .NET Framework, with varying support for .NET Core and .NET 5+.
+**HTML-to-PDF lives in a separate product**: Toolkit itself is a PDF manipulation library — it does not render HTML. To go from HTML or a URL to a PDF you need WebGrabber (`APWebGrabber.WebGrabber.ConvertToPDF`), which is sold and licensed separately.
 
 ### What IronPDF Provides
 
 | ActivePDF Limitation | IronPDF Solution |
 |----------------------|------------------|
-| Uncertain future (Foxit acquisition) | Independent company, clear roadmap |
-| Machine-locked licensing | Code-based license key |
-| Manual DLL installation | Simple NuGet package |
+| Multiple SKUs (Toolkit + WebGrabber + DocConverter) | Single `IronPdf` NuGet package |
+| Apryse umbrella, several brands | Focused PDF library, single roadmap |
+| Native `CoreLibPath` configuration | NuGet handles native runtimes |
 | Stateful Open/Close pattern | Fluent, functional API |
-| Legacy .NET Framework focus | .NET Framework 4.6.2 to .NET 9 |
-| Complex configuration paths | Zero configuration needed |
+| Integer return codes | Standard .NET exceptions |
+| .NET Framework heritage | .NET Framework 4.6.2 to .NET 9 |
 
 ---
 
@@ -59,24 +57,25 @@ ActivePDF Toolkit has been a powerful PDF manipulation library, but its acquisit
 
 ### Find All ActivePDF References
 
-Run these commands in your solution directory to locate all files using ActivePDF:
+Run these commands in your solution directory to locate all files using ActivePDF. The real namespaces are `APToolkitNET` (Toolkit) and `APWebGrabber` (WebGrabber); a few legacy projects also reference `ActivePDF.Toolkit` via the COM interop assembly:
 
 ```bash
-grep -r "using ActivePDF" --include="*.cs" .
 grep -r "using APToolkitNET" --include="*.cs" .
-grep -r "APToolkitNET" --include="*.csproj" .
+grep -r "using APWebGrabber" --include="*.cs" .
+grep -r "ActivePDF" --include="*.csproj" .
 ```
 
 ### Breaking Changes to Anticipate
 
 | Category | ActivePDF Behavior | IronPDF Behavior | Migration Action |
 |----------|-------------------|------------------|------------------|
-| Object Model | Single `Toolkit` object | `ChromePdfRenderer` + `PdfDocument` | Separate concerns |
+| Product split | Toolkit (manipulation) + WebGrabber (HTML rendering) sold separately | Single `IronPdf` package | Collapse both into one library |
+| Object Model | `APToolkitNET.Toolkit` for PDFs, `APWebGrabber.WebGrabber` for HTML | `ChromePdfRenderer` + `PdfDocument` | Separate concerns |
 | File Operations | `OpenOutputFile()`/`CloseOutputFile()` | Direct `SaveAs()` | Remove open/close calls |
-| DLL Reference | Manual path reference | NuGet package | Remove path configuration |
+| Native runtime | `CoreLibPath` argument since v10 | NuGet ships natives | Remove path configuration |
 | Page Creation | `NewPage()` method | Automatic from HTML | Remove page creation calls |
-| Return Values | Integer error codes | Exceptions | Use try/catch |
-| Licensing | Machine-locked | Code-based key | Add `License.LicenseKey` |
+| Return Values | Integer error codes (0 = success) | Exceptions | Use try/catch |
+| Licensing | Per-server / per-core ActivePDF keys | Code-based IronPDF key | Add `License.LicenseKey` |
 
 ---
 
@@ -84,9 +83,12 @@ grep -r "APToolkitNET" --include="*.csproj" .
 
 ### Step 1: Update NuGet Packages
 
+The package on nuget.org is `ActivePDF.Toolkit` (current version 11.4.4, published December 2025). HTML rendering ships separately as `ActivePDF.WebGrabber`.
+
 ```bash
-# Remove ActivePDF package
-dotnet remove package APToolkitNET
+# Remove ActivePDF packages
+dotnet remove package ActivePDF.Toolkit
+dotnet remove package ActivePDF.WebGrabber
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -94,7 +96,8 @@ dotnet add package IronPdf
 
 Or via Package Manager Console:
 ```powershell
-Uninstall-Package APToolkitNET
+Uninstall-Package ActivePDF.Toolkit
+Uninstall-Package ActivePDF.WebGrabber
 Install-Package IronPdf
 ```
 
@@ -109,23 +112,24 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 | Find | Replace With |
 |------|--------------|
-| `using ActivePDF.Toolkit;` | `using IronPdf;` |
 | `using APToolkitNET;` | `using IronPdf;` |
-| `using APToolkitNET.PDFObjects;` | `using IronPdf;` |
-| `using APToolkitNET.Common;` | `using IronPdf;` |
+| `using APWebGrabber;` | `using IronPdf;` |
+| `APToolkitNET.Toolkit` | `ChromePdfRenderer` (rendering) / `PdfDocument` (manipulation) |
+| `APWebGrabber.WebGrabber` | `ChromePdfRenderer` |
 
 ### Step 4: Verify Basic Operation
 
-**Before (ActivePDF):**
+**Before (ActivePDF WebGrabber — HTML to PDF lives here, not in Toolkit):**
 ```csharp
-using ActivePDF.Toolkit;
+using APWebGrabber;
+using System.IO;
 
-Toolkit toolkit = new Toolkit();
-if (toolkit.OpenOutputFile("output.pdf") == 0)
-{
-    toolkit.AddHTML("<h1>Hello World</h1>");
-    toolkit.CloseOutputFile();
-}
+var wg = new WebGrabber();
+File.WriteAllText("input.html", "<h1>Hello World</h1>");
+wg.URL = "input.html";
+wg.OutputDirectory = Directory.GetCurrentDirectory();
+wg.OutputFilename = "output.pdf";
+wg.ConvertToPDF(); // returns 0 on success
 ```
 
 **After (IronPDF):**
@@ -145,35 +149,31 @@ pdf.SaveAs("output.pdf");
 
 | ActivePDF Namespace | IronPDF Namespace | Purpose |
 |---------------------|-------------------|---------|
-| `ActivePDF.Toolkit` | `IronPdf` | Core functionality |
-| `APToolkitNET` | `IronPdf` | Main PDF operations |
-| `APToolkitNET.PDFObjects` | `IronPdf` | PDF document objects |
-| `APToolkitNET.Common` | `IronPdf` | Common utilities |
-| `APToolkitNET.Extractor` | `IronPdf` | Text extraction |
-| `APToolkitNET.Rasterizer` | `IronPdf` | PDF to image |
+| `APToolkitNET` | `IronPdf` | PDF manipulation (merge, forms, security, text) |
+| `APWebGrabber` | `IronPdf` | HTML-to-PDF / URL-to-PDF rendering |
+| `APToolkitNET` (Rasterizer call) | `IronPdf` | PDF to image (`pdf.ToBitmap`) |
 
 ### Document Creation Methods
 
 | ActivePDF Method | IronPDF Method | Notes |
 |------------------|----------------|-------|
-| `new Toolkit()` | `new ChromePdfRenderer()` | Renderer creates PDFs |
-| `new Toolkit(path)` | `new ChromePdfRenderer()` | No path needed |
-| `toolkit.OpenOutputFile(path)` | No equivalent needed | Just call SaveAs at end |
-| `toolkit.CloseOutputFile()` | No equivalent needed | Automatic cleanup |
-| `toolkit.AddHTML(html)` | `renderer.RenderHtmlAsPdf(html)` | Returns PdfDocument |
-| `toolkit.AddURL(url)` | `renderer.RenderUrlAsPdf(url)` | URL to PDF |
+| `new APToolkitNET.Toolkit()` | `new ChromePdfRenderer()` / `new PdfDocument(...)` | IronPDF separates rendering from manipulation |
+| `new Toolkit(CoreLibPath: path)` | `new ChromePdfRenderer()` | NuGet ships natives — no `CoreLibPath` |
+| `toolkit.OpenOutputFile(path)` | No equivalent needed | Just call `SaveAs` at end |
+| `toolkit.CloseOutputFile()` | No equivalent needed | `using` handles cleanup |
+| `webGrabber.URL = html; webGrabber.ConvertToPDF()` | `renderer.RenderHtmlAsPdf(html)` | WebGrabber, not Toolkit |
+| `webGrabber.URL = url; webGrabber.ConvertToPDF()` | `renderer.RenderUrlAsPdf(url)` | WebGrabber, not Toolkit |
 | `toolkit.NewPage()` | Automatic from HTML | Pages auto-created |
-| `toolkit.SaveAs(path)` | `pdf.SaveAs(path)` | Save to file |
+| `toolkit.SaveOutputToFile()` / output filename | `pdf.SaveAs(path)` | Save to file |
 
 ### File Operations Methods
 
 | ActivePDF Method | IronPDF Method | Notes |
 |------------------|----------------|-------|
 | `toolkit.OpenInputFile(path)` | `PdfDocument.FromFile(path)` | Load existing PDF |
-| `toolkit.AddPDF(path)` | `PdfDocument.Merge()` | For merging |
-| `toolkit.Merge(path)` | `PdfDocument.Merge(pdfs)` | Merge multiple PDFs |
-| `toolkit.GetPDFInfo()` | `pdf.MetaData` | Document metadata |
-| `toolkit.GetPageCount()` | `pdf.PageCount` | Page count property |
+| `toolkit.MergeFile(path, startPage, endPage)` | `PdfDocument.Merge(pdfs)` | ActivePDF merges into the open output file in-place; IronPDF returns a new merged document |
+| `toolkit.NumPages` (property) | `pdf.PageCount` | Page count |
+| `toolkit.SetCustomDocInfo(...)` | `pdf.MetaData.Title = ...` etc. | Document metadata |
 
 ### Page Manipulation Methods
 
@@ -230,21 +230,24 @@ pdf.SaveAs("output.pdf");
 
 ### Example 1: HTML String to PDF
 
-**Before (ActivePDF):**
+**Before (ActivePDF WebGrabber):**
 ```csharp
-using ActivePDF.Toolkit;
+using APWebGrabber;
+using System.IO;
 
 public void CreatePdfFromHtml(string html, string outputPath)
 {
-    Toolkit toolkit = new Toolkit();
+    var wg = new WebGrabber();
 
-    if (toolkit.OpenOutputFile(outputPath) == 0)
-    {
-        toolkit.SetPageSize(612, 792); // Letter size
-        toolkit.SetMargins(72, 72, 72, 72); // 1 inch margins
-        toolkit.AddHTML(html);
-        toolkit.CloseOutputFile();
-    }
+    string tempHtml = Path.Combine(Path.GetTempPath(), "input.html");
+    File.WriteAllText(tempHtml, html);
+
+    wg.URL = tempHtml;
+    wg.PageSize = APWebGrabber.Enums.PageSize.Letter;
+    wg.OutputDirectory = Path.GetDirectoryName(outputPath);
+    wg.OutputFilename = Path.GetFileName(outputPath);
+
+    wg.ConvertToPDF(); // 0 on success
 }
 ```
 
@@ -268,24 +271,20 @@ public void CreatePdfFromHtml(string html, string outputPath)
 
 ### Example 2: URL to PDF
 
-**Before (ActivePDF):**
+**Before (ActivePDF WebGrabber):**
 ```csharp
-using ActivePDF.Toolkit;
+using APWebGrabber;
+using System.IO;
 
 public void ConvertUrlToPdf(string url, string outputPath)
 {
-    Toolkit toolkit = new Toolkit();
+    var wg = new WebGrabber();
+    wg.URL = url;
+    wg.OutputDirectory = Path.GetDirectoryName(outputPath);
+    wg.OutputFilename = Path.GetFileName(outputPath);
 
-    if (toolkit.OpenOutputFile(outputPath) == 0)
-    {
-        toolkit.AddURL(url);
-        toolkit.CloseOutputFile();
-        Console.WriteLine("PDF created successfully");
-    }
-    else
-    {
-        Console.WriteLine("Error creating PDF");
-    }
+    int result = wg.ConvertToPDF();
+    Console.WriteLine(result == 0 ? "PDF created successfully" : $"Error code: {result}");
 }
 ```
 
@@ -312,21 +311,23 @@ public void ConvertUrlToPdf(string url, string outputPath)
 
 ### Example 3: Merge Multiple PDFs
 
-**Before (ActivePDF):**
+**Before (ActivePDF Toolkit):**
 ```csharp
-using ActivePDF.Toolkit;
+using APToolkitNET;
 
 public void MergePdfs(string[] inputFiles, string outputPath)
 {
-    Toolkit toolkit = new Toolkit();
-
-    if (toolkit.OpenOutputFile(outputPath) == 0)
+    using (Toolkit toolkit = new Toolkit())
     {
-        foreach (string file in inputFiles)
+        if (toolkit.OpenOutputFile(outputPath) == 0)
         {
-            toolkit.AddPDF(file);
+            foreach (string file in inputFiles)
+            {
+                // MergeFile(FileName, StartPage, EndPage); -1 means "to end"
+                toolkit.MergeFile(file, 1, -1);
+            }
+            toolkit.CloseOutputFile();
         }
-        toolkit.CloseOutputFile();
     }
 }
 ```
@@ -352,21 +353,23 @@ public void MergePdfs(string[] inputFiles, string outputPath)
 
 ### Example 4: Add Headers and Footers
 
-**Before (ActivePDF):**
+**Before (ActivePDF WebGrabber):**
 ```csharp
-using ActivePDF.Toolkit;
+using APWebGrabber;
+using System.IO;
 
 public void CreatePdfWithHeaderFooter(string html, string outputPath)
 {
-    Toolkit toolkit = new Toolkit();
+    var wg = new WebGrabber();
+    string tempHtml = Path.Combine(Path.GetTempPath(), "input.html");
+    File.WriteAllText(tempHtml, html);
 
-    if (toolkit.OpenOutputFile(outputPath) == 0)
-    {
-        toolkit.SetHeader("My Document", 12, "Arial");
-        toolkit.SetFooter("Page %p of %P", 10, "Arial");
-        toolkit.AddHTML(html);
-        toolkit.CloseOutputFile();
-    }
+    wg.URL = tempHtml;
+    wg.HeaderText = "My Document";
+    wg.FooterText = "Page [page] of [pages]";
+    wg.OutputDirectory = Path.GetDirectoryName(outputPath);
+    wg.OutputFilename = Path.GetFileName(outputPath);
+    wg.ConvertToPDF();
 }
 ```
 
@@ -399,21 +402,22 @@ public void CreatePdfWithHeaderFooter(string html, string outputPath)
 
 ### Example 5: Password Protection
 
-**Before (ActivePDF):**
+**Before (ActivePDF Toolkit):**
 ```csharp
-using ActivePDF.Toolkit;
+using APToolkitNET;
 
 public void ProtectPdf(string inputPath, string outputPath, string password)
 {
-    Toolkit toolkit = new Toolkit();
-
-    if (toolkit.OpenInputFile(inputPath) == 0)
+    using (Toolkit toolkit = new Toolkit())
     {
-        toolkit.Encrypt(password);
-        toolkit.SetUserPassword(password);
-        toolkit.SetPermissions(4); // Print only
-        toolkit.SaveAs(outputPath);
-        toolkit.CloseInputFile();
+        if (toolkit.OpenOutputFile(outputPath) == 0
+            && toolkit.OpenInputFile(inputPath) == 0)
+        {
+            toolkit.SetEncryption(password, password, 128, 0);
+            toolkit.CopyForm(0, 0);
+            toolkit.CloseInputFile();
+            toolkit.CloseOutputFile();
+        }
     }
 }
 ```
@@ -438,26 +442,29 @@ public void ProtectPdf(string inputPath, string outputPath, string password)
 
 ### Example 6: Extract Text from PDF
 
-**Before (ActivePDF):**
+**Before (ActivePDF Toolkit):**
 ```csharp
-using ActivePDF.Toolkit;
+using APToolkitNET;
+using System.Text;
 
 public string ExtractText(string pdfPath)
 {
-    Toolkit toolkit = new Toolkit();
-    string text = "";
+    var sb = new StringBuilder();
 
-    if (toolkit.OpenInputFile(pdfPath) == 0)
+    using (Toolkit toolkit = new Toolkit())
     {
-        int pageCount = toolkit.GetPageCount();
-        for (int i = 1; i <= pageCount; i++)
+        if (toolkit.OpenInputFile(pdfPath) == 0)
         {
-            text += toolkit.GetTextFromPage(i) + "\n";
+            int pageCount = toolkit.NumPages;
+            for (int i = 1; i <= pageCount; i++)
+            {
+                sb.AppendLine(toolkit.GetPageText(i, 0));
+            }
+            toolkit.CloseInputFile();
         }
-        toolkit.CloseInputFile();
     }
 
-    return text;
+    return sb.ToString();
 }
 ```
 
@@ -474,24 +481,28 @@ public string ExtractText(string pdfPath)
 
 ### Example 7: Add Watermark
 
-**Before (ActivePDF):**
+**Before (ActivePDF Toolkit — drawn as page text per page):**
 ```csharp
-using ActivePDF.Toolkit;
+using APToolkitNET;
 
 public void AddWatermark(string inputPath, string outputPath, string watermarkText)
 {
-    Toolkit toolkit = new Toolkit();
-
-    if (toolkit.OpenInputFile(inputPath) == 0)
+    using (Toolkit toolkit = new Toolkit())
     {
-        int pageCount = toolkit.GetPageCount();
-        for (int i = 1; i <= pageCount; i++)
+        if (toolkit.OpenOutputFile(outputPath) == 0
+            && toolkit.OpenInputFile(inputPath) == 0)
         {
-            toolkit.SetPage(i);
-            toolkit.AddWatermark(watermarkText, 45, 0.5f);
+            int pageCount = toolkit.NumPages;
+            for (int i = 1; i <= pageCount; i++)
+            {
+                toolkit.CopyForm(i, 0);
+                toolkit.SetFont("Helvetica", 72);
+                toolkit.SetTextColor(200, 200, 200);
+                toolkit.PrintText(150, 400, watermarkText);
+            }
+            toolkit.CloseInputFile();
+            toolkit.CloseOutputFile();
         }
-        toolkit.SaveAs(outputPath);
-        toolkit.CloseInputFile();
     }
 }
 ```
@@ -515,20 +526,23 @@ public void AddWatermark(string inputPath, string outputPath, string watermarkTe
 
 ### Example 8: Custom Page Size
 
-**Before (ActivePDF):**
+**Before (ActivePDF WebGrabber):**
 ```csharp
-using ActivePDF.Toolkit;
+using APWebGrabber;
+using System.IO;
 
 public void CreateCustomSizePdf(string html, string outputPath)
 {
-    Toolkit toolkit = new Toolkit();
+    var wg = new WebGrabber();
+    string tempHtml = Path.Combine(Path.GetTempPath(), "input.html");
+    File.WriteAllText(tempHtml, html);
 
-    if (toolkit.OpenOutputFile(outputPath) == 0)
-    {
-        toolkit.SetPageSize(396, 612); // Half letter in points
-        toolkit.AddHTML(html);
-        toolkit.CloseOutputFile();
-    }
+    wg.URL = tempHtml;
+    wg.PageWidth = 396;   // points
+    wg.PageHeight = 612;  // points (half letter)
+    wg.OutputDirectory = Path.GetDirectoryName(outputPath);
+    wg.OutputFilename = Path.GetFileName(outputPath);
+    wg.ConvertToPDF();
 }
 ```
 
@@ -549,24 +563,24 @@ public void CreateCustomSizePdf(string html, string outputPath)
 
 ### Example 9: PDF to Images
 
-**Before (ActivePDF):**
+**Before (ActivePDF Toolkit Ultimate / Rasterizer SKU):**
 ```csharp
-using ActivePDF.Toolkit;
+// Requires ActivePDF.Toolkit.Ultimate (rasterization is not in the base Toolkit).
+using APToolkitNET;
 
 public void ConvertToImages(string pdfPath, string outputDir)
 {
-    Toolkit toolkit = new Toolkit();
-
-    if (toolkit.OpenInputFile(pdfPath) == 0)
+    using (Toolkit toolkit = new Toolkit())
     {
-        var rasterizer = toolkit.GetRasterizer();
-        int pageCount = toolkit.GetPageCount();
-
-        for (int i = 1; i <= pageCount; i++)
+        if (toolkit.OpenInputFile(pdfPath) == 0)
         {
-            rasterizer.RenderPage(i, $"{outputDir}/page_{i}.png", 300);
+            int pageCount = toolkit.NumPages;
+            for (int i = 1; i <= pageCount; i++)
+            {
+                toolkit.RenderPage(i, $"{outputDir}/page_{i}.png", 300);
+            }
+            toolkit.CloseInputFile();
         }
-        toolkit.CloseInputFile();
     }
 }
 ```
@@ -591,25 +605,21 @@ public void ConvertToImages(string pdfPath, string outputDir)
 
 ### Example 10: Batch Processing
 
-**Before (ActivePDF):**
+**Before (ActivePDF WebGrabber):**
 ```csharp
-using ActivePDF.Toolkit;
+using APWebGrabber;
+using System.IO;
 
 public void BatchConvert(string[] htmlFiles, string outputDir)
 {
-    Toolkit toolkit = new Toolkit();
+    var wg = new WebGrabber();
+    wg.OutputDirectory = outputDir;
 
     foreach (var htmlFile in htmlFiles)
     {
-        string outputPath = Path.Combine(outputDir,
-            Path.GetFileNameWithoutExtension(htmlFile) + ".pdf");
-
-        if (toolkit.OpenOutputFile(outputPath) == 0)
-        {
-            string html = File.ReadAllText(htmlFile);
-            toolkit.AddHTML(html);
-            toolkit.CloseOutputFile();
-        }
+        wg.URL = htmlFile;
+        wg.OutputFilename = Path.GetFileNameWithoutExtension(htmlFile) + ".pdf";
+        wg.ConvertToPDF();
     }
 }
 ```
@@ -640,19 +650,22 @@ public void BatchConvert(string[] htmlFiles, string outputDir)
 
 ### Scenario 1: ASP.NET Core Web Application
 
-**ActivePDF Pattern:**
+**ActivePDF Pattern (WebGrabber):**
 ```csharp
 [HttpPost]
 public IActionResult GeneratePdf([FromBody] ReportRequest request)
 {
-    Toolkit toolkit = new Toolkit();
+    var wg = new APWebGrabber.WebGrabber();
+    string tempHtml = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".html");
+    System.IO.File.WriteAllText(tempHtml, request.Html);
 
-    if (toolkit.OpenOutputFile("temp.pdf") == 0)
+    wg.URL = tempHtml;
+    wg.OutputDirectory = Path.GetTempPath();
+    wg.OutputFilename = "temp.pdf";
+
+    if (wg.ConvertToPDF() == 0)
     {
-        toolkit.AddHTML(request.Html);
-        toolkit.CloseOutputFile();
-
-        byte[] bytes = System.IO.File.ReadAllBytes("temp.pdf");
+        byte[] bytes = System.IO.File.ReadAllBytes(Path.Combine(Path.GetTempPath(), "temp.pdf"));
         return File(bytes, "application/pdf", "report.pdf");
     }
 
@@ -728,13 +741,17 @@ public class IronPdfService : IPdfService
 
 **ActivePDF Error Handling:**
 ```csharp
-Toolkit toolkit = new Toolkit();
-int result = toolkit.OpenOutputFile(path);
+using APToolkitNET;
 
-if (result != 0)
+using (var toolkit = new Toolkit())
 {
-    // Error - need to look up error code
-    Console.WriteLine($"Error code: {result}");
+    int result = toolkit.OpenOutputFile(path);
+
+    if (result != 0)
+    {
+        // Error - look up the code in "Toolkit Return Results and Error Codes"
+        Console.WriteLine($"Error code: {result}");
+    }
 }
 ```
 
@@ -809,16 +826,17 @@ pdf.SaveAs("compressed.pdf");
 
 ## Troubleshooting Guide
 
-### Issue 1: "Cannot Find APToolkitNET.dll"
+### Issue 1: "Cannot Find APToolkitNET.dll" or "Core library not loaded"
 
-**Symptom:** FileNotFoundException after removing ActivePDF
-**Cause:** Old DLL references remain
+**Symptom:** FileNotFoundException, or `Core library not loaded Parameter name: Toolkit` after removing ActivePDF
+**Cause:** Old DLL/native references remain. From Toolkit 10 onward the native libraries live next to the assembly, not in the system folder.
 **Solution:**
 ```xml
 <!-- Remove from .csproj -->
 <Reference Include="APToolkitNET">
     <HintPath>..\..\Libs\APToolkitNET.dll</HintPath>
 </Reference>
+<!-- Also delete any APToolkitNET.* and ap*.dll native files in bin/ -->
 ```
 
 ### Issue 2: Integer Return Values No Longer Work
@@ -845,11 +863,12 @@ catch (Exception ex)
 ### Issue 3: Page Size Units Different
 
 **Symptom:** PDFs are wrong size after migration
-**Cause:** ActivePDF uses points, IronPDF uses mm or enums
+**Cause:** ActivePDF WebGrabber uses points, IronPDF uses mm or enums
 **Solution:**
 ```csharp
-// ActivePDF: Points (612x792 = Letter)
-toolkit.SetPageSize(612, 792);
+// ActivePDF WebGrabber: Points (612x792 = Letter)
+wg.PageWidth = 612;
+wg.PageHeight = 792;
 
 // IronPDF: Use enum
 renderer.RenderingOptions.PaperSize = PdfPaperSize.Letter;
@@ -926,9 +945,9 @@ renderer.RenderingOptions.BaseUrl = new Uri("https://yourdomain.com/assets/");
 
 - [ ] **Audit ActivePDF usage**
   ```bash
-  grep -r "ActivePDF\|APToolkitNET" --include="*.cs" .
+  grep -rE "APToolkitNET|APWebGrabber|ActivePDF" --include="*.cs" .
   ```
-  **Why:** Identify all instances of ActivePDF usage to ensure complete migration coverage.
+  **Why:** Identify all instances of ActivePDF Toolkit and WebGrabber usage to ensure complete migration coverage.
 
 - [ ] **List all PDF operations in your codebase**
   ```csharp
@@ -937,9 +956,14 @@ renderer.RenderingOptions.BaseUrl = new Uri("https://yourdomain.com/assets/");
   toolkit.OpenInputFile("input.pdf");
   toolkit.OpenOutputFile("output.pdf");
   toolkit.CopyForm(0, 0);
+  toolkit.MergeFile("extra.pdf", 1, -1);
   toolkit.CloseOutputFile();
+
+  var wg = new APWebGrabber.WebGrabber();
+  wg.URL = "https://example.com";
+  wg.ConvertToPDF();
   ```
-  **Why:** Understanding all PDF operations helps map them to IronPDF equivalents.
+  **Why:** Understanding all PDF operations helps map them to IronPDF equivalents. Remember Toolkit and WebGrabber are separate SKUs in ActivePDF; both collapse into IronPDF.
 
 - [ ] **Document current output requirements**
   ```csharp
@@ -958,11 +982,12 @@ renderer.RenderingOptions.BaseUrl = new Uri("https://yourdomain.com/assets/");
 
 ### During Migration
 
-- [ ] **Remove APToolkitNET package reference**
+- [ ] **Remove ActivePDF package references**
   ```bash
-  dotnet remove package APToolkitNET
+  dotnet remove package ActivePDF.Toolkit
+  dotnet remove package ActivePDF.WebGrabber
   ```
-  **Why:** Clean removal of the old package to prevent conflicts.
+  **Why:** Clean removal of the old packages to prevent conflicts.
 
 - [ ] **Remove manual DLL references from .csproj**
   ```xml
@@ -988,8 +1013,9 @@ renderer.RenderingOptions.BaseUrl = new Uri("https://yourdomain.com/assets/");
 
 - [ ] **Update all `using` statements**
   ```csharp
-  // Before (APToolkitNET)
+  // Before
   using APToolkitNET;
+  using APWebGrabber;
 
   // After (IronPDF)
   using IronPdf;
@@ -1027,8 +1053,9 @@ renderer.RenderingOptions.BaseUrl = new Uri("https://yourdomain.com/assets/");
 
 - [ ] **Update page size from points to enums/mm**
   ```csharp
-  // Before (APToolkitNET)
-  toolkit.SetPageSize(595, 842); // A4 in points
+  // Before (WebGrabber)
+  wg.PageWidth = 595;   // A4 width in points
+  wg.PageHeight = 842;  // A4 height in points
 
   // After (IronPDF)
   renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
@@ -1038,10 +1065,10 @@ renderer.RenderingOptions.BaseUrl = new Uri("https://yourdomain.com/assets/");
 - [ ] **Convert method calls per API mapping**
   ```csharp
   // Before (APToolkitNET)
-  toolkit.CopyForm(0, 0);
+  toolkit.MergeFile("input.pdf", 1, -1);
 
   // After (IronPDF)
-  var pdf = renderer.RenderHtmlAsPdf("<html><body>Content</body></html>");
+  var merged = PdfDocument.Merge(PdfDocument.FromFile("input.pdf"));
   ```
   **Why:** Ensures all PDF operations are correctly mapped to IronPDF's API.
 

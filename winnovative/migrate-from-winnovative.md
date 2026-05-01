@@ -2,49 +2,48 @@
 
 ## Why Migrate from Winnovative?
 
-### The Outdated Rendering Engine Problem
+### The Two-Product Problem and Aging Classic Engine
 
-Winnovative relies on a **WebKit engine from 2016** that creates serious problems for modern web applications:
+Winnovative ships two HTML-to-PDF products: the long-running **Classic** library (`Winnovative.HtmlToPdf`, namespace `Winnovative`) and the newer **Winnovative PDF Next** Chromium-based product (`Winnovative.Pdf.Next.*`, namespace `Winnovative.Pdf.Next`). The Classic product — which most existing Winnovative codebases target — relies on an older proprietary rendering engine that has not been updated to modern web standards:
 
-1. **No CSS Grid Support**: Bootstrap 5, Tailwind CSS, and modern layouts break completely
-2. **Buggy Flexbox Implementation**: Inconsistent rendering compared to modern browsers
-3. **ES5 JavaScript Only**: Modern ES6+ JavaScript (arrow functions, async/await, classes) fails silently
-4. **Stagnant Development**: Despite "Winnovative" suggesting innovation, minimal updates in recent years
-5. **Font Rendering Issues**: Web fonts and custom typography often render incorrectly
-6. **Security Concerns**: 2016-era WebKit lacks years of security patches
+1. **Inconsistent CSS Grid / modern Flexbox Support**: Layouts that depend on CSS Grid or recent flexbox features can render incorrectly compared to a current Chromium browser.
+2. **Modern JavaScript Compatibility Gaps**: ES2017+ features (async/await, classes, modules) are not reliably executed.
+3. **Slow Cadence**: The Classic engine receives infrequent rendering-engine refreshes; the vendor's response has been to ship the separate PDF Next library rather than upgrade Classic in place.
+4. **Font Rendering Edge Cases**: Web fonts and custom typography sometimes render differently from a modern browser.
+5. **Migrating to PDF Next is itself a rewrite**: The Next API lives under a different namespace (`Winnovative.Pdf.Next`) and is binary-incompatible with Classic, so existing Winnovative customers face a migration either way.
 
 ### Real-World Impact
 
 ```html
-<!-- This modern CSS breaks in Winnovative -->
+<!-- Modern CSS that can render inconsistently in Winnovative Classic -->
 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
   <div>Column 1</div>
   <div>Column 2</div>
   <div>Column 3</div>
 </div>
 
-<!-- Modern JavaScript fails silently -->
+<!-- Modern JavaScript that may not execute reliably in Classic -->
 <script>
-const items = data.map(item => item.name); // Arrow functions: FAIL
-const result = await fetchData(); // Async/await: FAIL
-class Report { } // Classes: FAIL
+const items = data.map(item => item.name);
+const result = await fetchData();
+class Report { }
 </script>
 ```
 
 ### Quick Migration Comparison
 
-| Aspect | Winnovative | IronPDF |
-|--------|-------------|---------|
-| Rendering Engine | WebKit (2016) | Chromium (Current) |
-| CSS Grid | Not Supported | Full Support |
-| Flexbox | Buggy | Full Support |
-| JavaScript | ES5 only | ES2024 |
-| Bootstrap 5 | Broken | Full Support |
-| Tailwind CSS | Not Supported | Full Support |
-| React/Vue SSR | Problematic | Works Perfectly |
-| Web Fonts | Unreliable | Full Support |
-| Updates | Infrequent | Monthly |
-| Price | $750-$1,600 | Competitive |
+| Aspect | Winnovative Classic | IronPDF |
+|--------|---------------------|---------|
+| Rendering Engine | Older proprietary engine | Chromium (Current) |
+| CSS Grid | Inconsistent | Full Support |
+| Flexbox | Inconsistent on edge cases | Full Support |
+| JavaScript | Limited modern JS | ES2024 |
+| Bootstrap 5 | Layout issues | Full Support |
+| Tailwind CSS | Limited | Full Support |
+| React/Vue SSR | Problematic | Works |
+| Web Fonts | Unreliable in some setups | Full Support |
+| Cross-platform | Classic = Windows only; Next = Win/Linux/Docker | Win/Linux/macOS/Docker |
+| Pricing (per developer) | $450 Deployment / $1,200 Redistributable | See ironpdf.com/pricing |
 
 For a complete walkthrough with working code, the [Winnovative to IronPDF guide](https://ironpdf.com/blog/migration-guides/migrate-from-winnovative-to-ironpdf/) covers every API pattern and common migration scenario.
 
@@ -55,10 +54,12 @@ For a complete walkthrough with working code, the [Winnovative to IronPDF guide]
 ### Step 1: Replace NuGet Package
 
 ```bash
-# Remove Winnovative
-dotnet remove package Winnovative.WebKitHtmlToPdf
+# Remove Winnovative (verify which package your project actually uses)
 dotnet remove package Winnovative.HtmlToPdf
-dotnet remove package Winnovative.WebToPdfConverter
+# or, for the newer product:
+dotnet remove package Winnovative.Pdf.Next.Core
+# or, for the cross-platform Client edition:
+dotnet remove package Winnovative.Client
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -342,30 +343,23 @@ public PdfDocument ConvertWithHeaderFooter(string html)
 
 ### Example 4: Merge Multiple PDFs
 
-**Winnovative:**
+**Winnovative (PDFMerge utility — merging is a separate library, not on PdfDocument):**
 ```csharp
-using Winnovative;
+// NuGet: Install-Package Winnovative.PdfMerge
+using Winnovative.PDFMerge;
 
 public void MergePdfs(string[] inputPaths, string outputPath)
 {
-    HtmlToPdfConverter converter = new HtmlToPdfConverter();
-    converter.LicenseKey = "your-license-key";
-
-    // Load first document
-    PdfDocument mergedDocument = new PdfDocument();
+    // PDFMerge is the dedicated merger class; PdfDocument has no AppendDocument.
+    PDFMerge pdfMerge = new PDFMerge();
+    pdfMerge.LicenseKey = "your-license-key";
 
     foreach (string path in inputPaths)
     {
-        // Load each PDF
-        byte[] pdfBytes = File.ReadAllBytes(path);
-        PdfDocument doc = new PdfDocument(pdfBytes);
-
-        // Append pages
-        mergedDocument.AppendDocument(doc);
+        pdfMerge.AppendPDFFile(path);
     }
 
-    // Save merged document
-    mergedDocument.Save(outputPath);
+    pdfMerge.SaveMergedPDFToFile(outputPath);
 }
 ```
 
@@ -477,30 +471,28 @@ public void AddImageWatermark(string inputPath, string watermarkPath, string out
 
 ### Example 6: Password Protection and Security
 
-**Winnovative:**
+**Winnovative (security is a separate utility, not a property on PdfDocument):**
 ```csharp
-using Winnovative;
+// NuGet: Install-Package Winnovative.PdfSecurity
+using Winnovative.PdfSecurity;
 
 public void ProtectPdf(string inputPath, string outputPath)
 {
-    // Load PDF
-    PdfDocument document = new PdfDocument(inputPath);
+    // Configure security options
+    PdfSecurityOptions securityOptions = new PdfSecurityOptions();
+    securityOptions.UserPassword = "user123";
+    securityOptions.OwnerPassword = "owner456";
 
-    // Set security options
-    document.Security.UserPassword = "user123";
-    document.Security.OwnerPassword = "owner456";
+    // Permissions and encryption strength (40-bit or 128-bit)
+    securityOptions.CanPrint = true;
+    securityOptions.CanEditContent = false;
+    securityOptions.CanCopyContent = false;
+    securityOptions.KeySize = PdfEncryptionKeySize.EncryptKey128Bit;
 
-    // Set permissions
-    document.Security.CanPrint = true;
-    document.Security.CanEditContent = false;
-    document.Security.CanCopyContent = false;
-    document.Security.CanEditAnnotations = false;
-    document.Security.CanFillFormFields = true;
-
-    // Set encryption
-    document.Security.EncryptionKeySize = PdfEncryptionKeySize.EncryptKey128Bit;
-
-    document.Save(outputPath);
+    // Apply via the PdfSecurityManager (separate from HtmlToPdfConverter)
+    PdfSecurityManager securityManager = new PdfSecurityManager(securityOptions);
+    securityManager.LicenseKey = "your-license-key";
+    securityManager.SaveSecuredPdfToFile(inputPath, outputPath);
 }
 ```
 
@@ -973,13 +965,13 @@ public void CreatePdfA(string html, string outputPath)
 | Digital Signatures | Yes | Yes |
 | PDF/A | Limited | Full Support |
 | Encryption | Yes | Yes |
-| **Platform** | | |
-| Windows | Yes | Yes |
-| Linux | No | Yes |
-| macOS | No | Yes |
-| Docker | No | Yes |
-| Azure Functions | No | Yes |
-| AWS Lambda | No | Yes |
+| **Platform** (Classic / Next-or-Client) | | |
+| Windows | Yes / Yes | Yes |
+| Linux | No / Yes | Yes |
+| macOS | No / Client only | Yes |
+| Docker | No / Yes | Yes |
+| Azure Functions | Limited / Yes | Yes |
+| AWS Lambda | No / Possible (untested by vendor) | Yes |
 | **Development** | | |
 | Async Support | Limited | Full async/await |
 | .NET Core | Yes | Yes |
@@ -1114,7 +1106,7 @@ renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
 
 **Symptom:** Layouts that looked "okay" in Winnovative now look different in IronPDF.
 
-**Cause:** Winnovative's 2016 WebKit had rendering bugs that developers worked around. IronPDF renders correctly.
+**Cause:** Winnovative Classic's older proprietary engine has rendering quirks that developers worked around. IronPDF's current Chromium engine renders these correctly out of the box.
 
 **Solution:** Remove Winnovative-specific CSS hacks and use standard CSS:
 ```csharp
@@ -1293,7 +1285,12 @@ grep -r "ConvertUrl\|ConvertHtml" --include="*.cs" .
 
 - [ ] **Remove old package and install IronPdf**
   ```bash
-  dotnet remove package Winnovative
+  dotnet remove package Winnovative.HtmlToPdf
+  # Also remove related Winnovative packages used by your project, e.g.:
+  # dotnet remove package Winnovative.PdfMerge
+  # dotnet remove package Winnovative.PdfSecurity
+  # dotnet remove package Winnovative.Pdf.Next.Core
+  # dotnet remove package Winnovative.Client
   dotnet add package IronPdf
   ```
   **Why:** Clean package switch to IronPDF.

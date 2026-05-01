@@ -2,15 +2,21 @@
 
 ## Why Migrate from ZetPDF?
 
-ZetPDF is a fork of PDFSharp with similar limitations. Key reasons to migrate:
+ZetPDF (zetpdf.com) is a commercial .NET PDF SDK that closely resembles PDFsharp in API
+shape — to the point that the PDFsharp community has [questioned whether it is a closed
+fork](https://forum.pdfsharp.net/viewtopic.php?f=2&t=3841). The vendor markets it as a
+proprietary, 100% managed-code engine. It is **not distributed via NuGet** — installation
+is a ZIP download from https://zetpdf.com/download/ — and the project shows no public
+release activity since 2021 (per AlternativeTo's listing). Key reasons to migrate:
 
-1. **No HTML Support**: Cannot convert HTML/URLs to PDF - only low-level graphics drawing
-2. **Coordinate-Based API**: Complex manual positioning of every element
-3. **No CSS Support**: No styling system - manual font and color management
-4. **No JavaScript**: Cannot render dynamic web content
-5. **Limited Features**: No watermarks, headers/footers, or merge operations
-6. **Manual Page Breaks**: Must calculate and manage page overflow manually
-7. **Text Measurement Required**: Manual calculation for text wrapping
+1. **No HTML Support**: No documented HTML-to-PDF or URL-to-PDF API in ZetPDF's published feature list — only low-level graphics drawing.
+2. **Coordinate-Based API**: Manual positioning of every element via XGraphics.
+3. **No CSS Support**: No styling system - manual font and color management.
+4. **No JavaScript**: Cannot render dynamic web content.
+5. **Limited Helpers**: No first-class watermark, header/footer, or one-line merge helper in the documented surface.
+6. **Manual Page Breaks**: Must calculate and manage page overflow manually.
+7. **Text Measurement Required**: Manual calculation for text wrapping.
+8. **No NuGet, dormant releases**: Distribution is a vendor ZIP, with no recent public activity since 2021.
 
 ### The Fundamental Problem
 
@@ -41,13 +47,14 @@ This shift from coordinate-based drawing to HTML/CSS is fully documented in the 
 
 ## Quick Start: ZetPDF to IronPDF
 
-### Step 1: Replace NuGet Package
+### Step 1: Replace the ZetPDF reference with the IronPDF NuGet package
+
+ZetPDF is **not** on NuGet — it ships as a ZIP from https://zetpdf.com/download/ and is
+referenced by adding the DLL to your project. After migration, you remove that reference
+and install IronPDF from NuGet:
 
 ```bash
-# Remove ZetPDF
-dotnet remove package ZetPDF
-
-# Install IronPDF
+# Remove the ZetPDF.dll reference from your csproj manually, then:
 dotnet add package IronPdf
 ```
 
@@ -55,7 +62,7 @@ dotnet add package IronPdf
 
 ```csharp
 // Before
-using ZetPdf;
+using ZetPDF;
 using ZetPdf.Drawing;
 using ZetPdf.Fonts;
 
@@ -104,7 +111,7 @@ pdf.SaveAs("output.pdf");
 
 **ZetPDF:**
 ```csharp
-using ZetPdf;
+using ZetPDF;
 using ZetPdf.Drawing;
 
 var document = new PdfDocument();
@@ -156,7 +163,7 @@ pdf.SaveAs("report.pdf");
 
 **ZetPDF (extremely complex):**
 ```csharp
-using ZetPdf;
+using ZetPDF;
 using ZetPdf.Drawing;
 
 var document = new PdfDocument();
@@ -230,7 +237,7 @@ pdf.SaveAs("table.pdf");
 
 **ZetPDF:**
 ```csharp
-using ZetPdf;
+using ZetPDF;
 using ZetPdf.Drawing;
 
 var document = new PdfDocument();
@@ -286,7 +293,7 @@ var htmlWithBreaks = @"
 
 **ZetPDF:**
 ```csharp
-using ZetPdf;
+using ZetPDF;
 using ZetPdf.Drawing;
 
 var document = new PdfDocument();
@@ -324,7 +331,7 @@ pdf.SaveAs("with_image.pdf");
 
 **ZetPDF:**
 ```csharp
-using ZetPdf;
+using ZetPDF;
 using ZetPdf.Drawing;
 using ZetPdf.IO;
 
@@ -441,9 +448,9 @@ merged.SaveAs("merged.pdf");
 
 ### Code Updates
 
-- [ ] **Replace NuGet package**
+- [ ] **Replace the ZetPDF DLL reference with the IronPDF NuGet package**
   ```bash
-  dotnet remove package ZetPDF
+  # Remove the ZetPDF.dll reference manually (it is not a NuGet package), then:
   dotnet add package IronPdf
   ```
   **Why:** Ensure the project uses IronPDF for all PDF functionalities.

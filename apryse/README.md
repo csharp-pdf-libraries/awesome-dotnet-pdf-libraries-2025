@@ -52,13 +52,14 @@ Unlike Apryse, IronPDF does not provide dedicated viewer controls for embedding 
 
 ## How Can I Migrate from Apryse (formerly PDFTron) to IronPDF?
 
-Apryse targets enterprise customers with premium pricing ($1,500+/developer/year) that can be prohibitive for small to medium-sized projects. IronPDF offers a more straightforward, cost-effective solution with simpler integration and one-time perpetual licensing.
+Apryse (rebranded from PDFTron in February 2023) targets enterprise customers with sales-led pricing — third-party marketplaces (Vendr, G2) report entry quotes from ~$1,500/developer/year and typical contracts in the $9K–$36K/year range — which can be prohibitive for small to medium-sized projects. IronPDF offers a more straightforward, cost-effective solution with simpler integration and one-time perpetual licensing.
 
 ### Quick Migration Overview
 
 | Aspect | Apryse (PDFTron) | IronPDF |
 |--------|-----------------|---------|
-| Pricing | $1,500+/developer/year (subscription) | $749 one-time (Lite) |
+| Pricing | Sales-led; ~$1,500+/developer/year reported | $749 one-time (Lite) |
+| Package IDs | `PDFTron.NET.x64`, `PDFNet`, etc. (still `PDFTron.*`) | `IronPdf` |
 | Setup | Module paths, external binaries | Single NuGet package |
 | Initialization | `PDFNet.Initialize()` required | Simple property assignment |
 | HTML Rendering | External html2pdf module | Built-in Chromium engine |
@@ -133,9 +134,12 @@ pdf.SaveAs("output.pdf");
 ### NuGet Package Migration
 
 ```bash
-# Remove Apryse/PDFTron
+# Remove whichever Apryse/PDFTron package(s) you have installed
+# (Apryse retained the PDFTron.* NuGet IDs after the 2023 rebrand)
 dotnet remove package PDFTron.NET.x64
-dotnet remove package pdftron
+dotnet remove package PDFTron.NetFramework.x64
+dotnet remove package PDFTron.NETCore.Windows.x64
+dotnet remove package PDFNet
 
 # Install IronPDF
 dotnet add package IronPdf

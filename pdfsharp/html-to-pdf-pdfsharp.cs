@@ -1,4 +1,6 @@
-// NuGet: Install-Package PdfSharp
+// NuGet: Install-Package PDFsharp  (official PDFsharp-Team package; v6.2.4 as of Jan 2026, MIT)
+// PDFsharp does NOT support HTML-to-PDF natively. The community add-on
+// HtmlRenderer.PdfSharp covers HTML 4.01 / CSS level 2 only (no flexbox, grid, JS).
 using PdfSharp.Pdf;
 using PdfSharp.Drawing;
 using System;

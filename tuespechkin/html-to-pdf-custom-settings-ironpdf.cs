@@ -1,12 +1,13 @@
 // NuGet: Install-Package IronPdf
 using IronPdf;
-using IronPdf.Engines.Chrome;
 using System;
 
 class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var renderer = new ChromePdfRenderer();
         
         renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape;

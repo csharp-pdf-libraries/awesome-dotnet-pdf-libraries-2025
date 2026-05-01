@@ -52,27 +52,34 @@ class Program
 Here's how **XFINIUM.PDF: A C# Guide to PDF Manipulations** handles this:
 
 ```csharp
-// NuGet: Install-Package Xfinium.Pdf
+// NuGet: Install-Package Xfinium.Pdf.NetStandard (or .NetCore)
+// XFINIUM.PDF has NO native HTML-to-PDF engine. Flow content accepts
+// styled text, headings, tables and images - not HTML. The vendor sample
+// converter parses limited XHTML (p, b, i, u, ul, li) into
+// PdfFormattedContent; full CSS/JS rendering is not supported.
 using Xfinium.Pdf;
-using Xfinium.Pdf.Actions;
 using Xfinium.Pdf.FlowDocument;
+using Xfinium.Pdf.Graphics;
 using System.IO;
 
 class Program
 {
     static void Main()
     {
-        PdfFixedDocument document = new PdfFixedDocument();
         PdfFlowDocument flowDocument = new PdfFlowDocument();
-        
-        string html = "<html><body><h1>Hello World</h1><p>This is a PDF from HTML.</p></body></html>";
-        
-        PdfFlowContent content = new PdfFlowContent();
-        content.AppendHtml(html);
-        flowDocument.AddContent(content);
-        
-        flowDocument.RenderDocument(document);
-        document.Save("output.pdf");
+
+        flowDocument.AddContent(new PdfFlowHeadingContent(
+            "Hello World",
+            new PdfStandardFont(PdfStandardFontFace.HelveticaBold, 18)));
+
+        flowDocument.AddContent(new PdfFlowTextContent(
+            "This is a PDF generated from text content (not HTML).",
+            new PdfStandardFont(PdfStandardFontFace.Helvetica, 12)));
+
+        using (FileStream fs = new FileStream("output.pdf", FileMode.Create))
+        {
+            flowDocument.Save(fs);
+        }
     }
 }
 ```
@@ -105,7 +112,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **XFINIUM.PDF: A C# Guide to PDF Manipulations** handles this:
 
 ```csharp
-// NuGet: Install-Package Xfinium.Pdf
+// NuGet: Install-Package Xfinium.Pdf.NetStandard (or .NetCore)
 using Xfinium.Pdf;
 using System.IO;
 
@@ -114,25 +121,25 @@ class Program
     static void Main()
     {
         PdfFixedDocument output = new PdfFixedDocument();
-        
+
         FileStream file1 = File.OpenRead("document1.pdf");
         PdfFixedDocument pdf1 = new PdfFixedDocument(file1);
-        
+
         FileStream file2 = File.OpenRead("document2.pdf");
         PdfFixedDocument pdf2 = new PdfFixedDocument(file2);
-        
+
         for (int i = 0; i < pdf1.Pages.Count; i++)
         {
             output.Pages.Add(pdf1.Pages[i]);
         }
-        
+
         for (int i = 0; i < pdf2.Pages.Count; i++)
         {
             output.Pages.Add(pdf2.Pages[i]);
         }
-        
+
         output.Save("merged.pdf");
-        
+
         file1.Close();
         file2.Close();
     }
@@ -168,10 +175,9 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **XFINIUM.PDF: A C# Guide to PDF Manipulations** handles this:
 
 ```csharp
-// NuGet: Install-Package Xfinium.Pdf
+// NuGet: Install-Package Xfinium.Pdf.NetStandard (or .NetCore)
 using Xfinium.Pdf;
 using Xfinium.Pdf.Graphics;
-using Xfinium.Pdf.Core;
 using System.IO;
 
 class Program
@@ -180,17 +186,18 @@ class Program
     {
         PdfFixedDocument document = new PdfFixedDocument();
         PdfPage page = document.Pages.Add();
-        
+
         PdfStandardFont font = new PdfStandardFont(PdfStandardFontFace.Helvetica, 24);
-        PdfBrush brush = new PdfBrush(PdfRgbColor.Black);
-        
+        PdfBrush brush = new PdfBrush(new PdfRgbColor(0, 0, 0));
+
         page.Graphics.DrawString("Sample PDF Document", font, brush, 50, 50);
-        
-        FileStream imageStream = File.OpenRead("image.jpg");
-        PdfJpegImage image = new PdfJpegImage(imageStream);
-        page.Graphics.DrawImage(image, 50, 100, 200, 150);
-        imageStream.Close();
-        
+
+        using (FileStream imageStream = File.OpenRead("image.jpg"))
+        {
+            PdfJpegImage image = new PdfJpegImage(imageStream);
+            page.Graphics.DrawImage(image, 50, 100, 200, 150);
+        }
+
         document.Save("output.pdf");
     }
 }
@@ -253,7 +260,7 @@ For a complete step-by-step migration guide with detailed code examples and comm
 
 | Feature                     | XFINIUM.PDF                                          | IronPDF                                                    |
 |-----------------------------|------------------------------------------------------|------------------------------------------------------------|
-| **HTML to PDF**             | Limited HTML support, focuses on programmatic PDF creation | Full HTML-to-PDF conversion with comprehensive support      |
+| **HTML to PDF**             | No native engine; sample-only XHTML converter (limited tags, no CSS/JS) | Full HTML-to-PDF conversion with Chromium (CSS3 + JavaScript) |
 | **Community & Support**     | Smaller community, fewer online resources available  | Large community with extensive documentation and tutorials  |
 | **License**                 | Commercial with developer-based licensing            | Commercial                                                  |
 | **Cross-Platform Support**  | Strong cross-platform capabilities                   | Also supports cross-platform operations                     |

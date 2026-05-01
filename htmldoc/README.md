@@ -1,21 +1,21 @@
 # HTMLDOC vs IronPDF: A Comprehensive Comparison for C# and PDF Generation
 
-When it comes to converting HTML documents into PDF files, developers often find themselves choosing between several tools. Among these, HTMLDOC and IronPDF stand out for different reasons. HTMLDOC is an older, command-line based tool with a history dating back to the dot-com era, while IronPDF represents a modern, robust solution tailored for .NET environments. This article will dive deep into the strengths and weaknesses of both, providing insights for developers considering these tools for PDF generation in C#.
+When it comes to converting HTML documents into PDF files, developers often find themselves choosing between several tools. Among these, HTMLDOC and IronPDF stand out for different reasons. HTMLDOC is an older, command-line based tool with a history dating back to the late 1990s, while IronPDF represents a modern, robust solution tailored for .NET environments. This article will dive deep into the strengths and weaknesses of both, providing insights for developers considering these tools for PDF generation in C#.
 
 ## HTMLDOC: Vintage PDF Generation 
 
-HTMLDOC has a legacy of being a straightforward HTML-to-PDF converter, known for its straightforward command-line interface. Originally built in the late 1990s and early 2000s, HTMLDOC was one of the first tools to offer document conversion in a digital age where web publishing was on the rise. However, its age is both a strength and a weakness.
+HTMLDOC has a legacy of being a straightforward HTML-to-PDF converter, known for its command-line interface. Originally released in 1997 by Easy Software Products and now maintained by Michael R Sweet, HTMLDOC was one of the first tools to offer document conversion in a digital age where web publishing was on the rise. The project still receives small point releases (1.9.23 was published on January 28, 2026), but its rendering core is rooted in the standards of its era.
 
 ### Strengths of HTMLDOC
 
 1. **Stability Over Time**: Having been around for decades, HTMLDOC has a proven track record of stability in converting straightforward HTML documents to PDF format.
-2. **Open Source**: Under the GPL license, HTMLDOC is available for public modification and inspection, allowing developers to adapt and improve upon the original source code as needed, provided they adhere to the same licensing terms.
+2. **Open Source**: Under the GPL v2 license, HTMLDOC is available for public modification and inspection, allowing developers to adapt and improve upon the original source code as needed, provided they adhere to the same licensing terms.
 
 ### Weaknesses of HTMLDOC
 
-1. **Outdated Technology**: HTMLDOC was crafted in an era before CSS became integral to web design. As a result, it lacks support for modern HTML5 and CSS3 standards, affecting its ability to render complex designs accurately.
-2. **GPL Licensing Concerns**: The GPL license, while open-source, can pose legal challenges due to its viral nature. Any software incorporating GPL code must also be released under the same open-source license, which can be a restrictive requirement for commercial software.
-3. **Command-Line Only**: Lacking a native library for .NET, HTMLDOC doesn't integrate smoothly into C# applications, limiting its usability for developers who prefer working within integrated development environments (IDEs).
+1. **Outdated Standards**: HTMLDOC supports HTML 3.2 (with basic table extensions like THEAD/TBODY) and explicitly does not support modern CSS, forms, full Unicode, or emoji. There is no HTML5, CSS3, Flexbox, or Grid support.
+2. **GPL-Only Licensing**: HTMLDOC ships under GPL v2. The previous commercial license from Easy Software Products is no longer available (the company is defunct), so the GPL's viral copyleft is the only option for closed-source products incorporating HTMLDOC code.
+3. **Command-Line Only**: HTMLDOC is a standalone executable. There is no native .NET library and no maintained NuGet wrapper, so C# integration means `Process.Start("htmldoc", ...)` with temp files and stderr parsing.
 
 ## [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/): The Modern Solution
 
@@ -203,13 +203,13 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ### The HTMLDOC Challenges
 
-HTMLDOC is legacy technology from the late 1990s with fundamental limitations:
+HTMLDOC's rendering core dates from the late 1990s and carries fundamental limitations:
 
-1. **Prehistoric Web Standards**: Built before CSS became integral—no HTML5, CSS3, Flexbox, or Grid
+1. **Pre-CSS Standards**: Built around HTML 3.2 (with some HTML 4 table extensions). The maintainer explicitly notes it does not support CSS, forms, full Unicode, or emoji—no HTML5, CSS3, Flexbox, or Grid.
 2. **No JavaScript**: Cannot execute JavaScript, making dynamic content impossible
-3. **GPL License**: Viral license infects incorporating software—problematic for commercial products
+3. **GPL v2 Only**: The dual commercial license is no longer offered (Easy Software Products is defunct), so GPL v2's viral copyleft is the only path
 4. **Command-Line Only**: Requires process spawning, temp files, and shell escaping
-5. **No .NET Integration**: Not a library—external executable dependency
+5. **No .NET Integration**: No library, no maintained NuGet wrapper—external executable dependency
 6. **No Async Support**: Synchronous process execution blocks threads
 
 ### Quick Migration Overview
@@ -217,12 +217,12 @@ HTMLDOC is legacy technology from the late 1990s with fundamental limitations:
 | Aspect | HTMLDOC | IronPDF |
 |--------|---------|---------|
 | Architecture | Command-line executable | Native .NET library |
-| Rendering Engine | Custom HTML parser (1990s) | Modern Chromium |
-| HTML/CSS | HTML 3.2, minimal CSS | HTML5, CSS3, Flexbox, Grid |
+| Rendering Engine | Custom HTML 3.2 parser | Modern Chromium |
+| HTML/CSS | HTML 3.2, no CSS | HTML5, CSS3, Flexbox, Grid |
 | JavaScript | None | Full execution |
 | Integration | Process spawning | Native API |
 | Async Support | No | Full async/await |
-| License | GPL (viral) | Commercial |
+| License | GPL v2 (viral) | Commercial |
 | Deployment | Install binary + PATH | NuGet package |
 
 ### Key API Mappings (Command-Line → IronPDF)
@@ -386,14 +386,14 @@ grep -r "Process\.Start\|--webpage\|--book" --include="*.cs" .
 
 | Feature                        | HTMLDOC                       | IronPDF                       |
 |--------------------------------|-------------------------------|-------------------------------|
-| HTML/CSS Support               | Limited (Pre-CSS era)         | Extensive (HTML5/CSS3)        |
+| HTML/CSS Support               | HTML 3.2, no CSS              | Extensive (HTML5/CSS3)        |
 | Integration with C#            | Command-line, not native      | Full native library           |
-| Licensing                      | GPL (viral)                   | Commercially clear            |
-| Technology Date                | 1990s to early 2000s          | Modern                        |
+| Licensing                      | GPL v2 (viral)                | Commercially clear            |
+| Technology Date                | 1997, HTML 3.2 era            | Modern                        |
 | HTML to PDF C# Capabilities    | None (command-line only)      | Native html to pdf c# support |
 | Ease of Use                    | Command-line interactions     | API and integrated usage      |
-| Cost                           | Free under GPL                | Requires purchase for full use|
-| Updates and Support            | Minimal                       | Regular updates and support   |
+| Cost                           | Free under GPL v2             | Requires purchase for full use|
+| Updates and Support            | Maintained (point releases)   | Regular updates and support   |
 
 ## C# Code Example Using IronPDF
 
@@ -404,9 +404,11 @@ using IronPdf;
 
 public class HtmlToPdfConverter
 {
+    private readonly ChromePdfRenderer _renderer = new ChromePdfRenderer();
+
     public async Task<string> ConvertHtmlToPdfAsync(string htmlContent, string outputPath)
     {
-        var pdf = IronPdf.PdfDocument.FromHtmlString(htmlContent);
+        var pdf = await _renderer.RenderHtmlAsPdfAsync(htmlContent);
         pdf.SaveAs(outputPath);
         return outputPath;
     }

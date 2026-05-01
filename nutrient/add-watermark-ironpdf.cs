@@ -6,6 +6,8 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var pdf = PdfDocument.FromFile("document.pdf");
         
         pdf.ApplyWatermark("<h1 style='color:gray;opacity:0.5;'>CONFIDENTIAL</h1>",

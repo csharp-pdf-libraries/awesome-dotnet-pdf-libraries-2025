@@ -7,7 +7,7 @@ PDFmyURL is a cloud-based API service that sends your documents to external serv
 ### The Cloud Processing Problem
 
 1. **Privacy & Data Security**: Every document you convert travels to and through PDFmyURL's servers—sensitive contracts, financial reports, personal data all processed externally
-2. **Ongoing Subscription Costs**: Starting at $39/month, annual costs exceed $468/year with no ownership
+2. **Ongoing Subscription Costs**: Plans start at $20/month (Starter, 500 PDFs), $40/month (Professional, 2,000 PDFs), $70/month (Advanced, 5,000 PDFs), with no ownership at any tier
 3. **Internet Dependency**: Every conversion requires network connectivity—no offline capability
 4. **Rate Limits & Throttling**: API calls can be throttled during peak usage
 5. **Latency**: Network round-trips add seconds to every conversion
@@ -35,12 +35,12 @@ IronPDF processes everything locally within your application:
 | Processing Location | External servers | Local (your server) |
 | Authentication | API key per request | One-time license key |
 | Network Required | Every conversion | Only initial setup |
-| Pricing Model | Monthly subscription ($39+) | Perpetual license available |
+| Pricing Model | Monthly subscription ($20–$70+) | Perpetual license available |
 | Rate Limits | Yes (plan-dependent) | None |
 | Data Privacy | Data sent externally | Data stays local |
-| HTML/CSS/JS Support | W3C compliant | Full Chromium html to pdf c# engine |
-| Async Pattern | Required (async only) | Sync and async options |
-| PDF Manipulation | Limited | Full suite (merge, split, edit) |
+| HTML/CSS/JS Support | Server-side rendering (W3C compliant) | Full Chromium html to pdf c# engine |
+| Async Pattern | HTTP request (network-bound) | Sync and async options |
+| PDF Manipulation | Conversion only | Full suite (merge, split, edit) |
 
 Explore performance benchmarks, cost analysis, and privacy enhancements in the [comprehensive migration documentation](https://ironpdf.com/blog/migration-guides/migrate-from-pdfmyurl-to-ironpdf/).
 
@@ -48,23 +48,24 @@ Explore performance benchmarks, cost analysis, and privacy enhancements in the [
 
 ## NuGet Package Changes
 
-```bash
-# Remove PDFmyURL packages
-dotnet remove package PdfMyUrl
-dotnet remove package Pdfcrowd
+PDFmyURL has **no NuGet package** — the service is a REST API and the optional `PDFmyURL.NET.dll` component is a direct DLL download (not on nuget.org). Most integrations call the API with `WebClient` / `HttpClient`, so the migration is mainly about code, not package references:
 
+```bash
 # Install IronPDF
 dotnet add package IronPdf
 ```
+
+If you used the PDFmyURL.NET.dll, remove the assembly reference from your project after migrating.
 
 ---
 
 ## Namespace Changes
 
 ```csharp
-// Before: PDFmyURL
-using PdfMyUrl;
-using Pdfcrowd;
+// Before: PDFmyURL — either plain HttpClient/WebClient against pdfmyurl.com/api,
+// or the optional .NET component:
+using PDFmyURLdotNET;          // only if you used PDFmyURL.NET.dll
+using System.Net;               // WebClient / HttpClient
 
 // After: IronPDF
 using IronPdf;
@@ -75,65 +76,66 @@ using IronPdf.Rendering;
 
 ## API Mapping Reference
 
-### Core Classes
+### Core Classes / Entry Points
 
 | PDFmyURL | IronPDF | Notes |
 |----------|---------|-------|
-| `PdfMyUrlClient` | `ChromePdfRenderer` | Main conversion class |
-| `HtmlToPdfClient` | `ChromePdfRenderer` | Pdfcrowd SDK equivalent |
-| `ConvertOptions` | `ChromePdfRenderOptions` | Rendering configuration |
-| API response object | `PdfDocument` | Result PDF object |
+| `WebClient` / `HttpClient` posting to `https://pdfmyurl.com/api` | `ChromePdfRenderer` | Main conversion entry point |
+| `PDFmyURLdotNET.PDFmyURL` (optional .NET component) | `ChromePdfRenderer` | Class from PDFmyURL.NET.dll |
+| Form / query parameters | `ChromePdfRenderOptions` | Rendering configuration |
+| HTTP response body bytes | `PdfDocument` | Result PDF object |
 
 ### Methods
 
 | PDFmyURL | IronPDF | Notes |
 |----------|---------|-------|
-| `client.ConvertUrl(url)` | `renderer.RenderUrlAsPdf(url)` | URL to PDF |
-| `client.ConvertUrlAsync(url)` | `await Task.Run(() => renderer.RenderUrlAsPdf(url))` | Async URL conversion |
-| `client.ConvertHtml(html)` | `renderer.RenderHtmlAsPdf(html)` | HTML string to PDF |
-| `client.ConvertHtmlAsync(html)` | `await Task.Run(() => renderer.RenderHtmlAsPdf(html))` | Async HTML conversion |
-| `client.ConvertHtmlFile(path)` | `renderer.RenderHtmlFileAsPdf(path)` | HTML file to PDF |
-| `convertUrlToFile(url, file)` | `renderer.RenderUrlAsPdf(url).SaveAs(file)` | Pdfcrowd style |
-| `convertStringToFile(html, file)` | `renderer.RenderHtmlAsPdf(html).SaveAs(file)` | Pdfcrowd style |
-| `convertFileToFile(input, output)` | `renderer.RenderHtmlFileAsPdf(input).SaveAs(output)` | File to file |
-| `response.Save(filename)` | `pdf.SaveAs(filename)` | Save to disk |
-| `response.GetBytes()` | `pdf.BinaryData` | Get raw bytes |
-| `response.GetStream()` | `pdf.Stream` | Get as stream |
+| `WebClient.DownloadFile(".../api?license=...&url=...", file)` | `renderer.RenderUrlAsPdf(url).SaveAs(file)` | URL to PDF |
+| `await httpClient.PostAsync(".../api", content)` | `await Task.Run(() => renderer.RenderUrlAsPdf(url))` | Async URL conversion |
+| POST with `html=` parameter | `renderer.RenderHtmlAsPdf(html)` | HTML string to PDF |
+| `pdf.ConvertURL(url, file)` *(PDFmyURL.NET.dll)* | `renderer.RenderUrlAsPdf(url).SaveAs(file)` | .NET component method |
+| `pdf.ConvertHTML(html, file)` *(PDFmyURL.NET.dll)* | `renderer.RenderHtmlAsPdf(html).SaveAs(file)` | .NET component method |
+| `File.ReadAllText("input.html")` then POST `html=` | `renderer.RenderHtmlFileAsPdf(path)` | HTML file to PDF |
+| `File.WriteAllBytes(file, responseBytes)` | `pdf.SaveAs(filename)` | Save to disk |
+| HTTP response body (`byte[]`) | `pdf.BinaryData` | Get raw bytes |
+| HTTP response stream | `pdf.Stream` | Get as stream |
 
 ### Configuration Options
 
-| PDFmyURL (setXxx methods) | IronPDF (RenderingOptions) | Notes |
-|---------------------------|---------------------------|-------|
-| `setPageSize("A4")` | `.PaperSize = PdfPaperSize.A4` | Paper size |
-| `setPageSize("Letter")` | `.PaperSize = PdfPaperSize.Letter` | US Letter |
-| `setOrientation("landscape")` | `.PaperOrientation = PdfPaperOrientation.Landscape` | Orientation |
-| `setOrientation("portrait")` | `.PaperOrientation = PdfPaperOrientation.Portrait` | Portrait |
-| `setMarginTop("10mm")` | `.MarginTop = 10` | Top margin (mm) |
-| `setMarginBottom("10mm")` | `.MarginBottom = 10` | Bottom margin (mm) |
-| `setMarginLeft("10mm")` | `.MarginLeft = 10` | Left margin (mm) |
-| `setMarginRight("10mm")` | `.MarginRight = 10` | Right margin (mm) |
-| `setNoMargins(true)` | `.MarginTop/Bottom/Left/Right = 0` | Zero margins |
-| `setPageWidth("8.5in")` | `.SetCustomPaperSizeInInches(8.5, 11)` | Custom width |
-| `setPageHeight("11in")` | `.SetCustomPaperSizeInInches(8.5, 11)` | Custom height |
-| `setHeaderHtml(html)` | `.HtmlHeader = new HtmlHeaderFooter { HtmlFragment = html }` | Header |
-| `setFooterHtml(html)` | `.HtmlFooter = new HtmlHeaderFooter { HtmlFragment = html }` | Footer |
-| `setHeaderHeight("20mm")` | `.HtmlHeader.MaxHeight = 20` | Header height |
-| `setFooterHeight("20mm")` | `.HtmlFooter.MaxHeight = 20` | Footer height |
-| `setZoomFactor(1.5)` | `.Zoom = 150` | Zoom percentage |
-| `setJavascriptDelay(500)` | `.RenderDelay = 500` | JS wait time (ms) |
-| `setDisableJavascript(true)` | `.EnableJavaScript = false` | Disable JS |
-| `setUsePrintMedia(true)` | `.CssMediaType = PdfCssMediaType.Print` | Print CSS |
-| `setUseScreenMedia(true)` | `.CssMediaType = PdfCssMediaType.Screen` | Screen CSS |
-| `setEncrypt(true)` | `pdf.SecuritySettings.MakeDocumentPrintOnly()` | Encryption |
-| `setUserPassword("pass")` | `pdf.SecuritySettings.UserPassword = "pass"` | User password |
-| `setOwnerPassword("pass")` | `pdf.SecuritySettings.OwnerPassword = "pass"` | Owner password |
+PDFmyURL settings are passed as form/query parameters on the HTTP request (see https://pdfmyurl.com/html-to-pdf-api). The table below maps real PDFmyURL parameter names to IronPDF's `RenderingOptions`.
+
+| PDFmyURL parameter | IronPDF (RenderingOptions) | Notes |
+|--------------------|----------------------------|-------|
+| `page_size=A4` | `.PaperSize = PdfPaperSize.A4` | Paper size |
+| `page_size=Letter` | `.PaperSize = PdfPaperSize.Letter` | US Letter |
+| `orientation=landscape` | `.PaperOrientation = PdfPaperOrientation.Landscape` | Orientation |
+| `orientation=portrait` | `.PaperOrientation = PdfPaperOrientation.Portrait` | Portrait |
+| `top=10&unit=mm` | `.MarginTop = 10` | Top margin (mm) |
+| `bottom=10&unit=mm` | `.MarginBottom = 10` | Bottom margin (mm) |
+| `left=10&unit=mm` | `.MarginLeft = 10` | Left margin (mm) |
+| `right=10&unit=mm` | `.MarginRight = 10` | Right margin (mm) |
+| `top=0&bottom=0&left=0&right=0` | `.MarginTop/Bottom/Left/Right = 0` | Zero margins |
+| `width=8.5&unit=in` | `.SetCustomPaperSizeInInches(8.5, 11)` | Custom width |
+| `height=11&unit=in` | `.SetCustomPaperSizeInInches(8.5, 11)` | Custom height |
+| `header=<html>` | `.HtmlHeader = new HtmlHeaderFooter { HtmlFragment = html }` | Header |
+| `footer=<html>` | `.HtmlFooter = new HtmlHeaderFooter { HtmlFragment = html }` | Footer |
+| `zoom_factor=1.5` | `.Zoom = 150` | Zoom percentage |
+| `javascript_time=500` | `.RenderDelay = 500` | JS wait time (ms) |
+| `no_javascript=true` | `.EnableJavaScript = false` | Disable JS |
+| `css_media_type=print` | `.CssMediaType = PdfCssMediaType.Print` | Print CSS |
+| `css_media_type=screen` | `.CssMediaType = PdfCssMediaType.Screen` | Screen CSS |
+| `encryption_level=128aes` | `pdf.SecuritySettings.MakeDocumentPrintOnly()` | Encryption |
+| `user_password=pass` | `pdf.SecuritySettings.UserPassword = "pass"` | User password |
+| `owner_password=pass` | `pdf.SecuritySettings.OwnerPassword = "pass"` | Owner password |
+| `no_print=true` | `pdf.SecuritySettings.AllowUserPrinting = NoPrint` | Disable printing |
+| `no_copy=true` | `pdf.SecuritySettings.AllowUserCopyPasteContent = false` | Disable copy |
+| `no_modify=true` | `pdf.SecuritySettings.AllowUserEdits = NoEdit` | Disable edits |
 
 ### Authentication Comparison
 
 | PDFmyURL | IronPDF |
 |----------|---------|
-| `new HtmlToPdfClient("username", "apikey")` | `IronPdf.License.LicenseKey = "LICENSE-KEY"` |
-| API key per request | One-time at startup |
+| `license=<key>` query/form parameter on every API request | `IronPdf.License.LicenseKey = "LICENSE-KEY"` |
+| License token per request | One-time at startup |
 | Required for every call | Set once globally |
 
 ---
@@ -142,10 +144,10 @@ using IronPdf.Rendering;
 
 ### Example 1: Basic URL to PDF
 
-**Before (PDFmyURL/Pdfcrowd):**
+**Before (PDFmyURL REST API):**
 ```csharp
-using Pdfcrowd;
 using System;
+using System.Net;
 
 class Program
 {
@@ -153,17 +155,20 @@ class Program
     {
         try
         {
-            // Requires API credentials for every conversion
-            var client = new HtmlToPdfClient("username", "apikey");
-
-            // URL sent to external servers for processing
-            client.convertUrlToFile("https://example.com", "output.pdf");
+            // License token is sent on every request to the public endpoint
+            using (var client = new WebClient())
+            {
+                client.QueryString.Add("license", "your-license-key");
+                client.QueryString.Add("url", "https://example.com");
+                // URL sent to external servers; PDF binary returned in response body
+                client.DownloadFile("https://pdfmyurl.com/api", "output.pdf");
+            }
 
             Console.WriteLine("PDF created");
         }
-        catch (Error why)
+        catch (WebException ex)
         {
-            Console.WriteLine("Error: " + why);
+            Console.WriteLine("Error: " + ex.Message);
         }
     }
 }
@@ -193,10 +198,12 @@ class Program
 
 ### Example 2: HTML String with Options
 
-**Before (PDFmyURL/Pdfcrowd):**
+**Before (PDFmyURL REST API):**
 ```csharp
-using Pdfcrowd;
 using System;
+using System.Collections.Specialized;
+using System.IO;
+using System.Net;
 
 class Program
 {
@@ -204,27 +211,35 @@ class Program
     {
         try
         {
-            var client = new HtmlToPdfClient("username", "apikey");
-
-            // Configure via setter methods
-            client.setPageSize("A4");
-            client.setOrientation("landscape");
-            client.setMarginTop("15mm");
-            client.setMarginBottom("15mm");
-            client.setMarginLeft("20mm");
-            client.setMarginRight("20mm");
-
             string html = @"
                 <html>
                 <head><style>body { font-family: Arial; }</style></head>
                 <body><h1>Report</h1><p>Content here</p></body>
                 </html>";
 
-            client.convertStringToFile(html, "report.pdf");
+            using (var client = new WebClient())
+            {
+                // Configure via form parameters on the API request
+                var values = new NameValueCollection
+                {
+                    { "license",     "your-license-key" },
+                    { "html",        html },
+                    { "page_size",   "A4" },
+                    { "orientation", "landscape" },
+                    { "top",         "15" },
+                    { "bottom",      "15" },
+                    { "left",        "20" },
+                    { "right",       "20" },
+                    { "unit",        "mm" }
+                };
+
+                byte[] pdfBytes = client.UploadValues("https://pdfmyurl.com/api", "POST", values);
+                File.WriteAllBytes("report.pdf", pdfBytes);
+            }
         }
-        catch (Error why)
+        catch (WebException ex)
         {
-            Console.WriteLine("Error: " + why);
+            Console.WriteLine("Error: " + ex.Message);
         }
     }
 }
@@ -265,10 +280,12 @@ class Program
 
 ### Example 3: Headers and Footers
 
-**Before (PDFmyURL/Pdfcrowd):**
+**Before (PDFmyURL REST API):**
 ```csharp
-using Pdfcrowd;
 using System;
+using System.Collections.Specialized;
+using System.IO;
+using System.Net;
 
 class Program
 {
@@ -276,21 +293,25 @@ class Program
     {
         try
         {
-            var client = new HtmlToPdfClient("username", "apikey");
+            using (var client = new WebClient())
+            {
+                var values = new NameValueCollection
+                {
+                    { "license", "your-license-key" },
+                    { "html",    "<h1>Main Content</h1>" },
+                    // Header — PDFmyURL accepts an HTML fragment in the `header` parameter
+                    { "header",  "<div style='text-align:center;'>Company Report</div>" },
+                    // Footer with PDFmyURL placeholder tokens for page numbers
+                    { "footer",  "<div style='text-align:center;'>Page [page] of [topage]</div>" }
+                };
 
-            // Set header
-            client.setHeaderHtml("<div style='text-align:center;'>Company Report</div>");
-            client.setHeaderHeight("25mm");
-
-            // Set footer with page numbers
-            client.setFooterHtml("<div style='text-align:center;'>Page {page_number} of {total_pages}</div>");
-            client.setFooterHeight("20mm");
-
-            client.convertStringToFile("<h1>Main Content</h1>", "report.pdf");
+                byte[] pdfBytes = client.UploadValues("https://pdfmyurl.com/api", "POST", values);
+                File.WriteAllBytes("report.pdf", pdfBytes);
+            }
         }
-        catch (Error why)
+        catch (WebException ex)
         {
-            Console.WriteLine("Error: " + why);
+            Console.WriteLine("Error: " + ex.Message);
         }
     }
 }
@@ -331,26 +352,32 @@ class Program
 
 ### Example 4: Async Web Application
 
-**Before (PDFmyURL):**
+**Before (PDFmyURL REST API):**
 ```csharp
-using PdfMyUrl;
 using Microsoft.AspNetCore.Mvc;
+using System.Net.Http;
 using System.Threading.Tasks;
 
 public class ReportController : Controller
 {
-    private readonly string _apiKey = "your-api-key";
+    private readonly string _license = "your-license-key";
+    private static readonly HttpClient _http = new HttpClient();
 
     [HttpGet]
     public async Task<IActionResult> GenerateReport(string url)
     {
         try
         {
-            var client = new PdfMyUrlClient(_apiKey);
+            var form = new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string, string>("license", _license),
+                new KeyValuePair<string, string>("url", url)
+            });
 
-            // Async call to external service (required for API)
-            var response = await client.ConvertUrlAsync(url);
-            byte[] pdfBytes = response.GetBytes();
+            // Async HTTP call to external service
+            var response = await _http.PostAsync("https://pdfmyurl.com/api", form);
+            response.EnsureSuccessStatusCode();
+            byte[] pdfBytes = await response.Content.ReadAsByteArrayAsync();
 
             return File(pdfBytes, "application/pdf", "report.pdf");
         }
@@ -399,10 +426,12 @@ public class ReportController : Controller
 
 ### Example 5: JavaScript Rendering with Delay
 
-**Before (PDFmyURL/Pdfcrowd):**
+**Before (PDFmyURL REST API):**
 ```csharp
-using Pdfcrowd;
 using System;
+using System.Collections.Specialized;
+using System.IO;
+using System.Net;
 
 class Program
 {
@@ -410,14 +439,6 @@ class Program
     {
         try
         {
-            var client = new HtmlToPdfClient("username", "apikey");
-
-            // Wait for JavaScript to execute
-            client.setJavascriptDelay(2000);
-
-            // Enable screen media for SPA rendering
-            client.setUseScreenMedia(true);
-
             string html = @"
                 <div id='content'>Loading...</div>
                 <script>
@@ -426,11 +447,25 @@ class Program
                     }, 1000);
                 </script>";
 
-            client.convertStringToFile(html, "spa.pdf");
+            using (var client = new WebClient())
+            {
+                var values = new NameValueCollection
+                {
+                    { "license",         "your-license-key" },
+                    { "html",            html },
+                    // Wait for JavaScript to execute (milliseconds)
+                    { "javascript_time", "2000" },
+                    // Use screen media for SPA-style rendering
+                    { "css_media_type",  "screen" }
+                };
+
+                byte[] pdfBytes = client.UploadValues("https://pdfmyurl.com/api", "POST", values);
+                File.WriteAllBytes("spa.pdf", pdfBytes);
+            }
         }
-        catch (Error why)
+        catch (WebException ex)
         {
-            Console.WriteLine("Error: " + why);
+            Console.WriteLine("Error: " + ex.Message);
         }
     }
 }
@@ -474,10 +509,12 @@ class Program
 
 ### Example 6: Password-Protected PDF
 
-**Before (PDFmyURL/Pdfcrowd):**
+**Before (PDFmyURL REST API):**
 ```csharp
-using Pdfcrowd;
 using System;
+using System.Collections.Specialized;
+using System.IO;
+using System.Net;
 
 class Program
 {
@@ -485,18 +522,25 @@ class Program
     {
         try
         {
-            var client = new HtmlToPdfClient("username", "apikey");
+            using (var client = new WebClient())
+            {
+                var values = new NameValueCollection
+                {
+                    { "license",          "your-license-key" },
+                    { "html",             "<h1>Confidential</h1>" },
+                    // Enable encryption and set passwords
+                    { "encryption_level", "128aes" },
+                    { "user_password",    "userpass123" },
+                    { "owner_password",   "ownerpass456" }
+                };
 
-            // Enable encryption and set passwords
-            client.setEncrypt(true);
-            client.setUserPassword("userpass123");
-            client.setOwnerPassword("ownerpass456");
-
-            client.convertStringToFile("<h1>Confidential</h1>", "secure.pdf");
+                byte[] pdfBytes = client.UploadValues("https://pdfmyurl.com/api", "POST", values);
+                File.WriteAllBytes("secure.pdf", pdfBytes);
+            }
         }
-        catch (Error why)
+        catch (WebException ex)
         {
-            Console.WriteLine("Error: " + why);
+            Console.WriteLine("Error: " + ex.Message);
         }
     }
 }
@@ -530,10 +574,12 @@ class Program
 
 ### Example 7: Custom Page Size
 
-**Before (PDFmyURL/Pdfcrowd):**
+**Before (PDFmyURL REST API):**
 ```csharp
-using Pdfcrowd;
 using System;
+using System.Collections.Specialized;
+using System.IO;
+using System.Net;
 
 class Program
 {
@@ -541,21 +587,26 @@ class Program
     {
         try
         {
-            var client = new HtmlToPdfClient("username", "apikey");
+            using (var client = new WebClient())
+            {
+                var values = new NameValueCollection
+                {
+                    { "license", "your-license-key" },
+                    { "html",    "<h1>Custom Size</h1>" },
+                    // Custom page dimensions; `unit` switches between in/mm/cm/pt/px
+                    { "width",   "5" },
+                    { "height",  "7" },
+                    { "unit",    "in" }
+                    // Or:  width=127, height=178, unit=mm
+                };
 
-            // Custom page dimensions
-            client.setPageWidth("5in");
-            client.setPageHeight("7in");
-
-            // Or set in mm
-            // client.setPageWidth("127mm");
-            // client.setPageHeight("178mm");
-
-            client.convertStringToFile("<h1>Custom Size</h1>", "custom.pdf");
+                byte[] pdfBytes = client.UploadValues("https://pdfmyurl.com/api", "POST", values);
+                File.WriteAllBytes("custom.pdf", pdfBytes);
+            }
         }
-        catch (Error why)
+        catch (WebException ex)
         {
-            Console.WriteLine("Error: " + why);
+            Console.WriteLine("Error: " + ex.Message);
         }
     }
 }
@@ -591,10 +642,10 @@ class Program
 
 ### Example 8: Print Media vs Screen Media
 
-**Before (PDFmyURL/Pdfcrowd):**
+**Before (PDFmyURL REST API):**
 ```csharp
-using Pdfcrowd;
 using System;
+using System.Net;
 
 class Program
 {
@@ -602,19 +653,19 @@ class Program
     {
         try
         {
-            var client = new HtmlToPdfClient("username", "apikey");
+            using (var client = new WebClient())
+            {
+                client.QueryString.Add("license",        "your-license-key");
+                client.QueryString.Add("url",            "https://example.com");
+                // Use print media type (or "screen" for web-like rendering)
+                client.QueryString.Add("css_media_type", "print");
 
-            // Use print media type
-            client.setUsePrintMedia(true);
-
-            // Or screen media for web-like rendering
-            // client.setUseScreenMedia(true);
-
-            client.convertUrlToFile("https://example.com", "output.pdf");
+                client.DownloadFile("https://pdfmyurl.com/api", "output.pdf");
+            }
         }
-        catch (Error why)
+        catch (WebException ex)
         {
-            Console.WriteLine("Error: " + why);
+            Console.WriteLine("Error: " + ex.Message);
         }
     }
 }
@@ -647,18 +698,20 @@ class Program
 
 ### Example 9: Batch Processing Multiple URLs
 
-**Before (PDFmyURL):**
+**Before (PDFmyURL REST API):**
 ```csharp
-using PdfMyUrl;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Net.Http;
 using System.Threading.Tasks;
 
 class Program
 {
     static async Task Main()
     {
-        var client = new PdfMyUrlClient("your-api-key");
+        const string license = "your-license-key";
+        var http = new HttpClient();
         var urls = new List<string>
         {
             "https://example.com/page1",
@@ -666,13 +719,21 @@ class Program
             "https://example.com/page3"
         };
 
-        // Each URL requires an API call (rate limits apply)
+        // Each URL requires an API call (rate limits apply per plan tier)
         for (int i = 0; i < urls.Count; i++)
         {
             try
             {
-                var response = await client.ConvertUrlAsync(urls[i]);
-                response.Save($"page_{i + 1}.pdf");
+                var form = new FormUrlEncodedContent(new[]
+                {
+                    new KeyValuePair<string, string>("license", license),
+                    new KeyValuePair<string, string>("url", urls[i])
+                });
+
+                var response = await http.PostAsync("https://pdfmyurl.com/api", form);
+                response.EnsureSuccessStatusCode();
+                byte[] pdfBytes = await response.Content.ReadAsByteArrayAsync();
+                File.WriteAllBytes($"page_{i + 1}.pdf", pdfBytes);
                 Console.WriteLine($"Converted: page_{i + 1}.pdf");
             }
             catch (Exception ex)
@@ -725,10 +786,10 @@ class Program
 
 ### Example 10: Error Handling Comparison
 
-**Before (PDFmyURL/Pdfcrowd):**
+**Before (PDFmyURL REST API):**
 ```csharp
-using Pdfcrowd;
 using System;
+using System.Net;
 
 class Program
 {
@@ -736,16 +797,18 @@ class Program
     {
         try
         {
-            var client = new HtmlToPdfClient("username", "apikey");
-            client.convertUrlToFile("https://example.com", "output.pdf");
+            using (var client = new WebClient())
+            {
+                client.QueryString.Add("license", "your-license-key");
+                client.QueryString.Add("url", "https://example.com");
+                client.DownloadFile("https://pdfmyurl.com/api", "output.pdf");
+            }
         }
-        catch (Error why)
+        catch (WebException ex)
         {
-            // Pdfcrowd-specific error type
-            Console.WriteLine($"Pdfcrowd Error: {why.Message}");
-
-            // Could be: invalid credentials, rate limit, network error,
-            // service unavailable, invalid URL, etc.
+            // HTTP-level failures: invalid license, rate limit, network error,
+            // service unavailable, invalid URL — inspect ex.Response/StatusCode
+            Console.WriteLine($"PDFmyURL HTTP Error: {ex.Message}");
         }
         catch (Exception ex)
         {
@@ -792,24 +855,23 @@ class Program
 
 ---
 
-## Placeholder Migration
+## Header / Footer Placeholders
 
-PDFmyURL/Pdfcrowd uses different placeholder syntax for headers and footers:
+PDFmyURL supports header and footer placeholder tokens (page numbers, dates, etc.) inside the `header` / `footer` form parameters; consult the live API reference at https://pdfmyurl.com/html-to-pdf-api for the canonical token list. IronPDF uses its own token syntax inside `HtmlHeaderFooter.HtmlFragment`:
 
-| PDFmyURL Placeholder | IronPDF Placeholder | Description |
-|---------------------|---------------------|-------------|
-| `{page_number}` | `{page}` | Current page |
-| `{total_pages}` | `{total-pages}` | Total pages |
-| `{page_number}/{total_pages}` | `{page} of {total-pages}` | Page X of Y |
-| `{date}` | `{date}` | Current date |
-| `{time}` | `{time}` | Current time |
-| `{title}` | `{html-title}` | HTML title |
-| `{url}` | `{url}` | Source URL |
+| IronPDF Placeholder | Description |
+|---------------------|-------------|
+| `{page}` | Current page |
+| `{total-pages}` | Total pages |
+| `{date}` | Current date |
+| `{time}` | Current time |
+| `{html-title}` | HTML `<title>` |
+| `{url}` | Source URL |
 
 **Migration Example:**
 ```csharp
-// Before (PDFmyURL)
-client.setFooterHtml("Page {page_number} of {total_pages}");
+// Before (PDFmyURL form parameter)
+//   footer=<div>Page [page] of [topage]</div>
 
 // After (IronPDF)
 renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
@@ -898,11 +960,11 @@ pdf.Sign(new PdfSignature("certificate.pfx", "password")
 
 ## Common Migration Issues
 
-### 1. API Key vs License Key
+### 1. License Token vs License Key
 
 ```csharp
-// PDFmyURL: API key per request
-var client = new HtmlToPdfClient("username", "apikey");
+// PDFmyURL: license token sent on every API request
+client.QueryString.Add("license", "your-license-key");
 
 // IronPDF: One-time license at startup
 IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
@@ -912,8 +974,8 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 ### 2. Async Patterns
 
 ```csharp
-// PDFmyURL: Native async
-var response = await client.ConvertUrlAsync(url);
+// PDFmyURL: HttpClient.PostAsync against pdfmyurl.com/api
+var response = await http.PostAsync("https://pdfmyurl.com/api", form);
 
 // IronPDF: Sync by default, wrap for async
 var pdf = await Task.Run(() => renderer.RenderUrlAsPdf(url));
@@ -922,19 +984,18 @@ var pdf = await Task.Run(() => renderer.RenderUrlAsPdf(url));
 ### 3. Error Handling
 
 ```csharp
-// PDFmyURL: Pdfcrowd.Error
-catch (Pdfcrowd.Error e) { ... }
+// PDFmyURL: HTTP errors surface as WebException / non-success status
+catch (WebException e) { ... }
 
-// IronPDF: Standard exceptions
+// IronPDF: Typed exceptions
 catch (IronPdf.Exceptions.IronPdfRenderingException e) { ... }
 ```
 
 ### 4. Response Objects
 
 ```csharp
-// PDFmyURL: Response wrapper
-response.Save("file.pdf");
-byte[] bytes = response.GetBytes();
+// PDFmyURL: HTTP response body is the PDF binary
+File.WriteAllBytes("file.pdf", responseBytes);
 
 // IronPDF: PdfDocument
 pdf.SaveAs("file.pdf");
@@ -944,9 +1005,9 @@ byte[] bytes = pdf.BinaryData;
 ### 5. Configuration Pattern
 
 ```csharp
-// PDFmyURL: Setter methods
-client.setPageSize("A4");
-client.setOrientation("landscape");
+// PDFmyURL: form/query parameters
+values.Add("page_size", "A4");
+values.Add("orientation", "landscape");
 
 // IronPDF: Properties
 renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
@@ -993,21 +1054,21 @@ RUN apt-get update && apt-get install -y \
 
 ## Pre-Migration Checklist
 
-- [ ] Inventory all PDFmyURL/Pdfcrowd API calls
-- [ ] Document current configuration options used
-- [ ] Identify header/footer placeholders to migrate
+- [ ] Inventory all PDFmyURL API calls (search for `pdfmyurl.com/api` and `PDFmyURLdotNET`)
+- [ ] Document current configuration parameters used (page_size, orientation, margins, header/footer, etc.)
+- [ ] Identify header/footer placeholder tokens to migrate
 - [ ] Note any async patterns that need adjustment
 - [ ] Plan license key storage (environment variables recommended)
 - [ ] Test with IronPDF trial license first
 
 ## Post-Migration Checklist
 
-- [ ] Remove PDFmyURL/Pdfcrowd NuGet packages
+- [ ] Remove the optional `PDFmyURL.NET.dll` reference (if used) — there is no NuGet package to uninstall
 - [ ] Update all namespace imports
-- [ ] Replace API key with IronPDF license key
-- [ ] Convert setter methods to RenderingOptions properties
+- [ ] Replace the per-request license token with `IronPdf.License.LicenseKey`
+- [ ] Convert form/query parameters to `RenderingOptions` properties
 - [ ] Update placeholder syntax in headers/footers
-- [ ] Update error handling code
+- [ ] Update error handling code (WebException -> typed IronPDF exceptions)
 - [ ] Test PDF output quality matches expectations
 - [ ] Verify async patterns work correctly
 - [ ] Install Linux dependencies if deploying to Linux
@@ -1018,14 +1079,11 @@ RUN apt-get update && apt-get install -y \
 ## Find All PDFmyURL References
 
 ```bash
-# Find PDFmyURL usage
-grep -r "PdfMyUrl\|Pdfcrowd\|HtmlToPdfClient" --include="*.cs" .
+# Find PDFmyURL endpoint and component usage
+grep -r "pdfmyurl.com/api\|PDFmyURLdotNET\|new PDFmyURL(" --include="*.cs" .
 
-# Find API key references
-grep -r "apikey\|api-key\|api_key" --include="*.cs" --include="*.json" --include="*.config" .
-
-# Find placeholder patterns to migrate
-grep -r "{page_number}\|{total_pages}" --include="*.cs" .
+# Find license-token references
+grep -r "license=\|licensekey" --include="*.cs" --include="*.json" --include="*.config" .
 ```
 
 ---
@@ -1038,7 +1096,7 @@ grep -r "{page_number}\|{total_pages}" --include="*.cs" .
 
 - [ ] **Inventory all PDFmyURL usages in codebase**
   ```bash
-  grep -r "using PDFmyURL" --include="*.cs" .
+  grep -r "pdfmyurl.com/api\|PDFmyURLdotNET" --include="*.cs" .
   ```
   **Why:** Identify all usages to ensure complete migration coverage.
 
@@ -1050,12 +1108,11 @@ grep -r "{page_number}\|{total_pages}" --include="*.cs" .
 
 ### Code Changes
 
-- [ ] **Remove old package and install IronPdf**
+- [ ] **Install IronPdf (no PDFmyURL NuGet package exists to remove)**
   ```bash
-  dotnet remove package PDFmyURL
   dotnet add package IronPdf
   ```
-  **Why:** Clean package switch to IronPDF.
+  **Why:** PDFmyURL is REST-only; remove any reference to `PDFmyURL.NET.dll` if you used the optional component.
 
 - [ ] **Add license key initialization**
   ```csharp

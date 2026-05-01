@@ -2,26 +2,26 @@
 
 ## Why Migrate from PeachPDF?
 
-PeachPDF is a relatively new, lesser-known PDF library that lacks the maturity, features, and support of established solutions. Key reasons to migrate:
+PeachPDF is a relatively new, single-maintainer .NET library (BSD-3-Clause, by `jhaygood86`) that is still pre-1.0 (latest release `0.7.26`, October 2025). It lacks the maturity, features, and support of established solutions. Key reasons to migrate:
 
-1. **Limited Feature Set**: PeachPDF lacks advanced features like digital signatures, PDF/A compliance, and sophisticated text extraction
-2. **Small Community**: Limited documentation, examples, and community support
-3. **Uncertain Future**: New libraries without established track records carry adoption risk
-4. **Basic HTML Support**: Limited CSS and JavaScript rendering capabilities
-5. **No Enterprise Support**: No professional support or SLA options
+1. **Pre-1.0 Feature Set**: PeachPDF has no built-in digital signatures, PDF/A compliance, OCR, form filling, or page-level header/footer API
+2. **No JavaScript engine**: PeachPDF is a layout renderer built on PeachPDF.PdfSharpCore, not a browser; scripts and dynamic CSS layout (e.g. complex Grid/Flexbox) do not execute
+3. **.NET 8 only**: the package targets `net8.0`; older .NET Framework / .NET 6 projects need to upgrade or pick a different library
+4. **Small Community**: a single GitHub maintainer, limited documentation, limited examples
+5. **No Enterprise Support**: no commercial support or SLA options
 
 ### Quick Comparison
 
 | Aspect | PeachPDF | IronPDF |
 |--------|----------|---------|
-| Maturity | New | Established (40M+ downloads) |
-| HTML Rendering | Basic | Full Chromium html to pdf c# |
-| CSS Support | Limited | Full CSS3 |
-| JavaScript | Basic | Full ES2024 |
+| Maturity | Pre-1.0 (0.7.26, Oct 2025) | Established (40M+ downloads) |
+| HTML Rendering | Layout engine on PdfSharpCore | Full Chromium html to pdf c# |
+| CSS Support | HTML+CSS subset, web fonts, @font-face | Full CSS3 |
+| JavaScript | Not executed | Full ES2024 |
 | Digital Signatures | No | Yes |
 | PDF/A Compliance | No | Yes |
 | Professional Support | No | Yes |
-| Documentation | Limited | Extensive |
+| Documentation | Limited (single README) | Extensive |
 
 For in-depth technical comparisons, visit the [analysis article](https://ironsoftware.com/suite/blog/comparison/compare-peachpdf-vs-ironpdf/).
 
@@ -61,14 +61,15 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 | PeachPDF | IronPDF | Notes |
 |----------|---------|-------|
-| `PdfDocument.Create()` | `new ChromePdfRenderer()` | Create renderer |
-| `document.AddHtmlContent(html)` | `renderer.RenderHtmlAsPdf(html)` | HTML to PDF |
-| `document.Save(path)` | `pdf.SaveAs(path)` | Save file |
-| `document.ToByteArray()` | `pdf.BinaryData` | Get bytes |
-| `PdfReader.LoadFromFile(path)` | `PdfDocument.FromFile(path)` | Load PDF |
-| `document.AddPage()` | `pdf.AddPdfPages(newPdf)` | Add pages |
-| `document.SetMetadata()` | `pdf.MetaData` | Set properties |
-| `document.MergeWith(other)` | `PdfDocument.Merge(pdfs)` | Merge PDFs |
+| `new PdfGenerator()` | `new ChromePdfRenderer()` | Create renderer |
+| `await generator.GeneratePdf(html, config)` | `renderer.RenderHtmlAsPdf(html)` | HTML to PDF (PeachPDF is async) |
+| `document.Save(stream)` | `pdf.SaveAs(path)` | Save file (PeachPDF only takes a Stream) |
+| `document.Save(memStream)` then `memStream.ToArray()` | `pdf.BinaryData` | Get bytes |
+| `new PdfGenerateConfig { NetworkAdapter = new HttpClientNetworkAdapter(...) }` | `renderer.RenderUrlAsPdf(url)` | URL to PDF |
+| Not supported | `PdfDocument.FromFile(path)` | Load existing PDF (PeachPDF is HTML->PDF only) |
+| Not supported | `pdf.AppendPdf(other)` / `PdfDocument.Merge(...)` | Merge PDFs |
+| `config.PageSize`, `config.PageOrientation` | `renderer.RenderingOptions.PaperSize`, `.PaperOrientation` | Page setup |
+| Embed in source HTML (CSS `position: fixed`) | `RenderingOptions.HtmlHeader` / `HtmlFooter` | Headers/footers |
 
 ---
 
@@ -79,10 +80,14 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 **PeachPDF:**
 ```csharp
 using PeachPDF;
+using PeachPDF.PdfSharpCore;
 
-var document = PdfDocument.Create();
-document.AddHtmlContent("<h1>Hello World</h1><p>Sample content</p>");
-document.Save("output.pdf");
+var config = new PdfGenerateConfig { PageSize = PageSize.Letter };
+var generator = new PdfGenerator();
+var document = await generator.GeneratePdf("<h1>Hello World</h1><p>Sample content</p>", config);
+
+using var stream = File.Create("output.pdf");
+document.Save(stream);
 ```
 
 **IronPDF:**
@@ -100,9 +105,23 @@ The [extensive migration guide](https://ironpdf.com/blog/migration-guides/migrat
 
 **PeachPDF:**
 ```csharp
-// Limited or no URL support
-var document = PdfDocument.Create();
-// Would need to fetch HTML manually
+// PeachPDF has no RenderUrlAsPdf-style helper; you wire it up via a network adapter.
+using PeachPDF;
+using PeachPDF.Network;
+using PeachPDF.PdfSharpCore;
+
+var http = new HttpClient();
+var config = new PdfGenerateConfig
+{
+    PageSize = PageSize.Letter,
+    NetworkAdapter = new HttpClientNetworkAdapter(http, new Uri("https://example.com"))
+};
+
+var generator = new PdfGenerator();
+var document = await generator.GeneratePdf(null, config); // null tells PeachPDF to fetch from the adapter
+using var stream = File.Create("webpage.pdf");
+document.Save(stream);
+// Note: no JavaScript execution -- SPA pages will not render.
 ```
 
 **IronPDF:**
@@ -121,11 +140,9 @@ pdf.SaveAs("webpage.pdf");
 
 **PeachPDF:**
 ```csharp
-using PeachPDF;
-
-var document = PdfReader.LoadFromFile("input.pdf");
-document.AddPage();
-document.Save("modified.pdf");
+// Not supported. PeachPDF is HTML -> PDF only; it does not parse, load,
+// or edit existing PDF documents. To round-trip an existing PDF you must
+// drop down to PdfSharpCore yourself or migrate to IronPDF.
 ```
 
 **IronPDF:**
@@ -149,12 +166,9 @@ pdf.SaveAs("modified.pdf");
 
 **PeachPDF:**
 ```csharp
-using PeachPDF;
-
-var doc1 = PdfReader.LoadFromFile("doc1.pdf");
-var doc2 = PdfReader.LoadFromFile("doc2.pdf");
-doc1.MergeWith(doc2);
-doc1.Save("merged.pdf");
+// Not supported as a first-class operation. PeachPDF only emits a freshly
+// generated PDF document via PdfGenerator.GeneratePdf(...).Save(stream);
+// merging existing PDFs requires using PdfSharpCore directly.
 ```
 
 **IronPDF:**
@@ -172,10 +186,26 @@ merged.SaveAs("merged.pdf");
 
 **PeachPDF:**
 ```csharp
-// Limited header/footer support
-var document = PdfDocument.Create();
-document.AddHtmlContent("<div>Header</div><h1>Content</h1>");
-document.Save("output.pdf");
+// PeachPDF v0.7.x has no header/footer API; embed the markup in the
+// source HTML using CSS positioning and let the renderer lay it out.
+using PeachPDF;
+using PeachPDF.PdfSharpCore;
+
+var html = @"
+    <html><head><style>
+      .header { position: fixed; top: 0; left: 0; right: 0; text-align:center; }
+      .footer { position: fixed; bottom: 0; left: 0; right: 0; text-align:center; }
+    </style></head>
+    <body>
+      <div class='header'>My Header</div>
+      <h1>Content</h1>
+      <div class='footer'>Footer text</div>
+    </body></html>";
+
+var generator = new PdfGenerator();
+var document = await generator.GeneratePdf(html, new PdfGenerateConfig { PageSize = PageSize.Letter });
+using var stream = File.Create("output.pdf");
+document.Save(stream);
 ```
 
 **IronPDF:**
@@ -250,9 +280,11 @@ pdf.SaveAs("signed.pdf");
 
 **PeachPDF:**
 ```csharp
-// Synchronous only
-var document = PdfDocument.Create();
-document.AddHtmlContent(html);
+// PeachPDF's primary API is already async-only.
+var generator = new PdfGenerator();
+var document = await generator.GeneratePdf(html, new PdfGenerateConfig());
+using var stream = File.Create("async_output.pdf");
+document.Save(stream);
 ```
 
 **IronPDF:**
@@ -270,21 +302,21 @@ pdf.SaveAs("async_output.pdf");
 
 | Feature | PeachPDF | IronPDF |
 |---------|----------|---------|
-| HTML to PDF | Basic | Full Chromium |
-| URL to PDF | Limited | Yes |
-| CSS Grid/Flexbox | No | Yes |
-| JavaScript | Limited | Full ES2024 |
-| Merge PDFs | Yes | Yes |
-| Split PDFs | Limited | Yes |
-| Watermarks | Limited | Full HTML |
-| Headers/Footers | Basic | Full HTML |
+| HTML to PDF | Yes (PdfSharpCore-based layout) | Full Chromium |
+| URL to PDF | Via `HttpClientNetworkAdapter` (no JS) | Yes |
+| CSS Grid/Flexbox | Partial / not guaranteed | Yes |
+| JavaScript | Not executed | Full ES2024 |
+| Merge PDFs | No (HTML->PDF only) | Yes |
+| Split PDFs | No | Yes |
+| Watermarks | Manual via HTML | Full HTML |
+| Headers/Footers | Manual via HTML/CSS | Full HTML |
 | Digital Signatures | No | Yes |
 | PDF/A | No | Yes |
-| Form Filling | Limited | Yes |
-| Text Extraction | Basic | Yes |
+| Form Filling | No | Yes |
+| Text Extraction | No | Yes |
 | Image Extraction | No | Yes |
-| Async Support | Limited | Yes |
-| Cross-Platform | Unknown | Yes |
+| Async Support | Async-only API | Yes |
+| Cross-Platform | .NET 8 (Windows/Linux/macOS) | Yes |
 
 ---
 
@@ -292,14 +324,16 @@ pdf.SaveAs("async_output.pdf");
 
 ### Issue 1: Different API Pattern
 
-**Problem:** PeachPDF uses builder pattern, IronPDF uses separate renderer.
+**Problem:** PeachPDF separates `PdfGenerator` (engine) from `PdfGenerateConfig` (settings) and is async; IronPDF uses one `ChromePdfRenderer` that returns a `PdfDocument` synchronously.
 
 **Solution:**
 ```csharp
-// PeachPDF pattern
-var document = PdfDocument.Create();
-document.AddHtmlContent(html);
-document.Save(path);
+// PeachPDF pattern (async, stream-out)
+var config = new PdfGenerateConfig { PageSize = PageSize.Letter };
+var generator = new PdfGenerator();
+var document = await generator.GeneratePdf(html, config);
+using var fs = File.Create(path);
+document.Save(fs);
 
 // IronPDF pattern
 var renderer = new ChromePdfRenderer();
@@ -307,22 +341,17 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 pdf.SaveAs(path);
 ```
 
-### Issue 2: Page Addition Differences
+### Issue 2: No Existing-PDF Operations
 
-**Problem:** PeachPDF adds empty pages, IronPDF adds content pages.
+**Problem:** PeachPDF is HTML-to-PDF only; it cannot load, merge, split, or edit existing PDFs.
 
-**Solution:**
-```csharp
-// Create a blank page in IronPDF
-var blankPage = renderer.RenderHtmlAsPdf("<div style='height: 100vh;'></div>");
-pdf.AppendPdf(blankPage);
-```
+**Solution:** Replace those operations with IronPDF's `PdfDocument.FromFile`, `PdfDocument.Merge`, and `pdf.AppendPdf` once migrated.
 
-### Issue 3: Save vs SaveAs
+### Issue 3: Save Targets a Stream, not a Path
 
-**Problem:** Method naming differs.
+**Problem:** PeachPDF's `document.Save(stream)` only takes a `Stream`; IronPDF's `pdf.SaveAs(path)` takes a path string.
 
-**Solution:** Use `SaveAs()` in IronPDF instead of `Save()`.
+**Solution:** Use `pdf.SaveAs("file.pdf")` directly in IronPDF instead of opening a `FileStream`.
 
 ---
 
@@ -333,19 +362,20 @@ pdf.AppendPdf(blankPage);
 - [ ] **Audit PeachPDF usage in codebase**
   ```bash
   grep -r "using PeachPDF" --include="*.cs" .
-  grep -r "PdfDocument\|AddHtmlContent" --include="*.cs" .
+  grep -r "PdfGenerator\|PdfGenerateConfig\|GeneratePdf" --include="*.cs" .
   ```
   **Why:** Identify all usages to ensure complete migration coverage.
 
 - [ ] **Document custom configurations**
   ```csharp
   // Find patterns like:
-  var config = new PeachPdfOptions {
-      CustomSetting1 = value1,
-      CustomSetting2 = value2
+  var config = new PdfGenerateConfig {
+      PageSize = PageSize.Letter,
+      PageOrientation = PageOrientation.Portrait,
+      NetworkAdapter = new HttpClientNetworkAdapter(http, baseUri)
   };
   ```
-  **Why:** These settings map to IronPDF's RenderingOptions. Document them now to ensure consistent output after migration.
+  **Why:** These settings map to IronPDF's `RenderingOptions` (PaperSize, PaperOrientation, etc.). Document them now to ensure consistent output after migration.
 
 - [ ] **Obtain IronPDF license key**
   **Why:** IronPDF requires a license key for production use. Free trial available at https://ironpdf.com/
@@ -372,9 +402,11 @@ pdf.AppendPdf(blankPage);
 - [ ] **Convert API calls**
   ```csharp
   // Before (PeachPDF)
-  var document = PdfDocument.Create();
-  document.AddHtmlContent(html);
-  document.Save("output.pdf");
+  var config = new PdfGenerateConfig { PageSize = PageSize.Letter };
+  var generator = new PdfGenerator();
+  var document = await generator.GeneratePdf(html, config);
+  using var fs = File.Create("output.pdf");
+  document.Save(fs);
 
   // After (IronPDF)
   var renderer = new ChromePdfRenderer();
@@ -393,10 +425,11 @@ pdf.AppendPdf(blankPage);
 - [ ] **Update save methods**
   ```csharp
   // Before (PeachPDF)
-  document.Save("output.pdf");
+  using var fs = File.Create("output.pdf");
+  document.Save(fs); // Save takes a Stream
 
   // After (IronPDF)
-  pdf.SaveAs("output.pdf");
+  pdf.SaveAs("output.pdf"); // SaveAs takes a path
   ```
   **Why:** Ensure the correct method is used for saving PDFs in IronPDF.
 
@@ -410,8 +443,8 @@ pdf.AppendPdf(blankPage);
 
 - [ ] **Test merge operations**
   ```csharp
-  // Before (PeachPDF)
-  document.MergeWith(otherDocument);
+  // Before (PeachPDF): not supported -- you previously had to drop down to
+  // PdfSharpCore to merge PDFs.
 
   // After (IronPDF)
   var merged = PdfDocument.Merge(pdf1, pdf2);
@@ -420,8 +453,7 @@ pdf.AppendPdf(blankPage);
 
 - [ ] **Verify any security settings**
   ```csharp
-  // Before (PeachPDF)
-  document.SetPassword("password");
+  // Before (PeachPDF): no password / encryption API.
 
   // After (IronPDF)
   pdf.SecuritySettings.UserPassword = "password";

@@ -1,4 +1,4 @@
-// NuGet: Install-Package Xfinium.Pdf
+// NuGet: Install-Package Xfinium.Pdf.NetStandard (or .NetCore)
 using Xfinium.Pdf;
 using System.IO;
 

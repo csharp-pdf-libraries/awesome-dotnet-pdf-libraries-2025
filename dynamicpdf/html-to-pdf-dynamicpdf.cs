@@ -1,4 +1,5 @@
-// NuGet: Install-Package ceTe.DynamicPDF.CoreSuite.NET
+// NuGet: Install-Package ceTe.DynamicPDF.Converter.NET
+// HTML-to-PDF is a separate add-on; CoreSuite alone does not include it.
 using ceTe.DynamicPDF;
 using ceTe.DynamicPDF.Conversion;
 

@@ -4,31 +4,36 @@ In the world of software development, generating PDFs using C# can be accomplish
 
 ## Introduction to VectSharp
 
-VectSharp is a vector graphics library designed to enable developers to create complex vector-based drawings and export them as PDF files. Unlike traditional PDF libraries that focus on document creation, VectSharp specializes in handling vector graphics, making it particularly suitable for applications that require high-precision drawings, such as scientific visualizations.
+VectSharp is a light cross-platform vector graphics library by Giorgio Bianchini (GitHub: [arklumpus](https://github.com/arklumpus/VectSharp)) designed to enable developers to create vector-based drawings and export them via pluggable output layers including PDF, SVG, and raster images. Unlike traditional PDF libraries that focus on document creation, VectSharp specializes in vector graphics, making it particularly suitable for applications that require high-precision drawings such as scientific visualizations and plots.
 
-VectSharp attempts to simplify the creation of vector graphics through its C# API, providing developers the tools needed to produce detailed illustrations. With VectSharp, users can generate a wide array of vector graphics and leverage its PDF output capabilities to share their creations.
+VectSharp targets .NET Standard 2.0 and is published as a family of NuGet packages: `VectSharp` (core), `VectSharp.PDF` (PDF export), `VectSharp.SVG`, and `VectSharp.Raster` (PNG via SkiaSharp). With VectSharp, users build a `Document` of `Page`s and draw onto each page's `Graphics` surface.
 
 Despite its unique features, VectSharp's focus is primarily on vector graphics, limiting its applicability in scenarios where document creation or HTML content rendering is necessary. This limitation is where more document-focused libraries such as IronPDF shine, offering broader functionalities to accommodate diverse developer needs.
 
 ```csharp
-using System;
+// NuGet: Install-Package VectSharp.PDF
 using VectSharp;
+using VectSharp.PDF;
 
 public class VectSharpExample
 {
     public static void Main()
     {
-        var doc = new Document();
-        var canvas = new Canvas(500, 500);
-        canvas.FillColor = Colors.White;
-        canvas.DrawRectangle(50, 50, 400, 400);
-        canvas.FillColor = Colors.Red;
-        canvas.DrawEllipse(100, 100, 300, 300);
-        
-        doc.AddPage(canvas);
+        Document doc = new Document();
+        Page page = new Page(500, 500);
+        Graphics g = page.Graphics;
+
+        // Filled white background rectangle
+        g.FillRectangle(50, 50, 400, 400, Colours.White);
+        // Filled red ellipse via GraphicsPath.Arc
+        GraphicsPath ellipse = new GraphicsPath();
+        ellipse.Arc(250, 250, 150, 0, 2 * System.Math.PI);
+        g.FillPath(ellipse, Colours.Red);
+
+        doc.Pages.Add(page);
         doc.SaveAsPDF("VectSharpExample.pdf");
 
-        Console.WriteLine("PDF created successfully using VectSharp.");
+        System.Console.WriteLine("PDF created successfully using VectSharp.");
     }
 }
 ```
@@ -38,7 +43,7 @@ public class VectSharpExample
 ### Strengths
 1. **Vector Graphics Focus**: VectSharp is specifically tailored for vector-based applications, making it ideal for scientific and technical visualizations that require precise graphical representation.
 2. **PDF Output**: It seamlessly generates PDF files, allowing easy sharing of vector graphics.
-3. **Open Source**: Released under the LGPL license, VectSharp allows for customization and integration without the financial constraints associated with commercial licenses.
+3. **Open Source**: Released under LGPL-3.0-only (with some optional sub-components under GPL-3.0/AGPL-3.0), VectSharp allows for customization and integration without the financial constraints associated with commercial licenses.
 
 ### Weaknesses
 1. **Graphics-Focused**: VectSharp is more suited for drawings and charts rather than comprehensive document creation, posing limitations for developers needing versatile PDF solutions.
@@ -88,9 +93,10 @@ class Program
         circle.Arc(400, 100, 50, 0, 2 * Math.PI);
         graphics.FillPath(circle, Colour.FromRgb(255, 0, 0));
         
-        // Add text
-        graphics.FillText(50, 200, "VectSharp Graphics", 
-            new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 20));
+        // Add text - FillText requires a colour parameter
+        graphics.FillText(50, 200, "VectSharp Graphics",
+            new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 20),
+            Colours.Black);
         
         doc.Pages.Add(page);
         doc.SaveAsPDF("shapes.pdf");
@@ -149,8 +155,9 @@ class Program
         Page page = new Page(595, 842); // A4 size
         Graphics graphics = page.Graphics;
         
-        graphics.FillText(100, 100, "Hello from VectSharp", 
-            new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 24));
+        graphics.FillText(100, 100, "Hello from VectSharp",
+            new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 24),
+            Colours.Black);
         
         doc.Pages.Add(page);
         doc.SaveAsPDF("output.pdf");
@@ -195,22 +202,23 @@ class Program
     {
         Document doc = new Document();
         
+        FontFamily helvetica =
+            FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica);
+        Font titleFont = new Font(helvetica, 24);
+        Font bodyFont = new Font(helvetica, 14);
+
         // Page 1
         Page page1 = new Page(595, 842);
         Graphics g1 = page1.Graphics;
-        g1.FillText(50, 50, "Page 1", 
-            new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 24));
-        g1.FillText(50, 100, "First page content", 
-            new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 14));
+        g1.FillText(50, 50, "Page 1", titleFont, Colours.Black);
+        g1.FillText(50, 100, "First page content", bodyFont, Colours.Black);
         doc.Pages.Add(page1);
-        
+
         // Page 2
         Page page2 = new Page(595, 842);
         Graphics g2 = page2.Graphics;
-        g2.FillText(50, 50, "Page 2", 
-            new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 24));
-        g2.FillText(50, 100, "Second page content", 
-            new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 14));
+        g2.FillText(50, 50, "Page 2", titleFont, Colours.Black);
+        g2.FillText(50, 100, "Second page content", bodyFont, Colours.Black);
         doc.Pages.Add(page2);
         
         doc.SaveAsPDF("multipage.pdf");
@@ -278,7 +286,7 @@ Here's a side-by-side comparison of VectSharp and IronPDF to help clarify their 
 | **Primary Use**        | Vector Graphics                | Document Creation               |
 | **PDF Output**         | Yes                            | Yes                             |
 | **HTML Support**       | No                             | Yes                             |
-| **Licensing**          | LGPL                           | Commercial                      |
+| **Licensing**          | LGPL-3.0-only                  | Commercial                      |
 | **Open Source**        | Yes                            | Partially (commercial features) |
 | **Best For**           | Scientific Visualizations      | General PDF Documents           |
 | **Customization**      | Limited to Graphics            | Extensive, Document-Related     |

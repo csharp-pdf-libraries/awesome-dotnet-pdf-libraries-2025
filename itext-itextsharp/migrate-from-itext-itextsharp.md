@@ -17,27 +17,27 @@
 
 ### The AGPL License Trap
 
-iText presents serious legal and business risks for commercial applications:
+iText (owned by iText Group / Apryse Group NV) presents serious legal and business risks for commercial applications:
 
-1. **AGPL Viral License**: If you use iText in a web application, the AGPL requires you to **open-source your ENTIRE application**—not just the PDF code, but your entire codebase
-2. **No Perpetual License**: iText has eliminated perpetual licensing, forcing annual subscription renewals
-3. **pdfHTML Add-On Cost**: HTML-to-PDF requires the pdfHTML add-on, sold separately at additional cost
+1. **AGPL Viral License**: If you use iText in a web application under its open-source license, the AGPL requires you to release the corresponding source code of the application to anyone who interacts with it over a network — typically interpreted as releasing the whole application's source
+2. **Subscription-Only Commercial Licensing**: iText's commercial license is sold as an annual subscription based on PDF processing volume; a perpetual option is not advertised on the public pricing page (custom OEM terms are quote-only)
+3. **pdfHTML Add-On Cost**: HTML-to-PDF requires the `itext.pdfhtml` add-on (currently 6.3.2), sold separately on top of the core `itext` package
 4. **Complex Licensing Audits**: Enterprise deployments face licensing complexity and audit risk
-5. **Programmatic-Only API**: Requires manual low-level PDF construction with `Paragraph`, `Table`, `Cell`
-6. **No Modern Web Rendering**: Even with pdfHTML, complex CSS/JavaScript requires significant effort
+5. **Programmatic-First API**: Core iText builds PDFs by composing `Paragraph`, `Table`, `Cell` objects; pdfHTML lets you start from HTML but does not execute JavaScript during rendering
+6. **No Modern Web Rendering**: pdfHTML supports a defined CSS subset but not a full browser engine, so heavy CSS or JS-driven layouts need to be pre-rendered externally
 
 ### The IronPDF Advantage
 
-| Feature | iText 7 / iTextSharp | IronPDF |
+| Feature | iText 9 / iTextSharp 5.x | IronPDF |
 |---------|---------------------|---------|
-| License | AGPL (viral) or expensive subscription | Commercial, perpetual option |
-| HTML-to-PDF | Separate pdfHTML add-on | Built-in Chromium renderer |
-| CSS Support | Basic CSS | Full CSS3, Flexbox, Grid |
-| JavaScript | None | Full execution |
+| License | AGPL (viral) or commercial subscription | Commercial, perpetual option |
+| HTML-to-PDF | Separate `itext.pdfhtml` add-on | Built-in Chromium renderer |
+| CSS Support | Defined CSS subset in pdfHTML | Full CSS3, Flexbox, Grid |
+| JavaScript | pdfHTML does not evaluate JS during rendering (PDF-level JS actions are supported) | Full JS execution at render time |
 | API Paradigm | Programmatic (Paragraph, Table, Cell) | HTML-first with CSS |
 | Learning Curve | Steep (PDF coordinate system) | Web developer friendly |
-| Open Source Risk | Must open-source web apps | No viral requirements |
-| Pricing Model | Subscription only | Perpetual or subscription |
+| Open Source Risk | Must open-source web apps under AGPL | No viral requirements |
+| Pricing Model | Annual subscription (volume-based) or custom OEM | Perpetual or subscription |
 
 ### Migration Benefits
 
@@ -62,7 +62,9 @@ These advantages are illustrated with working code throughout the [full migratio
 ### Installation
 
 ```bash
-# Remove iText packages
+# Remove iText packages (current naming is 'itext'; 'itext7' is the deprecated alias)
+dotnet remove package itext
+dotnet remove package itext.pdfhtml
 dotnet remove package itext7
 dotnet remove package itext7.pdfhtml
 dotnet remove package itextsharp
@@ -1072,8 +1074,8 @@ string html = "<div style='display:flex; gap:10px;'>...</div>";
 
 ### Issue 4: JavaScript Not Executing
 
-**Cause**: iText cannot execute JavaScript
-**IronPDF Solution**: Full JavaScript execution
+**Cause**: iText's pdfHTML does not run JavaScript while converting HTML to PDF (iText does support PDF-level JavaScript actions for forms, but that is a different feature)
+**IronPDF Solution**: Full JavaScript execution at render time via Chromium
 
 ```csharp
 renderer.RenderingOptions.EnableJavaScript = true;
@@ -1142,15 +1144,16 @@ public async Task<byte[]> GeneratePdfAsync(string html)
   ```
   **Why:** iText 7's AGPL requires open-sourcing your entire application if distributed—a major legal risk for proprietary software.
 
-- [ ] **Document current iText version (iText 7 vs iTextSharp 5.x)**
+- [ ] **Document current iText version (iText 7/8/9 vs iTextSharp 5.x)**
   ```bash
   # Check installed version
   dotnet list package | grep -i itext
 
-  # iText 7: Uses iText.Kernel, iText.Layout namespaces
-  # iTextSharp 5.x: Uses iTextSharp.text namespace (legacy)
+  # Current iText (9.6.0, April 2026): package 'itext' — uses iText.Kernel, iText.Layout namespaces
+  # iText 7/8 line: package 'itext7' (now a deprecated alias of 'itext') — same namespaces
+  # iTextSharp 5.5.13.5 (Jan 2026, EOL — security fixes only): package 'iTextSharp' — uses iTextSharp.text namespace
   ```
-  **Why:** API differences between versions affect migration strategy.
+  **Why:** API differences between versions affect migration strategy. iTextSharp 5.x is end-of-life and only receives security patches; new code should not target it.
 
 - [ ] **List all PDF operations used**
   ```csharp
@@ -1183,13 +1186,16 @@ public async Task<byte[]> GeneratePdfAsync(string html)
 
 - [ ] **Remove iText NuGet packages**
   ```bash
-  # Remove all iText packages
+  # Remove all iText packages (current names + deprecated 'itext7' aliases)
+  dotnet remove package itext
+  dotnet remove package itext.pdfhtml
+  dotnet remove package itext.bouncy-castle-adapter
   dotnet remove package itext7
   dotnet remove package itext7.pdfhtml
   dotnet remove package itext7.bouncy-castle-adapter
-  dotnet remove package itextsharp  # If using legacy version
+  dotnet remove package iTextSharp  # If using legacy 5.x
   ```
-  **Why:** Clean removal prevents conflicts and clarifies dependencies.
+  **Why:** Clean removal prevents conflicts and clarifies dependencies. iText renamed `itext7.*` packages to `itext.*` and the legacy names are deprecated wrappers.
 
 - [ ] **Install IronPDF**
   ```bash

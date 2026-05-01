@@ -1,12 +1,12 @@
 # ActivePDF vs. IronPDF: C# PDF Libraries Comparison
 
-ActivePDF, now under the ownership of Foxit, is a comprehensive PDF manipulation toolkit, historically known for its robust capabilities in handling PDF operations within C#. This article delves into a detailed comparison between ActivePDF and IronPDF, examining their strengths, weaknesses, and relevance in current C# development environments.
+ActivePDF, now part of Apryse (formerly PDFTron, which acquired ActivePDF on June 23, 2020 and rebranded to Apryse in February 2023), is a family of server-side PDF products — Toolkit, WebGrabber, DocConverter, Server, and Meridian — historically known for high-volume server-side PDF automation in C#. This article compares ActivePDF and IronPDF and looks at their relevance in current C# development environments.
 
 ## Overview of ActivePDF
 
-ActivePDF has long been a favorite among developers for its powerful PDF manipulation capabilities. It allows users to generate PDF files from various sources and customize these documents by adding headers, footers, margins, and watermarks. Despite its historical significance, the acquisition by Foxit raises concerns about its continuity and development trajectory.
+ActivePDF has long been used by enterprises for server-side PDF automation: Toolkit handles PDF manipulation (merge, forms, encryption, text extraction), WebGrabber handles HTML/URL-to-PDF rendering, and DocConverter handles Office-to-PDF. Each is a separately licensed SKU. The latest `ActivePDF.Toolkit` on nuget.org is 11.4.4, published December 2025, and the package is still actively maintained under the Apryse umbrella.
 
-The transition period following ActivePDF's acquisition introduces potential challenges such as uncertain licensing terms and the possibility of the toolkit becoming a legacy product. Despite these issues, its existing user base appreciates the toolkit for its comprehensive range of features. However, developers need to consider these factors when choosing a long-term PDF solution for their projects.
+Because ActivePDF originated as a COM/native component, the .NET API still reflects that lineage: integer return codes (0 for success), explicit `OpenOutputFile`/`CloseOutputFile` lifecycle, and a `CoreLibPath` constructor argument (since v10) to point at the native libraries. That works, but it doesn't match modern .NET expectations around exceptions, `using`, async, or fully NuGet-managed deployments.
 
 ## Introducing IronPDF
 
@@ -18,14 +18,14 @@ For a detailed analysis of c# html to pdf capabilities, pricing, and performance
 
 ## Feature Comparison
 
-| Feature                        | ActivePDF                                       | IronPDF                                          |
-|------------------------------  |-------------------------------------------------|-------------------------------------------------|
-| **Company Ownership**          | Acquired by Foxit; uncertain future             | Independent, focused, clear development path    |
-| **Development Stage**          | Potential legacy codebase                       | Actively developed with regular updates         |
-| **Licensing**                  | Complications due to the acquisition            | Transparent, clear licensing terms              |
-| **C# and .NET Compatibility**  | Legacy support for .NET environments            | Fully supports modern .NET environments         |
-| **Ease of Installation**       | May require manual installation adjustments     | Simple installation via NuGet                   |
-| **Support and Documentation**  | Varies due to transition                        | Comprehensive support and documentation         |
+| Feature                        | ActivePDF                                                              | IronPDF                                          |
+|------------------------------  |------------------------------------------------------------------------|--------------------------------------------------|
+| **Company Ownership**          | Apryse (acquired 2020 as PDFTron, rebranded Apryse 2023)               | Iron Software, independent                       |
+| **Product layout**             | Multiple SKUs (Toolkit, WebGrabber, DocConverter, Server, Meridian)    | Single `IronPdf` package                         |
+| **API style**                  | COM-derived, integer return codes, Open/Close lifecycle                | Exception-based, `using`, async                  |
+| **C# and .NET Compatibility**  | .NET Framework 4.5+, .NET Standard 1.0+, .NET Core                     | .NET Framework 4.6.2 to .NET 9                   |
+| **Installation**               | NuGet package + native runtime path (`CoreLibPath`) since v10          | Single NuGet package; natives bundled            |
+| **HTML to PDF**                | Separate WebGrabber product, IE/native rendering engines               | Built-in Chromium renderer                       |
 
 ## Why Choose IronPDF?
 
@@ -37,25 +37,25 @@ For a detailed analysis of c# html to pdf capabilities, pricing, and performance
 
 ## How Do I Convert a URL to PDF in .NET?
 
-Here's how **ActivePDF** handles this:
+Here's how **ActivePDF** handles this — note that URL-to-PDF lives in the WebGrabber product, not Toolkit:
 
 ```csharp
-// NuGet: Install-Package APToolkitNET
-using ActivePDF.Toolkit;
+// NuGet: Install-Package ActivePDF.WebGrabber
+using APWebGrabber;
 using System;
+using System.IO;
 
 class Program
 {
     static void Main()
     {
-        Toolkit toolkit = new Toolkit();
-        
-        string url = "https://www.example.com";
-        
-        if (toolkit.OpenOutputFile("webpage.pdf") == 0)
+        var wg = new WebGrabber();
+        wg.URL = "https://www.example.com";
+        wg.OutputDirectory = Directory.GetCurrentDirectory();
+        wg.OutputFilename = "webpage.pdf";
+
+        if (wg.ConvertToPDF() == 0)
         {
-            toolkit.AddURL(url);
-            toolkit.CloseOutputFile();
             Console.WriteLine("PDF from URL created successfully");
         }
     }
@@ -91,25 +91,29 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Do I Convert HTML to PDF in C# with ActivePDF?
 
-Here's how **ActivePDF** handles this:
+Here's how **ActivePDF** handles this — again WebGrabber, not Toolkit, and it renders from a URL or file path rather than an in-memory HTML string:
 
 ```csharp
-// NuGet: Install-Package APToolkitNET
-using ActivePDF.Toolkit;
+// NuGet: Install-Package ActivePDF.WebGrabber
+using APWebGrabber;
 using System;
+using System.IO;
 
 class Program
 {
     static void Main()
     {
-        Toolkit toolkit = new Toolkit();
-        
         string htmlContent = "<html><body><h1>Hello World</h1></body></html>";
-        
-        if (toolkit.OpenOutputFile("output.pdf") == 0)
+        string tempHtml = Path.Combine(Path.GetTempPath(), "input.html");
+        File.WriteAllText(tempHtml, htmlContent);
+
+        var wg = new WebGrabber();
+        wg.URL = tempHtml;
+        wg.OutputDirectory = Directory.GetCurrentDirectory();
+        wg.OutputFilename = "output.pdf";
+
+        if (wg.ConvertToPDF() == 0)
         {
-            toolkit.AddHTML(htmlContent);
-            toolkit.CloseOutputFile();
             Console.WriteLine("PDF created successfully");
         }
     }
@@ -145,25 +149,27 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Do I Merge Multiple PDFs in C#?
 
-Here's how **ActivePDF** handles this:
+Here's how **ActivePDF** handles this with Toolkit's `MergeFile`:
 
 ```csharp
-// NuGet: Install-Package APToolkitNET
-using ActivePDF.Toolkit;
+// NuGet: Install-Package ActivePDF.Toolkit
+using APToolkitNET;
 using System;
 
 class Program
 {
     static void Main()
     {
-        Toolkit toolkit = new Toolkit();
-        
-        if (toolkit.OpenOutputFile("merged.pdf") == 0)
+        using (Toolkit toolkit = new Toolkit())
         {
-            toolkit.AddPDF("document1.pdf");
-            toolkit.AddPDF("document2.pdf");
-            toolkit.CloseOutputFile();
-            Console.WriteLine("PDFs merged successfully");
+            if (toolkit.OpenOutputFile("merged.pdf") == 0)
+            {
+                // MergeFile(FileName, StartPage, EndPage); -1 = end of file
+                toolkit.MergeFile("document1.pdf", 1, -1);
+                toolkit.MergeFile("document2.pdf", 1, -1);
+                toolkit.CloseOutputFile();
+                Console.WriteLine("PDFs merged successfully");
+            }
         }
     }
 }
@@ -198,46 +204,48 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from ActivePDF to IronPDF?
 
-ActivePDF's acquisition by Foxit has created uncertainty around the product's future development and support. IronPDF offers a modern, actively maintained alternative with comprehensive documentation and a straightforward licensing model.
+ActivePDF is now one brand inside Apryse (formerly PDFTron, which acquired ActivePDF in June 2020 and rebranded to Apryse in February 2023). The products still ship and the Toolkit NuGet package is still updated, but if your project picked ActivePDF specifically for its COM-style server-side automation, IronPDF offers a single-package, exception-based, async-friendly alternative.
 
 ### Quick Migration Overview
 
 | Aspect | ActivePDF | IronPDF |
 |--------|-----------|---------|
-| Company Status | Acquired by Foxit (uncertain future) | Independent, clear roadmap |
-| Installation | Manual DLL references | Simple NuGet package |
+| Vendor | Apryse (formerly PDFTron) | Iron Software, independent |
+| Packaging | `ActivePDF.Toolkit` + `ActivePDF.WebGrabber` etc. | Single `IronPdf` NuGet |
 | API Pattern | Stateful (`OpenOutputFile`/`CloseOutputFile`) | Fluent, functional API |
-| License Model | Machine-locked | Code-based key |
-| .NET Support | Legacy .NET Framework focus | Framework 4.6.2 to .NET 9 |
+| Errors | Integer return codes | Standard .NET exceptions |
+| .NET Support | .NET Framework 4.5+ / .NET Core / .NET Standard 1.0+ | Framework 4.6.2 to .NET 9 |
 
 ### Key API Mappings
 
 | Common Task | ActivePDF | IronPDF |
 |-------------|-----------|---------|
-| Create toolkit | `new Toolkit()` | `new ChromePdfRenderer()` |
-| HTML to PDF | `toolkit.AddHTML(html)` | `renderer.RenderHtmlAsPdf(html)` |
-| URL to PDF | `toolkit.AddURL(url)` | `renderer.RenderUrlAsPdf(url)` |
+| Create object | `new APToolkitNET.Toolkit()` / `new APWebGrabber.WebGrabber()` | `new ChromePdfRenderer()` |
+| HTML to PDF | `wg.URL = file; wg.ConvertToPDF()` (WebGrabber) | `renderer.RenderHtmlAsPdf(html)` |
+| URL to PDF | `wg.URL = url; wg.ConvertToPDF()` (WebGrabber) | `renderer.RenderUrlAsPdf(url)` |
 | Load PDF | `toolkit.OpenInputFile(path)` | `PdfDocument.FromFile(path)` |
-| Save PDF | `toolkit.SaveAs(path)` | `pdf.SaveAs(path)` |
-| Merge PDFs | `toolkit.AddPDF(file)` | `PdfDocument.Merge(pdfs)` |
-| Page count | `toolkit.GetPageCount()` | `pdf.PageCount` |
-| Extract text | `toolkit.GetText()` | `pdf.ExtractAllText()` |
-| Add watermark | `toolkit.AddWatermark(text)` | `pdf.ApplyWatermark(html)` |
-| Encrypt PDF | `toolkit.Encrypt(password)` | `pdf.SecuritySettings.OwnerPassword` |
+| Save output | `toolkit.OpenOutputFile(path); ...; toolkit.CloseOutputFile()` | `pdf.SaveAs(path)` |
+| Merge PDFs | `toolkit.MergeFile(file, 1, -1)` | `PdfDocument.Merge(pdfs)` |
+| Page count | `toolkit.NumPages` | `pdf.PageCount` |
+| Extract text | `toolkit.GetPageText(i, 0)` | `pdf.ExtractAllText()` |
+| Watermark | `toolkit.PrintText(...)` per page | `pdf.ApplyWatermark(html)` |
+| Encrypt PDF | `toolkit.SetEncryption(user, owner, 128, 0)` | `pdf.SecuritySettings.OwnerPassword` |
 
 ### Migration Code Example
 
-**Before (ActivePDF):**
+**Before (ActivePDF — WebGrabber for HTML rendering):**
 ```csharp
-using ActivePDF.Toolkit;
+using APWebGrabber;
+using System.IO;
 
-Toolkit toolkit = new Toolkit();
-if (toolkit.OpenOutputFile("output.pdf") == 0)
-{
-    toolkit.SetPageSize(612, 792); // Points
-    toolkit.AddHTML("<h1>Hello World</h1>");
-    toolkit.CloseOutputFile();
-}
+var wg = new WebGrabber();
+File.WriteAllText("input.html", "<h1>Hello World</h1>");
+wg.URL = "input.html";
+wg.PageWidth = 612;   // points (Letter)
+wg.PageHeight = 792;
+wg.OutputDirectory = Directory.GetCurrentDirectory();
+wg.OutputFilename = "output.pdf";
+wg.ConvertToPDF();
 ```
 
 **After (IronPDF):**
@@ -257,17 +265,20 @@ pdf.SaveAs("output.pdf");  // No open/close needed!
 
 2. **Error Handling**: ActivePDF returns integer error codes. IronPDF uses exceptions—wrap calls in try/catch.
 
-3. **Page Size Units**: ActivePDF uses points (612x792 = Letter). IronPDF uses enums (`PdfPaperSize.Letter`) or millimeters.
+3. **One product, not two**: HTML rendering and PDF manipulation are separate SKUs in ActivePDF (WebGrabber + Toolkit). IronPDF puts both in `ChromePdfRenderer` + `PdfDocument`.
 
-4. **License Setup**: Replace machine-locked licensing with code: `IronPdf.License.LicenseKey = "KEY";`
+4. **Page Size Units**: ActivePDF WebGrabber uses points (612x792 = Letter). IronPDF uses enums (`PdfPaperSize.Letter`) or millimeters.
 
-5. **Async Support**: IronPDF supports `await renderer.RenderHtmlAsPdfAsync(html)` for web applications.
+5. **License Setup**: Set `IronPdf.License.LicenseKey = "KEY";` once at startup.
+
+6. **Async Support**: IronPDF supports `await renderer.RenderHtmlAsPdfAsync(html)` for web applications.
 
 ### NuGet Package Migration
 
 ```bash
-# Remove ActivePDF
-dotnet remove package APToolkitNET
+# Remove ActivePDF SKUs
+dotnet remove package ActivePDF.Toolkit
+dotnet remove package ActivePDF.WebGrabber
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -276,7 +287,7 @@ dotnet add package IronPdf
 ### Find All ActivePDF References
 
 ```bash
-grep -r "using ActivePDF\|using APToolkitNET" --include="*.cs" .
+grep -rE "APToolkitNET|APWebGrabber|ActivePDF" --include="*.cs" .
 ```
 
 **Ready for the complete migration?** The full guide includes:
@@ -308,18 +319,18 @@ This snippet demonstrates IronPDF's capability to convert HTML content to a PDF 
 
 ### Strengths:
 
-- **Comprehensive Features**: ActivePDF is equipped with countless features beneficial for various PDF operations.
-- **Widely Used**: It has a significant user base, particularly among enterprises that have invested in its use.
+- **Comprehensive Features**: ActivePDF spans Toolkit, WebGrabber, DocConverter, Server, and Meridian, covering most server-side PDF needs.
+- **Enterprise footprint**: Heavily used in regulated environments and high-volume document automation.
 
 ### Weaknesses:
 
-- **Uncertain Product Future**: With its acquisition by Foxit, the direction of ActivePDF remains ambiguous.
-- **Legacy Codebase**: The potential stagnation of innovation poses a challenge for developers seeking cutting-edge solutions.
-- **Licensing Confusion**: Developers may find the transition period cumbersome due to licensing uncertainties.
+- **Multiple separately-licensed SKUs**: HTML rendering (WebGrabber), PDF manipulation (Toolkit), and Office conversion (DocConverter) are different products and licenses.
+- **COM-derived API surface**: Integer return codes, `OpenOutputFile`/`CloseOutputFile` lifecycle, and the `CoreLibPath` constructor argument feel dated against modern .NET idioms.
+- **Brand layering**: ActivePDF is a brand inside Apryse, alongside the flagship Apryse SDK. Buyers often have to decide between staying on ActivePDF or migrating to the broader Apryse SDK.
 
 ## Conclusion
 
-In conclusion, both ActivePDF and IronPDF offer valuable features tailored to PDF manipulation within C#. However, while ActivePDF remains a powerful tool, its future is less certain due to the acquisition and potential transition to legacy status. On the other hand, IronPDF is actively developed, providing a clear path forward with transparent communication from Iron Software.
+ActivePDF still ships, is still updated under Apryse, and remains a credible choice for COM-era server-side PDF automation. But for greenfield .NET projects, IronPDF's single package, exception-based API, async support, and bundled Chromium HTML renderer remove most of the friction that originally pushed teams toward ActivePDF + WebGrabber.
 
 For developers seeking a robust and forward-looking PDF solution with reliable support, IronPDF represents an excellent choice. It combines ease of use, modern compatibility, and continuous improvements, making it ideal for both new and existing projects.
 

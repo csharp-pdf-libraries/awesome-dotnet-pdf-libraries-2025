@@ -2,15 +2,18 @@
 
 ## Why Migrate from SSRS?
 
-SQL Server Reporting Services (SSRS) is Microsoft's enterprise reporting platform that requires significant infrastructure investment. Key reasons to migrate:
+SQL Server Reporting Services (SSRS) is Microsoft's enterprise reporting platform that requires significant infrastructure investment. Microsoft has also confirmed that **SSRS 2022 is the final version** — starting with SQL Server 2025, on-premises reporting consolidates into Power BI Report Server (PBIRS), and no new SSRS releases will ship. SSRS 2022 receives security updates through **January 11, 2033**, in line with the SQL Server 2022 lifecycle. (See the [Reporting Services Consolidation FAQ](https://learn.microsoft.com/en-us/sql/reporting-services/reporting-services-consolidation-faq).)
 
-1. **Heavy Infrastructure**: Requires SQL Server, Report Server, and IIS configuration
-2. **Microsoft Ecosystem Lock-in**: Tied to SQL Server licensing and Windows Server
-3. **Complex Deployment**: Report deployment, security configuration, and subscription management
-4. **Expensive Licensing**: SQL Server licenses, especially for enterprise features
-5. **Limited Web Support**: Difficult to integrate with modern SPA frameworks
-6. **Maintenance Overhead**: Server patching, database maintenance, report management
-7. **No Cloud-Native Option**: Designed for on-premises, cloud support is awkward
+Key reasons to migrate:
+
+1. **End of the SSRS line**: SQL Server 2025 ships without SSRS; PBIRS replaces it. New work targeting SSRS is a dead end.
+2. **Heavy Infrastructure**: Requires SQL Server, Report Server, and (for the older Web Forms viewer) IIS configuration
+3. **Microsoft Ecosystem Lock-in**: Tied to SQL Server licensing and Windows Server
+4. **Complex Deployment**: Report deployment, security configuration, and subscription management
+5. **Expensive Licensing**: SQL Server licenses, especially for enterprise features
+6. **No First-Class .NET Core Support**: Microsoft's `Microsoft.ReportingServices.ReportViewerControl.WebForms` / `.Winforms` packages target .NET Framework 4.0–4.8.1 only. .NET Core / .NET 5+ users rely on the community port `ReportViewerCore.NETCore`.
+7. **Maintenance Overhead**: Server patching, database maintenance, report management
+8. **No Cloud-Native Option**: Designed for on-premises, cloud support is awkward
 
 ### When SSRS is Overkill
 
@@ -32,11 +35,13 @@ IronPDF provides in-process PDF generation without any server infrastructure, as
 ### Step 1: Replace Dependencies
 
 ```bash
-# SSRS has no direct NuGet - it's server-based
-# Remove any ReportViewer controls
-
+# Remove the ReportViewer controls (the in-process LocalReport API).
+# Microsoft ships these as .NET Framework-only packages, latest version 150.1652.0 (June 2024).
 dotnet remove package Microsoft.ReportingServices.ReportViewerControl.WebForms
-dotnet remove package Microsoft.ReportingServices.ReportViewerControl.WinForms
+dotnet remove package Microsoft.ReportingServices.ReportViewerControl.Winforms
+
+# If your project used the community .NET Core port, remove it too:
+# dotnet remove package ReportViewerCore.NETCore
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -45,7 +50,8 @@ dotnet add package IronPdf
 ### Step 2: Update Namespaces
 
 ```csharp
-// Before
+// Before — namespaces from Microsoft.ReportViewer.WebForms.dll /
+// Microsoft.ReportViewer.WinForms.dll (shipped by the ReportViewerControl packages above)
 using Microsoft.Reporting.WebForms;
 using Microsoft.Reporting.WinForms;
 
@@ -126,6 +132,8 @@ File.WriteAllBytes("invoice.pdf", pdfBytes);
 **IronPDF:**
 ```csharp
 using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 // Get data
 var invoice = GetInvoice(invoiceId);
@@ -215,7 +223,17 @@ using (SqlConnection conn = new SqlConnection(connectionString))
 
 report.SetParameters(new ReportParameter("ReportYear", "2024"));
 
-byte[] pdfBytes = report.Render("PDF");
+// LocalReport.Render has no single-argument overload. The real signature
+// returns byte[] and uses seven out parameters.
+string mimeType, encoding, fileNameExtension;
+string[] streams;
+Warning[] warnings;
+
+byte[] pdfBytes = report.Render(
+    "PDF", null,
+    out mimeType, out encoding, out fileNameExtension,
+    out streams, out warnings);
+
 Response.BinaryWrite(pdfBytes);
 ```
 
@@ -856,9 +874,12 @@ RecurringJob.AddOrUpdate("weekly-report",
 
 - [ ] **Remove ReportViewer packages**
   ```bash
-  dotnet remove package Microsoft.ReportViewer
+  dotnet remove package Microsoft.ReportingServices.ReportViewerControl.WebForms
+  dotnet remove package Microsoft.ReportingServices.ReportViewerControl.Winforms
+  # If you used the community .NET Core port:
+  # dotnet remove package ReportViewerCore.NETCore
   ```
-  **Why:** Clean package removal to switch to IronPDF.
+  **Why:** Clean package removal to switch to IronPDF. The current Microsoft package IDs are `Microsoft.ReportingServices.ReportViewerControl.*` (v150.1652.0, June 2024). There is no official `Microsoft.Reporting.NETCore` package on nuget.org.
 
 - [ ] **Install IronPdf package**
   ```bash

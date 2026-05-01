@@ -1,21 +1,28 @@
-// NuGet: Install-Package Api2Pdf.DotNet
+// NuGet: Install-Package Api2Pdf
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using Api2Pdf.DotNet;
+using Api2Pdf;
 
 class Program
 {
     static async Task Main(string[] args)
     {
-        var a2pClient = new Api2PdfClient("your-api-key");
+        var client = new Api2Pdf("your-api-key");
         string html = File.ReadAllText("input.html");
-        var options = new HeadlessChromeOptions
+        var result = await client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest
         {
-            Landscape = true,
-            PrintBackground = true
-        };
-        var apiResponse = await a2pClient.HeadlessChrome.FromHtmlAsync(html, options);
-        Console.WriteLine(apiResponse.Pdf);
+            Html = html,
+            Options = new ChromeHtmlToPdfOptions
+            {
+                Landscape = true,
+                PrintBackground = true
+            }
+        });
+
+        if (result.Success)
+            Console.WriteLine(result.FileUrl);
+        else
+            Console.WriteLine(result.Error);
     }
 }

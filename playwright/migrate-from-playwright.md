@@ -24,7 +24,7 @@ Playwright was designed for end-to-end testing, not document generation. This cr
 | **Primary Purpose** | Browser testing | PDF generation |
 | **Browser Download** | 400MB+ (Chromium, Firefox, WebKit) | Built-in optimized engine |
 | **API Complexity** | Async browser/context/page lifecycle | Synchronous one-liners |
-| **Initialization** | `playwright install` + CreateAsync + LaunchAsync | `new ChromePdfRenderer()` |
+| **Initialization** | `pwsh bin/Debug/netX/playwright.ps1 install` + CreateAsync + LaunchAsync | `new ChromePdfRenderer()` |
 | **Memory Usage** | 280-420MB per conversion | 80-120MB per conversion |
 | **Cold Start** | 4.5 seconds | 2.8 seconds |
 | **Subsequent Renders** | 3.8-4.1 seconds | 0.8-1.2 seconds |
@@ -49,7 +49,7 @@ dotnet remove package Microsoft.Playwright
 dotnet add package IronPdf
 ```
 
-**No `playwright install` required with IronPDF** - the rendering engine is bundled automatically.
+**No `pwsh playwright.ps1 install` step required with IronPDF** - the rendering engine is bundled automatically.
 
 ---
 
@@ -108,7 +108,7 @@ public class PlaywrightPdfGenerator
 {
     public async Task GeneratePdfAsync()
     {
-        // Initialize Playwright (requires 'playwright install' first)
+        // Initialize Playwright (requires 'pwsh bin/Debug/netX/playwright.ps1 install' first)
         using var playwright = await Playwright.CreateAsync();
 
         // Launch browser instance
@@ -614,8 +614,8 @@ public void CreatePdfA()
     var renderer = new ChromePdfRenderer();
     var pdf = renderer.RenderHtmlAsPdf("<h1>Archival Document</h1>");
 
-    // Convert to PDF/A-3B for long-term archival
-    pdf.SaveAsPdfA("archive.pdf", PdfAVersions.PdfA3B);
+    // Convert to PDF/A-3b for long-term archival
+    pdf.SaveAsPdfA("archive.pdf", PdfAVersions.PdfA3b);
 }
 ```
 
@@ -669,7 +669,7 @@ public async Task<byte[]> GeneratePdfBytesAsync(string html)
 ## Common Gotchas
 
 ### 1. No Browser Installation Required
-- **Playwright:** Requires `playwright install` to download ~400MB of browsers
+- **Playwright:** After `dotnet build`, you must run the generated PowerShell script (e.g. `pwsh bin/Debug/netX/playwright.ps1 install`) to download ~400MB of browsers
 - **IronPDF:** Rendering engine is bundled in the NuGet package
 
 ### 2. Async vs Sync
@@ -767,7 +767,7 @@ grep -r "Microsoft.Playwright\|page.PdfAsync\|PagePdfOptions\|Playwright.CreateA
   ```bash
   dotnet add package IronPdf
   ```
-  **Why:** No `playwright install` required. Just add the NuGet package and start using it.
+  **Why:** No separate `playwright.ps1 install` step required. Just add the NuGet package and start using it.
 
 - [ ] **Add license key initialization**
   ```csharp
@@ -1021,7 +1021,7 @@ grep -r "Microsoft.Playwright\|page.PdfAsync\|PagePdfOptions\|Playwright.CreateA
 | Subsequent PDFs | 3.8-4.1s | 0.8-1.2s | **70-80% faster** |
 | Memory per Conversion | 280-420MB | 80-120MB | **65-70% less memory** |
 | Disk Space (browsers) | 400MB+ | 0 | **Eliminate browser downloads** |
-| Setup Commands | `playwright install` | None | **Zero setup** |
+| Setup Commands | `pwsh bin/Debug/netX/playwright.ps1 install` | None | **Zero setup** |
 
 ---
 

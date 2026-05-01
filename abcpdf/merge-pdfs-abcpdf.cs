@@ -1,4 +1,4 @@
-// NuGet: Install-Package ABCpdf
+// NuGet: Install-Package ABCpdf (v13.4.4 as of April 2026)
 using System;
 using WebSupergoo.ABCpdf13;
 using WebSupergoo.ABCpdf13.Objects;

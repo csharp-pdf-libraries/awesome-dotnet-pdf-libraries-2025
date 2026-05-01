@@ -1,78 +1,29 @@
-// NuGet: Install-Package System.Drawing.Common
+// NuGet: Install-Package RawPrint  (frogmorecs/RawPrint, v0.5.0 — package is unlisted/legacy on nuget.org)
+// Repo: https://github.com/frogmorecs/RawPrint
+// RawPrint is a thin P/Invoke wrapper over winspool.Drv (WritePrinter et al.) that sends a
+// RAW byte stream to a Windows print spooler. It does NOT render HTML and does NOT generate
+// PDFs — it ships bytes the printer already understands (PCL, PostScript, ESC/POS, ZPL, an
+// already-rendered PDF for printers with PDF firmware, etc.).
 using System;
-using System.Drawing;
-using System.Drawing.Printing;
-using System.Runtime.InteropServices;
-using System.Text;
-
-class RawPrinterHelper
-{
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
-    public class DOCINFOA
-    {
-        [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
-        [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
-        [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
-    }
-
-    [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
-    public static extern bool OpenPrinter([MarshalAs(UnmanagedType.LPStr)] string szPrinter, out IntPtr hPrinter, IntPtr pd);
-
-    [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
-    public static extern bool ClosePrinter(IntPtr hPrinter);
-
-    [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
-    public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di);
-
-    [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
-    public static extern bool EndDocPrinter(IntPtr hPrinter);
-
-    [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
-    public static extern bool StartPagePrinter(IntPtr hPrinter);
-
-    [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
-    public static extern bool EndPagePrinter(IntPtr hPrinter);
-
-    [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
-    public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
-
-    public static bool SendStringToPrinter(string szPrinterName, string szString)
-    {
-        IntPtr pBytes;
-        Int32 dwCount;
-        dwCount = szString.Length;
-        pBytes = Marshal.StringToCoTaskMemAnsi(szString);
-        IntPtr hPrinter;
-        if (OpenPrinter(szPrinterName, out hPrinter, IntPtr.Zero))
-        {
-            DOCINFOA di = new DOCINFOA();
-            di.pDocName = "HTML Document";
-            di.pDataType = "RAW";
-            if (StartDocPrinter(hPrinter, 1, di))
-            {
-                if (StartPagePrinter(hPrinter))
-                {
-                    Int32 dwWritten;
-                    WritePrinter(hPrinter, pBytes, dwCount, out dwWritten);
-                    EndPagePrinter(hPrinter);
-                }
-                EndDocPrinter(hPrinter);
-            }
-            ClosePrinter(hPrinter);
-            Marshal.FreeCoTaskMem(pBytes);
-            return true;
-        }
-        return false;
-    }
-}
+using System.IO;
+using RawPrint;
 
 class Program
 {
     static void Main()
     {
+        // RawPrint cannot convert HTML to PDF. The closest you can do is hand it bytes the
+        // printer firmware can interpret. Sending raw HTML to a printer just makes the printer
+        // print the HTML source as text — it does not render the markup.
         string html = "<html><body><h1>Hello World</h1></body></html>";
-        // RawPrint cannot directly convert HTML to PDF
-        // It sends raw data to printer, no PDF generation capability
-        RawPrinterHelper.SendStringToPrinter("Microsoft Print to PDF", html);
+        byte[] data = System.Text.Encoding.ASCII.GetBytes(html);
+
+        IPrinter printer = new Printer();
+        using (var stream = new MemoryStream(data))
+        {
+            // PrintRawStream(printerName, stream, documentName, paused)
+            printer.PrintRawStream("Microsoft Print to PDF", stream, "HTML Document", false);
+        }
+        Console.WriteLine("Raw HTML bytes sent to spooler (not rendered). Use IronPDF for true HTML->PDF.");
     }
 }

@@ -17,7 +17,7 @@
 
 ### The MigraDoc Challenges
 
-MigraDoc, while powerful for programmatic PDF generation, has fundamental limitations:
+MigraDoc is a layout engine that sits on top of PDFsharp (it depends on the `PDFsharp` package and renders into a PDFsharp `PdfDocument`); it is not a standalone PDF library. Maintained by empira / the PDFsharp-Team (Stefan Lange et al.) under the MIT license, it is actively developed — current stable is 6.2.4 (January 2026), with a 7.0 preview targeting C# 12 and .NET 8/9/10. While powerful for programmatic generation, it has fundamental limitations:
 
 1. **No HTML Support**: Must manually construct documents element-by-element—cannot leverage existing HTML/CSS designs
 2. **Proprietary Document Model**: Steep learning curve to master `Document`, `Section`, `Paragraph`, `Table`, `Style` APIs
@@ -25,7 +25,7 @@ MigraDoc, while powerful for programmatic PDF generation, has fundamental limita
 4. **Verbose Code**: Creating even simple layouts requires dozens of lines of code
 5. **No JavaScript**: Cannot render dynamic content or interactive elements
 6. **Charts Are Basic**: Chart functionality is limited compared to web charting libraries
-7. **Limited .NET Core Support**: PDFSharp/MigraDoc 6.x has improved but earlier versions had limitations
+7. **GDI vs WPF flavors**: You must pick the correct flavor (`PDFsharp-MigraDoc-GDI` vs `PDFsharp-MigraDoc-WPF`) per platform; cross-platform/server scenarios on Linux historically had quirks tied to the underlying drawing backend
 
 ### The IronPDF Advantage
 
@@ -63,10 +63,12 @@ MigraDoc, while powerful for programmatic PDF generation, has fundamental limita
 ### Installation
 
 ```bash
-# Remove MigraDoc packages
-dotnet remove package PdfSharp-MigraDoc
-dotnet remove package PdfSharp-MigraDoc-GDI
-dotnet remove package PDFsharp.MigraDoc.Standard
+# Remove MigraDoc packages (current package IDs are case-sensitive on nuget.org)
+dotnet remove package PDFsharp-MigraDoc
+dotnet remove package PDFsharp-MigraDoc-GDI
+dotnet remove package PDFsharp-MigraDoc-WPF
+# (PDFsharp itself is pulled in transitively and can be removed too if no
+# longer referenced: dotnet remove package PDFsharp)
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -1227,9 +1229,9 @@ new ChromePdfRenderer().RenderHtmlAsPdf("<html></html>");
 
 - [ ] **Remove MigraDoc packages and install IronPdf**
   ```bash
-  dotnet remove package PdfSharp-MigraDoc
-  dotnet remove package PdfSharp-MigraDoc-GDI
-  dotnet remove package PDFsharp.MigraDoc.Standard
+  dotnet remove package PDFsharp-MigraDoc
+  dotnet remove package PDFsharp-MigraDoc-GDI
+  dotnet remove package PDFsharp-MigraDoc-WPF
   dotnet add package IronPdf
   ```
   **Why:** Clean package switch. IronPDF uses HTML/CSS instead of MigraDoc's programmatic document model.

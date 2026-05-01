@@ -4,7 +4,7 @@ When selecting a C# PDF generation library, developers often come across familia
 
 ## Understanding NReco.PdfGenerator
 
-NReco.PdfGenerator is a C# library designed to convert HTML documents into PDFs, primarily leveraging the `wkhtmltopdf` tool underneath. NReco.PdfGenerator has gained popularity for its familiar API that many developers find straightforward to use. However, the dependency on `wkhtmltopdf`, a tool with several noted CVEs, presents potential security concerns. Additionally, the free version of NReco.PdfGenerator decorates your PDFs with watermarks, necessitating a commercial license for any professional use. Pricing for this license, unfortunately, lacks transparency and requires contacting sales.
+NReco.PdfGenerator is a C# library designed to convert HTML documents into PDFs, primarily leveraging the `wkhtmltopdf` tool underneath (the embedded Windows binary in v1.2.1 is wkhtmltopdf 0.12.6). NReco.PdfGenerator has gained popularity for its familiar API that many developers find straightforward to use. However, the dependency on `wkhtmltopdf`, a tool with several noted CVEs whose upstream repository was archived on January 2, 2023, presents real security concerns. The NuGet package itself is free for non-SaaS single-server production deployments; SaaS, multi-server, or redistribution scenarios require the $199 enterprise source-code pack from nrecosite.com.
 
 Despite these drawbacks, NReco.PdfGenerator continues to serve developers due to its straightforward implementation. You can get started by transforming basic HTML content into a PDF document with minimal setup.
 
@@ -34,8 +34,8 @@ To provide a clearer perspective, let's examine the key differences between NRec
 | Feature                  | NReco.PdfGenerator                            | IronPDF                                   |
 |--------------------------|-----------------------------------------------|-------------------------------------------|
 | **Base Technology**      | `wkhtmltopdf` wrapper                         | Independent implementation                |
-| **Watermark**            | Yes, in free version                          | No watermark during trial                 |
-| **Pricing Transparency** | Opaque, requires contact with sales           | Published and transparent                 |
+| **Watermark**            | None on output (free under single-server, non-SaaS license) | No watermark during trial                 |
+| **Pricing Transparency** | Free for non-SaaS single-server; $199 enterprise pack for SaaS/multi-server | Published and transparent                 |
 | **Security**             | Vulnerable to `wkhtmltopdf` CVEs              | No legacy security issues                 |
 | **HTML to PDF C# Engine**| Wrapper around deprecated tool                | Native html to pdf c# implementation      |
 | **Developer Resources**  | Limited documentation                         | Extensive tutorials and documentation     |
@@ -54,7 +54,7 @@ To provide a clearer perspective, let's examine the key differences between NRec
 **Weaknesses:**
 
 1. **Security Issues:** Relies on `wkhtmltopdf`, which has several documented vulnerabilities.
-2. **Lack of Transparency:** Pricing details are not readily accessible and involve sales discussions.
+2. **License Friction at Scale:** The free single-server, non-SaaS license rules out common cloud and multi-tenant deployments without paying for the $199 enterprise pack.
 3. **Feature Limitations:** Current capabilities are tied to the limitations of `wkhtmltopdf`.
 
 For a side-by-side feature analysis, see the [detailed comparison](https://ironsoftware.com/suite/blog/comparison/compare-nreco-pdfgenerator-vs-ironpdf/).
@@ -217,10 +217,10 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 NReco.PdfGenerator wraps wkhtmltopdf, inheriting all its security vulnerabilities:
 
-1. **20+ Documented CVEs**: Including SSRF, local file read, and RCE vulnerabilities
-2. **Abandoned Project**: wkhtmltopdf development stopped in 2020—no patches coming
+1. **Documented CVEs**: Including SSRF (CVE-2022-35583, CVSS 9.8) and local-file-read (CVE-2020-21365)
+2. **Abandoned Project**: wkhtmltopdf's last stable release was 0.12.6 in June 2020 and the repository was archived on January 2, 2023—no patches coming
 3. **Deprecated Engine**: WebKit Qt (circa 2012) with limited CSS3/JS support
-4. **Watermarked Free Version**: Production requires paid license with opaque pricing
+4. **Restrictive Free Tier**: Free under a non-SaaS single-server license; SaaS/multi-server use requires the $199 enterprise pack
 5. **External Binary**: Must manage wkhtmltopdf binaries per platform
 6. **Synchronous Only**: No async/await support blocks web application threads
 
@@ -229,12 +229,12 @@ NReco.PdfGenerator wraps wkhtmltopdf, inheriting all its security vulnerabilitie
 | Aspect | NReco.PdfGenerator | IronPDF |
 |--------|-------------------|---------|
 | Rendering Engine | WebKit Qt (2012) | Chromium (current) |
-| Security | 20+ CVEs, abandoned | Active security updates |
+| Security | Multiple unpatched CVEs (e.g., CVE-2020-21365, CVE-2022-35583); engine archived Jan 2, 2023 | Active security updates |
 | CSS Support | CSS2.1, limited CSS3 | Full CSS3, Grid, Flexbox |
 | JavaScript | Basic ES5 | Full ES6+ |
 | Dependencies | External wkhtmltopdf binary | Self-contained |
 | Async Support | Synchronous only | Full async/await |
-| Free Trial | Watermarked | Full functionality |
+| Free Tier | Free under non-SaaS single-server license | Trial requires no watermark |
 
 ### Key API Mappings
 
@@ -242,7 +242,7 @@ NReco.PdfGenerator wraps wkhtmltopdf, inheriting all its security vulnerabilitie
 |-------------------|---------|-------|
 | `new HtmlToPdfConverter()` | `new ChromePdfRenderer()` | Main renderer |
 | `GeneratePdf(html)` | `RenderHtmlAsPdf(html)` | Returns PdfDocument |
-| `GeneratePdfFromFile(url, out)` | `RenderUrlAsPdf(url)` | Direct URL support |
+| `GeneratePdfFromFile(url, coverHtml)` | `RenderUrlAsPdf(url)` | 2nd arg is optional cover HTML |
 | `Orientation = PageOrientation.Landscape` | `RenderingOptions.PaperOrientation` | Enum value |
 | `Size = PageSize.A4` | `RenderingOptions.PaperSize = PdfPaperSize.A4` | Paper size |
 | `Margins.Top = 10` | `RenderingOptions.MarginTop = 10` | Individual properties |

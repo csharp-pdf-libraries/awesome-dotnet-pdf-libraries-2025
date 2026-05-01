@@ -1,6 +1,6 @@
 # pdforge + C# + PDF
 
-When it comes to generating PDFs in C#, two names often pop up for consideration: pdforge and IronPDF. pdforge is a cloud-based PDF generation API, offering a straightforward way to produce PDF files by integrating with your application through API calls. This contrasts with IronPDF, a local library providing full control over the PDF generation process without external dependencies. In examining these two solutions, developers will find both distinct advantages and certain limitations.
+When it comes to generating PDFs in C#, two names often pop up for consideration: pdforge and IronPDF. pdforge (rebranded to "pdf noodle" in 2026 — pdfnoodle.com; the api.pdforge.com hostname continues to work via 301 redirects through end of 2026) is a cloud-based, template-driven PDF generation API offering a straightforward way to produce PDF files by integrating with your application through HTTP calls. There is no official .NET SDK on NuGet — integration is done with `HttpClient` against the documented REST endpoints. This contrasts with IronPDF, a local library providing full control over the PDF generation process without external dependencies. In examining these two solutions, developers will find both distinct advantages and certain limitations.
 
 pdforge's strengths lie in its simplicity and its cloud-based architecture, which can simplify the development process. By offloading the task of PDF creation to an external API, developers can focus on other areas of their application. However, pdforge presents drawbacks such as external dependencies, limited customization options, and ongoing subscription costs that developers should be aware of.
 
@@ -15,9 +15,11 @@ pdforge is a PDF generation API designed for ease of integration with cloud appl
 Here is a simple code example in C# illustrating how you might use pdforge to generate a PDF:
 
 ```csharp
-using System;
+using System.IO;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 public class PDFExample
@@ -26,23 +28,20 @@ public class PDFExample
 
     public static async Task GeneratePDFAsync()
     {
-        var apiUrl = "https://api.pdforge.com/pdf";
-        var requestContent = new StringContent(@"{
-            'html': '<html><body><h1>This is a PDF</h1></body></html>'
-        }", Encoding.UTF8, "application/json");
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
 
-        var response = await client.PostAsync(apiUrl, requestContent);
+        var body = new { html = "<html><body><h1>This is a PDF</h1></body></html>" };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
-        if (response.IsSuccessStatusCode)
-        {
-            var pdfBytes = await response.Content.ReadAsByteArrayAsync();
-            System.IO.File.WriteAllBytes("pdforgeSample.pdf", pdfBytes);
-            Console.WriteLine("PDF generated successfully using pdforge!");
-        }
-        else
-        {
-            Console.WriteLine("Failed to generate PDF using pdforge.");
-        }
+        // Sync HTML-to-PDF endpoint returns a JSON envelope with a signed S3 URL.
+        var response = await client.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+        response.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var signedUrl = doc.RootElement.GetProperty("signedUrl").GetString();
+        var pdfBytes = await client.GetByteArrayAsync(signedUrl);
+        File.WriteAllBytes("pdforgeSample.pdf", pdfBytes);
     }
 }
 ```
@@ -99,17 +98,32 @@ Jacob Mellor is the Chief Technology Officer at Iron Software, where he leads a 
 Here's how **pdforge** handles this:
 
 ```csharp
-// NuGet: Install-Package PdfForge
-using PdfForge;
+// REST API — no .NET SDK on NuGet. Integration is HttpClient + JSON POST.
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        var pdf = converter.ConvertUrl("https://example.com");
-        File.WriteAllBytes("webpage.pdf", pdf);
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
+
+        // pdf noodle has no dedicated URL endpoint; fetch the page, then POST its HTML.
+        var sourceHtml = await http.GetStringAsync("https://example.com");
+        var body = new { html = sourceHtml };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+
+        var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+        resp.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var pdfBytes = await http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
+        File.WriteAllBytes("webpage.pdf", pdfBytes);
     }
 }
 ```
@@ -140,18 +154,30 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **pdforge** handles this:
 
 ```csharp
-// NuGet: Install-Package PdfForge
-using PdfForge;
+// REST API — no .NET SDK on NuGet. Integration is HttpClient + JSON POST.
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        var html = "<html><body><h1>Hello World</h1></body></html>";
-        var pdf = converter.ConvertHtmlString(html);
-        File.WriteAllBytes("output.pdf", pdf);
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
+
+        var body = new { html = "<html><body><h1>Hello World</h1></body></html>" };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+
+        var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+        resp.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var pdfBytes = await http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
+        File.WriteAllBytes("output.pdf", pdfBytes);
     }
 }
 ```
@@ -183,20 +209,32 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **pdforge** handles this:
 
 ```csharp
-// NuGet: Install-Package PdfForge
-using PdfForge;
+// REST API — no .NET SDK on NuGet. Integration is HttpClient + JSON POST.
+// Page size / orientation flow through the optional `pdfParams` object.
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        converter.PageSize = PageSize.A4;
-        converter.Orientation = PageOrientation.Landscape;
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
+
         var htmlContent = File.ReadAllText("input.html");
-        var pdf = converter.ConvertHtmlString(htmlContent);
-        File.WriteAllBytes("output.pdf", pdf);
+        var body = new { html = htmlContent, pdfParams = new { format = "A4", landscape = true } };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+
+        var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+        resp.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var pdfBytes = await http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
+        File.WriteAllBytes("output.pdf", pdfBytes);
     }
 }
 ```
@@ -255,14 +293,14 @@ pdforge processes all documents on external cloud servers. This architecture cre
 
 | pdforge | IronPDF | Notes |
 |---------|---------|-------|
-| `new PdfClient("api-key")` | `new ChromePdfRenderer()` | No per-request credentials |
-| `client.GenerateAsync(request)` | `renderer.RenderHtmlAsPdf(html)` | HTML to PDF |
-| `new UrlToPdfRequest { Url = url }` | `renderer.RenderUrlAsPdf(url)` | URL to PDF |
-| `PageSize = PageSize.A4` | `renderer.RenderingOptions.PaperSize = PdfPaperSize.A4` | Paper size |
-| `Orientation = Orientation.Landscape` | `renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape` | Orientation |
-| `Header = "text"` | `renderer.RenderingOptions.TextHeader = new TextHeaderFooter { CenterText = "text" }` | Header |
-| `Footer = "Page {page} of {totalPages}"` | `renderer.RenderingOptions.TextFooter = new TextHeaderFooter { CenterText = "Page {page} of {total-pages}" }` | Footer (note: different placeholder) |
-| `File.WriteAllBytes(path, bytes)` | `pdf.SaveAs(path)` | Save to disk |
+| `Authorization: Bearer pdfnoodle_api_...` | `new ChromePdfRenderer()` | No per-request credentials |
+| `POST /v1/html-to-pdf/sync` with `{ html }` | `renderer.RenderHtmlAsPdf(html)` | HTML to PDF |
+| Fetch URL, then POST its HTML | `renderer.RenderUrlAsPdf(url)` | URL to PDF (no dedicated endpoint) |
+| `pdfParams: { format: "A4" }` | `renderer.RenderingOptions.PaperSize = PdfPaperSize.A4` | Paper size |
+| `pdfParams: { landscape: true }` | `renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape` | Orientation |
+| `headerTemplate: "<div>...</div>"` | `renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter { HtmlFragment = "..." }` | Header |
+| `footerTemplate` with `<span class="pageNumber">` / `<span class="totalPages">` | `renderer.RenderingOptions.TextFooter = new TextHeaderFooter { CenterText = "Page {page} of {total-pages}" }` | Footer |
+| Download `signedUrl` then `File.WriteAllBytes` | `pdf.SaveAs(path)` | Save to disk |
 | _(not available)_ | `PdfDocument.Merge()` | NEW: Merge PDFs |
 | _(not available)_ | `pdf.ExtractAllText()` | NEW: Text extraction |
 | _(not available)_ | `pdf.ApplyWatermark()` | NEW: Watermarks |
@@ -271,20 +309,35 @@ pdforge processes all documents on external cloud servers. This architecture cre
 
 **Before (pdforge):**
 ```csharp
-using PdForge;
-using PdForge.Client;
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
-var client = new PdfClient("your-api-key");
+using var http = new HttpClient();
+http.DefaultRequestHeaders.Authorization =
+    new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
 
-var request = new HtmlToPdfRequest
+var body = new
 {
-    Html = "<h1>Report</h1>",
-    PageSize = PageSize.A4,
-    Footer = "Page {page} of {totalPages}"
+    html = "<h1>Report</h1>",
+    pdfParams = new
+    {
+        format = "A4",
+        displayHeaderFooter = true,
+        footerTemplate = "<div style='font-size:10px;width:100%;text-align:center;'>" +
+                         "Page <span class=\"pageNumber\"></span> of <span class=\"totalPages\"></span></div>"
+    }
 };
+var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
-byte[] pdfBytes = await client.GenerateAsync(request);
+var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+resp.EnsureSuccessStatusCode();
+
+using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+var pdfBytes = await http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
 File.WriteAllBytes("report.pdf", pdfBytes);
 ```
 
@@ -307,57 +360,53 @@ pdf.SaveAs("report.pdf");
 
 ### Critical Migration Notes
 
-1. **Placeholder Syntax**: pdforge uses `{totalPages}`; IronPDF uses `{total-pages}` (with hyphen)
+1. **Placeholder Syntax**: pdforge uses Chromium's `<span class="totalPages">` template tags; IronPDF uses bracketed placeholders
    ```csharp
-   // pdforge: "Page {page} of {totalPages}"
+   // pdforge footerTemplate: "Page <span class=\"pageNumber\"></span> of <span class=\"totalPages\"></span>"
    // IronPDF: "Page {page} of {total-pages}"
    ```
 
-2. **Async to Sync**: pdforge requires async; IronPDF is sync by default
+2. **Async to Sync**: pdforge HTTP calls are async; IronPDF is sync by default
    ```csharp
-   // pdforge: await client.GenerateAsync(request)
+   // pdforge: await http.PostAsync(".../v1/html-to-pdf/sync", json)
    // IronPDF: renderer.RenderHtmlAsPdf(html)
    // IronPDF async: await Task.Run(() => renderer.RenderHtmlAsPdf(html))
    ```
 
-3. **Return Type**: pdforge returns `byte[]`; IronPDF returns `PdfDocument`
+3. **Return Type**: pdforge returns a JSON envelope with `signedUrl`; IronPDF returns `PdfDocument`
    ```csharp
-   // pdforge: byte[] pdfBytes = await client.GenerateAsync(request);
+   // pdforge: parse signedUrl → http.GetByteArrayAsync → byte[]
    // IronPDF: var pdf = renderer.RenderHtmlAsPdf(html);
    //          byte[] bytes = pdf.BinaryData;  // if you need bytes
    ```
 
 4. **API Key → License Key**: One-time setup at app startup
    ```csharp
-   // pdforge: new PdfClient("api-key") - per client
+   // pdforge: Bearer token in Authorization header on every request
    // IronPDF: IronPdf.License.LicenseKey = "KEY" - once at startup
    ```
 
-5. **Configuration Location**: Request object → RenderingOptions
+5. **Configuration Location**: JSON `pdfParams` → RenderingOptions
    ```csharp
-   // pdforge: request.PageSize = PageSize.A4;
+   // pdforge: pdfParams = new { format = "A4" }
    // IronPDF: renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
    ```
 
 ### NuGet Package Migration
 
 ```bash
-# Remove pdforge packages
-dotnet remove package pdforge
-dotnet remove package PdfForge
-
-# Install IronPDF
+# pdforge has no .NET SDK on NuGet — nothing to remove. Just install IronPDF:
 dotnet add package IronPdf
 ```
 
 ### Find All pdforge References
 
 ```bash
-# Find pdforge usage
-grep -r "PdForge\|PdfClient\|HtmlToPdfRequest" --include="*.cs" .
+# Find pdforge / pdf noodle endpoint usage
+grep -r "api\.pdforge\.com\|api\.pdfnoodle\.com" --include="*.cs" .
 
-# Find placeholder patterns to migrate
-grep -r "{totalPages}" --include="*.cs" .
+# Find Chromium template patterns to migrate
+grep -r "totalPages\|pageNumber\|footerTemplate\|headerTemplate" --include="*.cs" .
 ```
 
 **Ready for the complete migration?** The full guide includes:

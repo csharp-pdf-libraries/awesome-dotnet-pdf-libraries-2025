@@ -2,32 +2,33 @@
 
 ## Why Migrate from QuestPDF to IronPDF
 
-**QuestPDF is often recommended for HTML-to-PDF conversion, but it doesn't support HTML at all.** Despite being heavily promoted on Reddit and developer forums, QuestPDF uses its own proprietary layout language that requires learning an entirely new DSL instead of leveraging existing web skills. This fundamental limitation makes it the wrong choice for most PDF generation scenarios.
+**QuestPDF is often recommended for HTML-to-PDF conversion, but the core library does not support HTML.** QuestPDF uses its own fluent C# layout API and explicitly positions itself as a code-first alternative to HTML rendering. A community-maintained `QuestPDF.HTML` extension (originally by Relorer) covers a limited subset of HTML/CSS, but the core engine is programmatic-only and does not run a real browser engine.
 
-### The Core Problem: No HTML Support
+### The Core Problem: No HTML Engine in Core Library
 
 | Feature | QuestPDF | IronPDF |
 |---------|----------|---------|
-| **HTML-to-PDF** | ❌ **NOT SUPPORTED** | ✅ Full support |
-| **CSS Styling** | ❌ **NOT SUPPORTED** | ✅ Full CSS3 |
-| **Existing Templates** | ❌ Must rebuild from scratch | ✅ Reuse HTML/CSS assets |
+| **HTML-to-PDF (core)** | ❌ Not supported (fluent API only) | ✅ Full support |
+| **HTML-to-PDF (extension)** | Partial via `QuestPDF.HTML` (limited HTML/CSS subset) | ✅ Full support |
+| **CSS Styling** | Limited via extension | ✅ Full CSS3 |
+| **Existing Templates** | Must rebuild from scratch | ✅ Reuse HTML/CSS assets |
 | **Design Tool Compatibility** | ❌ None | ✅ Any web design tool |
-| **Learning Curve** | New proprietary DSL | Web skills transfer |
-| **Layout Preview** | ❌ Requires IDE plugin | ✅ Preview in any browser |
-| **True Open Source** | ❌ Free for devs, paid for clients | ✅ Simple commercial license |
+| **Learning Curve** | New fluent API | Web skills transfer |
+| **Layout Preview** | Requires Companion app | ✅ Preview in any browser |
+| **True Open Source** | MIT for Community tier; commercial above $1M revenue | ✅ Simple commercial license |
 
 ---
 
-## The QuestPDF Licensing Trap
+## The QuestPDF Licensing Model
 
-QuestPDF markets itself as "free" and "open source," but this is misleading:
+QuestPDF is genuinely free under its MIT-based Community License for many users, but the tiered model surprises some teams once they grow:
 
 ### The Reality
 
-1. **Free Tier Limitations**: QuestPDF's "Community License" is only free if your company has less than $1 million in annual gross revenue
-2. **Client Impact**: Your clients (not just you as a developer) may need to purchase licenses if they exceed revenue thresholds
-3. **License Auditing**: Unlike a simple per-developer commercial license, QuestPDF's model requires revenue disclosure and compliance tracking
-4. **iText-Style Licensing**: This mirrors the problematic iText/iTextSharp licensing model that caused headaches for many organizations
+1. **Free Tier Limitations**: QuestPDF's Community License (MIT terms) is free for individuals, non-profits, FOSS projects, and companies under **$1M USD annual gross revenue**
+2. **Commercial Tiers**: Above that threshold you need a paid license — Professional starts at **$999** (perpetual, up to 10 developers, one year of updates) and Enterprise at **$2,999** (perpetual, organization-wide, no developer limits)
+3. **Revenue-Based Threshold**: Unlike a simple per-developer commercial license, the trigger is your organization's revenue rather than seat count
+4. **Tiered Licensing**: This is closer to the BSL/usage-tier model now common in OSS and not the AGPL-or-buy-out pattern of iText 7
 
 ### IronPDF's Simple Licensing
 
@@ -39,11 +40,11 @@ QuestPDF markets itself as "free" and "open source," but this is misleading:
 
 ---
 
-## The Proprietary Language Problem
+## The Fluent API Learning Curve
 
-QuestPDF forces you to learn a custom C# fluent API instead of using standard web technologies:
+QuestPDF asks you to learn its custom C# fluent API instead of using standard web technologies:
 
-### QuestPDF's Approach (Proprietary DSL)
+### QuestPDF's Approach (Fluent C# API)
 ```csharp
 // You must learn QuestPDF's custom fluent API
 container.Page(page =>
@@ -60,11 +61,11 @@ container.Page(page =>
 });
 ```
 
-**Problems:**
-- Cannot visualize output without building and running code
-- Requires QuestPDF Previewer plugin for Visual Studio or JetBrains IDEs
+**Trade-offs:**
+- Cannot visualize output without building and running code (or using the QuestPDF Companion app)
+- The Companion / Previewer tooling is recommended for fast iteration
 - No syntax highlighting for layout structure in standard editors
-- Cannot reuse existing HTML/CSS templates
+- Cannot directly reuse existing HTML/CSS templates
 - Design changes require C# code changes
 - Non-developers (designers) cannot contribute to templates
 
@@ -119,17 +120,17 @@ One of QuestPDF's most significant limitations is that it cannot reuse existing 
 
 ---
 
-## The IDE Plugin Requirement
+## The Companion App Workflow
 
-QuestPDF requires installing a special plugin to preview your PDF layouts:
+QuestPDF ships a Companion app (formerly the Previewer) for hot-reloading and previewing PDF layouts during development:
 
-### Without the Plugin
+### Without the Companion
 - You must build and run your code to see output
 - Trial and error for positioning and styling
 - No visual feedback during development
 - Slow iteration cycle
 
-### With IronPDF (No Plugin Required)
+### With IronPDF (No Companion App Required)
 - Open HTML in any browser to preview
 - Use browser dev tools for debugging
 - Instant visual feedback
@@ -177,9 +178,10 @@ dotnet add package IronPdf
 | `.Margin()` | `RenderingOptions.Margin*` | Page margins |
 | `.GeneratePdf()` | `pdf.SaveAs()` | File output |
 | `.GeneratePdfStream()` | `pdf.BinaryData` or `pdf.Stream` | Memory output |
-| N/A | `PdfDocument.Merge()` | Merge PDFs |
-| N/A | `PdfDocument.FromFile()` | Load existing PDFs |
-| N/A | `pdf.SecuritySettings` | PDF encryption |
+| `.GeneratePdfAsync()` | `await renderer.RenderHtmlAsPdfAsync()` | Async output |
+| `DocumentOperation.LoadFile().MergeFile()` | `PdfDocument.Merge()` | Merge PDFs (QuestPDF: 2024.12.0+) |
+| `DocumentOperation.LoadFile()` | `PdfDocument.FromFile()` | Load existing PDFs (QuestPDF: 2024.12.0+) |
+| `DocumentOperation.LoadFile().Encrypt()` | `pdf.SecuritySettings` | PDF encryption (QuestPDF: 2024.12.0+) |
 | N/A | `pdf.Sign()` | Digital signatures |
 
 ---
@@ -674,9 +676,19 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 pdf.SaveAs("document.pdf");
 ```
 
-### Example 6: PDF Manipulation (NOT Possible in QuestPDF)
+### Example 6: PDF Manipulation (Limited in QuestPDF)
 
-**QuestPDF:** Cannot merge, split, or edit existing PDFs.
+**QuestPDF:** As of version 2024.12.0+, the Document Operations API can load, merge, take/extract pages, overlay/underlay, attach files, encrypt, and linearize existing PDFs. It still does not perform editing of existing page content (e.g. modifying existing text, adding form fields to imported PDFs, OCR, or digital signatures).
+
+```csharp
+// QuestPDF Document Operations API (2024.12.0+)
+DocumentOperation
+    .LoadFile("cover.pdf")
+    .TakePages("1-z")
+    .MergeFile("content.pdf", "1-z")
+    .MergeFile("appendix.pdf", "1-z")
+    .Save("complete.pdf");
+```
 
 **IronPDF:**
 ```csharp
@@ -705,11 +717,25 @@ document.ApplyWatermark("<h1 style='color:red; opacity:0.3;'>DRAFT</h1>");
 document.SaveAs("watermarked.pdf");
 ```
 
-### Example 7: PDF Security (NOT Possible in QuestPDF)
+### Example 7: PDF Security (Encryption Only in QuestPDF)
 
-**QuestPDF:** Cannot encrypt or secure PDFs.
+**QuestPDF:** Supports 40-bit, 128-bit, and 256-bit encryption with user/owner passwords and permission flags (printing, copying, editing) via the Document Operations API in 2024.12.0+. It does not currently support digital signatures or certificate-based signing.
 
-**IronPDF:**
+```csharp
+// QuestPDF encryption via Document Operations API
+DocumentOperation
+    .LoadFile("document.pdf")
+    .Encrypt(new Encryption256Bit
+    {
+        UserPassword = "user123",
+        OwnerPassword = "admin123",
+        AllowPrinting = false,
+        AllowContentExtraction = false
+    })
+    .Save("secure.pdf");
+```
+
+**IronPDF (full security plus signing):**
 ```csharp
 using IronPdf;
 
@@ -759,27 +785,27 @@ pdf.SaveAs("signed-contract.pdf");
 
 ## Common Gotchas
 
-### 1. **QuestPDF Has NO HTML Support**
-QuestPDF cannot convert HTML to PDF. Period. Every reference to "HTML-to-PDF" with QuestPDF on Reddit or forums is incorrect. If you need HTML-to-PDF, QuestPDF is the wrong choice.
+### 1. **QuestPDF Core Has No HTML Engine**
+The core QuestPDF library cannot convert HTML to PDF. The community-maintained `QuestPDF.HTML` extension covers a limited subset of HTML/CSS but is not a full browser renderer. If you need accurate HTML/CSS rendering, this is the wrong choice.
 
-### 2. **Proprietary DSL Learning Curve**
-QuestPDF requires learning a completely new layout language. Your existing HTML/CSS knowledge doesn't transfer. With IronPDF, web developers are productive immediately.
+### 2. **Fluent API Learning Curve**
+QuestPDF requires learning a new fluent C# layout API. Your existing HTML/CSS knowledge doesn't transfer. With IronPDF, web developers are productive immediately.
 
-### 3. **No Visual Preview Without Plugin**
-Without the QuestPDF Previewer plugin for Visual Studio or JetBrains, you must compile and run code to see output. With IronPDF, open your HTML in any browser.
+### 3. **No Visual Preview Without the Companion**
+Without the QuestPDF Companion app, you must compile and run code to see output. With IronPDF, open your HTML in any browser.
 
 ### 4. **Designers Cannot Contribute**
 QuestPDF templates require C# code changes. With IronPDF's HTML approach, designers can create and modify templates independently.
 
 ### 5. **Revenue-Based Licensing**
-QuestPDF's free tier has revenue thresholds. Your clients may unexpectedly need licenses. IronPDF uses simple per-developer licensing with no client impact.
+QuestPDF's free tier has a $1M annual gross revenue cap. Above that, you need a Professional ($999) or Enterprise ($2,999) license. IronPDF uses per-developer licensing.
 
 ### 6. **Page Breaks**
 - **QuestPDF:** `.PageBreak()` method
 - **IronPDF:** CSS `page-break-before: always` or `page-break-after: always`
 
-### 7. **No PDF Manipulation**
-QuestPDF can only create PDFs. It cannot load, merge, split, edit, secure, or sign existing PDFs. IronPDF does all of this.
+### 7. **Limited PDF Manipulation**
+QuestPDF's Document Operations API (2024.12.0+) supports merge, page extraction, encryption, attachments, overlay/underlay, and linearization. It does not edit existing page content, add form fields to imported PDFs, perform OCR, or apply digital signatures. IronPDF supports the full set.
 
 ### 8. **No URL-to-PDF**
 QuestPDF cannot render websites to PDF. IronPDF can:
@@ -1030,15 +1056,15 @@ DSL-to-HTML conversion patterns and licensing model comparisons are thoroughly d
 
 | Consideration | QuestPDF | IronPDF |
 |---------------|----------|---------|
-| **HTML-to-PDF** | ❌ Not supported | ✅ Primary feature |
-| **Learning Curve** | Proprietary DSL | Standard web skills |
-| **Template Preview** | Plugin required | Any browser |
+| **HTML-to-PDF** | ❌ Core: not supported (limited via `QuestPDF.HTML` extension) | ✅ Primary feature |
+| **Learning Curve** | Fluent C# API | Standard web skills |
+| **Template Preview** | Companion app | Any browser |
 | **Design Collaboration** | Developers only | Designers + Developers |
 | **Existing Assets** | Must rebuild | Reuse HTML/CSS |
-| **PDF Manipulation** | ❌ Not supported | ✅ Full support |
-| **Security/Signing** | ❌ Not supported | ✅ Full support |
-| **Licensing Model** | Revenue-based | Per-developer |
-| **Client Impact** | May need licenses | None |
+| **PDF Manipulation** | Merge / extract / overlay (2024.12.0+) | ✅ Full support |
+| **PDF Security** | Encryption + permissions (no digital signing) | ✅ Encryption + digital signing |
+| **Licensing Model** | Revenue-based ($1M threshold) | Per-developer |
+| **Client Impact** | May need licenses above $1M revenue | None |
 
 ---
 

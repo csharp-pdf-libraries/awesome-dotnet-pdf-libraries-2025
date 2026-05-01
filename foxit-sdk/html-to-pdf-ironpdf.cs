@@ -6,6 +6,8 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var renderer = new ChromePdfRenderer();
         var pdf = renderer.RenderHtmlAsPdf("<html><body><h1>Hello World</h1></body></html>");
         pdf.SaveAs("output.pdf");

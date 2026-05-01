@@ -1,5 +1,7 @@
 // NuGet: Install-Package MuPDF.NET
-using MuPDFCore;
+// Artifex's official C# bindings for MuPDF (mirrors PyMuPDF surface).
+// See https://mupdfnet.readthedocs.io/
+using MuPDF.NET;
 using System;
 using System.Text;
 
@@ -7,17 +9,16 @@ class Program
 {
     static void Main()
     {
-        using (MuPDFDocument document = new MuPDFDocument("input.pdf"))
+        Document doc = new Document("input.pdf");
+
+        StringBuilder allText = new StringBuilder();
+
+        for (int i = 0; i < doc.PageCount; i++)
         {
-            StringBuilder allText = new StringBuilder();
-            
-            for (int i = 0; i < document.Pages.Count; i++)
-            {
-                string pageText = document.Pages[i].GetText();
-                allText.AppendLine(pageText);
-            }
-            
-            Console.WriteLine(allText.ToString());
+            string pageText = doc[i].GetText();
+            allText.AppendLine(pageText);
         }
+
+        Console.WriteLine(allText.ToString());
     }
 }

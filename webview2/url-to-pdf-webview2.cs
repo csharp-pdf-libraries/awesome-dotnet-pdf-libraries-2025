@@ -1,4 +1,5 @@
-// NuGet: Install-Package Microsoft.Web.WebView2.WinForms
+// NuGet: Install-Package Microsoft.Web.WebView2
+// (Edge Chromium control; requires Edge WebView2 Runtime; Windows-only.)
 using System;
 using System.IO;
 using System.Threading.Tasks;

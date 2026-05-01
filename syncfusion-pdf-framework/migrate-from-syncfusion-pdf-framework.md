@@ -32,24 +32,24 @@ Syncfusion PDF Framework is a comprehensive PDF library that's part of the Essen
 
 Syncfusion's licensing model creates significant challenges:
 
-1. **Suite-Only Purchase**: Cannot buy PDF library standalone—must purchase entire Essential Studio
-2. **Community License Restrictions**: Free tier requires BOTH <$1M revenue AND <5 developers
+1. **No Per-Library Purchase**: Cannot buy the PDF library on its own — the smallest unit is the Document SDK (PDF + Word + Excel + PowerPoint), or the full Essential Studio suite
+2. **Community License Restrictions**: Free tier requires <$1M annual revenue, ≤5 developers, AND ≤10 total employees; plus a $3M lifetime cap on outside capital
 3. **Complex Deployment Licensing**: Different licenses for web, desktop, server deployments
-4. **Annual Renewal Required**: Subscription model with yearly costs
+4. **Annual Renewal Required**: Subscription model with yearly costs (minimum 1-year subscription)
 5. **Per-Developer Pricing**: Costs scale linearly with team size
-6. **Suite Bloat**: Includes 1000+ components you may not need
+6. **Bundle Bloat**: Document SDK ships Word/Excel/PowerPoint libraries you may not need; full Essential Studio adds 1000+ UI components on top
 
 ### IronPDF Advantages
 
 | Aspect | Syncfusion PDF | IronPDF |
 |--------|----------------|---------|
-| Purchase Model | Suite bundle only | Standalone |
+| Purchase Model | Document SDK bundle or full Essential Studio (no per-library SKU) | Standalone |
 | Licensing | Complex tiers | Simple per-developer |
-| Community Limit | <$1M AND <5 devs | Free trial, then license |
+| Community Limit | <$1M revenue, ≤5 devs, ≤10 employees, ≤$3M outside capital | Free trial, then license |
 | Deployment | Multiple license types | One license covers all |
-| API Style | Coordinate-based graphics | HTML/CSS-first |
-| HTML Support | Requires BlinkBinaries | Native Chromium |
-| CSS Support | Limited | Full CSS3/flexbox/grid |
+| API Style | Coordinate-based graphics + HTML converter | HTML/CSS-first |
+| HTML Engine | Blink (separate Windows/Linux/Mac/AWS NuGets) | Bundled Chromium |
+| CSS Support | Modern (Blink) — close to Chromium parity | Full CSS3/flexbox/grid |
 | Dependencies | Multiple packages | Single NuGet |
 
 ---
@@ -59,11 +59,12 @@ Syncfusion's licensing model creates significant challenges:
 ### Remove Syncfusion Packages
 
 ```bash
-# Remove all Syncfusion PDF packages
+# Remove Syncfusion PDF packages (substitute the platform variants you actually used —
+# .Net.Windows / .Net.Linux / .Net.Mac / .Net.Aws for the HTML converter).
 dotnet remove package Syncfusion.Pdf.Net.Core
 dotnet remove package Syncfusion.HtmlToPdfConverter.Net.Windows
 dotnet remove package Syncfusion.Pdf.Imaging.Net.Core
-dotnet remove package Syncfusion.Pdf.OCR.Net.Core
+dotnet remove package Syncfusion.PdfToImageConverter.Net
 
 # Remove license registration
 # Delete: Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense("YOUR_KEY");
@@ -1034,11 +1035,13 @@ pdf.SaveAs("signed.pdf");
 
 - [ ] **Document licensing costs**
   ```csharp
-  // Syncfusion license tiers (as of 2024):
-  // Community: Free (<$1M revenue + <5 developers)
-  // Team: ~$995/developer
-  // Enterprise: Contact sales
-  // Plus annual renewal requirements
+  // Syncfusion license tiers (as of Essential Studio 2026 Vol 1, v33.x):
+  // Community: Free, but requires <$1M revenue AND <=5 developers AND <=10 employees
+  //            AND <=$3M lifetime outside capital (all conditions, not any)
+  // Paid:      Per-developer subscription, minimum 1-year term, billed monthly or annually.
+  //            Public price tiers are no longer published — Syncfusion routes most
+  //            customers through a "Get a Custom Quote" form. Confirm current numbers
+  //            with sales (syncfusion.com/sales/products).
   ```
   **Why:** Syncfusion requires per-developer licenses with complex tier structures.
 
@@ -1046,6 +1049,8 @@ pdf.SaveAs("signed.pdf");
 
 - [ ] **Remove Syncfusion packages**
   ```bash
+  # Substitute the platform variant you used for HtmlToPdfConverter
+  # (.Net.Windows / .Net.Linux / .Net.Mac / .Net.Aws).
   dotnet remove package Syncfusion.Pdf.Net.Core
   dotnet remove package Syncfusion.HtmlToPdfConverter.Net.Windows
   dotnet remove package Syncfusion.Pdf.Imaging.Net.Core
@@ -1074,21 +1079,25 @@ pdf.SaveAs("signed.pdf");
 
 - [ ] **Replace HtmlToPdfConverter with ChromePdfRenderer**
   ```csharp
-  // Before (Syncfusion)
-  var converter = new HtmlToPdfConverter(HtmlRenderingEngine.WebKit);
-  var settings = new WebKitConverterSettings();
-  settings.WebKitPath = @"C:\QtBinaries\";
+  // Before (Syncfusion — current Blink default)
+  var converter = new HtmlToPdfConverter();           // defaults to Blink
+  var settings = new BlinkConverterSettings();
+  settings.ViewPortSize = new Syncfusion.Drawing.Size(1024, 0);
   converter.ConverterSettings = settings;
   var doc = converter.Convert(htmlString, baseUrl);
   doc.Save("output.pdf");
   doc.Close();
+
+  // (Legacy: HtmlToPdfConverter(HtmlRenderingEngine.WebKit) + WebKitConverterSettings
+  //  with a Qt WebKit binaries path is the older path; modern Syncfusion projects
+  //  use Blink by default.)
 
   // After (IronPDF)
   var renderer = new ChromePdfRenderer();
   var pdf = renderer.RenderHtmlAsPdf(htmlString);
   pdf.SaveAs("output.pdf");
   ```
-  **Why:** IronPDF's Chromium engine provides superior CSS/JS support.
+  **Why:** IronPDF's Chromium engine ships in-package; with Syncfusion the Blink binaries are pulled in via a platform-specific NuGet (Net.Windows/Net.Linux/Net.Mac).
 
 - [ ] **Replace PdfGrid with HTML tables**
   ```csharp

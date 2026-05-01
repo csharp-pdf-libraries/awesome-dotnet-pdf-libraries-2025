@@ -2,7 +2,7 @@
 
 ## Why Migrate from VectSharp?
 
-VectSharp is a scientific visualization and vector graphics library designed for creating diagrams, charts, and technical illustrations. It's **not designed for document generation** - it's a drawing library that happens to output PDF. Key reasons to migrate:
+VectSharp (by Giorgio Bianchini, [arklumpus/VectSharp](https://github.com/arklumpus/VectSharp), LGPL-3.0-only) is a light cross-platform vector graphics library for .NET Standard 2.0. It is designed for creating diagrams, charts, and technical illustrations and exposes pluggable output layers (`VectSharp.PDF`, `VectSharp.SVG`, `VectSharp.Raster`). It's **not designed for document generation** - it's a drawing library whose `VectSharp.PDF` package adds a `SaveAsPDF` extension method on `Document`. Key reasons to migrate:
 
 1. **Scientific Focus Only**: Designed for data visualization and plotting, not documents
 2. **No HTML Support**: Cannot convert HTML/CSS to PDF - requires manual vector drawing
@@ -21,7 +21,9 @@ VectSharp is built for scientists creating figures and plots, not for developers
 Page page = new Page(595, 842);
 Graphics graphics = page.Graphics;
 graphics.FillRectangle(50, 50, 200, 100, Colour.FromRgb(0, 0, 255));
-graphics.FillText(60, 70, "Invoice", new Font(new FontFamily("Arial"), 20), Colours.White);
+graphics.FillText(60, 70, "Invoice",
+    new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 20),
+    Colours.White);
 // ... continue drawing every single element manually
 ```
 
@@ -42,9 +44,9 @@ This paradigm shift from vector drawing to HTML is explored in depth throughout 
 ### Step 1: Replace NuGet Packages
 
 ```bash
-# Remove VectSharp packages
-dotnet remove package VectSharp
+# Remove VectSharp packages (PDF first, then core)
 dotnet remove package VectSharp.PDF
+dotnet remove package VectSharp
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -74,17 +76,17 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 | VectSharp | IronPDF | Notes |
 |-----------|---------|-------|
 | `Document` | `ChromePdfRenderer` | Create renderer |
-| `Page` | Automatic | Pages created from HTML |
-| `Graphics` | HTML/CSS | Declarative markup |
-| `graphics.FillRectangle()` | CSS `background-color` on `<div>` | HTML boxes |
-| `graphics.StrokeRectangle()` | CSS `border` on `<div>` | Borders |
-| `graphics.FillText()` | HTML text elements | `<p>`, `<h1>`, `<span>` |
-| `graphics.StrokePath()` | SVG or CSS borders | Vector paths |
+| `Page(width, height)` | Automatic | Pages created from HTML |
+| `page.Graphics` | HTML/CSS | Declarative markup |
+| `graphics.FillRectangle(x,y,w,h,colour)` | CSS `background-color` on `<div>` | HTML boxes |
+| `graphics.StrokeRectangle(x,y,w,h,colour,thickness)` | CSS `border` on `<div>` | Borders |
+| `graphics.FillText(x,y,text,font,colour)` | HTML text elements | `<p>`, `<h1>`, `<span>` |
+| `graphics.StrokePath(path,colour,thickness)` | SVG or CSS borders | Vector paths |
 | `GraphicsPath` | SVG `<path>` element | Complex shapes |
-| `Colour.FromRgb()` | CSS color values | `rgb()`, `#hex`, named |
-| `Font` / `FontFamily` | CSS `font-family` | Web fonts supported |
-| `doc.SaveAsPDF()` | `pdf.SaveAs()` | Save to file |
-| Manual page sizing | `RenderingOptions.PaperSize` | Or CSS `@page` |
+| `Colour.FromRgb(r,g,b)` (int 0-255 or double 0-1) | CSS color values | `rgb()`, `#hex`, named |
+| `FontFamily.ResolveFontFamily(...)` / `Font` | CSS `font-family` | Web fonts supported |
+| `doc.SaveAsPDF()` (extension on `VectSharp.PDF`) | `pdf.SaveAs()` | Save to file |
+| Manual page sizing via `Page` ctor | `RenderingOptions.PaperSize` | Or CSS `@page` |
 
 ---
 
@@ -95,15 +97,18 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 **VectSharp:**
 ```csharp
 using VectSharp;
-using VectSharp.PDF;
+using VectSharp.PDF; // SaveAsPDF is an extension method here
 
 Document doc = new Document();
 Page page = new Page(595, 842); // A4 size in points
 Graphics graphics = page.Graphics;
 
+FontFamily helvetica =
+    FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica);
+
 graphics.FillRectangle(50, 50, 200, 100, Colour.FromRgb(0, 0, 255));
 graphics.FillText(60, 70, "Hello from VectSharp",
-    new Font(new FontFamily("Arial"), 20), Colour.FromRgb(255, 255, 255));
+    new Font(helvetica, 20), Colour.FromRgb(255, 255, 255));
 
 doc.Pages.Add(page);
 doc.SaveAsPDF("output.pdf");
@@ -155,13 +160,16 @@ using VectSharp.PDF;
 
 Document doc = new Document();
 
+FontFamily helvetica =
+    FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica);
+Font titleFont = new Font(helvetica, 24);
+
 for (int i = 1; i <= 3; i++)
 {
     Page page = new Page(595, 842);
     Graphics graphics = page.Graphics;
 
-    graphics.FillText(50, 50, $"Page {i}",
-        new Font(new FontFamily("Arial"), 24), Colours.Black);
+    graphics.FillText(50, 50, $"Page {i}", titleFont, Colours.Black);
 
     doc.Pages.Add(page);
 }
@@ -207,6 +215,11 @@ Document doc = new Document();
 Page page = new Page(800, 600);
 Graphics graphics = page.Graphics;
 
+FontFamily helvetica =
+    FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica);
+Font labelFont = new Font(helvetica, 12);
+Font titleFont = new Font(helvetica, 24);
+
 // Draw chart axes
 graphics.StrokePath(new GraphicsPath().MoveTo(50, 550).LineTo(50, 50), Colours.Black, 2);
 graphics.StrokePath(new GraphicsPath().MoveTo(50, 550).LineTo(750, 550), Colours.Black, 2);
@@ -225,12 +238,10 @@ for (int i = 0; i < data.Length; i++)
 for (int i = 0; i < data.Length; i++)
 {
     double x = 80 + i * 110 + barWidth / 2 - 10;
-    graphics.FillText(x, 565, $"Q{i + 1}",
-        new Font(new FontFamily("Arial"), 12), Colours.Black);
+    graphics.FillText(x, 565, $"Q{i + 1}", labelFont, Colours.Black);
 }
 
-graphics.FillText(350, 30, "Quarterly Sales",
-    new Font(new FontFamily("Arial"), 24), Colours.Black);
+graphics.FillText(350, 30, "Quarterly Sales", titleFont, Colours.Black);
 
 doc.Pages.Add(page);
 doc.SaveAsPDF("chart.pdf");
@@ -306,7 +317,8 @@ graphics.FillPath(circlePath, Colour.FromRgb(255, 0, 0));
 
 // Add text inside circle
 graphics.FillText(360, 295, "Circle",
-    new Font(new FontFamily("Arial"), 16), Colours.White);
+    new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 16),
+    Colours.White);
 
 doc.Pages.Add(page);
 doc.SaveAsPDF("custom.pdf");
@@ -432,9 +444,11 @@ Document doc = new Document();
 Page page = new Page(595, 842);
 Graphics graphics = page.Graphics;
 
-Font titleFont = new Font(new FontFamily("Arial"), 28);
-Font headerFont = new Font(new FontFamily("Arial"), 14);
-Font bodyFont = new Font(new FontFamily("Arial"), 11);
+FontFamily helvetica =
+    FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica);
+Font titleFont = new Font(helvetica, 28);
+Font headerFont = new Font(helvetica, 14);
+Font bodyFont = new Font(helvetica, 11);
 
 double y = 50;
 
@@ -545,7 +559,8 @@ using VectSharp;
 using VectSharp.PDF;
 
 Document doc = new Document();
-Font headerFont = new Font(new FontFamily("Arial"), 10);
+Font headerFont = new Font(
+    FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 10);
 
 int totalPages = 5;
 for (int i = 0; i < totalPages; i++)
@@ -738,7 +753,7 @@ var html = @"
 
 ### Issue 2: Font Objects
 
-**VectSharp:** Creates `Font` and `FontFamily` objects.
+**VectSharp:** Creates `Font` and `FontFamily` objects via `FontFamily.ResolveFontFamily(...)` (using a `StandardFontFamilies` enum value or a system family name / TTF path).
 
 **Solution:** Use CSS font-family:
 ```html
@@ -791,7 +806,7 @@ var html = @"
   ```csharp
   // Patterns to document:
   Colour.FromRgb(0, 0, 255);
-  new Font(new FontFamily("Arial"), 20);
+  new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 20);
   ```
   **Why:** These settings map to CSS styles in IronPDF. Document them to maintain visual consistency.
 
@@ -809,9 +824,10 @@ var html = @"
 
 - [ ] **Remove VectSharp packages**
   ```bash
+  dotnet remove package VectSharp.PDF
   dotnet remove package VectSharp
   ```
-  **Why:** Clean package switch to IronPDF.
+  **Why:** Clean package switch to IronPDF. Remove `VectSharp.PDF` before the core `VectSharp` package since the PDF package depends on it.
 
 - [ ] **Install IronPdf package**
   ```bash
@@ -832,7 +848,9 @@ var html = @"
 - [ ] **Convert FillText to HTML text**
   ```csharp
   // Before (VectSharp)
-  graphics.FillText(60, 70, "Invoice", new Font(new FontFamily("Arial"), 20), Colours.White);
+  graphics.FillText(60, 70, "Invoice",
+      new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 20),
+      Colours.White);
 
   // After (IronPDF)
   var html = "<p style='font-family:Arial; font-size:20px; color:white;'>Invoice</p>";

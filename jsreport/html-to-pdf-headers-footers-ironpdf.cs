@@ -1,6 +1,5 @@
 // NuGet: Install-Package IronPdf
 using IronPdf;
-using IronPdf.Rendering;
 using System;
 
 class Program

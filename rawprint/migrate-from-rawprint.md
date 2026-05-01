@@ -1,132 +1,147 @@
-# How Do I Migrate from RawPrint to IronPDF in C#?
+# How Do I Combine RawPrint with IronPDF in C#?
 
-## Why Migrate from RawPrint?
+## Why This Is Not a Straight Migration
 
-RawPrint is a low-level printing utility that sends raw bytes to printer spoolers. It's NOT a PDF library - it just pushes data to printers. Key limitations:
+RawPrint and IronPDF solve different problems and the honest framing is "complement," not "replace." RawPrint (frogmorecs/RawPrint, NuGet `RawPrint` v0.5.0, last release September 2019, now unlisted/legacy on nuget.org) is a thin P/Invoke wrapper over `winspool.Drv` that ships a byte stream straight to the Windows print spooler with the RAW datatype. That is exactly what you want for ESC/POS receipt printers, ZPL/EPL Zebra label printers, and legacy PCL/PostScript jobs where you have already produced the bytes the printer firmware expects. RawPrint does not generate PDFs and never claimed to.
 
-1. **No PDF Creation**: Cannot create or generate PDFs
-2. **Windows-Only**: Relies on Windows printing subsystem
-3. **Low-Level API**: Manual printer handle management
-4. **No Document Processing**: Just byte transmission
-5. **Limited Control**: Minimal print job configuration
-6. **No Cross-Platform**: Tied to Windows spooler
+IronPDF generates and manipulates PDFs. If your application currently uses RawPrint to push an existing PDF to a printer, and the PDF was being produced by some other library, IronPDF can replace that other library and (on Windows) also replace the spooler call via `pdf.Print()`. If your RawPrint usage is genuinely raw — ESC/POS to a thermal receipt printer, ZPL to a Zebra — IronPDF is not a drop-in replacement, and you should keep RawPrint for that channel.
 
-### What RawPrint Does vs. What You Need
+### What RawPrint Does vs. What IronPDF Does
 
 | Task | RawPrint | IronPDF |
 |------|----------|---------|
-| Create PDF from HTML | NO | Yes |
-| Create PDF from URL | NO | Yes |
-| Edit/Modify PDFs | NO | Yes |
-| Merge/Split PDFs | NO | Yes |
-| Print Existing PDF | Yes (raw bytes) | Yes (high-level API) |
-| Print Control | Basic | Full options |
-| Cross-Platform | Windows only | Yes |
+| Create PDF from HTML | No | Yes |
+| Create PDF from URL | No | Yes |
+| Edit/Modify PDFs | No | Yes |
+| Merge/Split PDFs | No | Yes |
+| Push raw bytes to a Windows spooler | Yes (its only job) | No |
+| Send ESC/POS to a receipt printer | Yes | No |
+| Send ZPL/EPL to a Zebra label printer | Yes | No |
+| Print a finished PDF on Windows | Yes (RAW; printer must accept PDF natively) | Yes (renders, then prints via system spooler) |
+| Cross-platform (Linux, macOS, Docker) | No (Windows spooler only) | Yes |
 
 ---
 
-## Quick Start: RawPrint to IronPDF
+## RawPrint's Real API Surface
 
-### Step 1: Replace NuGet Package
+The package's public API is small. There is one class, `Printer`, implementing `IPrinter`, in the `RawPrint` namespace:
+
+```csharp
+namespace RawPrint
+{
+    public interface IPrinter
+    {
+        event EventHandler<JobEventArgs> OnJobCreated;
+        void PrintRawFile(string printer, string path, bool paused);
+        void PrintRawFile(string printer, string path, string documentName, bool paused);
+        void PrintRawStream(string printer, Stream stream, string documentName, bool paused);
+        void PrintRawStream(string printer, Stream stream, string documentName, bool paused, int pagecount);
+    }
+}
+```
+
+There is no public `SendBytesToPrinter`, `OpenPrinter`, `StartDocPrinter`, `WritePrinter`, or `EndDocPrinter` method on `Printer` — those are the underlying Win32 calls that RawPrint hides. Code samples that assume those are public are referring to hand-rolled P/Invoke helpers, not RawPrint itself.
+
+---
+
+## Quick Start: Replacing the "create PDF then push it" Pattern
+
+If you currently produce a PDF with a different library and then hand it to RawPrint to print, you can collapse the whole pipeline into IronPDF on Windows.
+
+### Step 1: Pick the right packages
 
 ```bash
-# Remove RawPrint
-dotnet remove package RawPrint
+# Keep RawPrint only if you need RAW byte channels (ESC/POS, ZPL, etc.)
+# dotnet remove package RawPrint
 
-# Install IronPDF
+# Add IronPDF
 dotnet add package IronPdf
 ```
 
-### Step 2: Initialize License
+### Step 2: Initialize the license
 
 ```csharp
 IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 ```
 
-### Step 3: Replace Printing Code
+### Step 3: Replace the create-then-RawPrint pattern
 
-**RawPrint:**
+**Before (other library + RawPrint):**
 ```csharp
 using RawPrint;
+using System.IO;
 
-byte[] pdfBytes = File.ReadAllBytes("document.pdf");
-Printer.SendBytesToPrinter("HP LaserJet", pdfBytes, pdfBytes.Length);
+byte[] pdfBytes = SomeOtherLibrary.CreatePdf(reportData);
+File.WriteAllBytes("temp.pdf", pdfBytes);
+
+IPrinter printer = new Printer();
+printer.PrintRawFile("HP LaserJet", "temp.pdf", false);
 ```
 
-**IronPDF:**
+**After (IronPDF only, on Windows):**
 ```csharp
 using IronPdf;
 
-var pdf = PdfDocument.FromFile("document.pdf");
-pdf.Print("HP LaserJet");
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(reportHtml);
+pdf.Print(); // uses the Windows print system; pass PrintHtmlOptions for finer control
 ```
+
+If you still need RAW byte channels for receipt or label printers, leave RawPrint where it is and add IronPDF alongside it for the PDF-rendering side of the application.
 
 ---
 
 ## API Mapping Reference
 
-| RawPrint | IronPDF | Notes |
-|----------|---------|-------|
-| `Printer.SendBytesToPrinter()` | `pdf.Print()` | High-level printing |
-| `Printer.OpenPrinter()` | N/A | Not needed |
-| `Printer.ClosePrinter()` | N/A | Automatic |
-| `Printer.StartDocPrinter()` | N/A | Automatic |
-| `Printer.WritePrinter()` | N/A | Automatic |
-| `Printer.EndDocPrinter()` | N/A | Automatic |
-| N/A | `ChromePdfRenderer` | Create PDFs |
-| N/A | `PdfDocument.Merge()` | Merge PDFs |
-| N/A | `pdf.ApplyWatermark()` | Add watermarks |
+| RawPrint (real public API) | IronPDF | Notes |
+|----------------------------|---------|-------|
+| `new Printer()` / `IPrinter` | `new ChromePdfRenderer()` / `PdfDocument` | RawPrint pushes bytes; IronPDF generates PDFs |
+| `printer.PrintRawFile(name, path, paused)` | `PdfDocument.FromFile(path).Print()` | IronPDF re-renders to the OS print system; not RAW |
+| `printer.PrintRawStream(name, stream, doc, paused)` | `new PdfDocument(stream).Print()` | Same caveat |
+| `printer.OnJobCreated` event | n/a | Use IronPDF print options instead |
+| n/a | `ChromePdfRenderer.RenderHtmlAsPdf()` | Create PDFs |
+| n/a | `PdfDocument.Merge()` | Merge PDFs |
+| n/a | `pdf.ApplyWatermark()` | Add watermarks |
+
+Note: IronPDF prints by handing the document to the operating system, not by streaming raw bytes to the spooler. If your printer requires the RAW datatype (ESC/POS, ZPL, certain PCL workflows), that is RawPrint's lane and IronPDF cannot stand in for it.
 
 ---
 
 ## Code Examples
 
-### Example 1: Print Existing PDF
+### Example 1: Print an Existing PDF File
 
-**RawPrint:**
+**RawPrint (real API):**
 ```csharp
 using RawPrint;
-using System.IO;
 
-byte[] pdfBytes = File.ReadAllBytes("document.pdf");
-bool success = Printer.SendBytesToPrinter(
-    "Brother HL-L2340D",
-    pdfBytes,
-    pdfBytes.Length
-);
-
-if (!success)
-{
-    throw new Exception("Print failed");
-}
+IPrinter printer = new Printer();
+// PrintRawFile is happiest with bytes the printer firmware can interpret directly.
+// Most modern enterprise MFPs accept PDF as RAW; cheap home printers do not.
+printer.PrintRawFile("Brother HL-L2340D", "document.pdf", false);
 ```
 
-**IronPDF:**
+**IronPDF (Windows):**
 ```csharp
 using IronPdf;
 
 var pdf = PdfDocument.FromFile("document.pdf");
 
-// Simple print
-pdf.Print();
-
-// Or specify printer
-pdf.Print("Brother HL-L2340D");
+pdf.Print();                  // default printer
+pdf.Print(); // with PrintHtmlOptions or after setting renderer options as needed
 ```
 
-### Example 2: Create and Print PDF (RawPrint Can't Do This)
+### Example 2: Create and Print (RawPrint cannot do the create half)
 
 **RawPrint:**
 ```csharp
-// IMPOSSIBLE - RawPrint cannot create PDFs
-// Would need another library just to create the PDF first
+// Not possible with RawPrint alone — you need a separate library to produce the PDF first.
 ```
 
 **IronPDF:**
 ```csharp
 using IronPdf;
 
-// Create PDF from HTML
 var renderer = new ChromePdfRenderer();
 var pdf = renderer.RenderHtmlAsPdf(@"
     <h1>Invoice #12345</h1>
@@ -134,130 +149,60 @@ var pdf = renderer.RenderHtmlAsPdf(@"
     <p>Amount: $150.00</p>
 ");
 
-// Print directly
-pdf.Print("HP LaserJet");
-
-// Or save first
 pdf.SaveAs("invoice.pdf");
 pdf.Print();
 ```
 
-### Example 3: Print with Settings
+### Example 3: Send ESC/POS to a Thermal Receipt Printer (RawPrint's strength)
 
-**RawPrint:**
+**RawPrint — the right tool:**
 ```csharp
 using RawPrint;
-using System;
+using System.IO;
+using System.Text;
 
-// Manual printer handle management
-IntPtr printerHandle = IntPtr.Zero;
-try
+// ESC/POS: ESC @ resets, then text, then a partial cut.
+byte[] receipt = Encoding.ASCII.GetBytes("\x1B@Hello\nWorld\n\n\n\x1DV\x01");
+
+IPrinter printer = new Printer();
+using (var stream = new MemoryStream(receipt))
 {
-    Printer.OpenPrinter("HP LaserJet", out printerHandle);
-    Printer.StartDocPrinter(printerHandle, 1, "Document");
-
-    byte[] pdfBytes = File.ReadAllBytes("report.pdf");
-    Printer.WritePrinter(printerHandle, pdfBytes, pdfBytes.Length);
-
-    Printer.EndDocPrinter(printerHandle);
-}
-finally
-{
-    if (printerHandle != IntPtr.Zero)
-        Printer.ClosePrinter(printerHandle);
+    printer.PrintRawStream("EPSON TM-T20II", stream, "Receipt", false);
 }
 ```
 
-**IronPDF:**
+**IronPDF — wrong tool for this job:** IronPDF renders documents to PDF and prints PDFs through the Windows print system. It does not (and should not) speak ESC/POS. Keep RawPrint for this channel.
+
+### Example 4: Send ZPL to a Zebra Label Printer (RawPrint's strength)
+
+**RawPrint:**
 ```csharp
-using IronPdf;
+using RawPrint;
+using System.IO;
+using System.Text;
 
-var pdf = PdfDocument.FromFile("report.pdf");
+string zpl = "^XA^FO50,50^ADN,36,20^FDHello Zebra^FS^XZ";
+byte[] data = Encoding.ASCII.GetBytes(zpl);
 
-// Print with full configuration
-pdf.Print(new PrintOptions
+IPrinter printer = new Printer();
+using (var stream = new MemoryStream(data))
 {
-    PrinterName = "HP LaserJet",
-    NumberOfCopies = 2,
-    DPI = 300,
-    GrayScale = false
-});
+    printer.PrintRawStream("ZDesigner GK420d", stream, "Label", false);
+}
 ```
 
-### Example 4: Silent/Background Printing
+IronPDF has nothing to offer here — ZPL is a printer-side language, not a document format.
+
+### Example 5: Batch-Printing a Folder of PDFs
 
 **RawPrint:**
 ```csharp
 using RawPrint;
 
-// RawPrint is inherently silent but has no dialog option
-byte[] data = File.ReadAllBytes("document.pdf");
-Printer.SendBytesToPrinter("Microsoft Print to PDF", data, data.Length);
-```
-
-**IronPDF:**
-```csharp
-using IronPdf;
-
-var pdf = PdfDocument.FromFile("document.pdf");
-
-// Silent print (no dialog)
-pdf.Print("Microsoft Print to PDF");
-
-// Or with dialog
-pdf.PrintWithDialog();
-```
-
-### Example 5: Print Generated Report
-
-**RawPrint:**
-```csharp
-// Requires external library to create PDF, then:
-using RawPrint;
-
-// Assume you used something else to create pdfBytes
-byte[] pdfBytes = SomeOtherLibrary.CreatePdf(data);
-Printer.SendBytesToPrinter("Printer Name", pdfBytes, pdfBytes.Length);
-```
-
-**IronPDF:**
-```csharp
-using IronPdf;
-
-var renderer = new ChromePdfRenderer();
-
-// Set page options
-renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
-renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape;
-
-// Headers and footers
-renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
-{
-    HtmlFragment = "<div style='text-align:center'>Monthly Report</div>",
-    MaxHeight = 25
-};
-
-renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
-{
-    HtmlFragment = "<div style='text-align:center'>Page {page} of {total-pages}</div>",
-    MaxHeight = 25
-};
-
-// Generate and print
-var pdf = renderer.RenderHtmlAsPdf(reportHtml);
-pdf.Print("HP LaserJet Pro");
-```
-
-### Example 6: Batch Printing
-
-**RawPrint:**
-```csharp
-using RawPrint;
-
+IPrinter printer = new Printer();
 foreach (var filePath in pdfFiles)
 {
-    byte[] bytes = File.ReadAllBytes(filePath);
-    Printer.SendBytesToPrinter("Printer", bytes, bytes.Length);
+    printer.PrintRawFile("Printer", filePath, false);
 }
 ```
 
@@ -265,17 +210,16 @@ foreach (var filePath in pdfFiles)
 ```csharp
 using IronPdf;
 
-// Option 1: Print each file
 foreach (var filePath in pdfFiles)
 {
     var pdf = PdfDocument.FromFile(filePath);
-    pdf.Print("Printer");
+    pdf.Print();
 }
 
-// Option 2: Merge and print once
+// Or merge and print once:
 var pdfs = pdfFiles.Select(f => PdfDocument.FromFile(f)).ToList();
 var merged = PdfDocument.Merge(pdfs);
-merged.Print("Printer");
+merged.Print();
 ```
 
 ---
@@ -285,76 +229,53 @@ merged.Print("Printer");
 | Feature | RawPrint | IronPDF |
 |---------|----------|---------|
 | **PDF Creation** | | |
-| HTML to PDF | NO | Yes |
-| URL to PDF | NO | Yes |
-| Create from scratch | NO | Yes |
+| HTML to PDF | No | Yes |
+| URL to PDF | No | Yes |
+| Create from scratch | No | Yes |
 | **PDF Manipulation** | | |
-| Merge PDFs | NO | Yes |
-| Split PDFs | NO | Yes |
-| Add Watermarks | NO | Yes |
-| Edit Existing | NO | Yes |
+| Merge PDFs | No | Yes |
+| Split PDFs | No | Yes |
+| Add Watermarks | No | Yes |
+| Edit Existing | No | Yes |
 | **Printing** | | |
-| Print PDF | Yes (raw) | Yes (high-level) |
-| Print Dialog | NO | Yes |
-| Multiple Copies | Limited | Yes |
-| DPI Control | NO | Yes |
-| Duplex | NO | Yes |
+| Push RAW bytes to spooler | Yes | No |
+| ESC/POS, ZPL, raw PCL | Yes | No |
+| Print via OS print system | No | Yes |
 | **Platform** | | |
 | Windows | Yes | Yes |
-| Linux | NO | Yes |
-| macOS | NO | Yes |
-| Docker | NO | Yes |
+| Linux | No | Yes |
+| macOS | No | Yes |
+| Docker | No | Yes |
 | **Other** | | |
-| Security | NO | Yes |
-| Digital Signatures | NO | Yes |
-| PDF/A | NO | Yes |
+| Encryption / Security | No | Yes |
+| Digital Signatures | No | Yes |
+| PDF/A | No | Yes |
 
-The [comprehensive migration reference](https://ironpdf.com/blog/migration-guides/migrate-from-rawprint-to-ironpdf/) provides integration patterns for transitioning from low-level byte transmission to high-level PDF creation and printing workflows.
+The [comprehensive migration reference](https://ironpdf.com/blog/migration-guides/migrate-from-rawprint-to-ironpdf/) walks through the create-then-print pipelines that benefit most from collapsing into IronPDF on Windows.
 
 ---
 
-## Common Migration Scenarios
+## Common Scenarios
 
-### Scenario 1: Print Reports
+### Scenario 1: PDF Reports, Then Print
 
-**Before:** Create PDF elsewhere, then use RawPrint
+**Before:** Build PDF in another library, push with RawPrint
 ```csharp
-// Step 1: Use some library to create PDF
-byte[] pdf = CreatePdfSomehow(reportData);
-// Step 2: RawPrint
-Printer.SendBytesToPrinter("Printer", pdf, pdf.Length);
+byte[] pdf = OtherLibrary.CreatePdf(reportData);
+File.WriteAllBytes("temp.pdf", pdf);
+new Printer().PrintRawFile("Printer", "temp.pdf", false);
 ```
 
 **After:** All-in-one with IronPDF
 ```csharp
 var renderer = new ChromePdfRenderer();
 var pdf = renderer.RenderHtmlAsPdf(reportHtml);
-pdf.Print("Printer");
+pdf.Print();
 ```
 
-### Scenario 2: Print Queue Processing
+### Scenario 2: Receipt or Label Printing
 
-**Before:**
-```csharp
-while (queue.TryDequeue(out var job))
-{
-    var bytes = File.ReadAllBytes(job.PdfPath);
-    Printer.SendBytesToPrinter(job.PrinterName, bytes, bytes.Length);
-}
-```
-
-**After:**
-```csharp
-while (queue.TryDequeue(out var job))
-{
-    var pdf = PdfDocument.FromFile(job.PdfPath);
-    pdf.Print(new PrintOptions
-    {
-        PrinterName = job.PrinterName,
-        NumberOfCopies = job.Copies
-    });
-}
-```
+Keep RawPrint. IronPDF is not a substitute for ESC/POS or ZPL channels. If the same application also needs to produce PDF reports for archival or email, use IronPDF for that pipeline and RawPrint for the printer-language pipeline side by side.
 
 ---
 
@@ -365,110 +286,60 @@ while (queue.TryDequeue(out var job))
 - [ ] **Identify all RawPrint usage**
   ```bash
   grep -r "using RawPrint" --include="*.cs" .
-  grep -r "Printer\|SendBytesToPrinter" --include="*.cs" .
+  grep -r "PrintRawFile\|PrintRawStream" --include="*.cs" .
   ```
-  **Why:** Identify all usages to ensure complete migration coverage.
+  **Why:** Real RawPrint usage calls `PrintRawFile` or `PrintRawStream`. Custom hand-rolled P/Invoke wrappers may also use the name "RawPrinterHelper" but are not the package.
 
-- [ ] **Document printer names used**
-  ```csharp
-  // Find patterns like:
-  string printerName = "MyPrinter";
-  ```
-  **Why:** Ensure all printers are correctly configured for IronPDF's high-level printing.
+- [ ] **Classify each call site**
+  - PDF being printed on a normal office printer -> candidate for IronPDF
+  - ESC/POS, ZPL, EPL, or other printer-language bytes -> keep RawPrint
+  - PCL/PostScript hand-built bytes -> usually keep RawPrint
+
+- [ ] **Note the printer names used**
+  **Why:** IronPDF prints through the OS print system; printer names must still resolve.
 
 - [ ] **Note any external PDF creation code**
   ```csharp
-  // Look for external PDF creation logic:
   var pdfBytes = ExternalLibrary.CreatePdf();
   ```
-  **Why:** Identify areas where IronPDF can replace or enhance PDF creation.
+  **Why:** This is the half IronPDF replaces.
 
-- [ ] **Obtain IronPDF license key**
-  **Why:** IronPDF requires a license key for production use. Free trial available at https://ironpdf.com/
+- [ ] **Obtain an IronPDF license key.** Free trial at https://ironpdf.com/
 
 ### Code Updates
 
-- [ ] **Remove RawPrint package**
-  ```bash
-  dotnet remove package RawPrint
-  ```
-  **Why:** Remove dependency on low-level printing utility.
-
-- [ ] **Install IronPdf package**
+- [ ] **Install IronPdf**
   ```bash
   dotnet add package IronPdf
   ```
-  **Why:** Add IronPDF for advanced PDF creation and printing capabilities.
 
-- [ ] **Replace raw printing with pdf.Print()**
+- [ ] **Replace create-then-RawPrint pipelines**
   ```csharp
-  // Before (RawPrint)
-  Printer.SendBytesToPrinter(printerName, pdfBytes);
+  // Before: external PDF creation + RawPrint
+  byte[] pdfBytes = ExternalLibrary.CreatePdf();
+  File.WriteAllBytes("tmp.pdf", pdfBytes);
+  new Printer().PrintRawFile(printerName, "tmp.pdf", false);
 
-  // After (IronPDF)
-  var pdf = PdfDocument.FromBinary(pdfBytes);
-  pdf.Print(printerName);
-  ```
-  **Why:** Use IronPDF's high-level API for reliable and configurable printing.
-
-- [ ] **Consolidate PDF creation and printing**
-  ```csharp
-  // Before (RawPrint with external PDF creation)
-  var pdfBytes = ExternalLibrary.CreatePdf();
-  Printer.SendBytesToPrinter(printerName, pdfBytes);
-
-  // After (IronPDF)
+  // After: IronPDF on Windows
   var renderer = new ChromePdfRenderer();
   var pdf = renderer.RenderHtmlAsPdf(htmlContent);
-  pdf.Print(printerName);
+  pdf.Print();
   ```
-  **Why:** Streamline PDF creation and printing with IronPDF's integrated tools.
 
 - [ ] **Add license initialization**
   ```csharp
-  // Add at application startup
   IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
   ```
-  **Why:** License key must be set before any PDF operations.
 
-- [ ] **Remove manual handle management**
-  ```csharp
-  // Before (RawPrint)
-  Printer.OpenPrinter(printerName, out printerHandle);
-  Printer.StartDocPrinter(printerHandle, ...);
-  Printer.WritePrinter(printerHandle, ...);
-  Printer.EndDocPrinter(printerHandle);
-  Printer.ClosePrinter(printerHandle);
-
-  // After (IronPDF)
-  pdf.Print(printerName);
-  ```
-  **Why:** Simplify code by removing manual printer handle management with IronPDF's automatic handling.
+- [ ] **Leave RawPrint in place for raw-byte channels** (ESC/POS, ZPL).
 
 ### Testing
 
-- [ ] **Test printing to target printers**
-  **Why:** Verify that all printers are correctly configured and functioning with IronPDF.
+- [ ] Test printing to each target printer.
+- [ ] Verify print quality and page layout for IronPDF-rendered output.
+- [ ] If you removed RawPrint, confirm no remaining call sites need RAW bytes.
+- [ ] Test on Linux/macOS/Docker for any IronPDF code paths that move off Windows.
 
-- [ ] **Verify print quality**
-  **Why:** Ensure that the print output meets quality expectations with IronPDF's rendering.
-
-- [ ] **Test multiple copies**
-  ```csharp
-  // Example with IronPDF
-  pdf.Print(printerName, new PrintOptions { Copies = 3 });
-  ```
-  **Why:** Confirm that multiple copies are handled correctly.
-
-- [ ] **Test silent printing**
-  ```csharp
-  // Example with IronPDF
-  pdf.Print(printerName, new PrintOptions { Silent = true });
-  ```
-  **Why:** Ensure that silent printing works as expected without user intervention.
-
-- [ ] **Cross-platform if needed**
-  **Why:** Verify that the application functions correctly on all required platforms with IronPDF's cross-platform support.
 ---
 
 ## Additional Resources
@@ -476,7 +347,9 @@ while (queue.TryDequeue(out var job))
 - [IronPDF Documentation](https://ironpdf.com/docs/)
 - [IronPDF Printing Guide](https://ironpdf.com/how-to/csharp-print-pdf/)
 - [IronPDF Tutorials](https://ironpdf.com/tutorials/)
+- [RawPrint repository (frogmorecs)](https://github.com/frogmorecs/RawPrint)
+- [RawPrint on nuget.org (unlisted/legacy)](https://www.nuget.org/packages/RawPrint)
 
 ---
 
-*This migration guide is part of the [Awesome .NET PDF Libraries](../README.md) collection.*
+*This guide is part of the [Awesome .NET PDF Libraries](../README.md) collection.*

@@ -14,7 +14,7 @@
 | **Status** | **WILL NEVER BE PATCHED** |
 | **Affected** | ALL Rotativa versions |
 
-**wkhtmltopdf was officially abandoned in December 2022.** The maintainers explicitly stated they will NOT fix security vulnerabilities. Every application using Rotativa is permanently exposed.
+**The wkhtmltopdf GitHub repository was archived (read-only) on January 2, 2023.** The maintainer's [status page](https://wkhtmltopdf.org/status.html) notes the project depends on Qt 4 (unsupported since 2015) and a WebKit branch from 2012, and explicitly warns against using it with untrusted HTML. CVE-2022-35583 has no fixed version. Every application using Rotativa.AspNetCore is exposed unless the HTML is fully sanitized upstream.
 
 ### How the Attack Works
 
@@ -58,8 +58,8 @@ These risks, extensively documented in the [comprehensive migration walkthrough]
 | **CVE-2022-35583 (SSRF)** | ❌ VULNERABLE | ✅ Protected |
 | **Local File Access** | ❌ VULNERABLE | ✅ Sandboxed |
 | **Internal Network Access** | ❌ VULNERABLE | ✅ Restricted |
-| **Security Patches** | ❌ NEVER | ✅ Regular updates |
-| **Active Development** | ❌ Abandoned | ✅ Monthly releases |
+| **Security Patches** | ❌ wkhtmltopdf binary archived 2023-01-02 | ✅ Regular updates |
+| **Active Development** | ⚠️ Wrapper updated 2024; binary abandoned | ✅ Monthly releases |
 
 ### The Technology Crisis
 
@@ -86,7 +86,7 @@ Rotativa wraps wkhtmltopdf, which uses:
 | **Digital Signatures** | ❌ Not available | ✅ Full |
 | **PDF/A Compliance** | ❌ Not available | ✅ Full |
 | **Async/Await** | ❌ Synchronous only | ✅ Full async |
-| **Active Maintenance** | ❌ Abandoned | ✅ Weekly updates |
+| **Active Maintenance** | ⚠️ `Rotativa.AspNetCore` 1.4.0 (2024-11-06) wraps abandoned wkhtmltopdf binary | ✅ Monthly releases |
 
 ---
 
@@ -157,8 +157,9 @@ public async Task<IActionResult> GeneratePdf()
 ### Step 1: Update NuGet Packages
 
 ```bash
-# Remove Rotativa
+# Remove Rotativa (legacy MVC 5 — last release 2017-09-29, v1.7.3)
 dotnet remove package Rotativa
+# Or remove the ASP.NET Core fork (webgio — last release 2024-11-06, v1.4.0)
 dotnet remove package Rotativa.AspNetCore
 
 # Install IronPDF

@@ -4,7 +4,7 @@ The intriguing world of PDF manipulation inevitably brings us to a crossroad whe
 
 ## Introduction to Apache PDFBox in the .NET Context
 
-Apache PDFBox is a popular open-source Java library dedicated to the creation, manipulation, and extraction of data from PDF documents. As a Java-centric tool, PDFBox isn't inherently designed for .NET frameworks, which leads to several unofficial .NET port attempts. These ports strive to bring PDFBox's capabilities into the .NET realm but often face hurdles that stem from their non-native status.
+Apache PDFBox is a popular open-source Java library (current line 3.0.7, legacy 2.0.36, Apache License 2.0) dedicated to the creation, manipulation, and extraction of data from PDF documents. As a Java-centric tool, PDFBox isn't inherently designed for .NET frameworks, which leads to several unofficial port attempts on nuget.org — `Pdfbox` (last updated 2013), `Pdfbox-IKVM` (2017), `PdfBox_DotNet_Version` (2019), and the still-active `MASES.NetPDF` (JCOBridge wrapper that requires a JVM at runtime). These ports strive to bring PDFBox's capabilities into the .NET realm but inherit the Java API surface and a JVM-or-IKVM dependency.
 
 On the other hand, IronPDF provides a seamless experience for .NET developers, given its dedicated focus on .NET architecture. Featuring a wide array of capabilities, it has become a staple for professionals needing robust PDF functionalities.
 
@@ -26,10 +26,12 @@ On the other hand, IronPDF provides a seamless experience for .NET developers, g
 ### C# Code Example using an Apache PDFBox .NET Port
 
 ```csharp
+// Using an IKVM-based port (Pdfbox-IKVM on NuGet). Namespaces mirror
+// the Java packages exactly because IKVM exposes the original API.
 using System;
-using System.IO;
-using Apache.Pdfbox.PdModel;
-using Apache.Pdfbox.Text;
+using org.apache.pdfbox.pdmodel;
+using org.apache.pdfbox.text;
+using java.io;
 
 public class PdfBoxExample
 {
@@ -37,7 +39,7 @@ public class PdfBoxExample
     {
         try
         {
-            PDDocument document = PDDocument.load(filePath);
+            PDDocument document = PDDocument.load(new File(filePath));
             PDFTextStripper textStripper = new PDFTextStripper();
             string text = textStripper.getText(document);
             Console.WriteLine(text);
@@ -51,7 +53,7 @@ public class PdfBoxExample
 }
 ```
 
-*Note: This code is purely illustrative, drawing inspiration from Java practices, and does not represent a production-level implementation due to inherent challenges with unofficial ports.*
+*Note: This sample uses the `Pdfbox-IKVM` package; `MASES.NetPDF` exposes the same classes under title-cased namespaces such as `Org.Apache.Pdfbox.Pdmodel.PDDocument`.*
 
 ## IronPDF: A Look at Its Advantages
 
@@ -76,22 +78,27 @@ Explore an in-depth comparison including code examples at [this detailed analysi
 Here's how **Apache PDFBox (.NET Port Attempts)** handles this:
 
 ```csharp
-// Apache PDFBox .NET ports are experimental and incomplete
-using PdfBoxDotNet.Pdmodel;
-using PdfBoxDotNet.Text;
+// Apache PDFBox is a Java library — there is no official .NET port.
+// Example uses Pdfbox-IKVM (last published 2017) on NuGet.
+using org.apache.pdfbox.pdmodel;
+using org.apache.pdfbox.text;
+using java.io;
 using System;
-using System.IO;
 
 class Program
 {
     static void Main()
     {
-        // Note: PDFBox-dotnet has limited functionality
-        using (var document = PDDocument.Load("document.pdf"))
+        PDDocument document = PDDocument.load(new File("document.pdf"));
+        try
         {
-            var stripper = new PDFTextStripper();
-            string text = stripper.GetText(document);
+            PDFTextStripper stripper = new PDFTextStripper();
+            string text = stripper.getText(document);
             Console.WriteLine(text);
+        }
+        finally
+        {
+            document.close();
         }
     }
 }
@@ -128,18 +135,34 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Apache PDFBox (.NET Port Attempts)** handles this:
 
 ```csharp
-// Apache PDFBox does not have official .NET port
-// Community ports like PDFBox-dotnet are incomplete
-// and do not support HTML to PDF conversion natively.
-// You would need to use additional libraries like
-// iText or combine with HTML renderers separately.
+// Apache PDFBox does not support HTML-to-PDF rendering — neither the
+// Java original nor any of the .NET ports (Pdfbox-IKVM, PdfBox_DotNet_Version,
+// MASES.NetPDF). PDFBox is a low-level PDF manipulation library, so PDFs
+// are built from PDPage and PDPageContentStream by hand.
 
-using PdfBoxDotNet.Pdmodel;
-using System.IO;
+using org.apache.pdfbox.pdmodel;
+using org.apache.pdfbox.pdmodel.font;
 
-// Note: This is NOT supported in PDFBox
-// PDFBox is primarily for PDF manipulation, not HTML rendering
-// You would need external HTML rendering engine
+class Program
+{
+    static void Main()
+    {
+        PDDocument document = new PDDocument();
+        PDPage page = new PDPage();
+        document.addPage(page);
+
+        PDPageContentStream cs = new PDPageContentStream(document, page);
+        cs.beginText();
+        cs.setFont(PDType1Font.HELVETICA_BOLD, 24);
+        cs.newLineAtOffset(72, 700);
+        cs.showText("Hello World"); // No HTML parsing — literal text only
+        cs.endText();
+        cs.close();
+
+        document.save("output.pdf");
+        document.close();
+    }
+}
 ```
 
 **With IronPDF**, the same task is simpler and more intuitive:
@@ -170,22 +193,20 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Apache PDFBox (.NET Port Attempts)** handles this:
 
 ```csharp
-// Apache PDFBox .NET port attempt (incomplete support)
-using PdfBoxDotNet.Pdmodel;
-using PdfBoxDotNet.Multipdf;
+// Apache PDFBox via a .NET port (e.g. Pdfbox-IKVM on NuGet).
+using org.apache.pdfbox.multipdf;
+using org.apache.pdfbox.io;
 using System;
-using System.IO;
 
 class Program
 {
     static void Main()
     {
-        // PDFBox-dotnet ports have incomplete API coverage
-        var merger = new PDFMergerUtility();
-        merger.AddSource("document1.pdf");
-        merger.AddSource("document2.pdf");
-        merger.SetDestinationFileName("merged.pdf");
-        merger.MergeDocuments();
+        PDFMergerUtility merger = new PDFMergerUtility();
+        merger.addSource("document1.pdf");
+        merger.addSource("document2.pdf");
+        merger.setDestinationFileName("merged.pdf");
+        merger.mergeDocuments(MemoryUsageSetting.setupMainMemoryOnly());
         Console.WriteLine("PDFs merged");
     }
 }

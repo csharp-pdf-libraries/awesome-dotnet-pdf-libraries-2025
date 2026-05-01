@@ -1,25 +1,34 @@
-// NuGet: Install-Package PSPDFKit.Dotnet
-using PSPDFKit.Pdf;
-using PSPDFKit.Pdf.Annotation;
-using System.Threading.Tasks;
+// NuGet: Install-Package GdPicture
+// Nutrient .NET SDK (GdPicture.NET) renders text watermarks via low-level PDF drawing
+// primitives on GdPicturePDF (DrawTextBox + SetFillAlpha for transparency). There is no
+// "TextAnnotation" object — watermarks are drawn as content, optionally inside an OCG
+// (Optional Content Group) layer.
+using GdPicture14;
 
 class Program
 {
-    static async Task Main()
+    static void Main()
     {
-        using var processor = await PdfProcessor.CreateAsync();
-        var document = await processor.OpenAsync("document.pdf");
-        
-        for (int i = 0; i < document.PageCount; i++)
+        using var pdf = new GdPicturePDF();
+        pdf.LoadFromFile("document.pdf");
+        pdf.SetMeasurementUnit(PdfMeasurementUnit.PdfMeasurementUnitPoint);
+
+        var fontResName = pdf.AddStandardFont(PdfStandardFont.PdfStandardFontHelveticaBold);
+        int pageCount = pdf.GetPageCount();
+
+        for (int i = 1; i <= pageCount; i++)
         {
-            var watermark = new TextAnnotation("CONFIDENTIAL")
-            {
-                Opacity = 0.5,
-                FontSize = 48
-            };
-            await document.AddAnnotationAsync(i, watermark);
+            pdf.SelectPage(i);
+            pdf.SetFillAlpha(128); // ~50% opacity (0=transparent, 255=opaque)
+            pdf.SetTextSize(48);
+            pdf.SetOriginRotationInDegrees(45);
+            pdf.DrawTextBox(fontResName,
+                100, 300, 500, 400,
+                "CONFIDENTIAL",
+                PdfHorizontalAlignment.PdfHorizontalAlignmentCenter,
+                PdfVerticalAlignment.PdfVerticalAlignmentMiddle);
         }
-        
-        await document.SaveAsync("watermarked.pdf");
+
+        pdf.SaveToFile("watermarked.pdf");
     }
 }

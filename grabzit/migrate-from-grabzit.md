@@ -211,7 +211,7 @@ public class PdfService
 | `ClickElement` | Use JavaScript instead | `WaitFor.JavaScript()` |
 | `HideElement` | Use CSS/JavaScript | Inject CSS to hide |
 | `TemplateId` | `RenderingOptions.HtmlHeader/Footer` | Use HTML templates |
-| `CustomWaterMark` | `pdf.ApplyWatermark()` | After rendering |
+| `CustomWaterMarkId` | `pdf.ApplyWatermark()` | After rendering (HTML-based, no pre-registration) |
 | `Password` | `pdf.SecuritySettings.UserPassword` | After rendering |
 | `IncludeBackground` | `RenderingOptions.PrintHtmlBackgrounds` | Boolean |
 | `IncludeLinks` | Always included | IronPDF preserves links |
@@ -352,16 +352,19 @@ public void CreateWatermarkedPdf(string html)
 {
     var client = new GrabzItClient("APP_KEY", "APP_SECRET");
 
+    // First register the watermark image (typically done once, in dashboard or via API)
+    // client.AddWaterMark("watermark123", "watermark.png",
+    //     HorizontalPosition.Center, VerticalPosition.Middle);
+
     var options = new PDFOptions();
-    options.SetCustomWaterMark("watermark123", // pre-created watermark ID
-        HorizontalPosition.Center,
-        VerticalPosition.Middle);
+    options.CustomWaterMarkId = "watermark123"; // pre-registered watermark ID
 
     client.HTMLToPDF(html, options);
     client.SaveTo("watermarked.pdf");
 }
 
-// Note: Watermarks must be pre-created in GrabzIt dashboard
+// Note: Watermarks are registered separately (via AddWaterMark or the dashboard)
+// and referenced from PDFOptions only by string ID — no inline styling.
 ```
 
 **After (IronPDF):**

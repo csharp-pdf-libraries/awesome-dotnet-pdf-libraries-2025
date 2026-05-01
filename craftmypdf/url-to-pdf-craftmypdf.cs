@@ -1,3 +1,4 @@
+// REST API only - no official .NET SDK. See https://craftmypdf.com/docs/
 // NuGet: Install-Package RestSharp
 using System;
 using RestSharp;
@@ -17,9 +18,9 @@ class Program
             {
                 url = "https://example.com"
             },
-            export_type = "pdf"
+            export_type = "file" // "file" returns binary PDF; "json" returns a CDN URL
         });
-        
+
         var response = client.Execute(request);
         File.WriteAllBytes("webpage.pdf", response.RawBytes);
     }

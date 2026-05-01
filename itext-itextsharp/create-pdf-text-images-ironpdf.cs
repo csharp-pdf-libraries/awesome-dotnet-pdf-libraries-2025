@@ -5,8 +5,9 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
         var renderer = new ChromePdfRenderer();
-        
+
         string html = @"
             <h1>Sample PDF Document</h1>
             <p>This document contains text and an image.</p>

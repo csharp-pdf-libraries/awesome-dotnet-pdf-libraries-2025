@@ -1,6 +1,6 @@
 # ZetPDF C# PDF
 
-In the world of .NET libraries, ZetPDF emerges as a commercially licensed library designed for handling PDF files within C# applications. Though ZetPDF is built on the foundation of the widely used open-source PDFSharp library, it offers its own set of commercial advantages and limitations. Understanding the nuances of ZetPDF and how it compares to other solutions, such as [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/), is essential for developers looking to choose the right tool for their projects.
+In the world of .NET libraries, ZetPDF (zetpdf.com) emerges as a commercially licensed library designed for handling PDF files within C# applications. The vendor markets ZetPDF as a proprietary 100%-managed-code engine, while the PDFsharp community has [questioned whether it is a closed fork of PDFsharp](https://forum.pdfsharp.net/viewtopic.php?f=2&t=3841) given the API resemblance. Either way, ZetPDF is **not on NuGet** — it ships as a ZIP from https://zetpdf.com/download/ — and the project shows no public release activity since 2021. Understanding the nuances of ZetPDF and how it compares to actively maintained solutions such as [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) is essential for developers looking to choose the right tool for their projects.
 
 ## ZetPDF: An Overview
 
@@ -23,7 +23,9 @@ Below is a comparison table highlighting the key differences between ZetPDF and 
 | **Support for PDF Annotations**   | Yes                                | Yes                                           |
 | **Text Extraction**               | Standard                           | Advanced                                      |
 | **Watermarking Support**          | Yes                                | Yes                                           |
-| **Pricing Model**                 | Per-Developer / Project            | Subscription / Custom                         |
+| **Pricing Model**                 | Perpetual: $299 Single Project / $449 Multi / $599 OEM | Subscription / Custom                         |
+| **Distribution**                  | ZIP download (no NuGet package)    | NuGet (`IronPdf`)                             |
+| **Last Public Activity**          | No releases listed since 2021      | Active, frequent releases                     |
 
 ## Strengths and Weaknesses of ZetPDF
 
@@ -85,7 +87,7 @@ As we compare ZetPDF to IronPDF, the latter emerges as a powerful alternative, l
 Here's how **ZetPDF C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package ZetPDF
+// ZetPDF is not on NuGet — install via SDK ZIP from https://zetpdf.com/download/
 using ZetPDF;
 using System;
 
@@ -130,7 +132,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **ZetPDF C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package ZetPDF
+// ZetPDF is not on NuGet — install via SDK ZIP from https://zetpdf.com/download/
 using ZetPDF;
 using System;
 using System.Collections.Generic;
@@ -180,7 +182,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **ZetPDF C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package ZetPDF
+// ZetPDF is not on NuGet — install via SDK ZIP from https://zetpdf.com/download/
 using ZetPDF;
 using System;
 

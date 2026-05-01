@@ -1,31 +1,31 @@
-# Pdfium.NET + C# + PDF
+# PDFium .NET Wrappers + C# + PDF
 
-Pdfium.NET has emerged as a significant library for developers delving into the intricacies of PDF rendering within C# applications. This library, primarily a .NET wrapper for the broader PDFium library from Google, seeks to provide developers with a robust solution for viewing and rendering PDFs. In fact, Pdfium.NET stands out for its performance and high-fidelity replication of PDF content in .NET environments, which is why it has garnered considerable attention.
+PDFium is Google's C++ PDF rendering library—the same engine that powers Chrome's built-in PDF viewer. There is no official .NET binding from Google; instead, the .NET ecosystem consumes PDFium through community wrappers. The four most commonly cited NuGet packages are `PdfiumViewer` (pvginkel; Apache 2.0; archived August 2019, last release 2.13.0 in Nov 2017, .NET Framework 2.0+), `PdfiumViewer.Updated` (a maintained fork ported to .NET Core / .NET 6), `PDFiumCore` (Dtronix; .NET Standard 2.1 P/Invoke bindings tracking upstream PDFium versions), and `Pdfium.Net.SDK` (Patagames; commercial, perpetual-license SDK). PDFium itself is licensed under BSD-3-Clause, with bundled dependencies under various open-source licenses—not Apache 2.0.
 
-As the necessity to handle PDFs in applications continues to rise, developers often grapple with choosing the most fitting library for their needs. Pdfium.NET positions itself as a reliable contender, but it is not without its limitations. A key limitation is its primary focus on viewing and rendering PDFs, which restricts its capabilities in PDF creation. This is where other libraries, like IronPDF, can offer more comprehensive features. This article will explore these two libraries in depth, comparing their strengths and weaknesses.
+As the necessity to handle PDFs in applications continues to rise, developers often grapple with choosing the most fitting library for their needs. PDFium-based wrappers are reliable contenders for rendering, but they are not without limitations. The shared, unavoidable limitation across every PDFium wrapper is scope: PDFium is a rendering, parsing, and (limited) editing engine. It is not an HTML-to-PDF engine. This is where libraries like IronPDF, which embed a full Chromium-based HTML renderer, offer more comprehensive features. This article compares the PDFium wrappers as a category against IronPDF.
 
-## Understanding Pdfium.NET
+## Understanding the PDFium Wrappers
 
-At the core of Pdfium.NET is its integration with Google's PDFium, which is renowned for its efficiency and speed in rendering PDF documents. Despite its prowess in rendering, Pdfium.NET's capabilities for creating and manipulating PDF documents are limited. It's mainly built for applications that require displaying PDF content accurately with less emphasis on modifying or creating new PDFs. Additionally, developers need to manage native PDFium binaries, an aspect that adds complexity during deployment and distribution.
+At the core of every PDFium .NET wrapper is the same Google C++ library, which is renowned for efficiency and speed in rendering PDF documents. Despite that prowess, the wrappers' capabilities for creating PDFs from non-PDF sources (HTML, URLs) are nil—PDFium itself does not parse HTML. The wrappers are built mainly for applications that require displaying PDF content accurately with less emphasis on creating new documents from web content. Additionally, developers must manage native PDFium binaries (`pdfium.dll` / `.so` / `.dylib`) per RID, an aspect that adds complexity during deployment and distribution.
 
-### Pdfium.NET Features
+### PDFium Wrapper Features
 
-- **Viewing and Rendering:** Pdfium.NET excels in rendering PDF documents with high fidelity. It can replicate complex layouts and visual elements found in PDFs, making it ideal for applications that prioritize presentation.
-- **Performance:** Leveraging Google's PDFium, Pdfium.NET provides high-performance viewing suitable for resource-intensive applications.
-- **Commercial Licensing:** While offering robust capabilities, Pdfium.NET operates under a commercial licensing model, potentially incurring additional costs for production environments.
+- **Viewing and Rendering:** PDFium wrappers excel at rendering PDF documents with high fidelity. They replicate complex layouts and visual elements found in PDFs, making them ideal for applications that prioritize presentation.
+- **Performance:** Leveraging Google's PDFium, these wrappers provide high-performance viewing suitable for resource-intensive applications.
+- **Mixed Licensing:** PDFium itself is BSD-3-Clause. `PdfiumViewer` and `PDFiumCore` are Apache 2.0 / open-source. `Pdfium.Net.SDK` from Patagames is a commercial product with a perpetual license. Confirm the wrapper you ship matches your distribution model.
 
-### Pdfium.NET Strengths and Weaknesses
+### PDFium Wrapper Strengths and Weaknesses
 
-The strengths of Pdfium.NET are evident in its performance and specialized focus on rendering, making it ideal for viewing-focused applications. However, its limitations surface in the following areas:
+The strengths of PDFium wrappers are evident in performance and specialized focus on rendering, making them ideal for viewing-focused applications. Limitations surface in the following areas:
 
-| Aspect                  | Pdfium.NET                              |
-|-------------------------|-----------------------------------------|
-| **Rendering Fidelity**  | High-fidelity rendering of PDFs         |
-| **Creation Capabilities** | Limited to none                        |
-| **HTML to PDF C# Support**| None (rendering only)                  |
-| **Native Dependence**   | Requires native binaries                |
-| **Licensing**           | Commercial; not free for production     |
-| **Ease of Deployment**  | Complicated by native dependencies      |
+| Aspect                  | PDFium .NET wrappers                         |
+|-------------------------|----------------------------------------------|
+| **Rendering Fidelity**  | High-fidelity rendering of PDFs              |
+| **Creation Capabilities** | Limited (no HTML/URL input)                |
+| **HTML to PDF C# Support**| None (rendering only)                      |
+| **Native Dependence**   | Requires native PDFium binary per RID        |
+| **Licensing**           | BSD-3 core; wrappers vary (Apache / commercial) |
+| **Ease of Deployment**  | Complicated by native binary management      |
 
 ---
 
@@ -41,7 +41,7 @@ In contrast, IronPDF stands as a comprehensive all-in-one package, excelling not
 
 ### IronPDF Strengths and Weaknesses
 
-IronPDF's versatility makes it distinct in the landscape of PDF handling in C#. It offers broader functionality than Pdfium.NET but comes with its own considerations regarding performance in high-load scenarios and learning curve for new users.
+IronPDF's versatility makes it distinct in the landscape of PDF handling in C#. It offers broader functionality than the PDFium .NET wrappers but comes with its own considerations regarding performance in high-load scenarios and learning curve for new users.
 
 | Aspect                  | IronPDF                                    |
 |-------------------------|--------------------------------------------|
@@ -58,7 +58,7 @@ Explore performance benchmarks and pricing in the [comprehensive guide](https://
 
 ## C# Code Example
 
-Let's consider a simple C# example that highlights IronPDF's ability to convert an HTML string into a PDF, which showcases its comprehensive features beyond just viewing or rendering capabilities like Pdfium.NET.
+Let's consider a simple C# example that highlights IronPDF's ability to convert an HTML string into a PDF, which showcases its comprehensive features beyond just viewing or rendering capabilities like the PDFium wrappers.
 
 ```csharp
 using IronPdf;
@@ -85,13 +85,13 @@ class Program
 }
 ```
 
-This code highlights how IronPDF not only simplifies the process of converting and creating PDFs but also offers a glimpse into its ease-of-use, minimizing native dependency concerns pervasive in Pdfium.NET.
+This code highlights how IronPDF not only simplifies the process of converting and creating PDFs but also offers a glimpse into its ease-of-use, minimizing native dependency concerns pervasive in PDFium-based wrappers.
 
 ---
 
 ## How Do I Extract Text From PDF?
 
-Here's how **Pdfium.NET** handles this:
+Here's how a **PDFium wrapper (PdfiumViewer)** handles this:
 
 ```csharp
 // NuGet: Install-Package PdfiumViewer
@@ -112,8 +112,8 @@ class Program
             
             for (int i = 0; i < document.PageCount; i++)
             {
-                // Note: PdfiumViewer has limited text extraction capabilities
-                // Text extraction requires additional work with Pdfium.NET
+                // Note: PdfiumViewer's text extraction is per-page raw text via
+                // GetPdfText(int). No layout / format metadata is exposed.
                 string pageText = document.GetPdfText(i);
                 text.AppendLine(pageText);
             }
@@ -151,7 +151,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Do I Merge Multiple PDFs in C#?
 
-Here's how **Pdfium.NET** handles this:
+Here's how a **PDFium wrapper (PdfiumViewer)** handles this:
 
 ```csharp
 // NuGet: Install-Package PdfiumViewer
@@ -189,21 +189,25 @@ class Program
 using IronPdf;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 class Program
 {
     static void Main()
     {
-        List<string> pdfFiles = new List<string> 
-        { 
-            "document1.pdf", 
-            "document2.pdf", 
-            "document3.pdf" 
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        List<string> pdfFiles = new List<string>
+        {
+            "document1.pdf",
+            "document2.pdf",
+            "document3.pdf"
         };
-        
-        var pdf = PdfDocument.Merge(pdfFiles);
-        pdf.SaveAs("merged.pdf");
-        
+
+        var docs = pdfFiles.Select(path => PdfDocument.FromFile(path)).ToList();
+        var merged = PdfDocument.Merge(docs);
+        merged.SaveAs("merged.pdf");
+
         Console.WriteLine("PDFs merged successfully");
     }
 }
@@ -213,9 +217,9 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ---
 
-## How Do I Convert HTML to PDF in C# with Pdfium.NET?
+## How Do I Convert HTML to PDF in C# with a PDFium wrapper?
 
-Here's how **Pdfium.NET** handles this:
+Here's how a **PDFium wrapper (PdfiumViewer)** handles this:
 
 ```csharp
 // NuGet: Install-Package PdfiumViewer
@@ -223,20 +227,20 @@ using PdfiumViewer;
 using System.IO;
 using System.Drawing.Printing;
 
-// Note: PdfiumViewer is primarily for viewing/rendering PDFs, not creating them from HTML
-// For HTML to PDF with Pdfium.NET, you would need additional libraries
-// This example shows a limitation of Pdfium.NET
+// Note: PDFium is a PDF rendering / parsing engine. It has no HTML parser.
+// For HTML to PDF with any PDFium wrapper (PdfiumViewer, PDFiumCore, Pdfium.Net.SDK)
+// you must produce the PDF with a separate library and only then use PDFium to view it.
 class Program
 {
     static void Main()
     {
-        // Pdfium.NET does not have native HTML to PDF conversion
-        // You would need to use a separate library to convert HTML to PDF
-        // then use Pdfium for manipulation
+        // PDFium has no native HTML-to-PDF capability.
+        // Use a separate engine (e.g. wkhtmltopdf, headless Chromium, IronPDF)
+        // and then load the resulting PDF for rendering.
         string htmlContent = "<h1>Hello World</h1>";
         
-        // This functionality is not directly available in Pdfium.NET
-        Console.WriteLine("HTML to PDF conversion not natively supported in Pdfium.NET");
+        // This functionality is not available in any PDFium wrapper.
+        Console.WriteLine("HTML to PDF conversion is not supported by PDFium.");
     }
 }
 ```
@@ -267,51 +271,51 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ---
 
-## How Can I Migrate from Pdfium.NET to IronPDF?
+## How Can I Migrate from a PDFium wrapper to IronPDF?
 
 ### The Rendering-Only Limitation
 
-Pdfium.NET wraps Google's PDFium library—excellent for rendering but limited for modern application needs:
+PDFium wrappers expose Google's PDFium engine—excellent for rendering but narrow in scope:
 
-1. **Rendering-Only**: Cannot create PDFs from HTML, images, or programmatically
-2. **No PDF Manipulation**: Cannot merge, split, or modify PDF content
-3. **Native Binary Dependencies**: Requires platform-specific PDFium binaries
-4. **Deployment Complexity**: Must bundle and manage native DLLs per platform
-5. **No HTML to PDF**: Cannot convert web content to PDF
-6. **No Headers/Footers/Watermarks**: Cannot add page numbers or overlays
+1. **Rendering-First**: PDFium does not parse HTML, so no wrapper can create PDFs from HTML, URLs, or arbitrary images
+2. **Limited Manipulation**: Open-source wrappers like PdfiumViewer expose viewing/text-extraction; merge / split / form-edit varies by wrapper (Patagames Pdfium.Net.SDK supports more, the free wrappers less)
+3. **Native Binary Dependencies**: Requires platform-specific PDFium binaries (`pdfium.dll` / `.so` / `.dylib`) per RID
+4. **Deployment Complexity**: Must bundle and manage native binaries per platform
+5. **No HTML to PDF**: PDFium has no HTML parser; web content cannot be converted directly
+6. **No Built-in Headers/Footers/Watermarks**: PDFium has no high-level page-overlay primitive
 
 ### Quick Migration Overview
 
-| Aspect | Pdfium.NET | IronPDF |
-|--------|------------|---------|
+| Aspect | PDFium wrappers | IronPDF |
+|--------|-----------------|---------|
 | Primary Focus | Rendering/viewing | Complete PDF solution |
-| PDF Creation | ✗ | ✓ (HTML, URL, images) |
-| PDF Manipulation | ✗ | ✓ (merge, split, edit) |
-| Watermarks | ✗ | ✓ |
-| Headers/Footers | ✗ | ✓ |
-| Form Filling | ✗ | ✓ |
-| Native Dependencies | Required | None (fully managed) |
+| PDF Creation from HTML | None | Yes (Chromium engine) |
+| PDF Manipulation | Limited (varies by wrapper) | Yes (merge, split, edit) |
+| Watermarks | Not built-in | Yes |
+| Headers/Footers | Not built-in | Yes |
+| Form Filling | Patagames only | Yes |
+| Native Dependencies | Required | Bundled / managed by NuGet |
 
-### Key API Mappings
+### Key API Mappings (PdfiumViewer → IronPDF)
 
-| Pdfium.NET | IronPDF | Notes |
-|------------|---------|-------|
+| PdfiumViewer | IronPDF | Notes |
+|--------------|---------|-------|
 | `PdfDocument.Load(path)` | `PdfDocument.FromFile(path)` | Load from file |
 | `document.PageCount` | `document.PageCount` | Same |
-| `page.Render(width, height)` | `pdf.RasterizeToImageFiles(path, dpi)` | DPI-based |
+| `page.Render(width, height, dpiX, dpiY, rotate, flags)` | `pdf.RasterizeToImageFiles(path, DPI)` | DPI-based rasterization |
 | `document.GetPdfText(index)` | `pdf.Pages[index].Text` | Per-page text |
 | _(manual loop)_ | `pdf.ExtractAllText()` | All text at once |
-| `document.Save(path)` | `pdf.SaveAs(path)` | Different method name |
-| _(not available)_ | `ChromePdfRenderer.RenderHtmlAsPdf()` | NEW: Create PDFs |
+| `document.Save(stream)` | `pdf.SaveAs(path)` | File-path overload |
+| _(not available)_ | `ChromePdfRenderer.RenderHtmlAsPdf()` | NEW: HTML to PDF |
 | _(not available)_ | `PdfDocument.Merge()` | NEW: Merge PDFs |
 | _(not available)_ | `pdf.ApplyWatermark()` | NEW: Watermarks |
 | _(not available)_ | `pdf.SecuritySettings` | NEW: Password protection |
 
 ### Migration Code Example
 
-**Before (Pdfium.NET):**
+**Before (PdfiumViewer):**
 ```csharp
-using Pdfium;
+using PdfiumViewer;
 using System.Drawing;
 
 public class PdfRenderService
@@ -322,15 +326,13 @@ public class PdfRenderService
         {
             for (int i = 0; i < document.PageCount; i++)
             {
-                using (var page = document.Pages[i])
-                {
-                    int width = (int)(page.Width * 2); // 2x scale
-                    int height = (int)(page.Height * 2);
+                var size = document.PageSizes[i];
+                int width = (int)(size.Width * 2); // 2x scale
+                int height = (int)(size.Height * 2);
 
-                    using (var bitmap = page.Render(width, height, PdfRenderFlags.Annotations))
-                    {
-                        bitmap.Save($"{outputFolder}/page_{i + 1}.png");
-                    }
+                using (var bitmap = document.Render(i, width, height, 96, 96, PdfRenderFlags.Annotations))
+                {
+                    bitmap.Save($"{outputFolder}/page_{i + 1}.png");
                 }
             }
         }
@@ -369,52 +371,53 @@ public class PdfRenderService
 
 ### Critical Migration Notes
 
-1. **Scale → DPI Conversion**: `IronPDF DPI = 72 × Pdfium scale`
+1. **Scale → DPI Conversion**: `IronPDF DPI = 72 × PDFium scale`
    ```csharp
-   // Pdfium scale 2.0 → IronPDF DPI 144
+   // PDFium scale 2.0 → IronPDF DPI 144
    pdf.RasterizeToImageFiles("*.png", DPI: 144);
    ```
 
-2. **Remove Native Binaries**: Delete all pdfium.dll files
+2. **Remove Native Binaries**: Delete all `pdfium.dll` / `.so` / `.dylib` files
    ```bash
    rm -rf x86/ x64/ runtimes/
    ```
 
 3. **Simplified Disposal**: No nested `using` statements required
    ```csharp
-   // Pdfium: using (doc) using (page) using (bitmap) ...
+   // PdfiumViewer: using (doc) ... using (bitmap) ...
    // IronPDF: var pdf = PdfDocument.FromFile(path);
    ```
 
 4. **Document Loading**: Different method name
    ```csharp
-   // Pdfium: PdfDocument.Load(path)
-   // IronPDF: PdfDocument.FromFile(path)
+   // PdfiumViewer: PdfDocument.Load(path)
+   // IronPDF:      PdfDocument.FromFile(path)
    ```
 
 5. **Save Method**: Different method name
    ```csharp
-   // Pdfium: document.Save(path)
-   // IronPDF: pdf.SaveAs(path)
+   // PdfiumViewer: document.Save(stream)
+   // IronPDF:      pdf.SaveAs(path)
    ```
 
 ### NuGet Package Migration
 
 ```bash
-# Remove Pdfium packages
-dotnet remove package Pdfium.NET
-dotnet remove package Pdfium.Net.SDK
+# Remove whichever PDFium wrapper you used
 dotnet remove package PdfiumViewer
+dotnet remove package PdfiumViewer.Updated
+dotnet remove package PDFiumCore
+dotnet remove package Pdfium.Net.SDK
 
 # Install IronPDF
 dotnet add package IronPdf
 ```
 
-### Find All Pdfium References
+### Find All PDFium References
 
 ```bash
-# Find Pdfium usage
-grep -r "Pdfium\|PdfDocument\.Load\|\.Render\(" --include="*.cs" .
+# Find PDFium usage
+grep -r "Pdfium\|PdfDocument\.Load\|\.Render(" --include="*.cs" .
 
 # Find native binary references
 grep -r "pdfium\.dll" --include="*.csproj" --include="*.config" .
@@ -431,14 +434,14 @@ grep -r "pdfium\.dll" --include="*.csproj" --include="*.config" .
 - Troubleshooting guide for common issues
 - Pre/post migration checklists
 
-**[Complete Migration Guide: Pdfium.NET → IronPDF](migrate-from-pdfium.md)**
+**[Complete Migration Guide: PDFium wrappers → IronPDF](migrate-from-pdfium.md)**
 
 
 ## Conclusion
 
-In conclusion, both Pdfium.NET and IronPDF offer unique strengths that cater to different aspects of PDF handling within C# applications. Pdfium.NET is preferred for its high-fidelity rendering and viewing capabilities, suitable for desktop applications focused on PDF display. However, for scenarios requiring creation, conversion, and manipulation, IronPDF provides a more comprehensive package that includes ease of use and reduced dependency management. Both libraries are commercially licensed, which should factor into considerations based on project budget and licensing constraints.
+PDFium wrappers and IronPDF address different problems. PDFium itself is a BSD-3 rendering and parsing engine; the .NET wrappers (`PdfiumViewer`, `PdfiumViewer.Updated`, `PDFiumCore`, `Pdfium.Net.SDK`) make it usable from C# but inherit its rendering-first scope. They are preferred for desktop applications that display existing PDFs at high fidelity. For scenarios requiring creation from HTML, conversion, manipulation (merge / split / watermark / form fill), and managed cross-platform deployment without shipping native binaries, IronPDF is a more comprehensive package. Licensing also varies: the open-source PDFium wrappers are free, the Patagames `Pdfium.Net.SDK` is commercial, and IronPDF is commercial—so the budget calculus depends on which wrapper you would have shipped.
 
-As developers evaluate the needs of their specific applications, understanding the full capabilities and limitations of tools like Pdfium.NET and IronPDF will be crucial in making informed decisions.
+As developers evaluate the needs of their specific applications, understanding the capabilities and limitations of each PDFium wrapper, alongside higher-level libraries like IronPDF, is crucial for informed decisions.
 
 ---
 

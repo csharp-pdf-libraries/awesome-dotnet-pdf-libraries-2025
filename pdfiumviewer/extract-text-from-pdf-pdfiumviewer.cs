@@ -1,23 +1,30 @@
 // NuGet: Install-Package PdfiumViewer
+//        Install-Package PdfiumViewer.Native.x86.v8-xfa
+//        Install-Package PdfiumViewer.Native.x86_64.v8-xfa
+// Repo:  https://github.com/pvginkel/PdfiumViewer (archived 2019-08-02, last release 2.13.0 from 2017-11-06)
 using PdfiumViewer;
 using System;
 using System.Text;
 
 string pdfPath = "document.pdf";
 
-// PDFiumViewer has limited text extraction capabilities
-// It's primarily designed for rendering, not text extraction
+// PdfiumViewer wraps Google's PDFium and exposes basic page-level text
+// extraction via PdfDocument.GetPdfText(int page). It returns raw page
+// text only — no layout, no per-word coordinates, no OCR for image-only
+// pages. The library is WinForms-only and the upstream repo is archived.
 using (var document = PdfDocument.Load(pdfPath))
 {
     int pageCount = document.PageCount;
     Console.WriteLine($"Total pages: {pageCount}");
-    
-    // PDFiumViewer does not have built-in text extraction
-    // You would need to use OCR or another library
-    // It can only render pages as images
+
+    var sb = new StringBuilder();
     for (int i = 0; i < pageCount; i++)
     {
-        var pageImage = document.Render(i, 96, 96, false);
-        Console.WriteLine($"Rendered page {i + 1}");
+        // GetPdfText(int page) is the only built-in text API.
+        string pageText = document.GetPdfText(i);
+        sb.AppendLine($"--- Page {i + 1} ---");
+        sb.AppendLine(pageText);
     }
+
+    Console.WriteLine(sb.ToString());
 }

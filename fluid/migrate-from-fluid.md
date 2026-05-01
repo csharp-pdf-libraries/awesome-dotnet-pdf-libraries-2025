@@ -55,8 +55,8 @@ IronPDF provides an **all-in-one solution**, as covered in the [complete walkthr
 
 ### Prerequisites
 
-1. **.NET Environment**: IronPDF supports .NET Framework 4.6.2+, .NET Core 3.1+, .NET 5/6/7/8/9+
-2. **NuGet Access**: Ensure you can install packages from NuGet
+1. **.NET Environment**: IronPDF supports .NET Framework 4.6.2+, .NET Core 2.0+, .NET Standard 2.0, and .NET 5/6/7/8/9/10
+2. **NuGet Access**: Ensure you can install packages from NuGet (Fluid is shipped on NuGet as `Fluid.Core`, owned by Sebastien Ros, MIT-licensed; latest stable 2.31.0 at time of writing)
 3. **License Key**: Obtain your IronPDF license key for production use
 
 ### Backup Your Project

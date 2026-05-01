@@ -1,6 +1,6 @@
 # jsreport + C# + PDF
 
-In the world of C# and PDF generation, jsreport stands out as a versatile tool that allows developers to produce high-quality reports using web technologies. With jsreport being a node.js-based platform, developers can leverage HTML, CSS, and JavaScript to design reports, which is an advantage for web development teams familiar with these technologies. However, to fully utilize jsreport in a .NET environment, developers must integrate it using its .NET SDK. This integration opens up the possibilities for using jsreport twice within traditional C# applications, while allowing developers to design highly visual documents easily.
+In the world of C# and PDF generation, jsreport stands out as a versatile tool that allows developers to produce high-quality reports using web technologies. With jsreport being a Node.js-based reporting platform, developers can leverage HTML, CSS, and JavaScript to design reports, which is an advantage for web development teams familiar with these technologies. To use jsreport from a .NET application, developers integrate the official jsreport .NET SDK — `jsreport.Local` for an in-process subprocess wrapper around the embedded `jsreport.Binary`, or `jsreport.Client` to talk over HTTP to a remote jsreport server. This lets you keep designing reports in jsreport Studio (the browser-based template editor) while invoking them from C#.
 
 ## jsreport Strengths and Weaknesses
 
@@ -12,7 +12,7 @@ In the world of C# and PDF generation, jsreport stands out as a versatile tool t
 ### Weaknesses
 - **Node.js Dependency**: It requires a Node.js runtime and a separate server, which could be a downside for teams focused strictly on C# environments who prefer native .NET solutions.
 - **Complex Templating System**: Learning the jsreport templating system, which includes mastering the use of JavaScript templating engines like Handlebars or JsRender, can present a learning curve.
-- **Licensing Model**: While there's a free tier, it limits the number of templates one can use, and scaling up to an enterprise might lead to increased costs.
+- **Licensing Model**: The free tier is fully featured but capped at 5 templates per instance; commercial use beyond that requires an Enterprise license ($395/year per instance) or Enterprise Scale ($1,295/year, royalty-free across instances) — see [jsreport.net/buy](https://jsreport.net/buy).
 
 ### Comparison to [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/)
 
@@ -43,8 +43,13 @@ For a side-by-side feature analysis, see the [detailed comparison](https://irons
 To demonstrate how to use jsreport within a C# application, let’s consider a simple scenario that shows how to generate a PDF report using the jsreport's .NET SDK. This integration will showcase how a C# application sends a request to the jsreport server, specifying a template and data, and then retrieves the PDF result.
 
 ```csharp
+// NuGet: Install-Package jsreport.Local
+// NuGet: Install-Package jsreport.Binary
+// NuGet: Install-Package jsreport.Types
+using jsreport.Binary;
 using jsreport.Local;
 using jsreport.Types;
+using System.IO;
 using System.Threading.Tasks;
 
 class Program
@@ -52,8 +57,8 @@ class Program
     static async Task Main(string[] args)
     {
         var rs = new LocalReporting()
-                   .UseBinary(JsReportBinary.GetBinary()) // points to the jsreport binary
-                   .AspNetCore().Renderer(new AspNetCore.ReportingOptions())
+                   .UseBinary(JsReportBinary.GetBinary()) // embeds the jsreport.exe binary
+                   .AsUtility()                           // command-line / subprocess mode
                    .Create();
 
         var report = await rs.RenderAsync(new RenderRequest
@@ -72,7 +77,7 @@ class Program
 }
 ```
 
-In this example, the `LocalReporting` class initializes a jsreport server locally from within the .NET application. The request specifies an HTML template with the Handlebars templating engine and uses the `chrome-pdf` recipe to generate the PDF. The resulting PDF is stored locally as `report.pdf`.
+In this example, `LocalReporting().UseBinary(JsReportBinary.GetBinary()).AsUtility().Create()` spawns the embedded `jsreport.exe` as a short-lived subprocess from the .NET application. The request specifies an HTML template with the Handlebars templating engine and uses the `chrome-pdf` recipe to generate the PDF. The resulting PDF stream is written to disk as `report.pdf`. Use `.AsWebServer()` instead if you want a long-running local jsreport HTTP server, or use the `jsreport.Client` package to call a remote jsreport instance.
 
 ### Concluding Thoughts
 
@@ -344,8 +349,8 @@ jsreport introduces complexity that doesn't belong in a pure .NET environment:
 | `Chrome.MarginTop = "2cm"` | `RenderingOptions.MarginTop = 20` | mm units |
 | `Chrome.Format = "A4"` | `RenderingOptions.PaperSize = PdfPaperSize.A4` | Enum |
 | `Chrome.Landscape = true` | `RenderingOptions.PaperOrientation = Landscape` | Enum |
-| `{#pageNum}` | `{page}` | Placeholder |
-| `{#numPages}` | `{total-pages}` | Placeholder |
+| `<span class="pageNumber">` (or `{#pageNum}` w/ pdf-utils) | `{page}` | Placeholder |
+| `<span class="totalPages">` (or `{#numPages}` w/ pdf-utils) | `{total-pages}` | Placeholder |
 | `rs.StartAsync()` | _(not needed)_ | In-process |
 | `rs.KillAsync()` | _(not needed)_ | Auto-cleanup |
 
@@ -382,7 +387,7 @@ public class JsReportService
                 {
                     Format = "A4",
                     DisplayHeaderFooter = true,
-                    FooterTemplate = "<div>Page {#pageNum} of {#numPages}</div>",
+                    FooterTemplate = "<div>Page <span class='pageNumber'></span> of <span class='totalPages'></span></div>",
                     MarginBottom = "2cm"
                 }
             }
@@ -437,10 +442,10 @@ public class PdfService
    dotnet remove package jsreport.Binary.OSX
    ```
 
-3. **Placeholder Syntax**: Update all header/footer placeholders:
-   - `{#pageNum}` → `{page}`
-   - `{#numPages}` → `{total-pages}`
-   - `{#timestamp}` → `{date}`
+3. **Placeholder Syntax**: Replace jsreport's chrome-pdf span placeholders (or `pdf-utils` curly-brace placeholders) with IronPDF merge fields:
+   - `<span class="pageNumber"></span>` (or `{#pageNum}`) → `{page}`
+   - `<span class="totalPages"></span>` (or `{#numPages}`) → `{total-pages}`
+   - `<span class="date"></span>` → `{date}`
 
 4. **Margin Units**: jsreport uses CSS units ("2cm"), IronPDF uses millimeters:
    ```csharp

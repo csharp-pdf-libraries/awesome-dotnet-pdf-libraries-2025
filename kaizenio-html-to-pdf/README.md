@@ -1,25 +1,26 @@
 # Kaizen.io HTML-to-PDF + C# + PDF
 
-The advent of powerful HTML-to-PDF conversion tools has revolutionized how developers generate PDF documents programmatically from web content. Both Kaizen.io HTML-to-PDF and IronPDF have positioned themselves as leaders in this space, offering unique features to cater to different developer needs. Kaizen.io HTML-to-PDF distinguishes itself by providing a cloud-based service, while IronPDF emphasizes local processing capabilities. This article delves deeper into these offerings, comparing their strengths and weaknesses.
+Kaizen.io HTML-to-PDF and IronPDF both convert HTML into PDF in a .NET context, but they ship as fundamentally different products. Kaizen.io HTML-to-PDF is a self-hosted Docker container (`kaizenio.azurecr.io/html-to-pdf`) that exposes a single REST endpoint at `POST /html-to-pdf` on port 8080 — there is no official .NET SDK or NuGet package, so C# integration is hand-rolled `HttpClient` calls against the running container. IronPDF, by contrast, is delivered as the `IronPdf` NuGet package and runs in-process inside your .NET application. This article compares the two approaches.
 
-Kaizen.io HTML-to-PDF is a cloud-based solution that simplifies the conversion of HTML content into high-quality PDF documents. Developers can leverage this service without worrying about infrastructure setup, simplifying deployment and scaling. However, it's crucial to consider potential drawbacks, such as cloud dependency, security concerns, and latency, which might affect performance and data privacy. Despite these limitations, Kaizen.io HTML-to-PDF serves as a compelling option for those seeking a cloud-native solution that combines ease of use with a robust support model.
+Kaizen.io HTML-to-PDF v1.x exposes a deliberately small API. The documented JSON body accepts only an `html` field; URL-to-PDF input, custom stylesheets, headers/footers, and page-layout options are listed as roadmap items rather than shipping features, so anything beyond rendering a string of HTML must be expressed inside the HTML itself (typically via `@page` CSS and absolute-positioned divs). Licensing is a one-time fee with a watermarked free tier, configured via the `KAIZEN_PDF_LICENSE` environment variable on the container.
 
-In contrast, [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) provides a local processing engine that's integrated seamlessly into a .NET environment, allowing developers unmatched capabilities within their applications. This solution prioritizes data security and minimizes latency by eliminating the need to transmit data externally. IronPDF is ideal for developers looking to maintain complete control over their processing resources and data privacy.
+In contrast, [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) provides a strongly-typed in-process renderer (`ChromePdfRenderer`) with first-class support for URL input, file input, headers and footers (text or HTML), `{page}` / `{total-pages}` placeholders, paper size and orientation, margins, JavaScript wait conditions, and direct `SaveAs` to disk — all without a sidecar container or HTTP hop.
 
 ## Kaizen.io HTML-to-PDF vs. IronPDF: A Comprehensive Comparison
 
 Here's a detailed comparison of Kaizen.io HTML-to-PDF and IronPDF across various dimensions:
 
-| Feature                         | Kaizen.io HTML-to-PDF                     | IronPDF                                   |
-| ------------------------------- | ---------------------------------------- | ------------------------------------------ |
-| **Deployment Model**            | Cloud-based                               | On-premise/local                           |
-| **Security**                    | Data is transmitted externally            | Processes data locally, ensuring privacy   |
-| **Processing Latency**          | Network round-trip adds some delay        | Minimal latency due to local processing    |
-| **Licensing Model**             | Commercial                                | Commercial                                 |
-| **Ease of Use**                 | Easy cloud integration                    | Seamless integration with C# and .NET      |
-| **HTML to PDF C# Integration**  | Cloud API calls                           | Native html to pdf c# library              |
-| **Scalability**                 | Highly scalable due to the cloud setup    | Limited by on-prem hardware                |
-| **Support Model**               | Commercial support available              | Comprehensive tutorials and support        |
+| Feature                         | Kaizen.io HTML-to-PDF                          | IronPDF                                   |
+| ------------------------------- | ---------------------------------------------- | ----------------------------------------- |
+| **Deployment Model**            | Self-hosted Docker container                   | In-process .NET library                   |
+| **Distribution**                | Docker image `kaizenio.azurecr.io/html-to-pdf` | NuGet `IronPdf`                           |
+| **C# Integration**              | Hand-rolled `HttpClient` POST (no SDK)         | Strongly-typed `ChromePdfRenderer` API    |
+| **Endpoint Surface (v1.x)**     | `POST /html-to-pdf` with `{ "html": ... }`     | Methods for HTML, file, URL, and stream   |
+| **URL → PDF**                   | Roadmap                                        | `RenderUrlAsPdf(url)`                     |
+| **Headers / Footers**           | Not in v1.x API; fake via fixed-position CSS   | `TextHeader/Footer` and `HtmlHeader/Footer` |
+| **Page Numbers**                | Unsupported                                    | `{page}` and `{total-pages}` placeholders |
+| **Page Size / Orientation**     | Embed `@page` CSS in HTML                      | `RenderingOptions.PaperSize` etc.         |
+| **Licensing**                   | One-time license; free tier watermarks output  | Commercial (annual or perpetual)          |
 
 ### Strengths and Weaknesses
 
@@ -27,25 +28,28 @@ Here's a detailed comparison of Kaizen.io HTML-to-PDF and IronPDF across various
 
 **Strengths:**
 
-1. **Ease of Use:**
-   - The cloud-based nature streamlines the integration, especially for teams with fewer IT resources.
+1. **Self-Hosted, No Outbound Calls:**
+   - Runs as a Docker container on your own infrastructure; the rendered HTML never leaves your network.
 
-2. **Scalability:**
-   - Cloud infrastructure enables easy scaling to handle varying loads seamlessly.
+2. **Inexpensive Licensing:**
+   - One-time license with a watermarked free tier — useful for small workloads or evaluation.
 
-3. **Support and Documentation:**
-   - Offers commercial support to resolve issues promptly, along with extensive documentation.
+3. **Operationally Simple:**
+   - One image, one port, one JSON field — easy to slot in as a sidecar.
 
 **Weaknesses:**
 
-1. **Cloud Dependency:**
-   - Requires a constant internet connection and external service calls, which may not suit all applications.
+1. **No .NET SDK:**
+   - Every C# call is hand-rolled `HttpClient` + JSON. No IntelliSense, no compile-time checks on the request shape.
 
-2. **Security Concerns:**
-   - Data transmitted to a third-party service, which might not be ideal for sensitive information.
+2. **Tiny v1.x API Surface:**
+   - The documented body accepts only `html`. URL-to-PDF, custom stylesheets, headers/footers, page size/margins, and JS-wait fields are roadmap items, not features.
 
-3. **Latency:**
-   - Network round-trip introduces delays, which could affect performance for real-time applications.
+3. **No Page-Number Support:**
+   - The API has no `{page}` / `{total}` placeholders, so "Page X of Y" footers cannot be produced server-side.
+
+4. **Container Operations Overhead:**
+   - You operate the container — pulls, restarts, port management, license env var, monitoring.
 
 #### IronPDF
 
@@ -81,20 +85,21 @@ class Program
 {
     static void Main()
     {
-        var Renderer = new HtmlToPdf();
-        // Adjust settings as needed
-        Renderer.PrintOptions.MarginTop = 20;
-        Renderer.PrintOptions.Header = new SimpleHeaderFooter()
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.MarginTop = 20;
+        renderer.RenderingOptions.TextHeader = new TextHeaderFooter
         {
             CenterText = "{page} of {total-pages}"
         };
-        
+
         // Convert HTML file to PDF
-        var PdfDocument = Renderer.RenderHtmlFileAsPdf("input.html");
+        var pdf = renderer.RenderHtmlFileAsPdf("input.html");
 
         // Save to file
-        PdfDocument.SaveAs("output.pdf");
-        
+        pdf.SaveAs("output.pdf");
+
         System.Console.WriteLine("PDF generated successfully!");
     }
 }
@@ -114,27 +119,37 @@ Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person team build
 
 ## How Do I Url To PDF Headers Footers?
 
-Here's how **Kaizen.io HTML-to-PDF** handles this:
+Here's how **Kaizen.io HTML-to-PDF** handles this. There is no `ConvertUrl`, no header/footer fields, and no page-number placeholders in v1.x — you fetch the URL yourself, then wrap the HTML with `@page` CSS and fixed-position divs to fake header/footer:
 
 ```csharp
-using Kaizen.IO;
-using System;
 using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        var options = new ConversionOptions
-        {
-            Header = new HeaderOptions { HtmlContent = "<div style='text-align:center'>Company Header</div>" },
-            Footer = new FooterOptions { HtmlContent = "<div style='text-align:center'>Page {page} of {total}</div>" },
-            MarginTop = 20,
-            MarginBottom = 20
-        };
-        var pdfBytes = converter.ConvertUrl("https://example.com", options);
-        File.WriteAllBytes("webpage.pdf", pdfBytes);
+        using var http = new HttpClient();
+        var page = await http.GetStringAsync("https://example.com");
+        var html = $@"<!doctype html><html><head><style>
+            @page {{ margin: 20mm; }}
+            .h {{ position: fixed; top: -15mm; left: 0; right: 0; text-align: center; }}
+            .f {{ position: fixed; bottom: -15mm; left: 0; right: 0; text-align: center; }}
+        </style></head><body>
+            <div class='h'>Company Header</div>
+            <div class='f'>Footer (page numbers unsupported in Kaizen v1.x)</div>
+            {page}
+        </body></html>";
+
+        var payload = JsonSerializer.Serialize(new { html });
+        var response = await http.PostAsync(
+            "http://localhost:8080/html-to-pdf",
+            new StringContent(payload, Encoding.UTF8, "application/json"));
+        response.EnsureSuccessStatusCode();
+        File.WriteAllBytes("webpage.pdf", await response.Content.ReadAsByteArrayAsync());
     }
 }
 ```
@@ -168,26 +183,29 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Do I Convert an HTML File to PDF?
 
-Here's how **Kaizen.io HTML-to-PDF** handles this:
+Here's how **Kaizen.io HTML-to-PDF** handles this. There is no file endpoint — read the file yourself, embed page-size/orientation in `@page` CSS, and POST it to the container:
 
 ```csharp
-using Kaizen.IO;
-using System;
 using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        var htmlContent = File.ReadAllText("input.html");
-        var options = new ConversionOptions
-        {
-            PageSize = PageSize.A4,
-            Orientation = Orientation.Portrait
-        };
-        var pdfBytes = converter.Convert(htmlContent, options);
-        File.WriteAllBytes("document.pdf", pdfBytes);
+        var body = File.ReadAllText("input.html");
+        var html = "<style>@page { size: A4 portrait; }</style>" + body;
+
+        using var http = new HttpClient();
+        var payload = JsonSerializer.Serialize(new { html });
+        var response = await http.PostAsync(
+            "http://localhost:8080/html-to-pdf",
+            new StringContent(payload, Encoding.UTF8, "application/json"));
+        response.EnsureSuccessStatusCode();
+        File.WriteAllBytes("document.pdf", await response.Content.ReadAsByteArrayAsync());
     }
 }
 ```
@@ -219,20 +237,26 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Do I Basic HTML To PDF?
 
-Here's how **Kaizen.io HTML-to-PDF** handles this:
+Here's how **Kaizen.io HTML-to-PDF** handles this. There is no .NET SDK — you POST JSON to the container's REST endpoint:
 
 ```csharp
-using Kaizen.IO;
 using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        var html = "<html><body><h1>Hello World</h1></body></html>";
-        var pdfBytes = converter.Convert(html);
-        File.WriteAllBytes("output.pdf", pdfBytes);
+        using var http = new HttpClient();
+        var payload = JsonSerializer.Serialize(new { html = "<html><body><h1>Hello World</h1></body></html>" });
+        var response = await http.PostAsync(
+            "http://localhost:8080/html-to-pdf",
+            new StringContent(payload, Encoding.UTF8, "application/json"));
+        response.EnsureSuccessStatusCode();
+        File.WriteAllBytes("output.pdf", await response.Content.ReadAsByteArrayAsync());
     }
 }
 ```
@@ -262,65 +286,73 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from Kaizen.io HTML-to-PDF to IronPDF?
 
-### The Cloud-Based API Challenges
+### The Container-API Challenges
 
-Kaizen.io HTML-to-PDF, like other cloud-based services, introduces limitations:
+Kaizen.io HTML-to-PDF is delivered as a Docker container with a single REST endpoint and no .NET SDK. That model has real limits:
 
-1. **Cloud Dependency**: Requires constant internet connection and external service availability
-2. **Data Privacy Concerns**: Sensitive HTML content transmitted to third-party servers
-3. **Network Latency**: Every PDF generation incurs network round-trip delays
-4. **Per-Request Pricing**: Costs scale directly with usage volume
-5. **Rate Limiting**: API throttling during high-traffic periods
-6. **Vendor Lock-In**: API changes or service discontinuation risk
+1. **Container to Operate**: You run, monitor, and update `kaizenio.azurecr.io/html-to-pdf:latest` somewhere reachable from your app.
+2. **No SDK**: Every C# call is hand-rolled `HttpClient` + JSON; no IntelliSense, no compile-time checks.
+3. **Tiny v1.x API Surface**: The body accepts only `html` — no URL input, no headers/footers, no page-size/margin fields, no JS-wait field.
+4. **No Page Numbers**: There is no `{page}` / `{total}` placeholder support.
+5. **Watermark on Free Tier**: Without `KAIZEN_PDF_LICENSE`, output is watermarked.
+6. **HTTP Round-Trip per PDF**: Even on `localhost` you pay JSON serialization and a socket hop on every call.
 
 ### Quick Migration Overview
 
-| Aspect | Kaizen.io | IronPDF |
-|--------|-----------|---------|
-| Processing | Cloud (external servers) | Local (in-process) |
-| Data Privacy | Data transmitted externally | Data never leaves network |
-| Latency | Network round-trip (100-500ms+) | Local (50-200ms) |
-| Pricing | Per-request or subscription | One-time or annual license |
-| Offline Mode | Not possible | Full functionality |
-| Rate Limits | API throttling | No limits |
+| Aspect | Kaizen.io HTML-to-PDF | IronPDF |
+|--------|-----------------------|---------|
+| Distribution | Docker container | NuGet `IronPdf` |
+| C# Integration | Hand-rolled `HttpClient` POST | `ChromePdfRenderer` API |
+| URL Input | Not in v1.x | `RenderUrlAsPdf(url)` |
+| Headers / Footers | Not in v1.x | `TextHeader/Footer`, `HtmlHeader/Footer` |
+| Page Numbers | Unsupported | `{page}` / `{total-pages}` |
+| Page Size / Margins | Embed `@page` CSS | `RenderingOptions.*` |
+| Process Model | Out-of-process container | In-process |
 
-### Key API Mappings
+### Key Concept Mappings
 
-| Kaizen.io | IronPDF | Notes |
-|-----------|---------|-------|
-| `new HtmlToPdfConverter(apiKey)` | `new ChromePdfRenderer()` | No API key needed |
-| `converter.Convert(html)` | `renderer.RenderHtmlAsPdf(html)` | Returns PdfDocument |
-| `converter.ConvertUrl(url)` | `renderer.RenderUrlAsPdf(url)` | Direct URL support |
-| `converter.ConvertAsync(...)` | `renderer.RenderHtmlAsPdfAsync(...)` | Async version |
-| `ConversionOptions.PageSize` | `RenderingOptions.PaperSize` | Enum value |
-| `ConversionOptions.Orientation` | `RenderingOptions.PaperOrientation` | Enum value |
-| `ConversionOptions.MarginTop` | `RenderingOptions.MarginTop` | In millimeters |
-| `ConversionOptions.Header` | `RenderingOptions.HtmlHeader` | HTML-based |
-| `ConversionOptions.Footer` | `RenderingOptions.HtmlFooter` | HTML-based |
-| `{page}` | `{page}` | Same placeholder |
-| `{total}` | `{total-pages}` | Different placeholder |
+| Kaizen.io concept | IronPDF | Notes |
+|-------------------|---------|-------|
+| `HttpClient.PostAsync("…/html-to-pdf", { html })` | `renderer.RenderHtmlAsPdf(html)` | Direct method call |
+| (No URL endpoint in v1.x) | `renderer.RenderUrlAsPdf(url)` | First-class |
+| Inline `@page { size: A4 portrait }` | `RenderingOptions.PaperSize` / `PaperOrientation` | Enum |
+| Inline `@page { margin: 20mm }` | `RenderingOptions.MarginTop` etc. | Millimeters |
+| Fake `<div class='header'>` | `RenderingOptions.HtmlHeader` | Real header zone |
+| Manual `html.Replace("{total}", n)` | `{total-pages}` placeholder | Resolved server-side |
+| `KAIZEN_PDF_LICENSE` env var | `IronPdf.License.LicenseKey` | Set once at startup |
+| HTTP `byte[]` body | `pdf.BinaryData` / `pdf.SaveAs(path)` | `PdfDocument` |
 
 ### Migration Code Example
 
-**Before (Kaizen.io):**
+**Before (Kaizen.io — fake header/footer baked into HTML, no page numbers):**
 ```csharp
-using Kaizen.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 public class KaizenService
 {
-    public byte[] GeneratePdf(string html)
-    {
-        var converter = new HtmlToPdfConverter("YOUR_API_KEY");
-        var options = new ConversionOptions
-        {
-            PageSize = PageSize.A4,
-            MarginTop = 20,
-            MarginBottom = 20,
-            Header = new HeaderOptions { HtmlContent = "<div>Company Report</div>" },
-            Footer = new FooterOptions { HtmlContent = "<div>Page {page} of {total}</div>" }
-        };
+    private readonly HttpClient _http = new HttpClient();
 
-        return converter.Convert(html, options);
+    public async Task<byte[]> GeneratePdfAsync(string body)
+    {
+        var html = $@"<!doctype html><html><head><style>
+            @page {{ size: A4; margin: 20mm; }}
+            .h {{ position: fixed; top: -15mm; left: 0; right: 0; }}
+            .f {{ position: fixed; bottom: -15mm; left: 0; right: 0; }}
+        </style></head><body>
+            <div class='h'>Company Report</div>
+            <div class='f'>(page numbers unsupported in Kaizen v1.x)</div>
+            {body}
+        </body></html>";
+
+        var payload = JsonSerializer.Serialize(new { html });
+        var response = await _http.PostAsync(
+            "http://localhost:8080/html-to-pdf",
+            new StringContent(payload, Encoding.UTF8, "application/json"));
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsByteArrayAsync();
     }
 }
 ```
@@ -364,28 +396,32 @@ public class PdfService
 
 ### Critical Migration Notes
 
-1. **No API Key**: IronPDF uses license key set once at startup (not per-request)
+1. **License Lives in Code, Not the Container**: Replace `-e KAIZEN_PDF_LICENSE=…` on the Docker run with `IronPdf.License.LicenseKey = "…"` once at app startup.
 
-2. **Placeholder Syntax**: Update total pages placeholder:
+2. **Placeholder Conventions**: If you previously substituted strings into HTML before POSTing, switch to IronPDF's render-time placeholders:
+   - `{page}` (unchanged)
    - `{total}` → `{total-pages}`
    - `{title}` → `{html-title}`
 
-3. **Return Type**: Kaizen returns `byte[]`; IronPDF returns `PdfDocument`:
+3. **Return Type**: Kaizen returns raw bytes via HTTP; IronPDF returns `PdfDocument`:
    ```csharp
    var pdf = renderer.RenderHtmlAsPdf(html);
    byte[] bytes = pdf.BinaryData;  // Get bytes
    pdf.SaveAs("output.pdf");        // Or save directly
    ```
 
-4. **Delete Network Error Handling**: No more rate limits, 429 errors, or network failures
+4. **Delete HTTP Plumbing**: Remove `HttpClient` lifetime management, JSON serialization, status-code checks, and "container unreachable" error handling.
 
-5. **Options on Renderer**: Configure `RenderingOptions` on renderer, not per-call options object
+5. **Options Move to a Real Object**: Configuration that lived in `@page` CSS or fixed-position div hacks moves to `RenderingOptions` properties.
 
-### NuGet Package Migration
+### Container Teardown
+
+There is no Kaizen NuGet package to remove — Kaizen ships only as a Docker image:
 
 ```bash
-# Remove Kaizen.io package
-dotnet remove package Kaizen.HtmlToPdf
+# Stop and remove the running Kaizen container
+docker stop kaizen-pdf
+docker rm kaizen-pdf
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -393,19 +429,20 @@ dotnet add package IronPdf
 
 ### Find All Kaizen.io References
 
+Because Kaizen has no SDK, search for the endpoint and license env var rather than a namespace:
+
 ```bash
-# Find Kaizen.io usage
-grep -r "using Kaizen\|HtmlToPdfConverter\|ConversionOptions" --include="*.cs" .
+grep -r "html-to-pdf\|KAIZEN_PDF_LICENSE\|kaizenio.azurecr.io\|localhost:8080" \
+  --include="*.cs" --include="*.json" --include="*.yml" .
 ```
 
 **Ready for the complete migration?** The full guide includes:
-- Complete API mapping (30+ methods and properties)
-- ConversionOptions property mappings
-- 10 detailed code conversion examples
-- Cloud-to-local migration patterns
-- Rate limit/retry logic removal
-- Data privacy improvements
-- Performance comparison data
+- Concept-to-`RenderingOptions` mapping for size, orientation, margins, headers, footers
+- 10 detailed code conversion examples (basic, URL, headers/footers, async, custom size, JS wait, file save, license, error handling, full service)
+- Container-to-in-process migration patterns (Docker teardown, CI/CD updates)
+- HTTP plumbing and "container unreachable" error-handling removal
+- Header/footer migration with `{page}` / `{total-pages}` placeholders
+- Performance considerations
 - Troubleshooting guide for 8+ common issues
 - Pre/post migration checklists
 

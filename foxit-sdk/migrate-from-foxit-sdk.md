@@ -21,9 +21,9 @@ Foxit PDF SDK is a powerful enterprise-level library, but it comes with signific
 
 1. **Complex Licensing System**: Multiple products, SKUs, and license types (per-developer, per-server, OEM, etc.) make it difficult to choose the right option
 2. **Enterprise Pricing**: Pricing is tailored for large organizations and can be prohibitive for smaller teams
-3. **Manual Installation**: Requires manual DLL references or private NuGet feeds—no simple public NuGet package
+3. **Heavy Native Package**: The public NuGet package (`Foxit.SDK.Dotnet`) is ~240 MB; HTML-to-PDF requires a separate engine download obtained from Foxit support
 4. **Verbose API**: Library initialization, error code checking, and explicit resource cleanup add boilerplate
-5. **Separate HTML Conversion Add-on**: HTML to PDF conversion requires an additional add-on purchase
+5. **Separate HTML2PDF Engine**: HTML to PDF conversion requires the HTML2PDF engine binaries, distributed separately from Foxit support/sales
 6. **Complex Configuration**: Settings require detailed object configuration (e.g., `HTML2PDFSettingData`)
 7. **C++ Heritage**: API patterns reflect C++ origins, feeling less natural in modern C#
 
@@ -31,8 +31,8 @@ Foxit PDF SDK is a powerful enterprise-level library, but it comes with signific
 
 | Aspect | Foxit SDK | IronPDF |
 |--------|-----------|---------|
-| Installation | Manual DLLs/private feeds | Simple NuGet package |
-| Licensing | Complex, enterprise-focused | Transparent, all sizes |
+| Installation | `Foxit.SDK.Dotnet` (~240 MB) + separate HTML2PDF engine | Simple NuGet package |
+| Licensing | Sales-led, per-developer per-platform | Transparent, all sizes |
 | Initialization | `Library.Initialize(sn, key)` | Set license key once |
 | Error Handling | ErrorCode enums | Standard .NET exceptions |
 | HTML to PDF | Separate add-on | Built-in Chromium |
@@ -93,20 +93,21 @@ Before migration, catalog:
 ### Step 1: Update NuGet Packages
 
 ```bash
-# Foxit SDK typically requires manual removal of DLL references
-# Check your .csproj for Foxit references and remove them
+# Remove the Foxit NuGet package
+dotnet remove package Foxit.SDK.Dotnet
 
 # Install IronPDF
 dotnet add package IronPdf
 ```
 
-**If you have Foxit references in .csproj:**
+**If you have older direct Foxit DLL references in .csproj (older builds):**
 ```xml
 <!-- Remove these manually -->
 <Reference Include="fsdk_dotnet">
     <HintPath>..\libs\Foxit\fsdk_dotnet.dll</HintPath>
 </Reference>
 ```
+Also delete any HTML2PDF engine folders that were unpacked separately.
 
 ### Step 2: Update Namespaces
 
@@ -152,10 +153,8 @@ Library.Initialize(sn, key);
 HTML2PDFSettingData settings = new HTML2PDFSettingData();
 settings.page_width = 612.0f;
 settings.page_height = 792.0f;
-using (HTML2PDF html2pdf = new HTML2PDF(settings))
-{
-    html2pdf.Convert(htmlContent, "output.pdf");
-}
+Convert.FromHTML(htmlContent, @"C:\Foxit\html2pdf_engine", "",
+                 settings, "output.pdf", 30);
 Library.Release();
 
 // After (IronPDF)
@@ -188,8 +187,8 @@ pdf.SaveAs("output.pdf");
 | `Library` | N/A | IronPDF auto-manages |
 | `PDFDoc` | `PdfDocument` | Main document class |
 | `PDFPage` | `PdfDocument.Pages[i]` | Page access |
-| `HTML2PDF` | `ChromePdfRenderer` | HTML conversion |
-| `Convert` | `ChromePdfRenderer` | Conversions |
+| `Convert.FromHTML` (static) | `ChromePdfRenderer.RenderHtmlAsPdf` | HTML conversion |
+| `Convert` (in `foxit.addon.conversion`) | `ChromePdfRenderer` | Conversions |
 | `TextPage` | `pdf.ExtractTextFromPage(i)` | Text extraction |
 | `Watermark` | `TextStamper` / `ImageStamper` | Watermarks |
 | `Security` | `SecuritySettings` | PDF security |
@@ -245,9 +244,9 @@ pdf.SaveAs("output.pdf");
 | `settings.page_width` | `RenderingOptions.PaperSize` | Standard sizes |
 | `settings.page_height` | `RenderingOptions.SetCustomPaperSize()` | Custom size |
 | `settings.page_mode` | N/A | Multi-page by default |
-| `html2pdf.Convert(html, path)` | `renderer.RenderHtmlAsPdf(html)` | HTML string |
-| `html2pdf.ConvertFromURL(url, path)` | `renderer.RenderUrlAsPdf(url)` | URL conversion |
-| `html2pdf.ConvertFromFile(path, out)` | `renderer.RenderHtmlFileAsPdf(path)` | HTML file |
+| `Convert.FromHTML(html, engine, ...)` | `renderer.RenderHtmlAsPdf(html)` | HTML string |
+| `Convert.FromHTML(url, engine, ...)` | `renderer.RenderUrlAsPdf(url)` | URL form |
+| `Convert.FromHTML(file://path, ...)` | `renderer.RenderHtmlFileAsPdf(path)` | HTML file |
 
 ### RenderingOptions (Settings)
 
@@ -276,12 +275,12 @@ pdf.SaveAs("output.pdf");
 
 | Foxit Watermark | IronPDF Equivalent | Notes |
 |-----------------|-------------------|-------|
-| `new Watermark(doc, text, font, size, color)` | `new TextStamper()` | Text watermark |
+| `new Watermark(doc, text, props, settings)` | `new TextStamper()` | Text watermark |
 | `WatermarkSettings.position` | `VerticalAlignment` + `HorizontalAlignment` | Position |
 | `WatermarkSettings.rotation` | `Rotation` | Rotation angle |
 | `WatermarkSettings.opacity` | `Opacity` | 0-100 percentage |
-| `watermark.InsertToAllPages()` | `pdf.ApplyStamp(stamper)` | Apply to all |
-| `watermark.InsertToPage(index)` | `pdf.ApplyStamp(stamper, indices)` | Specific pages |
+| Loop `watermark.InsertToPage(page)` | `pdf.ApplyStamp(stamper)` | Apply to all |
+| `watermark.InsertToPage(page)` | `pdf.ApplyStamp(stamper, indices)` | Specific pages |
 
 ### Text Extraction
 
@@ -338,11 +337,14 @@ class Program
             settings.page_margin_top = 72.0f;
             settings.page_margin_bottom = 72.0f;
 
-            using (HTML2PDF html2pdf = new HTML2PDF(settings))
-            {
-                string html = "<html><body><h1>Hello World</h1><p>Generated with Foxit SDK</p></body></html>";
-                html2pdf.Convert(html, "output.pdf");
-            }
+            string html = "<html><body><h1>Hello World</h1><p>Generated with Foxit SDK</p></body></html>";
+            Convert.FromHTML(
+                html,
+                @"C:\Foxit\html2pdf_engine",  // engine_path (separate)
+                "",                            // cookies path
+                settings,
+                "output.pdf",
+                30);                           // timeout (seconds)
 
             Console.WriteLine("PDF created successfully");
         }
@@ -553,26 +555,31 @@ class Program
 
                 // Create watermark settings
                 WatermarkSettings settings = new WatermarkSettings();
-                settings.flags = Watermark.e_WatermarkFlagASPageContents;
-                settings.position = Watermark.Position.e_PosCenter;
+                settings.flags = (int)Watermark.Flags.e_FlagASPageContents;
+                settings.position = Position.e_PosCenter;
                 settings.offset_x = 0;
                 settings.offset_y = 0;
                 settings.scale_x = 1.0f;
                 settings.scale_y = 1.0f;
                 settings.rotation = -45.0f;
-                settings.opacity = 0.3f;
+                settings.opacity = 30;          // 0-100 in newer SDKs
 
-                // Create font
-                using (Font font = new Font(Font.StandardID.e_StdIDHelvetica))
+                // Text properties (font, size, color, alignment)
+                WatermarkTextProperties props = new WatermarkTextProperties();
+                props.font = new Font(Font.StandardID.e_StdIDHelvetica);
+                props.font_size = 72.0f;
+                props.color = 0xFF0000;        // RGB
+                props.alignment = Alignment.e_AlignmentCenter;
+
+                // Create watermark with the four-arg constructor
+                Watermark watermark = new Watermark(doc, "CONFIDENTIAL", props, settings);
+
+                // No InsertToAllPages helper — iterate pages explicitly
+                for (int i = 0; i < doc.GetPageCount(); i++)
                 {
-                    // Create watermark
-                    Watermark watermark = new Watermark(doc, "CONFIDENTIAL", font, 72.0f, 0xFFFF0000);
-                    watermark.SetSettings(settings);
-
-                    // Apply to all pages
-                    for (int i = 0; i < doc.GetPageCount(); i++)
+                    using (PDFPage page = doc.GetPage(i))
                     {
-                        watermark.InsertToPage(i);
+                        watermark.InsertToPage(page);
                     }
                 }
 
@@ -648,10 +655,13 @@ class Program
             // Foxit SDK has limited header/footer support
             // Often requires post-processing or additional code
 
-            using (HTML2PDF html2pdf = new HTML2PDF(settings))
-            {
-                html2pdf.ConvertFromURL("https://www.example.com", "webpage.pdf");
-            }
+            Convert.FromHTML(
+                "https://www.example.com",
+                @"C:\Foxit\html2pdf_engine",  // engine_path
+                "",                            // cookies path
+                settings,
+                "webpage.pdf",
+                30);                           // timeout (seconds)
         }
         finally
         {
@@ -714,19 +724,18 @@ class Program
             {
                 doc.LoadW("");
 
-                // Set up security handler
-                StdSecurityHandler securityHandler = new StdSecurityHandler();
-
-                // Set passwords
-                securityHandler.Initialize(
-                    StdSecurityHandler.EncryptAlgorithm.e_CipherAES,
-                    "user_password",
-                    "owner_password",
-                    PDFDoc.Permission.e_PermPrint |
-                    PDFDoc.Permission.e_PermModify,
-                    128);
-
-                doc.SetSecurityHandler(securityHandler);
+                // Build the encryption data (cipher, key length, permissions)
+                using (StdEncryptData encryptData = new StdEncryptData(
+                    true,                                    // is_encrypt_metadata
+                    (int)(PDFDoc.UserPermissions.e_PermPrint |
+                          PDFDoc.UserPermissions.e_PermModify),
+                    SecurityHandler.CipherType.e_CipherAES,
+                    16))                                     // key length (bytes) → AES-128
+                using (StdSecurityHandler securityHandler = new StdSecurityHandler())
+                {
+                    securityHandler.Initialize(encryptData, "user_password", "owner_password");
+                    doc.SetSecurityHandler(securityHandler);
+                }
 
                 doc.SaveAs("encrypted.pdf", (int)PDFDoc.SaveFlags.e_SaveFlagNoOriginal);
             }
@@ -1245,7 +1254,9 @@ using (var pdf = PdfDocument.FromFile("large.pdf"))
 - [ ] **Update namespace imports**
   ```csharp
   // Before (Foxit)
-  using Foxit;
+  using foxit;
+  using foxit.common;
+  using foxit.pdf;
 
   // After (IronPDF)
   using IronPdf;
@@ -1296,15 +1307,16 @@ using (var pdf = PdfDocument.FromFile("large.pdf"))
   ```
   **Why:** Use IronPDF's PdfDocument for document manipulation.
 
-- [ ] **Replace `HTML2PDF` with `ChromePdfRenderer`**
+- [ ] **Replace `Convert.FromHTML(...)` with `ChromePdfRenderer`**
   ```csharp
   // Before (Foxit)
-  var converter = new HTML2PDF();
+  Convert.FromHTML(html, enginePath, "", settings, "out.pdf", 30);
 
   // After (IronPDF)
   var renderer = new ChromePdfRenderer();
+  renderer.RenderHtmlAsPdf(html).SaveAs("out.pdf");
   ```
-  **Why:** IronPDF uses ChromePdfRenderer for modern HTML/CSS rendering.
+  **Why:** IronPDF uses ChromePdfRenderer for modern HTML/CSS rendering with no separate engine download.
 
 - [ ] **Update page access from `GetPage(i)` to `Pages[i]`**
   ```csharp

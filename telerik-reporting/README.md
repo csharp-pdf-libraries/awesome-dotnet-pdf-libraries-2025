@@ -2,7 +2,7 @@
 
 Telerik Reporting is a powerful tool for building reports in C#. With its extensive range of features, Telerik Reporting allows developers to create detailed, interactive reports with ease. It excels at transforming complex data sets into visually appealing, easy-to-understand formats. Telerik Reporting is particularly well-suited for ASP.NET Core developers, offering seamless integration and robust support for exporting to formats like PDF, though it differs significantly from dedicated conversion tools like [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/).
 
-Despite being a comprehensive reporting solution, Telerik Reporting is not without its limitations. It comes as part of the larger DevCraft bundle, which requires purchasing the entire suite, even if only reporting capabilities are needed. Additionally, Telerik Reporting is heavily report-centric, focusing on generating detailed reports rather than general PDF generation for html to pdf c# scenarios. This can be a disadvantage for users looking for a more versatile PDF generation solution for c# html to pdf development. For complete pricing and capability details, visit the [comparison guide](https://ironsoftware.com/suite/blog/comparison/compare-telerik-reporting-vs-ironpdf/).
+Despite being a comprehensive reporting solution, Telerik Reporting is not without its limitations. It is sold either as a standalone product or as part of the larger DevCraft Complete / DevCraft Ultimate bundles (Progress Software / Telerik), with both perpetual + maintenance and annual subscription options, and the NuGet packages ship from a private Telerik feed that requires a license key. Additionally, Telerik Reporting is heavily report-centric, focusing on generating detailed reports rather than general PDF generation for html to pdf c# scenarios. This can be a disadvantage for users looking for a more versatile PDF generation solution for c# html to pdf development. For complete pricing and capability details, visit the [comparison guide](https://ironsoftware.com/suite/blog/comparison/compare-telerik-reporting-vs-ironpdf/).
 
 ## Telerik Reporting vs. IronPDF
 
@@ -90,7 +90,7 @@ class TelerikExample
     static void Main()
     {
         var report = new Telerik.Reporting.Report();
-        
+
         // Add page header
         var pageHeader = new Telerik.Reporting.PageHeaderSection();
         pageHeader.Height = new Unit(0.5, UnitType.Inch);
@@ -100,18 +100,18 @@ class TelerikExample
             Location = new PointU(0, 0),
             Size = new SizeU(new Unit(6, UnitType.Inch), new Unit(0.3, UnitType.Inch))
         });
-        report.PageHeaderSection = pageHeader;
-        
-        // Add page footer
+        report.Items.Add(pageHeader);
+
+        // Add page footer (Telerik uses expression syntax, not {token} placeholders)
         var pageFooter = new Telerik.Reporting.PageFooterSection();
         pageFooter.Height = new Unit(0.5, UnitType.Inch);
         pageFooter.Items.Add(new Telerik.Reporting.TextBox()
         {
-            Value = "Page {PageNumber} of {PageCount}",
+            Value = "= 'Page ' + PageNumber + ' of ' + PageCount",
             Location = new PointU(0, 0),
             Size = new SizeU(new Unit(6, UnitType.Inch), new Unit(0.3, UnitType.Inch))
         });
-        report.PageFooterSection = pageFooter;
+        report.Items.Add(pageFooter);
         
         // Add content
         var htmlTextBox = new Telerik.Reporting.HtmlTextBox()

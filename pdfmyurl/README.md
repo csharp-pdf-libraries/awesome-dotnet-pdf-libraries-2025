@@ -10,7 +10,7 @@ PDFmyURL is primarily a service designed for converting URLs to PDFs with specif
 |-------------------------|------------------------------------|------------------------------|
 | Type                    | API Wrapper                        | .NET Library                 |
 | Dependency              | Internet connectivity required     | Local processing             |
-| Cost                    | $39+/month subscription            | Optional perpetual license   |
+| Cost                    | From $20/month subscription        | Optional perpetual license   |
 | Privacy                 | Processes on external servers      | Processes locally            |
 | Platform Support        | Web-based                          | Cross-platform               |
 | Use Case                | Low-volume applications            | High-volume and enterprise   |
@@ -25,7 +25,7 @@ Moreover, PDFmyURL offers excellent compliance with W3C standards, ensuring that
 
 Despite its ease of use, PDFmyURL also comes with several limitations. Perhaps the most prominent issue is its dependency on external servers to process documents. This creates potential privacy concerns, as all documents are processed and stored on third-party servers, making it unsuitable for users working with sensitive data.
 
-Another drawback is the continuous cost associated with using PDFmyURL. The service follows a subscription-based pricing model, starting at $39 per month, which can add up over time. This ongoing cost can be a concern, especially for long-term projects or high-volume users.
+Another drawback is the continuous cost associated with using PDFmyURL. The service follows a subscription-based pricing model, starting at $20 per month for the Starter plan (500 PDFs/month) and rising through Professional ($40/month, 2,000 PDFs) and Advanced ($70/month, 5,000 PDFs), which can add up over time. This ongoing cost can be a concern, especially for long-term projects or high-volume users.
 
 Additionally, its classification as an API wrapper rather than a standalone library means that consistent internet connectivity is a must, potentially making it less ideal for offline or highly-integrated applications.
 
@@ -77,23 +77,35 @@ Ultimately, IronPDF's flexibility and cost-effectiveness make it a preferable ch
 Here's how **PDFmyURL** handles this:
 
 ```csharp
-// Install PDFmyURL SDK
+// PDFmyURL REST API — no NuGet SDK. Docs: https://pdfmyurl.com/html-to-pdf-api
 using System;
-using Pdfcrowd;
+using System.Collections.Specialized;
+using System.IO;
+using System.Net;
 
 class Example
 {
     static void Main()
     {
+        string license = "your-license-key";
+        string html = "<html><body><h1>Hello World</h1></body></html>";
+
         try
         {
-            var client = new HtmlToPdfClient("username", "apikey");
-            string html = "<html><body><h1>Hello World</h1></body></html>";
-            client.convertStringToFile(html, "output.pdf");
+            using (var client = new WebClient())
+            {
+                var values = new NameValueCollection
+                {
+                    { "license", license },
+                    { "html", html }
+                };
+                byte[] pdfBytes = client.UploadValues("https://pdfmyurl.com/api", "POST", values);
+                File.WriteAllBytes("output.pdf", pdfBytes);
+            }
         }
-        catch(Error why)
+        catch (WebException ex)
         {
-            Console.WriteLine("Error: " + why);
+            Console.WriteLine("Error: " + ex.Message);
         }
     }
 }
@@ -127,9 +139,10 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **PDFmyURL** handles this:
 
 ```csharp
-// Install PDFmyURL SDK
+// PDFmyURL REST API — single endpoint, license + url params.
+// Docs: https://pdfmyurl.com/html-to-pdf-api
 using System;
-using Pdfcrowd;
+using System.Net;
 
 class Example
 {
@@ -137,12 +150,16 @@ class Example
     {
         try
         {
-            var client = new HtmlToPdfClient("username", "apikey");
-            client.convertUrlToFile("https://example.com", "output.pdf");
+            using (var client = new WebClient())
+            {
+                client.QueryString.Add("license", "your-license-key");
+                client.QueryString.Add("url", "https://example.com");
+                client.DownloadFile("https://pdfmyurl.com/api", "output.pdf");
+            }
         }
-        catch(Error why)
+        catch (WebException ex)
         {
-            Console.WriteLine("Error: " + why);
+            Console.WriteLine("Error: " + ex.Message);
         }
     }
 }
@@ -175,9 +192,12 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **PDFmyURL** handles this:
 
 ```csharp
-// Install PDFmyURL SDK
+// PDFmyURL REST API — page settings are query/form parameters.
+// Reference: https://pdfmyurl.com/html-to-pdf-api
 using System;
-using Pdfcrowd;
+using System.Collections.Specialized;
+using System.IO;
+using System.Net;
 
 class Example
 {
@@ -185,15 +205,24 @@ class Example
     {
         try
         {
-            var client = new HtmlToPdfClient("username", "apikey");
-            client.setPageSize("A4");
-            client.setOrientation("landscape");
-            client.setMarginTop("10mm");
-            client.convertFileToFile("input.html", "output.pdf");
+            using (var client = new WebClient())
+            {
+                var values = new NameValueCollection
+                {
+                    { "license",     "your-license-key" },
+                    { "html",        File.ReadAllText("input.html") },
+                    { "page_size",   "A4" },
+                    { "orientation", "landscape" },
+                    { "top",         "10" },
+                    { "unit",        "mm" }
+                };
+                byte[] pdfBytes = client.UploadValues("https://pdfmyurl.com/api", "POST", values);
+                File.WriteAllBytes("output.pdf", pdfBytes);
+            }
         }
-        catch(Error why)
+        catch (WebException ex)
         {
-            Console.WriteLine("Error: " + why);
+            Console.WriteLine("Error: " + ex.Message);
         }
     }
 }
@@ -232,7 +261,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 PDFmyURL processes all your documents on external servers. This architecture creates significant concerns:
 
 1. **Privacy & Data Security**: Every document travels to and through PDFmyURL's servers—sensitive contracts, financial reports, personal data all processed externally
-2. **Ongoing Subscription Costs**: Starting at $39/month, annual costs exceed $468/year with no ownership
+2. **Ongoing Subscription Costs**: Starting at $20/month (500 PDFs) and rising to $40/month (2,000 PDFs) and $70/month (5,000 PDFs), recurring fees with no ownership
 3. **Internet Dependency**: Every conversion requires network connectivity—no offline capability
 4. **Rate Limits & Throttling**: API calls can be throttled during peak usage
 5. **Service Availability**: Your application depends on a third-party service being online
@@ -245,45 +274,48 @@ PDFmyURL processes all your documents on external servers. This architecture cre
 | Processing Location | External servers | Local (your server) |
 | Authentication | API key per request | One-time license key |
 | Network Required | Every conversion | Only initial setup |
-| Pricing Model | Monthly subscription ($39+) | Perpetual license available |
+| Pricing Model | Monthly subscription ($20–$70+) | Perpetual license available |
 | Rate Limits | Yes (plan-dependent) | None |
 | Data Privacy | Data sent externally | Data stays local |
 | PDF Manipulation | Limited | Full suite (merge, split, edit) |
 
 ### Key API Mappings
 
-| PDFmyURL (Pdfcrowd) | IronPDF | Notes |
-|---------------------|---------|-------|
-| `new HtmlToPdfClient("user", "key")` | `new ChromePdfRenderer()` | No per-request credentials |
-| `client.convertUrlToFile(url, file)` | `renderer.RenderUrlAsPdf(url).SaveAs(file)` | URL to PDF |
-| `client.convertStringToFile(html, file)` | `renderer.RenderHtmlAsPdf(html).SaveAs(file)` | HTML to PDF |
-| `client.setPageSize("A4")` | `renderer.RenderingOptions.PaperSize = PdfPaperSize.A4` | Paper size |
-| `client.setOrientation("landscape")` | `renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape` | Orientation |
-| `client.setMarginTop("10mm")` | `renderer.RenderingOptions.MarginTop = 10` | Margins (mm) |
-| `client.setHeaderHtml(html)` | `renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter { HtmlFragment = html }` | Header |
-| `client.setFooterHtml(html)` | `renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter { HtmlFragment = html }` | Footer |
-| `client.setJavascriptDelay(500)` | `renderer.RenderingOptions.RenderDelay = 500` | JS wait time |
-| `response.GetBytes()` | `pdf.BinaryData` | Get raw bytes |
+| PDFmyURL (REST parameter) | IronPDF | Notes |
+|---------------------------|---------|-------|
+| `license=` query param | `IronPdf.License.LicenseKey = "..."` | Auth: per-request key vs. one-time |
+| `url=` parameter | `renderer.RenderUrlAsPdf(url)` | URL to PDF |
+| `html=` parameter | `renderer.RenderHtmlAsPdf(html)` | HTML to PDF |
+| `page_size=A4` | `renderer.RenderingOptions.PaperSize = PdfPaperSize.A4` | Paper size |
+| `orientation=landscape` | `renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape` | Orientation |
+| `top=10&unit=mm` | `renderer.RenderingOptions.MarginTop = 10` | Margins (mm) |
+| `header=...` | `renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter { HtmlFragment = html }` | Header |
+| `footer=...` | `renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter { HtmlFragment = html }` | Footer |
+| `javascript_time=500` | `renderer.RenderingOptions.RenderDelay = 500` | JS wait time |
+| Response body bytes | `pdf.BinaryData` | Get raw bytes |
 | _(not available)_ | `PdfDocument.Merge()` | NEW: Merge PDFs |
 | _(not available)_ | `pdf.ExtractAllText()` | NEW: Text extraction |
 | _(not available)_ | `pdf.ApplyWatermark()` | NEW: Watermarks |
 
 ### Migration Code Example
 
-**Before (PDFmyURL/Pdfcrowd):**
+**Before (PDFmyURL REST API):**
 ```csharp
-using Pdfcrowd;
+using System.Collections.Specialized;
+using System.IO;
+using System.Net;
 
-try
+using (var client = new WebClient())
 {
-    var client = new HtmlToPdfClient("username", "apikey");
-    client.setPageSize("A4");
-    client.setHeaderHtml("<div>Page {page_number} of {total_pages}</div>");
-    client.convertUrlToFile("https://example.com", "output.pdf");
-}
-catch (Error why)
-{
-    Console.WriteLine("Error: " + why);
+    var values = new NameValueCollection
+    {
+        { "license",   "your-license-key" },
+        { "url",       "https://example.com" },
+        { "page_size", "A4" },
+        { "header",    "<div>Page [page] of [topage]</div>" }
+    };
+    byte[] pdfBytes = client.UploadValues("https://pdfmyurl.com/api", "POST", values);
+    File.WriteAllBytes("output.pdf", pdfBytes);
 }
 ```
 
@@ -306,43 +338,40 @@ pdf.SaveAs("output.pdf");
 
 ### Critical Migration Notes
 
-1. **Placeholder Syntax**: PDFmyURL uses `{page_number}` and `{total_pages}`; IronPDF uses `{page}` and `{total-pages}`
+1. **Header/Footer Placeholders**: PDFmyURL accepts placeholder tokens documented in its API reference (e.g. page numbers, dates); IronPDF uses `{page}` and `{total-pages}` inside `HtmlHeaderFooter.HtmlFragment`.
    ```csharp
-   // PDFmyURL: "Page {page_number} of {total_pages}"
    // IronPDF: "Page {page} of {total-pages}"
    ```
 
-2. **API Key → License Key**: One-time setup at app startup
+2. **License Key**: PDFmyURL requires the license token on every API request; IronPDF sets it once at startup
    ```csharp
-   // PDFmyURL: new HtmlToPdfClient("user", "apikey") - per request
-   // IronPDF: IronPdf.License.LicenseKey = "KEY" - once at startup
+   // PDFmyURL: query/form parameter "license=..." on every call
+   // IronPDF:  IronPdf.License.LicenseKey = "KEY" - once at startup
    ```
 
-3. **Async Patterns**: PDFmyURL requires async; IronPDF is sync by default
+3. **Network vs Local**: PDFmyURL is a remote HTTP call; IronPDF is sync in-process and can be wrapped for async
    ```csharp
-   // PDFmyURL: await client.ConvertUrlAsync(url)
-   // IronPDF: await Task.Run(() => renderer.RenderUrlAsPdf(url))
+   // PDFmyURL: HTTP POST to https://pdfmyurl.com/api (network round trip)
+   // IronPDF:  await Task.Run(() => renderer.RenderUrlAsPdf(url))
    ```
 
-4. **Setter Methods → Properties**: Configuration style change
+4. **Form Params → Properties**: Configuration style change
    ```csharp
-   // PDFmyURL: client.setPageSize("A4");
-   // IronPDF: renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+   // PDFmyURL: form param "page_size=A4"
+   // IronPDF:  renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
    ```
 
-5. **Error Handling**: Different exception types
+5. **Error Handling**: PDFmyURL surfaces non-200 HTTP responses via `WebException`; IronPDF throws typed exceptions
    ```csharp
-   // PDFmyURL: catch (Pdfcrowd.Error e)
-   // IronPDF: catch (IronPdf.Exceptions.IronPdfRenderingException e)
+   // PDFmyURL: catch (WebException e) - HTTP status / network errors
+   // IronPDF:  catch (IronPdf.Exceptions.IronPdfRenderingException e)
    ```
 
 ### NuGet Package Migration
 
-```bash
-# Remove PDFmyURL packages
-dotnet remove package PdfMyUrl
-dotnet remove package Pdfcrowd
+There is no PDFmyURL NuGet package (the service is REST-only; the optional `PDFmyURL.NET.dll` component ships as a direct DLL download, not via NuGet).
 
+```bash
 # Install IronPDF
 dotnet add package IronPdf
 ```
@@ -350,11 +379,8 @@ dotnet add package IronPdf
 ### Find All PDFmyURL References
 
 ```bash
-# Find PDFmyURL usage
-grep -r "PdfMyUrl\|Pdfcrowd\|HtmlToPdfClient" --include="*.cs" .
-
-# Find placeholder patterns to migrate
-grep -r "{page_number}\|{total_pages}" --include="*.cs" .
+# Find PDFmyURL endpoint usage
+grep -r "pdfmyurl.com/api\|PDFmyURLdotNET\|new PDFmyURL(" --include="*.cs" .
 ```
 
 **Ready for the complete migration?** The full guide includes:

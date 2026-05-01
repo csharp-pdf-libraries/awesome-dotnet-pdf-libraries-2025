@@ -127,10 +127,12 @@ pdf.SaveAs("output.pdf");
 | `EnsureCoreWebView2Async()` | N/A | No initialization required |
 | `NavigateToString(html)` + `PrintToPdfAsync()` | `RenderHtmlAsPdf(html)` | Single method call |
 | `Navigate(url)` + `PrintToPdfAsync()` | `RenderUrlAsPdf(url)` | Single method call |
-| `PrintSettings.PageWidth` | `RenderingOptions.PaperSize` | Use PdfPaperSize enum |
-| `PrintSettings.PageHeight` | `RenderingOptions.PaperSize` | Use PdfPaperSize enum |
-| `PrintSettings.MarginTop` | `RenderingOptions.MarginTop` | In mm not inches |
-| `PrintSettings.Orientation` | `RenderingOptions.PaperOrientation` | Portrait/Landscape |
+| `CoreWebView2PrintSettings.PageWidth` (inches) | `RenderingOptions.PaperSize` / `SetCustomPaperSizeInMillimeters` | WebView2 uses inches; IronPDF uses mm |
+| `CoreWebView2PrintSettings.PageHeight` (inches) | `RenderingOptions.PaperSize` / `SetCustomPaperSizeInMillimeters` | WebView2 uses inches; IronPDF uses mm |
+| `CoreWebView2PrintSettings.MarginTop` (inches) | `RenderingOptions.MarginTop` (mm) | Convert: 1 inch = 25.4 mm |
+| `CoreWebView2PrintSettings.Orientation` | `RenderingOptions.PaperOrientation` | `CoreWebView2PrintOrientation.Portrait`/`Landscape` |
+| `CoreWebView2PrintSettings.ShouldPrintBackgrounds` | `RenderingOptions.PrintHtmlBackgrounds` | Boolean |
+| `CoreWebView2PrintSettings.ShouldPrintHeaderAndFooter` + `HeaderTitle`/`FooterUri` | `RenderingOptions.HtmlHeader` / `HtmlFooter` | WebView2 only supports a fixed title+URI; IronPDF accepts arbitrary HTML |
 | `ExecuteScriptAsync()` | JavaScript in HTML | Or use WaitFor options |
 | `AddScriptToExecuteOnDocumentCreatedAsync()` | HTML `<script>` tags | Full JS support |
 | Navigation events | `WaitFor.JavaScript()` | Clean waiting mechanism |
@@ -415,7 +417,7 @@ public class PdfBackgroundService : BackgroundService
 
 ### Example 6: Headers and Footers
 
-**WebView2:** No built-in support for repeating headers/footers across pages.
+**WebView2:** Limited built-in support — `CoreWebView2PrintSettings.ShouldPrintHeaderAndFooter` toggles a fixed Chromium-style header (page title + URL via `HeaderTitle` / `FooterUri`). There is no API to inject custom HTML headers/footers or to template page numbers.
 
 **IronPDF:**
 ```csharp
@@ -466,7 +468,7 @@ pdf.SaveAs("report.pdf");
 | **PDF Features** | | |
 | HTML to PDF | Basic | Full |
 | URL to PDF | Basic | Full |
-| Headers/Footers | NO | Yes (HTML) |
+| Headers/Footers | Title+URL only (no custom HTML) | Yes (arbitrary HTML) |
 | Watermarks | NO | Yes |
 | Merge PDFs | NO | Yes |
 | Split PDFs | NO | Yes |

@@ -1,6 +1,6 @@
 # How Do I Migrate from PDFreactor to IronPDF in C#?
 
-PDFreactor is a powerful Java-based HTML-to-PDF conversion server with excellent CSS Paged Media support. While it excels at high-fidelity document rendering, its Java dependency and server architecture create significant complexity in .NET environments. This guide provides a comprehensive migration path to IronPDF, a native .NET library that offers equivalent rendering capabilities without external dependencies.
+PDFreactor (RealObjects, current release 12.5, March 2026) is a Java-based HTML-to-PDF conversion engine with excellent CSS Paged Media support. The .NET integration is a Web Service client (`PDFreactor.dll`, namespace `RealObjects.PDFreactor.Webservice.Client`) that talks REST to a Java/Jetty PDFreactor Web Service running locally or remotely — there is no PDFreactor NuGet package on nuget.org. While it excels at high-fidelity print rendering, the Java service dependency and per-server commercial licensing add operational complexity in .NET environments. This guide maps a migration path to IronPDF, a native .NET library that runs in-process.
 
 ## Table of Contents
 
@@ -84,13 +84,15 @@ For in-depth technical comparisons, visit the [analysis article](https://ironsof
 ### Remove PDFreactor
 
 ```bash
-# Remove PDFreactor NuGet packages
-dotnet remove package PDFreactor.NET
-dotnet remove package PDFreactor.Native.Windows.x64
+# PDFreactor is NOT distributed via NuGet. The .NET wrapper ships as
+# PDFreactor.dll inside <PDFreactor-install>/clients/netstandard2/bin/
+# (or netframework40/bin for older .NET Framework projects).
+# Remove the assembly reference from your .csproj and uninstall the service.
 
-# Stop PDFreactor server service (if running locally)
+# Stop PDFreactor Web Service (Java/Jetty, default port 9423)
 # Windows: net stop PDFreactor
-# Linux: sudo systemctl stop pdfreactor
+# Linux:   sudo systemctl stop pdfreactor
+# Docker:  docker stop <pdfreactor-container>
 ```
 
 ### Install IronPDF
@@ -172,8 +174,8 @@ Comprehensive mapping tables and CSS Paged Media conversion strategies are avail
 
 | PDFreactor | IronPDF | Notes |
 |------------|---------|-------|
-| `config.AddUserStyleSheet(css)` | Embed in HTML or use `CustomCssUrl` | CSS injection |
-| `config.AddUserScript(js)` | `RenderingOptions.Javascript` | JS injection |
+| `config.UserStyleSheets.Add(new Resource { Content = css })` | Embed in HTML or use `CustomCssUrl` | CSS injection |
+| `config.UserScripts.Add(new Resource { Content = js })` | `RenderingOptions.Javascript` | JS injection |
 | `config.MediaTypes` | `RenderingOptions.CssMediaType` | Screen/Print |
 | `config.MergeMode` | CSS in HTML | Control via HTML/CSS |
 | `config.DocumentDefaultLanguage` | HTML `lang` attribute | Document language |
@@ -197,10 +199,10 @@ Comprehensive mapping tables and CSS Paged Media conversion strategies are avail
 
 **PDFreactor:**
 ```csharp
-using RealObjects.PDFreactor;
+using RealObjects.PDFreactor.Webservice.Client;
 using System.IO;
 
-var pdfReactor = new PDFreactor("http://localhost:9423");
+var pdfReactor = new PDFreactor("http://localhost:9423/service/rest");
 
 var config = new Configuration
 {
@@ -226,10 +228,10 @@ pdf.SaveAs("output.pdf");
 
 **PDFreactor:**
 ```csharp
-using RealObjects.PDFreactor;
+using RealObjects.PDFreactor.Webservice.Client;
 using System.IO;
 
-var pdfReactor = new PDFreactor("http://localhost:9423");
+var pdfReactor = new PDFreactor("http://localhost:9423/service/rest");
 
 var config = new Configuration
 {
@@ -256,7 +258,7 @@ pdf.SaveAs("webpage.pdf");
 
 **PDFreactor:**
 ```csharp
-using RealObjects.PDFreactor;
+using RealObjects.PDFreactor.Webservice.Client;
 
 var config = new Configuration
 {
@@ -295,7 +297,7 @@ pdf.SaveAs("document.pdf");
 
 **PDFreactor:**
 ```csharp
-using RealObjects.PDFreactor;
+using RealObjects.PDFreactor.Webservice.Client;
 
 var config = new Configuration
 {
@@ -303,11 +305,15 @@ var config = new Configuration
 };
 
 // Add CSS Paged Media stylesheet
-config.AddUserStyleSheet(
-    "@page { size: A4 landscape; margin: 2cm; }" +
-    "@page :first { margin-top: 5cm; }" +
-    "body { font-family: Arial; }"
-);
+config.UserStyleSheets = new List<Resource>
+{
+    new Resource
+    {
+        Content = "@page { size: A4 landscape; margin: 2cm; }" +
+                  "@page :first { margin-top: 5cm; }" +
+                  "body { font-family: Arial; }"
+    }
+};
 
 Result result = pdfReactor.Convert(config);
 ```
@@ -344,30 +350,33 @@ var pdf = renderer.RenderHtmlAsPdf(htmlWithCss);
 
 **PDFreactor (CSS Paged Media):**
 ```csharp
-using RealObjects.PDFreactor;
+using RealObjects.PDFreactor.Webservice.Client;
 
 var config = new Configuration
 {
     Document = htmlContent
 };
 
-config.AddUserStyleSheet(@"
-    @page {
-        @top-center {
-            content: 'Company Report';
-            font-size: 10pt;
+config.UserStyleSheets = new List<Resource>
+{
+    new Resource { Content = @"
+        @page {
+            @top-center {
+                content: 'Company Report';
+                font-size: 10pt;
+            }
+            @bottom-left {
+                content: 'Confidential';
+            }
+            @bottom-center {
+                content: 'Page ' counter(page) ' of ' counter(pages);
+            }
+            @bottom-right {
+                content: string(date);
+            }
         }
-        @bottom-left {
-            content: 'Confidential';
-        }
-        @bottom-center {
-            content: 'Page ' counter(page) ' of ' counter(pages);
-        }
-        @bottom-right {
-            content: string(date);
-        }
-    }
-");
+    " }
+};
 
 Result result = pdfReactor.Convert(config);
 ```
@@ -416,7 +425,7 @@ renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
 
 **PDFreactor:**
 ```csharp
-using RealObjects.PDFreactor;
+using RealObjects.PDFreactor.Webservice.Client;
 
 var config = new Configuration
 {
@@ -453,17 +462,26 @@ var pdf = renderer.RenderHtmlAsPdf(htmlWithJs);
 
 **PDFreactor:**
 ```csharp
-using RealObjects.PDFreactor;
+using RealObjects.PDFreactor.Webservice.Client;
 
-public async Task<byte[]> ConvertAsync(string html)
+public byte[] ConvertWithPolling(string html)
 {
-    var pdfReactor = new PDFreactor("http://localhost:9423");
+    var pdfReactor = new PDFreactor("http://localhost:9423/service/rest");
 
     var config = new Configuration { Document = html };
 
-    // PDFreactor async via async client
-    var result = await pdfReactor.ConvertAsync(config);
-    return result.Document;
+    // ConvertAsync queues the job on the Web Service and returns a document
+    // ID — you must poll GetProgress / GetDocument to retrieve the result.
+    string documentId = pdfReactor.ConvertAsync(config);
+
+    Progress progress;
+    do
+    {
+        System.Threading.Thread.Sleep(500);
+        progress = pdfReactor.GetProgress(documentId);
+    } while (!progress.Finished);
+
+    return pdfReactor.GetDocument(documentId);
 }
 ```
 
@@ -498,7 +516,7 @@ public async Task<List<byte[]>> ConvertManyAsync(List<string> htmlList)
 
 **PDFreactor:**
 ```csharp
-using RealObjects.PDFreactor;
+using RealObjects.PDFreactor.Webservice.Client;
 
 var config = new Configuration
 {
@@ -543,21 +561,24 @@ pdf.SaveAs("secure-report.pdf");
 
 **PDFreactor (CSS-based):**
 ```csharp
-using RealObjects.PDFreactor;
+using RealObjects.PDFreactor.Webservice.Client;
 
 var config = new Configuration
 {
     Document = htmlContent
 };
 
-config.AddUserStyleSheet(@"
-    @page {
-        background-image: url('watermark.png');
-        background-position: center;
-        background-repeat: no-repeat;
-        background-size: 50%;
-    }
-");
+config.UserStyleSheets = new List<Resource>
+{
+    new Resource { Content = @"
+        @page {
+            background-image: url('watermark.png');
+            background-position: center;
+            background-repeat: no-repeat;
+            background-size: 50%;
+        }
+    " }
+};
 
 Result result = pdfReactor.Convert(config);
 ```
@@ -589,7 +610,7 @@ pdf.SaveAs("watermarked.pdf");
 
 **PDFreactor:**
 ```csharp
-using RealObjects.PDFreactor;
+using RealObjects.PDFreactor.Webservice.Client;
 
 var config = new Configuration
 {
@@ -1177,7 +1198,7 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 
 - [ ] **Inventory all PDFreactor API calls in codebase**
   ```bash
-  grep -r "using com.realobjects.pdfreactor" --include="*.cs" .
+  grep -r "RealObjects.PDFreactor.Webservice.Client" --include="*.cs" .
   grep -r "PDFreactor\|Configuration" --include="*.cs" .
   ```
   **Why:** Identify all usages to ensure complete migration coverage.
@@ -1194,10 +1215,10 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 
 - [ ] **List all PDFreactor configuration settings used**
   ```csharp
-  // Example configuration
+  // Example configuration (PDFreactor .NET wrapper uses property syntax)
   Configuration config = new Configuration();
-  config.setJavaScriptEnabled(true);
-  config.setAuthor("Author Name");
+  config.JavaScript = JavaScript.ENABLED;
+  config.Author = "Author Name";
   ```
   **Why:** Documenting these settings helps map them to IronPDF's RenderingOptions.
 
@@ -1218,11 +1239,12 @@ var pdf = renderer.RenderHtmlAsPdf(html);
   ```
   **Why:** Add IronPDF to the project to begin migration.
 
-- [ ] **Remove PDFreactor packages and server references**
-  ```bash
-  dotnet remove package PDFreactor
+- [ ] **Remove PDFreactor.dll reference and server references**
+  ```xml
+  <!-- Remove from .csproj: -->
+  <!-- <Reference Include="PDFreactor"><HintPath>..\libs\PDFreactor.dll</HintPath></Reference> -->
   ```
-  **Why:** Clean up dependencies and references to switch fully to IronPDF.
+  **Why:** PDFreactor is not on NuGet; clean up the direct DLL reference and decommission the Web Service.
 
 - [ ] **Replace `PDFreactor` class with `ChromePdfRenderer`**
   ```csharp
@@ -1238,7 +1260,7 @@ var pdf = renderer.RenderHtmlAsPdf(html);
   ```csharp
   // Before (PDFreactor)
   Configuration config = new Configuration();
-  config.setPageSize("A4");
+  config.PageFormat = PageFormat.A4;
 
   // After (IronPDF)
   renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
@@ -1247,8 +1269,11 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 
 - [ ] **Update header/footer implementation**
   ```csharp
-  // Before (PDFreactor)
-  config.setHeader("<header>Page [page] of [total]</header>");
+  // Before (PDFreactor) — headers/footers are CSS Paged Media @page rules
+  config.UserStyleSheets = new List<Resource>
+  {
+      new Resource { Content = "@page { @top-center { content: 'Page ' counter(page) ' of ' counter(pages); } }" }
+  };
 
   // After (IronPDF)
   renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter()
@@ -1264,8 +1289,9 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 
 - [ ] **Convert async patterns if applicable**
   ```csharp
-  // Before (PDFreactor)
-  Task<PDFreactorResult> result = reactor.convertAsync(config);
+  // Before (PDFreactor) — ConvertAsync returns a documentId for polling
+  string documentId = reactor.ConvertAsync(config);
+  // poll reactor.GetProgress(documentId) until Finished, then reactor.GetDocument(documentId)
 
   // After (IronPDF)
   var pdf = await renderer.RenderHtmlAsPdfAsync(html);
@@ -1274,8 +1300,10 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 
 - [ ] **Update error handling (Result checking → try/catch)**
   ```csharp
-  // Before (PDFreactor)
-  if (result.hasErrors()) { /* handle errors */ }
+  // Before (PDFreactor) — Convert throws PDFreactorException; result.LogMessages
+  // contains warnings/errors collected during conversion.
+  try { var result = pdfReactor.Convert(config); }
+  catch (PDFreactorWebserviceException ex) { /* handle errors */ }
 
   // After (IronPDF)
   try
@@ -1294,8 +1322,8 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 - [ ] **Page size and orientation settings**
   ```csharp
   // Before (PDFreactor)
-  config.setPageSize("A4");
-  config.setOrientation(Configuration.ORIENTATION_LANDSCAPE);
+  config.PageFormat = PageFormat.A4;
+  config.PageOrientation = Orientation.LANDSCAPE;
 
   // After (IronPDF)
   renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
@@ -1305,8 +1333,11 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 
 - [ ] **Margin configurations (convert units to mm)**
   ```csharp
-  // Before (PDFreactor)
-  config.setMarginTop(20);
+  // Before (PDFreactor) — margins are CSS lengths (string)
+  config.UserStyleSheets = new List<Resource>
+  {
+      new Resource { Content = "@page { margin-top: 20mm; }" }
+  };
 
   // After (IronPDF)
   renderer.RenderingOptions.MarginTop = 20;
@@ -1316,7 +1347,7 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 - [ ] **JavaScript execution settings**
   ```csharp
   // Before (PDFreactor)
-  config.setJavaScriptEnabled(true);
+  config.JavaScript = JavaScript.ENABLED;
 
   // After (IronPDF)
   renderer.RenderingOptions.EnableJavaScript = true;
@@ -1326,7 +1357,7 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 - [ ] **PDF metadata properties**
   ```csharp
   // Before (PDFreactor)
-  config.setAuthor("Author Name");
+  config.Author = "Author Name";
 
   // After (IronPDF)
   pdf.MetaData.Author = "Author Name";
@@ -1336,7 +1367,8 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 - [ ] **Security and encryption settings**
   ```csharp
   // Before (PDFreactor)
-  config.setEncryption(new Encryption("password"));
+  config.Encryption = Encryption.TYPE_128;
+  config.UserPassword = "password";
 
   // After (IronPDF)
   pdf.SecuritySettings.UserPassword = "password";
@@ -1410,9 +1442,9 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 
 ```csharp
 // ========== BEFORE (PDFreactor) ==========
-using RealObjects.PDFreactor;
+using RealObjects.PDFreactor.Webservice.Client;
 
-var pdfReactor = new PDFreactor("http://server:9423");
+var pdfReactor = new PDFreactor("http://server:9423/service/rest");
 var config = new Configuration
 {
     Document = html,
@@ -1420,7 +1452,7 @@ var config = new Configuration
     PageOrientation = Orientation.LANDSCAPE,
     EnableJavaScript = true
 };
-config.AddUserStyleSheet("@page { @bottom-center { content: 'Page ' counter(page); } }");
+config.UserStyleSheets = new List<Resource> { new Resource { Content = "@page { @bottom-center { content: 'Page ' counter(page); } }" } };
 var result = pdfReactor.Convert(config);
 File.WriteAllBytes("output.pdf", result.Document);
 

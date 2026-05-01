@@ -18,7 +18,7 @@ iText / iTextSharp is a dual-licensed library that supports generating PDFs from
 
 1. **AGPL License Trap**: The licensing model of iText / iTextSharp is one of its significant drawbacks. The AGPL license is highly restrictive as it requires that any web application using iText / iTextSharp open-source its entire codebase or pay for a commercial license, which can be prohibitively expensive.
 2. **Subscription Pricing**: iText has phased out perpetual licensing, insisting on a recurring annual subscription for a commercial license, which might not be suitable for all budgets.
-3. **Not Native HTML-to-PDF**: To convert HTML to PDF, developers are required to invest in an additional add-on called pdfHTML, which increases costs and complexity.
+3. **Not Native HTML-to-PDF**: To convert HTML to PDF, developers must add the separate `itext.pdfhtml` package (currently 6.3.2) on top of `itext` 9.6.0, which increases cost and complexity. pdfHTML supports a defined subset of CSS and does not execute JavaScript during HTML rendering.
 
 ## Introduction to [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/)
 
@@ -39,8 +39,8 @@ For pricing and capability comparisons, check out the [full analysis](https://ir
 
 | **Feature**                   | **iText / iTextSharp**                                                                         | **IronPDF**                                                                                                   |
 |-------------------------------|------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
-| **Licensing Model**           | Dual (AGPL / Commercial Subscription)                                                          | Perpetual, Commercial                                                                                         |
-| **HTML-to-PDF Conversion**    | Requires additional pdfHTML add-on                                                            | Included in the base product                                                                                  |
+| **Licensing Model**           | Dual (AGPL or commercial annual subscription, volume-based)                                    | Perpetual or subscription, commercial                                                                         |
+| **HTML-to-PDF Conversion**    | Requires the separate `itext.pdfhtml` add-on (currently 6.3.2)                                 | Included in the base product                                                                                  |
 | **Open Source Requirement**   | AGPL demands open-sourcing entire application or purchasing a commercial license              | No such requirement; simple and straightforward licensing                                                     |
 | **Support and Community**     | Extensive documentation and a broad community                                                 | Comprehensive tutorials available, consistent updates, and active support                                     |
 | **Pricing**                   | Requires annual subscription                                                                  | Options for both subscription and perpetual pricing models; generally more cost-effective                      |
@@ -81,7 +81,7 @@ This minimal example showcases IronPDF's easy-to-use approach, illustrating how 
 Here's how **iText / iTextSharp C# PDF: A Comprehensive Comparison with IronPDF** handles this:
 
 ```csharp
-// NuGet: Install-Package itext7
+// NuGet: Install-Package itext.pdfhtml  (pulls in itext 9.6.0; AGPL or commercial)
 using iText.Html2pdf;
 using System.IO;
 
@@ -128,7 +128,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **iText / iTextSharp C# PDF: A Comprehensive Comparison with IronPDF** handles this:
 
 ```csharp
-// NuGet: Install-Package itext7
+// NuGet: Install-Package itext  (current 9.6.0; legacy 'itext7' name is deprecated)
 using iText.Kernel.Pdf;
 using iText.Layout;
 using iText.Layout.Element;
@@ -187,7 +187,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **iText / iTextSharp C# PDF: A Comprehensive Comparison with IronPDF** handles this:
 
 ```csharp
-// NuGet: Install-Package itext7
+// NuGet: Install-Package itext  (current 9.6.0; legacy 'itext7' name is deprecated)
 using iText.Kernel.Pdf;
 using iText.Kernel.Utils;
 using System.IO;
@@ -254,19 +254,19 @@ iText presents serious legal and business risks for commercial applications:
 2. **No Perpetual License**: iText forces annual subscription renewals—no one-time purchase option
 3. **pdfHTML Add-On Cost**: HTML-to-PDF requires separate pdfHTML purchase at additional cost
 4. **Programmatic API**: Requires manual low-level PDF construction with `Paragraph`, `Table`, `Cell`
-5. **No JavaScript**: Even with pdfHTML, no JavaScript execution capability
+5. **No JavaScript at Render Time**: pdfHTML does not run JavaScript while converting HTML to PDF (PDF-level JS form actions are a separate, supported feature)
 
 ### Quick Migration Overview
 
-| Aspect | iText 7 / iTextSharp | IronPDF |
+| Aspect | iText 9 / iTextSharp 5.x | IronPDF |
 |--------|---------------------|---------|
-| License | AGPL (viral) or subscription | Commercial, perpetual option |
-| HTML-to-PDF | Separate pdfHTML add-on | Built-in Chromium |
-| CSS Support | Basic CSS | Full CSS3, Flexbox, Grid |
-| JavaScript | None | Full execution |
+| License | AGPL (viral) or commercial subscription | Commercial, perpetual option |
+| HTML-to-PDF | Separate `itext.pdfhtml` add-on | Built-in Chromium |
+| CSS Support | Defined CSS subset in pdfHTML | Full CSS3, Flexbox, Grid |
+| JavaScript at render | pdfHTML does not run JS during HTML→PDF | Full JS execution at render time |
 | API Paradigm | Programmatic construction | HTML-first design |
 | Learning Curve | Steep (PDF coordinates) | Web developer friendly |
-| Open Source Risk | Must open-source web apps | No viral requirements |
+| Open Source Risk | Must open-source web apps under AGPL | No viral requirements |
 
 ### Key API Mappings
 
@@ -400,10 +400,12 @@ public class PdfService
 ### NuGet Package Migration
 
 ```bash
-# Remove iText packages
+# Remove iText packages (current 'itext' + deprecated 'itext7' aliases + legacy 5.x)
+dotnet remove package itext
+dotnet remove package itext.pdfhtml
 dotnet remove package itext7
 dotnet remove package itext7.pdfhtml
-dotnet remove package itextsharp
+dotnet remove package iTextSharp
 
 # Install IronPDF
 dotnet add package IronPdf

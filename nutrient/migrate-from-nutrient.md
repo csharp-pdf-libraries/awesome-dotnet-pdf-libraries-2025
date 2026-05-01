@@ -2,77 +2,75 @@
 
 ## Why Migrate?
 
-Nutrient (formerly PSPDFKit) has evolved from a PDF library into a comprehensive "document intelligence platform" with AI features and enterprise complexity. For teams that need straightforward PDF operations without platform overhead, IronPDF provides a focused, cost-effective alternative.
+Nutrient (formerly PSPDFKit; rebranded 2024-10-23) has evolved from a single PDF SDK into a multi-product family — Document Engine (Docker microservice), Web SDK, mobile SDKs, and a server-side **.NET SDK that is actually GdPicture.NET** (Nutrient acquired ORPALIS/GdPicture and folded it in as their .NET line). For teams that need straightforward PDF operations without the multi-product surface area, IronPDF provides a single focused .NET package.
 
 ### Issues with Nutrient
 
-1. **Platform Overengineering**: What was once a PDF SDK is now a full "document intelligence platform"
-   - AI features you may not need
-   - Document workflow capabilities beyond PDF
-   - Complex architecture for simple PDF tasks
+1. **Multiple overlapping products**: One brand, several SKUs
+   - Document Engine (server / Docker) vs .NET SDK (in-process GdPicture)
+   - PSPDFKit-branded mobile/Web packages still on NuGet alongside `Nutrient.*` packages
+   - Choosing the right product line is a non-trivial up-front decision
 
-2. **Enterprise Pricing**: Positioned for large organizations
-   - Opaque pricing requiring sales contact
-   - Expensive for small-to-medium teams
-   - Complex licensing for cloud/server deployment
+2. **Sales-led pricing**: No published price list
+   - The .NET SDK pricing page (`nutrient.io/sdk/pricing`) routes to "Contact Us"
+   - Quotes typically per-developer + deployment tier
+   - Hard to compare against published-pricing alternatives without a sales call
 
-3. **Rebrand Confusion**: PSPDFKit → Nutrient transition
-   - Documentation references both names
-   - Package names may still use PSPDFKit
-   - Migration paths unclear during transition
+3. **Rebrand and acquisition trail**: PSPDFKit → Nutrient + GdPicture acquisition
+   - Documentation, blog posts, and NuGet packages reference all three names
+   - The .NET SDK still ships as the `GdPicture` NuGet package, namespace `GdPicture14`
+   - Class names (`GdPicturePDF`, `GdPictureDocumentConverter`) do not match the "Nutrient" or "PSPDFKit" branding
 
-The [comprehensive migration documentation](https://ironpdf.com/blog/migration-guides/migrate-from-nutrient-to-ironpdf/) provides specific guidance on navigating these platform complexities and simplifying your PDF workflow.
+The [comprehensive migration documentation](https://ironpdf.com/blog/migration-guides/migrate-from-nutrient-to-ironpdf/) covers package choice and API surface differences in more detail.
 
-4. **Async-First Complexity**: Everything requires async/await
-   - `PdfProcessor.CreateAsync()` for initialization
-   - Async operations for simple tasks
-   - Overhead for synchronous workflows
+4. **External browser dependency for HTML-to-PDF**: Chrome or Edge must be installed
+   - The .NET SDK invokes a system Chrome/Edge for HTML rendering (or a portable path you set with `SetWebBrowserPath`)
+   - IronPDF ships its own embedded Chromium and does not rely on a system browser
 
-5. **Heavy Dependencies**: Full platform requires more resources
-   - Larger package footprint
-   - More initialization time
-   - Additional configuration
+5. **Procedural PDF API**: Many low-level primitives instead of one composed call
+   - Watermarks compose `SetFillAlpha`, `DrawTextBox`, OCG layer markers
+   - Header/footer, security, etc. require multiple calls per operation
 
 ### Benefits of IronPDF
 
-| Aspect | Nutrient (PSPDFKit) | IronPDF |
-|--------|-------------------|---------|
-| Focus | Document intelligence platform | PDF library |
-| Pricing | Enterprise (contact sales) | Transparent, published |
-| Architecture | Complex platform | Simple library |
-| API Style | Async-first | Sync with async options |
-| Dependencies | Heavy | Lightweight |
-| Configuration | Complex | Straightforward |
-| Learning Curve | Steep (platform) | Gentle (library) |
-| Target Users | Enterprise | All team sizes |
+| Aspect | Nutrient .NET SDK (GdPicture) | IronPDF |
+|--------|-------------------------------|---------|
+| Focus | Imaging + PDF + OCR + barcode toolkit | PDF library |
+| Pricing | Sales-led (contact for quote) | Transparent, published |
+| NuGet package | `GdPicture` | `IronPdf` |
+| Root namespace | `GdPicture14` | `IronPdf` |
+| API Style | Mostly synchronous, procedural | Sync with async options |
+| HTML rendering | Requires system Chrome/Edge | Embedded Chromium |
+| Cross-platform | Windows / Linux / macOS, .NET Framework + .NET 6/7/8/10 | Windows / Linux / macOS, .NET Framework + .NET 6+ |
+| Learning Curve | Broad surface (imaging, scanning, OCR, PDF) | PDF-focused |
 
 ---
 
 ## NuGet Package Changes
 
 ```bash
-# Remove Nutrient/PSPDFKit packages
-dotnet remove package PSPDFKit.NET
-dotnet remove package PSPDFKit.PDF
-dotnet remove package Nutrient
-dotnet remove package Nutrient.PDF
+# Remove the Nutrient .NET SDK (GdPicture) and any legacy PSPDFKit-branded packages
+dotnet remove package GdPicture
+dotnet remove package GdPicture.WPF
+dotnet remove package GdPicture.WinForms
 
 # Install IronPDF
 dotnet add package IronPdf
 ```
 
+The current Nutrient .NET SDK ships under the `GdPicture` NuGet ID (latest 14.x, owner ORPALIS — Nutrient's subsidiary). The older PSPDFKit-branded `PSPDFKit.NET` package targeted .NET Standard 2.0 and is now sunset; the mobile `PSPDFKit.dotnet.*` packages have been republished as `Nutrient.dotnet.*`. For server-side .NET PDF work, `GdPicture` is the package Nutrient currently directs new customers to.
+
 ---
 
 ## Namespace Changes
 
-| Nutrient (PSPDFKit) | IronPDF |
-|---------------------|---------|
-| `using PSPDFKit.Pdf;` | `using IronPdf;` |
-| `using PSPDFKit.Pdf.Document;` | `using IronPdf;` |
-| `using PSPDFKit.Pdf.Rendering;` | `using IronPdf.Rendering;` |
-| `using PSPDFKit.Pdf.Forms;` | `using IronPdf.Forms;` |
-| `using PSPDFKit.Pdf.Annotation;` | `using IronPdf;` |
-| `using Nutrient.Pdf;` | `using IronPdf;` |
+| Nutrient .NET SDK (GdPicture) | IronPDF |
+|--------------------------------|---------|
+| `using GdPicture14;` | `using IronPdf;` |
+| `GdPicturePDF` (PDF object model) | `PdfDocument` |
+| `GdPictureDocumentConverter` (loaders/exporters) | `ChromePdfRenderer` |
+| `GdPictureImaging` (raster utilities) | `IronSoftware.Drawing` |
+| `PdfHorizontalAlignment` / `PdfVerticalAlignment` | `IronPdf.Editing.HorizontalAlignment` / `VerticalAlignment` |
 
 ---
 
@@ -80,81 +78,78 @@ dotnet add package IronPdf
 
 ### Initialization
 
-| Nutrient (PSPDFKit) | IronPDF | Notes |
-|---------------------|---------|-------|
-| `await PdfProcessor.CreateAsync()` | `new ChromePdfRenderer()` | No async required |
-| `processor.Dispose()` | _(automatic or manual)_ | Simpler lifecycle |
-| `new PdfConfiguration { ... }` | `renderer.RenderingOptions` | Property-based |
+| Nutrient .NET SDK (GdPicture) | IronPDF | Notes |
+|-------------------------------|---------|-------|
+| `new GdPicturePDF()` | `new PdfDocument(...)` / `PdfDocument.FromFile(...)` | Both sync |
+| `new GdPictureDocumentConverter()` | `new ChromePdfRenderer()` | Used for HTML/Office conversion |
+| `pdf.Dispose()` (IDisposable) | `pdf.Dispose()` (IDisposable) | Both implement `IDisposable` |
 
 ### Document Loading
 
-| Nutrient (PSPDFKit) | IronPDF | Notes |
-|---------------------|---------|-------|
-| `await processor.OpenAsync(path)` | `PdfDocument.FromFile(path)` | Sync by default |
-| `Document.Load(path)` | `PdfDocument.FromFile(path)` | Same pattern |
-| `Document.LoadFromStream(stream)` | `PdfDocument.FromStream(stream)` | Stream support |
-| `Document.LoadFromBytes(bytes)` | `new PdfDocument(bytes)` | Byte array |
+| Nutrient .NET SDK (GdPicture) | IronPDF | Notes |
+|-------------------------------|---------|-------|
+| `pdf.LoadFromFile(path)` | `PdfDocument.FromFile(path)` | Sync |
+| `pdf.LoadFromStream(stream)` | `PdfDocument.FromStream(stream)` | Stream |
+| `pdf.LoadFromByteArray(bytes)` | `new PdfDocument(bytes)` / `PdfDocument.FromBinaryData(bytes)` | Byte array |
 
-### PDF Generation
+### PDF Generation (HTML)
 
-| Nutrient (PSPDFKit) | IronPDF | Notes |
-|---------------------|---------|-------|
-| `await processor.GeneratePdfFromHtmlStringAsync(html)` | `renderer.RenderHtmlAsPdf(html)` | Sync method |
-| `await processor.GeneratePdfFromUrlAsync(url)` | `renderer.RenderUrlAsPdf(url)` | Direct URL |
-| `await processor.GeneratePdfFromFileAsync(path)` | `renderer.RenderHtmlFileAsPdf(path)` | HTML file |
-| `PdfProcessor.CreatePdfFromUrl(url, config)` | `renderer.RenderUrlAsPdf(url)` | Simpler |
+| Nutrient .NET SDK (GdPicture) | IronPDF | Notes |
+|-------------------------------|---------|-------|
+| `converter.LoadFromFile(htmlPath, DocumentFormat.DocumentFormatHTML)` then `converter.SaveAsPDF(out)` | `renderer.RenderHtmlFileAsPdf(htmlPath)` | Two-step vs one |
+| `converter.LoadFromHttp(url)` then `SaveAsPDF` | `renderer.RenderUrlAsPdf(url)` | URL → PDF |
+| HTML string: write to temp file then `LoadFromFile` | `renderer.RenderHtmlAsPdf(html)` | Direct string in IronPDF |
+| Requires system Chrome/Edge or `SetWebBrowserPath` | Embedded Chromium | No external browser |
 
 ### Page Configuration
 
-| Nutrient (PSPDFKit) | IronPDF | Notes |
-|---------------------|---------|-------|
-| `config.PageSize = PageSize.A4` | `RenderingOptions.PaperSize = PdfPaperSize.A4` | Enum |
-| `config.Orientation = Orientation.Landscape` | `RenderingOptions.PaperOrientation = Landscape` | Enum |
-| `config.Margins = new Margins(t, r, b, l)` | Individual margin properties | MarginTop, etc. |
+| Nutrient .NET SDK (GdPicture) | IronPDF | Notes |
+|-------------------------------|---------|-------|
+| `converter.HtmlPageWidth` / `HtmlPageHeight` | `RenderingOptions.PaperSize = PdfPaperSize.A4` | Named sizes vs raw width/height |
+| `pdf.SetMediaBox(...)` (per page) | `RenderingOptions.PaperOrientation` | Orientation enum |
+| Margin properties on converter | `RenderingOptions.MarginTop` etc. | Individual margin properties |
 
 ### Document Operations
 
-| Nutrient (PSPDFKit) | IronPDF | Notes |
-|---------------------|---------|-------|
-| `await processor.MergeAsync(docs)` | `PdfDocument.Merge(pdfs)` | Sync |
-| `document.PageCount` | `pdf.PageCount` | Same pattern |
-| `document.GetPages()` | `pdf.Pages` | Collection |
-| `document.AddPage(page)` | `pdf.AppendPdf(otherPdf)` | Append |
-| `await document.RemovePageAsync(index)` | `pdf.RemovePages(index)` | Sync |
+| Nutrient .NET SDK (GdPicture) | IronPDF | Notes |
+|-------------------------------|---------|-------|
+| `pdf.MergeDocuments(GdPicturePDF[])` or `converter.CombineToPDF(paths, out, conformance)` | `PdfDocument.Merge(pdfs)` | Multiple overloads on both |
+| `pdf.GetPageCount()` | `pdf.PageCount` | Method vs property |
+| `pdf.SelectPage(i)` | `pdf.Pages[i]` | 1-based vs 0-based |
+| `pdf.ClonePage(srcPdf, pageIndex)` | `pdf.AppendPdf(otherPdf)` | Page-level vs document-level |
+| `pdf.DeletePage(index)` | `pdf.RemovePages(index)` | — |
 
 ### Annotations and Watermarks
 
-| Nutrient (PSPDFKit) | IronPDF | Notes |
-|---------------------|---------|-------|
-| `await document.AddAnnotationAsync(index, annotation)` | `pdf.ApplyWatermark(html)` | HTML-based |
-| `new TextAnnotation("text")` | HTML in watermark | More flexible |
-| `annotation.Opacity = 0.5` | CSS `opacity: 0.5` | CSS styling |
-| `annotation.FontSize = 48` | CSS `font-size: 48px` | CSS styling |
+| Nutrient .NET SDK (GdPicture) | IronPDF | Notes |
+|-------------------------------|---------|-------|
+| `pdf.SetFillAlpha(alpha)` + `pdf.DrawTextBox(...)` | `pdf.ApplyWatermark(html, rotation, vAlign, hAlign)` | One call vs several |
+| `pdf.AddStandardFont(...)` then draw | HTML/CSS in watermark string | CSS styling |
+| `pdf.AddStampAnnotation(...)` | `pdf.ApplyStamp(...)` | Stamp objects |
+| Alpha is 0–255 (byte) | Watermark `Opacity` is 0–100 (int) | Different scales |
 
 ### Form Handling
 
-| Nutrient (PSPDFKit) | IronPDF | Notes |
-|---------------------|---------|-------|
-| `document.GetFormFields()` | `pdf.Form.Fields` | Form collection |
-| `field.SetValue(value)` | `field.Value = value` | Property |
-| `document.FlattenAnnotations()` | `pdf.Form.Flatten()` | Flatten forms |
+| Nutrient .NET SDK (GdPicture) | IronPDF | Notes |
+|-------------------------------|---------|-------|
+| `pdf.GetFormFieldsCount()` + `pdf.GetFormFieldName(i)` | `pdf.Form.Fields` | Index-based vs collection |
+| `pdf.SetFormFieldValue(name, value)` | `pdf.Form.FindFormField(name).Value = value` | Method vs property |
+| `pdf.FlattenFormFields()` | `pdf.Form.Flatten()` | Flatten forms |
 
 ### Headers and Footers
 
-| Nutrient (PSPDFKit) | IronPDF | Notes |
-|---------------------|---------|-------|
-| _(complex annotation approach)_ | `RenderingOptions.HtmlHeader` | Simple HTML |
-| _(complex annotation approach)_ | `RenderingOptions.HtmlFooter` | Simple HTML |
-| _(custom implementation)_ | `{page}` placeholder | Page numbers |
-| _(custom implementation)_ | `{total-pages}` placeholder | Total pages |
+| Nutrient .NET SDK (GdPicture) | IronPDF | Notes |
+|-------------------------------|---------|-------|
+| Manual `DrawTextBox` per page | `RenderingOptions.HtmlHeader = new HtmlHeaderFooter { ... }` | One-shot HTML |
+| Manual page-number drawing in a loop | `{page}` / `{total-pages}` placeholders | Built-in tokens |
 
 ### Output
 
-| Nutrient (PSPDFKit) | IronPDF | Notes |
-|---------------------|---------|-------|
-| `await document.SaveAsync(path)` | `pdf.SaveAs(path)` | Sync |
-| `document.ToBytes()` | `pdf.BinaryData` | Byte array |
-| `document.ToStream()` | `pdf.Stream` | Stream |
+| Nutrient .NET SDK (GdPicture) | IronPDF | Notes |
+|-------------------------------|---------|-------|
+| `pdf.SaveToFile(path)` | `pdf.SaveAs(path)` | Sync |
+| `pdf.SaveToByteArray(out bytes)` | `pdf.BinaryData` | Byte array |
+| `pdf.SaveToStream(stream)` | `pdf.Stream` / `pdf.SaveAs(stream)` | Stream |
 
 ---
 
@@ -162,21 +157,23 @@ dotnet add package IronPdf
 
 ### Example 1: Basic HTML to PDF
 
-**Before (Nutrient/PSPDFKit):**
+**Before (Nutrient .NET SDK / GdPicture):**
 ```csharp
-using PSPDFKit.Pdf;
-using System.Threading.Tasks;
+using GdPicture14;
+using System.IO;
 
 public class NutrientService
 {
-    public async Task<byte[]> GeneratePdfAsync(string html)
+    public byte[] GeneratePdf(string html)
     {
-        using var processor = await PdfProcessor.CreateAsync();
+        // GdPicture's HTML loader takes a file, so we stage the string first.
+        File.WriteAllText("input.html", html);
 
-        var document = await processor.GeneratePdfFromHtmlStringAsync(html);
-        await document.SaveAsync("output.pdf");
+        using var converter = new GdPictureDocumentConverter();
+        converter.LoadFromFile("input.html", DocumentFormat.DocumentFormatHTML);
+        converter.SaveAsPDF("output.pdf");
 
-        return await document.ToBytesAsync();
+        return File.ReadAllBytes("output.pdf");
     }
 }
 ```
@@ -206,26 +203,28 @@ public class PdfService
 
 ### Example 2: URL to PDF with Configuration
 
-**Before (Nutrient/PSPDFKit):**
+**Before (Nutrient .NET SDK / GdPicture):**
 ```csharp
-using PSPDFKit.Pdf;
-using System.Threading.Tasks;
+using GdPicture14;
+using System.IO;
 
-public async Task<byte[]> ConvertUrlAsync(string url)
+public byte[] ConvertUrl(string url)
 {
-    var configuration = new PdfConfiguration
-    {
-        PageSize = PageSize.A4,
-        Orientation = Orientation.Portrait,
-        Margins = new Margins(20, 20, 20, 20),
-        JavaScriptEnabled = true,
-        WaitForLoadingComplete = true
-    };
+    using var converter = new GdPictureDocumentConverter();
 
-    using var processor = await PdfProcessor.CreateAsync();
-    var document = await processor.CreatePdfFromUrlAsync(url, configuration);
+    // Configuration is set via properties on the converter; HTML page dimensions
+    // are in inches/points depending on measurement unit.
+    converter.HtmlPageWidth  = 8.27f;   // A4 width  (inches)
+    converter.HtmlPageHeight = 11.69f;  // A4 height (inches)
+    converter.HtmlMarginTop = 0.78f;
+    converter.HtmlMarginBottom = 0.78f;
+    converter.HtmlMarginLeft = 0.78f;
+    converter.HtmlMarginRight = 0.78f;
 
-    return await document.ToBytesAsync();
+    converter.LoadFromHttp(url);
+    converter.SaveAsPDF("output.pdf");
+
+    return File.ReadAllBytes("output.pdf");
 }
 ```
 
@@ -253,30 +252,15 @@ public byte[] ConvertUrl(string url)
 
 ### Example 3: Merging PDFs
 
-**Before (Nutrient/PSPDFKit):**
+**Before (Nutrient .NET SDK / GdPicture):**
 ```csharp
-using PSPDFKit.Pdf;
+using GdPicture14;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 
-public async Task MergePdfsAsync(string[] inputPaths, string outputPath)
+public void MergePdfs(string[] inputPaths, string outputPath)
 {
-    using var processor = await PdfProcessor.CreateAsync();
-
-    var documents = new List<PdfDocument>();
-    foreach (var path in inputPaths)
-    {
-        var doc = await processor.OpenAsync(path);
-        documents.Add(doc);
-    }
-
-    var mergedDocument = await processor.MergeAsync(documents);
-    await mergedDocument.SaveAsync(outputPath);
-
-    foreach (var doc in documents)
-    {
-        doc.Dispose();
-    }
+    using var converter = new GdPictureDocumentConverter();
+    converter.CombineToPDF((IEnumerable<string>)inputPaths, outputPath, PdfConformance.PDF);
 }
 ```
 
@@ -295,35 +279,33 @@ public void MergePdfs(string[] inputPaths, string outputPath)
 
 ### Example 4: Adding Watermarks
 
-**Before (Nutrient/PSPDFKit):**
+**Before (Nutrient .NET SDK / GdPicture):**
 ```csharp
-using PSPDFKit.Pdf;
-using PSPDFKit.Pdf.Annotation;
-using System.Threading.Tasks;
+using GdPicture14;
 
-public async Task AddWatermarkAsync(string inputPath, string outputPath)
+public void AddWatermark(string inputPath, string outputPath)
 {
-    using var processor = await PdfProcessor.CreateAsync();
-    var document = await processor.OpenAsync(inputPath);
+    using var pdf = new GdPicturePDF();
+    pdf.LoadFromFile(inputPath);
+    pdf.SetMeasurementUnit(PdfMeasurementUnit.PdfMeasurementUnitPoint);
 
-    for (int i = 0; i < document.PageCount; i++)
+    var fontResName = pdf.AddStandardFont(PdfStandardFont.PdfStandardFontHelveticaBold);
+    int pageCount = pdf.GetPageCount();
+
+    for (int i = 1; i <= pageCount; i++)
     {
-        var watermark = new TextAnnotation("CONFIDENTIAL")
-        {
-            Opacity = 0.5f,
-            FontSize = 48,
-            Color = new Color(128, 128, 128),
-            Rotation = 45,
-            Position = new Position(
-                document.GetPage(i).Width / 2,
-                document.GetPage(i).Height / 2
-            )
-        };
-
-        await document.AddAnnotationAsync(i, watermark);
+        pdf.SelectPage(i);
+        pdf.SetFillAlpha(128);          // 0=transparent, 255=opaque
+        pdf.SetTextSize(48);
+        pdf.SetOriginRotationInDegrees(45);
+        pdf.DrawTextBox(fontResName,
+            100, 300, 500, 400,
+            "CONFIDENTIAL",
+            PdfHorizontalAlignment.PdfHorizontalAlignmentCenter,
+            PdfVerticalAlignment.PdfVerticalAlignmentMiddle);
     }
 
-    await document.SaveAsync(outputPath);
+    pdf.SaveToFile(outputPath);
 }
 ```
 
@@ -348,37 +330,33 @@ public void AddWatermark(string inputPath, string outputPath)
 
 ### Example 5: Headers and Footers
 
-**Before (Nutrient/PSPDFKit):**
+**Before (Nutrient .NET SDK / GdPicture):**
 ```csharp
-using PSPDFKit.Pdf;
-using System.Threading.Tasks;
+using GdPicture14;
 
-// Nutrient requires complex annotation-based approach for headers/footers
-// Often requires custom implementation or post-processing
-public async Task CreateWithHeaderFooterAsync(string html, string outputPath)
+// GdPicture has no first-class header/footer model — you draw on each page yourself.
+public void CreateWithHeaderFooter(string inputPdf, string outputPath)
 {
-    using var processor = await PdfProcessor.CreateAsync();
-    var document = await processor.GeneratePdfFromHtmlStringAsync(html);
+    using var pdf = new GdPicturePDF();
+    pdf.LoadFromFile(inputPdf);
+    pdf.SetMeasurementUnit(PdfMeasurementUnit.PdfMeasurementUnitPoint);
 
-    // Complex: Must add text annotations to each page manually
-    for (int i = 0; i < document.PageCount; i++)
+    var font = pdf.AddStandardFont(PdfStandardFont.PdfStandardFontHelvetica);
+    int pageCount = pdf.GetPageCount();
+
+    for (int i = 1; i <= pageCount; i++)
     {
-        var header = new TextAnnotation("Document Header")
-        {
-            Position = new Position(document.GetPage(i).Width / 2, 20),
-            FontSize = 10
-        };
-        await document.AddAnnotationAsync(i, header);
+        pdf.SelectPage(i);
+        pdf.SetTextSize(10);
 
-        var footer = new TextAnnotation($"Page {i + 1}")
-        {
-            Position = new Position(document.GetPage(i).Width / 2, document.GetPage(i).Height - 20),
-            FontSize = 10
-        };
-        await document.AddAnnotationAsync(i, footer);
+        float w = pdf.GetPageWidth();
+        float h = pdf.GetPageHeight();
+
+        pdf.DrawText(font, w / 2 - 40, h - 20, "Document Header");
+        pdf.DrawText(font, w / 2 - 30, 20, $"Page {i} of {pageCount}");
     }
 
-    await document.SaveAsync(outputPath);
+    pdf.SaveToFile(outputPath);
 }
 ```
 
@@ -409,32 +387,27 @@ public void CreateWithHeaderFooter(string html, string outputPath)
 
 ### Example 6: Form Field Handling
 
-**Before (Nutrient/PSPDFKit):**
+**Before (Nutrient .NET SDK / GdPicture):**
 ```csharp
-using PSPDFKit.Pdf;
-using PSPDFKit.Pdf.Forms;
-using System.Threading.Tasks;
+using GdPicture14;
+using System;
 
-public async Task FillFormAsync(string inputPath, string outputPath)
+public void FillForm(string inputPath, string outputPath)
 {
-    using var processor = await PdfProcessor.CreateAsync();
-    var document = await processor.OpenAsync(inputPath);
+    using var pdf = new GdPicturePDF();
+    pdf.LoadFromFile(inputPath);
 
-    var formFields = await document.GetFormFieldsAsync();
-
-    foreach (var field in formFields)
+    int count = pdf.GetFormFieldsCount();
+    for (int i = 0; i < count; i++)
     {
-        if (field.Name == "CustomerName")
-        {
-            await field.SetValueAsync("John Doe");
-        }
-        else if (field.Name == "Date")
-        {
-            await field.SetValueAsync(DateTime.Now.ToString("yyyy-MM-dd"));
-        }
+        string name = pdf.GetFormFieldName(i);
+        if (name == "CustomerName")
+            pdf.SetFormFieldValue(name, "John Doe");
+        else if (name == "Date")
+            pdf.SetFormFieldValue(name, DateTime.Now.ToString("yyyy-MM-dd"));
     }
 
-    await document.SaveAsync(outputPath);
+    pdf.SaveToFile(outputPath);
 }
 ```
 
@@ -455,31 +428,24 @@ public void FillForm(string inputPath, string outputPath)
 
 ### Example 7: Password Protection
 
-**Before (Nutrient/PSPDFKit):**
+**Before (Nutrient .NET SDK / GdPicture):**
 ```csharp
-using PSPDFKit.Pdf;
-using PSPDFKit.Pdf.Security;
-using System.Threading.Tasks;
+using GdPicture14;
 
-public async Task ProtectPdfAsync(string inputPath, string outputPath, string password)
+public void ProtectPdf(string inputPath, string outputPath, string password)
 {
-    using var processor = await PdfProcessor.CreateAsync();
-    var document = await processor.OpenAsync(inputPath);
+    using var pdf = new GdPicturePDF();
+    pdf.LoadFromFile(inputPath);
 
-    var securityOptions = new SecurityOptions
-    {
-        OwnerPassword = password,
-        UserPassword = password,
-        Permissions = new Permissions
-        {
-            Printing = PrintingPermission.HighResolution,
-            ModifyContent = false,
-            CopyContent = false
-        }
-    };
-
-    await document.ApplySecurityAsync(securityOptions);
-    await document.SaveAsync(outputPath);
+    // SaveToFile overload that applies AES-256 encryption with permissions.
+    pdf.SaveToFile(outputPath,
+        password,                       // user password
+        password,                       // owner password
+        PdfEncryption.PdfEncryptionAES256,
+        false,                          // disallow content copy
+        false,                          // disallow content edit
+        true,                           // allow printing
+        false);                         // disallow form filling
 }
 ```
 
@@ -503,26 +469,23 @@ public void ProtectPdf(string inputPath, string outputPath, string password)
 
 ### Example 8: Text Extraction
 
-**Before (Nutrient/PSPDFKit):**
+**Before (Nutrient .NET SDK / GdPicture):**
 ```csharp
-using PSPDFKit.Pdf;
+using GdPicture14;
 using System.Text;
-using System.Threading.Tasks;
 
-public async Task<string> ExtractTextAsync(string pdfPath)
+public string ExtractText(string pdfPath)
 {
-    using var processor = await PdfProcessor.CreateAsync();
-    var document = await processor.OpenAsync(pdfPath);
+    using var pdf = new GdPicturePDF();
+    pdf.LoadFromFile(pdfPath);
 
     var sb = new StringBuilder();
-
-    for (int i = 0; i < document.PageCount; i++)
+    int pageCount = pdf.GetPageCount();
+    for (int i = 1; i <= pageCount; i++)
     {
-        var page = document.GetPage(i);
-        var text = await page.ExtractTextAsync();
-        sb.AppendLine(text);
+        pdf.SelectPage(i);
+        sb.AppendLine(pdf.GetPageText());
     }
-
     return sb.ToString();
 }
 ```
@@ -540,27 +503,27 @@ public string ExtractText(string pdfPath)
 
 ### Example 9: Page Manipulation
 
-**Before (Nutrient/PSPDFKit):**
+**Before (Nutrient .NET SDK / GdPicture):**
 ```csharp
-using PSPDFKit.Pdf;
-using System.Threading.Tasks;
+using GdPicture14;
 
-public async Task ManipulatePagesAsync(string inputPath, string outputPath)
+public void ManipulatePages(string inputPath, string outputPath)
 {
-    using var processor = await PdfProcessor.CreateAsync();
-    var document = await processor.OpenAsync(inputPath);
+    using var pdf = new GdPicturePDF();
+    pdf.LoadFromFile(inputPath);
 
-    // Remove pages
-    await document.RemovePageAsync(0);
+    // Remove first page (1-based)
+    pdf.SelectPage(1);
+    pdf.DeletePage();
 
-    // Rotate page
-    var page = document.GetPage(0);
-    await page.SetRotationAsync(90);
+    // Rotate (now-)first page 90 degrees
+    pdf.SelectPage(1);
+    pdf.RotatePage(PdfRotation.PdfRotation90);
 
-    // Reorder (complex in Nutrient)
-    // Requires creating new document and copying pages
+    // Reorder pages: GdPicture supports MovePage/SwapPages, otherwise
+    // build a new document and ClonePage in the desired order.
 
-    await document.SaveAsync(outputPath);
+    pdf.SaveToFile(outputPath);
 }
 ```
 
@@ -587,40 +550,45 @@ public void ManipulatePages(string inputPath, string outputPath)
 
 ### Example 10: Complete Workflow
 
-**Before (Nutrient/PSPDFKit):**
+**Before (Nutrient .NET SDK / GdPicture):**
 ```csharp
-using PSPDFKit.Pdf;
-using System.Threading.Tasks;
+using GdPicture14;
+using System.IO;
 
 public class NutrientWorkflow
 {
-    public async Task ProcessDocumentAsync(string html, string outputPath)
+    public void ProcessDocument(string html, string outputPath)
     {
-        using var processor = await PdfProcessor.CreateAsync();
+        File.WriteAllText("input.html", html);
 
-        var config = new PdfConfiguration
+        // 1. HTML -> PDF
+        using (var converter = new GdPictureDocumentConverter())
         {
-            PageSize = PageSize.A4,
-            Margins = new Margins(20, 20, 20, 20)
-        };
-
-        var document = await processor.GeneratePdfFromHtmlStringAsync(html, config);
-
-        // Add watermark (complex annotation approach)
-        for (int i = 0; i < document.PageCount; i++)
-        {
-            var watermark = new TextAnnotation("DRAFT") { Opacity = 0.3f };
-            await document.AddAnnotationAsync(i, watermark);
+            converter.LoadFromFile("input.html", DocumentFormat.DocumentFormatHTML);
+            converter.SaveAsPDF("temp.pdf");
         }
 
-        // Add security
-        await document.ApplySecurityAsync(new SecurityOptions
-        {
-            OwnerPassword = "admin",
-            Permissions = new Permissions { ModifyContent = false }
-        });
+        // 2. Add a "DRAFT" watermark and save with encryption
+        using var pdf = new GdPicturePDF();
+        pdf.LoadFromFile("temp.pdf");
+        pdf.SetMeasurementUnit(PdfMeasurementUnit.PdfMeasurementUnitPoint);
+        var font = pdf.AddStandardFont(PdfStandardFont.PdfStandardFontHelveticaBold);
 
-        await document.SaveAsync(outputPath);
+        int pageCount = pdf.GetPageCount();
+        for (int i = 1; i <= pageCount; i++)
+        {
+            pdf.SelectPage(i);
+            pdf.SetFillAlpha(76);  // ~30%
+            pdf.SetTextSize(72);
+            pdf.SetOriginRotationInDegrees(45);
+            pdf.DrawTextBox(font, 100, 300, 500, 400, "DRAFT",
+                PdfHorizontalAlignment.PdfHorizontalAlignmentCenter,
+                PdfVerticalAlignment.PdfVerticalAlignmentMiddle);
+        }
+
+        pdf.SaveToFile(outputPath, "", "admin",
+            PdfEncryption.PdfEncryptionAES256,
+            true, false, true, true);  // disallow content edit
     }
 }
 ```
@@ -676,102 +644,88 @@ public class PdfWorkflow
 
 ## Common Migration Issues
 
-### Issue 1: Async to Sync Pattern
+### Issue 1: HTML Input Surface
 
-**Problem:** Nutrient uses async-first, IronPDF is sync-first
+**Problem:** GdPicture's HTML loader is file/URL-based; IronPDF accepts strings directly
 
 ```csharp
-// Nutrient (async required):
-var document = await processor.OpenAsync(path);
+// Nutrient .NET SDK (string -> file -> PDF):
+File.WriteAllText("input.html", html);
+converter.LoadFromFile("input.html", DocumentFormat.DocumentFormatHTML);
+converter.SaveAsPDF("output.pdf");
 
-// IronPDF (sync by default):
-var pdf = PdfDocument.FromFile(path);
-
-// IronPDF (async if needed):
-var pdf = await Task.Run(() => PdfDocument.FromFile(path));
-// Or use async methods:
-var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+// IronPDF (string -> PDF):
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("output.pdf");
 ```
 
-### Issue 2: Configuration Pattern
+### Issue 2: External Browser Dependency
 
-**Problem:** Nutrient uses config objects, IronPDF uses properties
+**Problem:** GdPicture's HTML rendering requires Chrome or Edge installed on the host. IronPDF ships embedded Chromium.
 
 ```csharp
-// Nutrient:
-var config = new PdfConfiguration
-{
-    PageSize = PageSize.A4,
-    Margins = new Margins(20, 20, 20, 20)
-};
-var doc = await processor.GeneratePdfFromHtmlStringAsync(html, config);
+// Nutrient .NET SDK: optionally point to a portable Chrome
+converter.SetWebBrowserPath(@"C:\Tools\chrome\chrome.exe");
 
-// IronPDF:
-var renderer = new ChromePdfRenderer();
-renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
-renderer.RenderingOptions.MarginTop = 20;
-renderer.RenderingOptions.MarginBottom = 20;
+// IronPDF: nothing to configure
 var pdf = renderer.RenderHtmlAsPdf(html);
 ```
 
-### Issue 3: Processor Lifecycle
+### Issue 3: Procedural Watermarks vs HTML Watermarks
 
-**Problem:** Nutrient requires processor creation and disposal
+**Problem:** GdPicture composes watermarks from primitive draw calls; IronPDF takes a single HTML/CSS string.
 
 ```csharp
-// Nutrient:
-using var processor = await PdfProcessor.CreateAsync();
-// ... use processor ...
+// Nutrient .NET SDK:
+pdf.SetFillAlpha(128);
+pdf.SetTextSize(48);
+pdf.SetOriginRotationInDegrees(45);
+pdf.DrawTextBox(font, 100, 300, 500, 400, "CONFIDENTIAL",
+    PdfHorizontalAlignment.PdfHorizontalAlignmentCenter,
+    PdfVerticalAlignment.PdfVerticalAlignmentMiddle);
 
-// IronPDF (simpler):
-var renderer = new ChromePdfRenderer();
-// Reuse renderer, no complex lifecycle
+// IronPDF:
+pdf.ApplyWatermark("<h1 style='opacity:0.5; font-size:48px;'>CONFIDENTIAL</h1>",
+    45, VerticalAlignment.Middle, HorizontalAlignment.Center);
 ```
 
-### Issue 4: Annotation vs HTML Watermarks
+### Issue 4: Headers/Footers and Page Numbers
 
-**Problem:** Nutrient uses annotation objects, IronPDF uses HTML
-
-```csharp
-// Nutrient annotation:
-new TextAnnotation("CONFIDENTIAL") { Opacity = 0.5f, FontSize = 48 }
-
-// IronPDF HTML:
-"<h1 style='opacity:0.5; font-size:48px;'>CONFIDENTIAL</h1>"
-```
-
-### Issue 5: Page Numbers in Headers/Footers
-
-**Problem:** Nutrient requires manual page counting, IronPDF has placeholders
+**Problem:** GdPicture has no first-class header/footer model; you draw on each page in a loop. IronPDF exposes `HtmlHeader`/`HtmlFooter` with `{page}` / `{total-pages}` tokens.
 
 ```csharp
-// Nutrient: Must calculate and add per-page
-for (int i = 0; i < doc.PageCount; i++)
+// Nutrient .NET SDK: per-page DrawText loop
+for (int i = 1; i <= pdf.GetPageCount(); i++)
 {
-    var footer = new TextAnnotation($"Page {i + 1} of {doc.PageCount}");
-    await doc.AddAnnotationAsync(i, footer);
+    pdf.SelectPage(i);
+    pdf.DrawText(font, x, y, $"Page {i} of {pdf.GetPageCount()}");
 }
 
-// IronPDF: Built-in placeholders
+// IronPDF: built-in placeholders
 renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
 {
     HtmlFragment = "Page {page} of {total-pages}"
 };
 ```
 
+### Issue 5: Page Indexing
+
+**Problem:** GdPicture is **1-based** (`SelectPage(1)` is the first page). IronPDF `pdf.Pages` and `pdf.RemovePages(int)` are **0-based**. Off-by-one errors are the most common porting bug.
+
+```csharp
+// Nutrient .NET SDK (1-based):
+pdf.SelectPage(1);
+pdf.DeletePage();
+
+// IronPDF (0-based):
+pdf.RemovePages(0);
+```
+
 ---
 
 ## Performance Comparison
 
-| Operation | Nutrient | IronPDF |
-|-----------|----------|---------|
-| HTML to PDF (simple) | ~800ms | ~400ms |
-| HTML to PDF (complex) | ~2000ms | ~800ms |
-| Load PDF (10 pages) | ~150ms | ~100ms |
-| Merge 2 PDFs | ~200ms | ~50ms |
-| Add watermark | ~300ms | ~30ms |
-| Extract text | ~100ms | ~50ms |
-| First operation (init) | ~2000ms | ~1500ms |
+Hard numbers depend heavily on host hardware, the host's installed Chrome/Edge version (for GdPicture's HTML path), and document complexity. Both libraries are competitive on raw PDF operations; the biggest practical difference is HTML rendering, where IronPDF's embedded Chromium starts faster than spawning a host browser. Benchmark on your own workload before publishing numbers.
 
 ---
 
@@ -779,38 +733,35 @@ renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
 
 ### Pre-Migration
 
-- [ ] **Inventory all PSPDFKit/Nutrient usages**
+- [ ] **Inventory all GdPicture / PSPDFKit / Nutrient usages**
   ```bash
-  grep -r "PSPDFKit\|Nutrient\|PdfProcessor" --include="*.cs" .
+  grep -rE "GdPicture14|GdPicturePDF|GdPictureDocumentConverter|PSPDFKit|Nutrient" --include="*.cs" .
   ```
-  **Why:** Identify all usages to ensure complete migration coverage.
+  **Why:** Identify all usages so the package and namespace removal is complete.
 
-- [ ] **Document async patterns that may need adjustment**
+- [ ] **Note 1-based vs 0-based page indexing in your code**
   ```csharp
-  // Example pattern
-  await PdfProcessor.CreateAsync();
+  // GdPicture is 1-based: SelectPage(1) targets the first page.
   ```
-  **Why:** IronPDF supports both sync and async, allowing you to simplify where async is not needed.
+  **Why:** IronPDF is 0-based — every page-index call needs review.
 
-- [ ] **List all configuration objects and their properties**
+- [ ] **List configuration set on `GdPictureDocumentConverter`**
   ```csharp
-  // Example configuration
-  var config = new PdfConfig {
-      PageSize = PageSizes.A4,
-      Orientation = Orientation.Landscape
-  };
+  converter.HtmlPageWidth = 8.27f;
+  converter.HtmlPageHeight = 11.69f;
+  converter.HtmlMarginTop = 0.78f;
   ```
-  **Why:** These settings map to IronPDF's RenderingOptions. Document them now to ensure consistent output after migration.
+  **Why:** These map to IronPDF's `RenderingOptions.PaperSize` and per-side margin properties.
 
-- [ ] **Identify annotation-based features (watermarks, headers)**
+- [ ] **Identify procedural drawing for watermarks and headers**
   ```csharp
-  // Example annotation
-  processor.AddWatermark("Confidential");
+  pdf.SetFillAlpha(128);
+  pdf.DrawTextBox(font, ...);
   ```
-  **Why:** IronPDF uses HTML for watermarks and headers, providing more flexibility and styling options.
+  **Why:** IronPDF replaces these with `pdf.ApplyWatermark(html, ...)` and `RenderingOptions.HtmlHeader/HtmlFooter`.
 
-- [ ] **Review form handling requirements**
-  **Why:** Ensure that form handling features are supported and correctly migrated to IronPDF.
+- [ ] **Review form-field code that uses index-based access**
+  **Why:** IronPDF exposes a name-keyed `pdf.Form.FindFormField(name)` you can use directly.
 
 ### Migration Steps
 
@@ -820,12 +771,13 @@ renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
   ```
   **Why:** Add IronPDF to your project to start using its features.
 
-- [ ] **Remove PSPDFKit/Nutrient NuGet packages**
+- [ ] **Remove the Nutrient .NET SDK NuGet package**
   ```bash
-  dotnet remove package PSPDFKit
-  dotnet remove package Nutrient
+  dotnet remove package GdPicture
+  dotnet remove package GdPicture.WPF
+  dotnet remove package GdPicture.WinForms
   ```
-  **Why:** Clean package switch to IronPDF.
+  **Why:** The Nutrient .NET SDK ships as `GdPicture` on NuGet (owner ORPALIS, a Nutrient subsidiary). Older PSPDFKit-branded `PSPDFKit.NET` packages are sunset; remove those if present too.
 
 - [ ] **Add IronPDF license key configuration**
   ```csharp
@@ -837,68 +789,74 @@ renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
 - [ ] **Update namespace imports**
   ```csharp
   // Before
-  using PSPDFKit;
+  using GdPicture14;
 
   // After
   using IronPdf;
   ```
   **Why:** Ensure all references point to IronPDF classes and methods.
 
-- [ ] **Replace `PdfProcessor.CreateAsync()` with `new ChromePdfRenderer()`**
+- [ ] **Replace `GdPictureDocumentConverter` with `ChromePdfRenderer` for HTML / URL input**
   ```csharp
   // Before
-  var processor = await PdfProcessor.CreateAsync();
+  using var converter = new GdPictureDocumentConverter();
+  converter.LoadFromFile("input.html", DocumentFormat.DocumentFormatHTML);
+  converter.SaveAsPDF("output.pdf");
 
   // After
   var renderer = new ChromePdfRenderer();
+  var pdf = renderer.RenderHtmlAsPdf(html);   // string input directly
+  pdf.SaveAs("output.pdf");
   ```
-  **Why:** IronPDF uses ChromePdfRenderer for PDF creation, simplifying initialization.
+  **Why:** IronPDF accepts an HTML string directly and uses an embedded Chromium, removing the system-browser dependency.
 
-- [ ] **Convert async methods to sync (or use async variants)**
+- [ ] **Replace `GdPicturePDF` with `PdfDocument`**
   ```csharp
   // Before
-  await processor.RenderAsync(html);
+  using var pdf = new GdPicturePDF();
+  pdf.LoadFromFile("input.pdf");
 
   // After
-  var pdf = renderer.RenderHtmlAsPdf(html);
+  var pdf = PdfDocument.FromFile("input.pdf");
   ```
-  **Why:** IronPDF provides both sync and async methods, allowing you to choose based on your needs.
+  **Why:** IronPDF's `PdfDocument` is the primary PDF object model.
 
-- [ ] **Replace configuration objects with RenderingOptions properties**
+- [ ] **Replace converter properties with `RenderingOptions`**
   ```csharp
   // Before
-  processor.PageSize = PageSizes.A4;
-  processor.Orientation = Orientation.Landscape;
+  converter.HtmlPageWidth = 8.27f; // A4 inches
+  converter.HtmlMarginTop = 0.78f;
 
   // After
   renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
-  renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape;
+  renderer.RenderingOptions.MarginTop = 20; // millimetres
   ```
-  **Why:** Centralize configuration using IronPDF's RenderingOptions for consistency.
+  **Why:** IronPDF uses named paper sizes and a single `RenderingOptions` bag.
 
-- [ ] **Convert annotation watermarks to HTML watermarks**
+- [ ] **Replace procedural watermark draw calls with `ApplyWatermark`**
   ```csharp
   // Before
-  processor.AddWatermark("Confidential");
+  pdf.SetFillAlpha(76);
+  pdf.DrawTextBox(font, ..., "DRAFT", ...);
 
   // After
-  pdf.ApplyWatermark("<h1 style='color:red; opacity:0.3;'>Confidential</h1>");
+  pdf.ApplyWatermark("<h1 style='color:red; opacity:0.3;'>DRAFT</h1>",
+      45, VerticalAlignment.Middle, HorizontalAlignment.Center);
   ```
-  **Why:** HTML watermarks offer more styling and positioning flexibility.
+  **Why:** HTML watermarks are styled with CSS instead of composed from primitives.
 
-- [ ] **Update header/footer to use HtmlHeaderFooter with placeholders**
+- [ ] **Replace per-page DrawText loops with `HtmlHeaderFooter` placeholders**
   ```csharp
-  // Before
-  processor.Header = "Page [page] of [total]";
+  // Before: per-page DrawText "Page i of N"
 
   // After
-  renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter()
+  renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
   {
       HtmlFragment = "<div style='text-align:center;'>Page {page} of {total-pages}</div>",
       MaxHeight = 25
   };
   ```
-  **Why:** Use IronPDF's HTML-based headers/footers for dynamic content and styling.
+  **Why:** Built-in `{page}` / `{total-pages}` tokens replace manual page counting.
 
 ### Post-Migration
 
@@ -927,14 +885,12 @@ renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
 
 ## Pricing Comparison
 
-| Aspect | Nutrient (PSPDFKit) | IronPDF |
-|--------|-------------------|---------|
-| Pricing Model | Enterprise (contact sales) | Published pricing |
-| Small Team Cost | High | Affordable |
-| Transparency | Opaque | Clear |
-| Trial | Limited | Full functionality |
+| Aspect | Nutrient .NET SDK (GdPicture) | IronPDF |
+|--------|-------------------------------|---------|
+| Pricing Model | Sales-led — `nutrient.io/sdk/pricing` routes to Contact Us | Published per-developer pricing on `ironpdf.com` |
+| Trial | Free trial; trial-mode watermark and reminders on output | Free trial / development key |
 | Per-Developer | Yes | Yes |
-| Deployment | Complex licensing | Simple |
+| Deployment Tiers | Negotiated with sales | Listed on pricing page |
 
 ---
 

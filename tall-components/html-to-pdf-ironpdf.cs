@@ -5,6 +5,8 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         // Create a PDF from HTML string
         var renderer = new ChromePdfRenderer();
         string html = "<html><body><h1>Hello World</h1><p>This is a PDF from HTML.</p></body></html>";

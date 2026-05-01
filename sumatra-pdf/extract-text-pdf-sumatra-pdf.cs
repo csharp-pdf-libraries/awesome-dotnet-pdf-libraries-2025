@@ -1,5 +1,7 @@
-// Sumatra PDF doesn't provide C# API for text extraction
-// You would need to use command-line tools or other libraries
+// Sumatra PDF is a standalone Windows viewer (AGPLv3) — no official NuGet package
+// and no programmatic text-extraction API. To extract text you must shell out to a
+// separate tool such as pdftotext (Xpdf / Poppler).
+using System;
 using System.Diagnostics;
 using System.IO;
 

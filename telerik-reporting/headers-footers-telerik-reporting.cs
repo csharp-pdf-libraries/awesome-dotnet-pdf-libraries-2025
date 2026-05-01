@@ -8,7 +8,7 @@ class TelerikExample
     static void Main()
     {
         var report = new Telerik.Reporting.Report();
-        
+
         // Add page header
         var pageHeader = new Telerik.Reporting.PageHeaderSection();
         pageHeader.Height = new Unit(0.5, UnitType.Inch);
@@ -18,18 +18,19 @@ class TelerikExample
             Location = new PointU(0, 0),
             Size = new SizeU(new Unit(6, UnitType.Inch), new Unit(0.3, UnitType.Inch))
         });
-        report.PageHeaderSection = pageHeader;
-        
-        // Add page footer
+        report.Items.Add(pageHeader);
+
+        // Add page footer with expression-based PageNumber/PageCount built-ins
         var pageFooter = new Telerik.Reporting.PageFooterSection();
         pageFooter.Height = new Unit(0.5, UnitType.Inch);
         pageFooter.Items.Add(new Telerik.Reporting.TextBox()
         {
-            Value = "Page {PageNumber} of {PageCount}",
+            // Telerik Reporting uses expression syntax (leading '='), not token placeholders
+            Value = "= 'Page ' + PageNumber + ' of ' + PageCount",
             Location = new PointU(0, 0),
             Size = new SizeU(new Unit(6, UnitType.Inch), new Unit(0.3, UnitType.Inch))
         });
-        report.PageFooterSection = pageFooter;
+        report.Items.Add(pageFooter);
         
         // Add content
         var htmlTextBox = new Telerik.Reporting.HtmlTextBox()

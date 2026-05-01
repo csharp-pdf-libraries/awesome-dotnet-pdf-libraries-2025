@@ -1,4 +1,6 @@
-// NuGet: Install-Package itext7
+// NuGet: Install-Package itext
+// (Current package is 'itext' 9.6.0; the legacy 'itext7' name is deprecated and
+//  now redirects to 'itext'. AGPL or commercial — see https://itextpdf.com/pricing)
 using iText.Kernel.Pdf;
 using iText.Layout;
 using iText.Layout.Element;

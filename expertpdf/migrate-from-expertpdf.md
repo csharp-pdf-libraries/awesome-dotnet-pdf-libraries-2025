@@ -16,38 +16,41 @@
 
 ## Why Migrate from ExpertPdf to IronPDF
 
+ExpertPdf is published by Outside Software Inc. (the NuGet profile `expertpdf` lists "Outside Software Inc." as the owner; the marketing site is https://www.html-to-pdf.net/ and https://www.expertpdf.net/). The latest release on nuget.org is **v20.1.0 (April 2025)**, so the suite is still actively shipping — the friction is in the product *shape*, not abandonment.
+
 ### The ExpertPdf Problems
 
-1. **Documentation Frozen Since 2018**: ExpertPdf's documentation hasn't been updated in over 6 years. Finding current information, examples, and best practices is increasingly difficult.
+1. **Sparse documentation, slow cadence**: Reference docs exist on html-to-pdf.net but feature articles, tutorials, and changelog entries are infrequent. Release notes for v20.1 list "bug fixes and performance improvements" — no headline features.
 
-2. **Outdated Chrome Version**: ExpertPdf relies on a legacy version of Chrome for rendering. Modern CSS3 features (Flexbox, Grid, CSS Variables) may not render correctly, and security patches are not applied.
+2. **Older rendering pipelines**: ExpertPdf historically supports a Trident/IE engine plus a "WebKit2" engine added in v12.2; modern Chromium is not the default. CSS3 features such as Flexbox, Grid, and CSS variables render best on the WebKit2 engine — verify against your target HTML before migrating large estates.
 
-3. **Premium Pricing for Legacy Tech**: At $550-$1,200 per license, ExpertPdf charges premium prices while delivering outdated rendering technology.
+3. **Premium pricing**: ExpertPdf is sold per-developer with deployment royalties; ComponentSource listings have historically shown the HtmlToPdf Converter at roughly **$550–$1,200** depending on tier (verify directly with the vendor — the order page is currently behind a 404 at the time of writing).
 
-4. **Fragmented Product Suite**: ExpertPdf sells separate packages for different functions:
-   - HtmlToPdf Converter
-   - PDF Merger
-   - PDF Security
-   - PDF Splitter
-   - PDF to Image
+4. **Fragmented product suite**: The toolkit is split across separate NuGet packages, each typically licensed separately:
+   - `ExpertPdf.HtmlToPdf.NetCore` / `ExpertPdfHtmlToPdf` — HTML to PDF
+   - `ExpertPdf.MergePdf` — PDF merging
+   - `ExpertPdf.PdfSecurity` — encryption / passwords
+   - `ExpertPdf.SplitPdf` — splitting
+   - `ExpertPdf.PdfToImage` — rasterization (last update 2023)
+   - `ExpertPdf.PdfCreator` — full PDF SDK (drawing, forms, signatures)
 
-   Each requires separate licensing.
+   Mixing them across a project means juggling several licenses and matching version numbers.
 
-5. **Limited Modern .NET Support**: While ExpertPdf has .NET Core packages, they lag behind modern .NET versions and practices.
+5. **.NET Standard 2.0 compatibility, but no native modern targets**: The `.NetCore` packages target .NET Standard 2.0 / .NET Framework 4.6.1, so they *run* on .NET 5/6/7/8/9 — but you do not get native multi-target builds, trimming-friendly assemblies, or async-first APIs.
 
 ### ExpertPdf vs IronPDF Comparison
 
 | Aspect | ExpertPdf | IronPDF |
 |--------|-----------|---------|
-| **Documentation** | Frozen since 2018 | Continuously updated |
-| **Rendering Engine** | Legacy Chrome | Latest Chromium |
-| **CSS Support** | Limited CSS3 | Full CSS3 (Flexbox, Grid) |
-| **Price** | $550-$1,200 | Competitive pricing |
-| **Update Frequency** | Infrequent | Monthly releases |
-| **Product Model** | Fragmented (5+ DLLs) | All-in-one library |
-| **Modern .NET** | Limited | .NET 6/7/8/9+ native |
+| **Vendor** | Outside Software Inc. | Iron Software |
+| **Latest release (nuget.org)** | v20.1.0 (Apr 2025) | Continuously updated |
+| **Documentation** | Sparse tutorials, infrequent updates | Continuously updated |
+| **Rendering Engine** | Trident (IE) + "WebKit2" engine | Latest Chromium |
+| **CSS Support** | CSS3 best on WebKit2; older engines partial | Full CSS3 (Flexbox, Grid) |
+| **Price** | ~$550-$1,200 (verify with vendor) | See ironpdf.com/pricing |
+| **Product Model** | Fragmented (6+ NuGet packages) | All-in-one library |
+| **Modern .NET** | .NET Standard 2.0 (compatible w/ .NET 5-9) | .NET 6/7/8/9+ multi-targeted |
 | **Async Support** | Limited | Full async/await |
-| **Security Updates** | Infrequent | Regular patches |
 
 ### Key Migration Benefits
 
@@ -76,12 +79,13 @@ grep -r "ExpertPdf\|PdfConverter\|PDFMerge\|PdfSecurityManager" --include="*.cs"
 dotnet list package | grep -i "ExpertPdf"
 ```
 
-**Common ExpertPdf packages:**
-- `ExpertPdf.HtmlToPdf` - HTML to PDF conversion
-- `ExpertPdf.PDFMerge` - PDF merging
-- `ExpertPdf.PDFSecurity` - Encryption and passwords
-- `ExpertPdf.PDFSplit` - PDF splitting
-- `ExpertPdf.PdfToImage` - PDF to image conversion
+**Common ExpertPdf packages (verify exact name on nuget.org — the suite uses inconsistent casing):**
+- `ExpertPdfHtmlToPdf` (.NET Framework) / `ExpertPdf.HtmlToPdf.NetCore` (.NET Core / 5-9) — HTML to PDF
+- `ExpertPdf.MergePdf` — PDF merging
+- `ExpertPdf.PdfSecurity` — encryption and passwords
+- `ExpertPdf.SplitPdf` — PDF splitting
+- `ExpertPdf.PdfToImage` — PDF to image conversion
+- `ExpertPdf.PdfCreator` — full PDF SDK (programmatic drawing, forms, signatures)
 
 ### 2. Document Current Functionality
 
@@ -100,12 +104,14 @@ Create a checklist of ExpertPdf features you use:
 ### 3. Set Up IronPDF
 
 ```bash
-# Remove all ExpertPdf packages
-dotnet remove package ExpertPdf.HtmlToPdf
-dotnet remove package ExpertPdf.PDFMerge
-dotnet remove package ExpertPdf.PDFSecurity
-dotnet remove package ExpertPdf.PDFSplit
+# Remove all ExpertPdf packages (use whichever variants you have installed)
+dotnet remove package ExpertPdfHtmlToPdf
+dotnet remove package ExpertPdf.HtmlToPdf.NetCore
+dotnet remove package ExpertPdf.MergePdf
+dotnet remove package ExpertPdf.PdfSecurity
+dotnet remove package ExpertPdf.SplitPdf
 dotnet remove package ExpertPdf.PdfToImage
+dotnet remove package ExpertPdf.PdfCreator
 
 # Install IronPDF (includes all features)
 dotnet add package IronPdf
@@ -200,9 +206,10 @@ public class PdfService
 | ExpertPdf Namespace | IronPDF Equivalent |
 |--------------------|-------------------|
 | `ExpertPdf.HtmlToPdf` | `IronPdf` |
-| `ExpertPdf.PDFMerge` | `IronPdf` |
-| `ExpertPdf.PDFSecurity` | `IronPdf` |
-| `ExpertPdf.PDFSplit` | `IronPdf` |
+| `ExpertPdf.MergePdf` | `IronPdf` |
+| `ExpertPdf.PdfSecurity` | `IronPdf` |
+| `ExpertPdf.SplitPdf` | `IronPdf` |
+| `ExpertPdf.PdfCreator` | `IronPdf` |
 
 ### Core Class Mapping
 
@@ -396,9 +403,9 @@ pdf.SaveAs("report.pdf");
 
 ### Example 4: Merging PDFs
 
-**Before (ExpertPdf - requires separate PDFMerge package):**
+**Before (ExpertPdf - requires separate `ExpertPdf.MergePdf` package):**
 ```csharp
-using ExpertPdf.PDFMerge;
+using ExpertPdf.MergePdf;
 
 PdfDocumentOptions options = new PdfDocumentOptions();
 options.PdfCompressionLevel = PDFCompressionLevel.Normal;
@@ -633,12 +640,13 @@ pageImage.Save("first_page.png");
 If you're using multiple ExpertPdf packages, IronPDF consolidates everything:
 
 ```csharp
-// BEFORE: Multiple ExpertPdf packages
+// BEFORE: Multiple ExpertPdf packages, each a separate NuGet + license
 using ExpertPdf.HtmlToPdf;      // HTML conversion
-using ExpertPdf.PDFMerge;       // Merging
-using ExpertPdf.PDFSecurity;    // Encryption
-using ExpertPdf.PDFSplit;       // Splitting
+using ExpertPdf.MergePdf;       // Merging
+using ExpertPdf.PdfSecurity;    // Encryption
+using ExpertPdf.SplitPdf;       // Splitting
 using ExpertPdf.PdfToImage;     // Image conversion
+using ExpertPdf.PdfCreator;     // Programmatic PDF creation / drawing
 
 // AFTER: Single IronPDF package
 using IronPdf;
@@ -933,27 +941,29 @@ renderer.RenderingOptions.BaseUrl = new Uri("file:///C:/Project/");
 
 ### Package Migration
 
-- [ ] **Remove `ExpertPdf.HtmlToPdf` package**
+- [ ] **Remove the ExpertPdf HtmlToPdf package**
   ```bash
-  dotnet remove package ExpertPdf.HtmlToPdf
+  # Whichever variant you installed:
+  dotnet remove package ExpertPdfHtmlToPdf            # .NET Framework
+  dotnet remove package ExpertPdf.HtmlToPdf.NetCore   # .NET Core / 5-9
   ```
   **Why:** Clean removal of old package to prevent conflicts.
 
-- [ ] **Remove `ExpertPdf.PDFMerge` package (if used)**
+- [ ] **Remove `ExpertPdf.MergePdf` package (if used)**
   ```bash
-  dotnet remove package ExpertPdf.PDFMerge
+  dotnet remove package ExpertPdf.MergePdf
   ```
   **Why:** IronPDF handles merging internally, simplifying dependencies.
 
-- [ ] **Remove `ExpertPdf.PDFSecurity` package (if used)**
+- [ ] **Remove `ExpertPdf.PdfSecurity` package (if used)**
   ```bash
-  dotnet remove package ExpertPdf.PDFSecurity
+  dotnet remove package ExpertPdf.PdfSecurity
   ```
   **Why:** IronPDF includes security features natively.
 
-- [ ] **Remove `ExpertPdf.PDFSplit` package (if used)**
+- [ ] **Remove `ExpertPdf.SplitPdf` package (if used)**
   ```bash
-  dotnet remove package ExpertPdf.PDFSplit
+  dotnet remove package ExpertPdf.SplitPdf
   ```
   **Why:** IronPDF can handle PDF splitting without additional packages.
 
@@ -962,6 +972,12 @@ renderer.RenderingOptions.BaseUrl = new Uri("file:///C:/Project/");
   dotnet remove package ExpertPdf.PdfToImage
   ```
   **Why:** IronPDF can convert PDFs to images directly.
+
+- [ ] **Remove `ExpertPdf.PdfCreator` package (if used)**
+  ```bash
+  dotnet remove package ExpertPdf.PdfCreator
+  ```
+  **Why:** IronPDF covers programmatic PDF creation, drawing, and signatures.
 
 - [ ] **Install `IronPdf` package**
   ```bash

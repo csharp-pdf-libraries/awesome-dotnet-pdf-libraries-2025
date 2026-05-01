@@ -18,26 +18,26 @@
 
 ### The HiQPdf Limitations
 
-HiQPdf is a commercial HTML-to-PDF library with several concerning limitations:
+HiQPdf is a commercial HTML-to-PDF library published by HiQPdf Software (current `HiQPdf` 18.0.2 on nuget.org, February 2026). Common reasons developers migrate away:
 
-1. **Restrictive "Free" Version**: The free version imposes a 3-page limit with intrusive watermarks—essentially unusable for production
-2. **Older WebKit Engine**: Uses an older WebKit-based rendering engine that struggles with modern JavaScript frameworks
-3. **Unclear .NET Core Support**: Documentation doesn't explicitly clarify .NET Core / .NET 5+ support, requiring separate NuGet packages
-4. **Fragmented Packages**: Multiple NuGet packages for different platforms (HiQPdf, HiQPdf.NetCore, HiQPdf.Client)
+1. **Restrictive Free Version**: `HiQPdf.Free` caps output at 3 pages per document — useful for evaluation, not production
+2. **WebKit on the Classic Line**: The Classic `HiQPdf` package uses an older WebKit-based engine that struggles with modern JavaScript frameworks (HiQPdf does ship a Chromium-based variant — `HiQPdf.NG` / `HiQPdf.Chromium.Windows` — but most existing code targets the Classic engine)
+3. **.NET Support Spread Across Packages**: .NET Framework, .NET Core, and .NET Standard 2.0 are all supported, but spread across separate NuGet IDs (HiQPdf, HiQPdf_NetCore, HiQPdf.NG, HiQPdf.Chromium.Windows, HiQPdf_x64) you have to pick between
+4. **Fragmented Packages**: Multiple NuGet packages for different platforms (HiQPdf, HiQPdf.Free, HiQPdf_NetCore, HiQPdf.NG, HiQPdf.Chromium.Windows)
 5. **Complex API**: Requires verbose configuration through `Document`, `Header`, `Footer` property chains
-6. **Limited JavaScript Support**: WebKit engine has challenges with React, Angular, Vue and modern JS frameworks
+6. **Per-Developer Licensing Adds Up**: $245 Startup / $495 Developer / $795 Team / $1,095 Enterprise (perpetual, first year of updates included)
 
 ### What IronPDF Offers Instead
 
 | Aspect | HiQPdf | IronPDF |
 |--------|--------|---------|
-| Rendering Engine | WebKit-based (older) | Modern Chromium |
-| Free Tier | 3-page limit + watermark | 30-day full trial |
-| Modern JS Support | Limited | Full (React, Angular, Vue) |
-| .NET Core/5+ Support | Multiple packages needed | Single unified package |
+| Rendering Engine | WebKit (Classic `HiQPdf`) or Chromium (`HiQPdf.NG`/`HiQPdf.Chromium.Windows`) | Modern Chromium |
+| Free Tier | `HiQPdf.Free` 3-page limit | 30-day full trial |
+| Modern JS Support | Limited on Classic; full on NG/Chromium | Full (React, Angular, Vue) |
+| .NET Core/5+ Support | Supported, but split across multiple NuGet packages | Single unified package |
 | API Design | Complex property chains | Clean fluent API |
-| CSS3 Support | Partial | Full support |
-| Documentation | Fragmented | Comprehensive |
+| CSS3 Support | Partial on Classic; full on NG | Full support |
+| Documentation | Fragmented across product lines | Comprehensive |
 | NuGet Package | Multiple variants | Single package |
 
 ---
@@ -76,12 +76,13 @@ Check for HiQPdf package variants:
 grep -r "HiQPdf\|hiqpdf" --include="*.csproj" .
 ```
 
-Common package names:
-- `HiQPdf`
-- `HiQPdf.Free`
-- `HiQPdf.NetCore`
-- `HiQPdf.NetCore.x64`
-- `HiQPdf.Client`
+Common package names (verify on nuget.org):
+- `HiQPdf` (Classic, WebKit, Windows x64)
+- `HiQPdf.Free` (Classic, capped at 3 pages)
+- `HiQPdf_NetCore` (Classic, .NET Core)
+- `HiQPdf_x64`
+- `HiQPdf.NG` (Next Generation, Chromium-based)
+- `HiQPdf.Chromium.Windows` / `HiQPdf.Chromium.Linux` (Chromium-based, multi-platform)
 
 ---
 
@@ -93,9 +94,10 @@ Common package names:
 # Remove all HiQPdf variants
 dotnet remove package HiQPdf
 dotnet remove package HiQPdf.Free
-dotnet remove package HiQPdf.NetCore
-dotnet remove package HiQPdf.NetCore.x64
-dotnet remove package HiQPdf.Client
+dotnet remove package HiQPdf_NetCore
+dotnet remove package HiQPdf_x64
+dotnet remove package HiQPdf.NG
+dotnet remove package HiQPdf.Chromium.Windows
 
 # Install IronPDF (single package for all platforms)
 dotnet add package IronPdf
@@ -1104,8 +1106,10 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 - [ ] **Remove HiQPdf NuGet packages (all variants)**
   ```bash
   dotnet remove package HiQPdf
-  dotnet remove package HiQPdf.NetCore
-  dotnet remove package HiQPdf.Client
+  dotnet remove package HiQPdf.Free
+  dotnet remove package HiQPdf_NetCore
+  dotnet remove package HiQPdf.NG
+  dotnet remove package HiQPdf.Chromium.Windows
   ```
   **Why:** Clean removal of old packages to prevent conflicts.
 

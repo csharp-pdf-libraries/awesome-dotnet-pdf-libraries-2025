@@ -23,8 +23,8 @@ FastReport.NET is a powerful reporting tool, but it comes with significant limit
 2. **Steep Learning Curve**: FastReport's band-based architecture (DataBand, PageHeaderBand, etc.) requires understanding report-specific concepts
 3. **Limited CSS Support**: Web-standard styling isn't natively supported; styling is done through FastReport's proprietary format
 4. **Complex Data Binding**: RegisterData() and DataSource connections add boilerplate for simple PDF generation
-5. **Fragmented Packages**: Multiple NuGet packages (FastReport.OpenSource, FastReport.OpenSource.Export.PdfSimple, etc.) needed for full functionality
-6. **Licensing Complexity**: Open source version has limited features; commercial version required for PDF encryption, digital signing, and font embedding
+5. **Fragmented Packages**: Multiple NuGet packages (FastReport.OpenSource, FastReport.OpenSource.Export.PdfSimple, etc.) needed for full functionality. PDFSimpleExport in the OpenSource edition rasterizes pages, so output PDFs contain images of text rather than selectable text.
+6. **Licensing Complexity**: The OpenSource edition (MIT) is missing real PDF export — `PDFSimpleExport` is an image-based fallback. Selectable-text PDF, encryption, digital signing, and PDF/A require the commercial `FastReport.Net` (licensed) package, which is published on FastReport's private NuGet server (https://nuget.fast-report.com/api/v3/index.json), not on nuget.org. Only `FastReport.Net.Demo` (page-limited, watermarked) is on nuget.org.
 
 ### Benefits of IronPDF
 
@@ -34,10 +34,10 @@ FastReport.NET is a powerful reporting tool, but it comes with significant limit
 | Learning Curve | Steep (band-based concepts) | Gentle (HTML/CSS knowledge) |
 | Data Binding | RegisterData(), DataBand | String interpolation, Razor, templating engines |
 | CSS Support | Limited | Full CSS3 with Flexbox/Grid |
-| Package Model | Multiple packages | Single package (all features) |
-| Rendering Engine | Custom | Latest Chromium |
+| Package Model | Multiple packages (Core, OpenSource, Export.PdfSimple, Web, etc.) | Single package (all features) |
+| Rendering Engine | Custom report engine; OpenSource PDF export rasterizes | Embedded Chromium |
 | PDF Manipulation | Export-focused | Full manipulation (merge, split, security, forms) |
-| Modern .NET | .NET Standard 2.0 | .NET 6/7/8/9+ native |
+| Modern .NET | .NET Framework 4.6.2+ / .NET 6+ | .NET Framework 4.6.2+ / .NET 6/7/8/9+ |
 
 The [complete documentation](https://ironpdf.com/blog/migration-guides/migrate-from-fastreport-to-ironpdf/) includes troubleshooting steps for common scenarios.
 
@@ -171,7 +171,7 @@ pdf.SaveAs("output.pdf");
 | `DataBand` | Loop in template | Data iteration |
 | `PageHeaderBand` | `HtmlHeaderFooter` | Page headers |
 | `PageFooterBand` | `HtmlHeaderFooter` | Page footers |
-| `HTMLObject` | Direct HTML rendering | HTML content |
+| `HtmlObject` | Direct HTML rendering | Limited HTML 4 subset in FastReport |
 | `PictureObject` | HTML `<img>` | Images |
 | `ShapeObject` | HTML/SVG/CSS | Shapes and borders |
 | `LineObject` | CSS border/HR | Lines |
@@ -258,6 +258,7 @@ pdf.SaveAs("output.pdf");
 ```csharp
 using FastReport;
 using FastReport.Export.PdfSimple;
+using System.Drawing;
 using System.IO;
 
 class Program
@@ -266,26 +267,26 @@ class Program
     {
         using (Report report = new Report())
         {
-            // Create HTML object
-            FastReport.HTMLObject htmlObject = new FastReport.HTMLObject();
-            htmlObject.Name = "HtmlContent";
-            htmlObject.Width = 500;
-            htmlObject.Height = 300;
-            htmlObject.Text = "<h1>Hello World</h1><p>This is a PDF document.</p>";
-
             // Add to page
             ReportPage page = new ReportPage();
             page.Name = "Page1";
-            page.ReportTitle = new ReportTitleBand();
-            page.ReportTitle.Height = 300;
-            page.ReportTitle.Objects.Add(htmlObject);
+            page.ReportTitle = new ReportTitleBand { Height = Units.Millimeters * 100 };
             report.Pages.Add(page);
+
+            // Create HTML object (FastReport class is HtmlObject)
+            HtmlObject htmlObject = new HtmlObject();
+            htmlObject.Name = "HtmlContent";
+            htmlObject.Bounds = new RectangleF(0, 0, Units.Millimeters * 190, Units.Millimeters * 100);
+            htmlObject.Text = "<h1>Hello World</h1><p>This is a PDF document.</p>";
+            page.ReportTitle.Objects.Add(htmlObject);
 
             report.Prepare();
 
-            using (var export = new PDFSimpleExport())
+            // Export — note: report instance owns Export(), not the export object
+            var export = new PDFSimpleExport();
+            using (var fs = new FileStream("output.pdf", FileMode.Create))
             {
-                export.Export(report, "output.pdf");
+                report.Export(export, fs);
             }
         }
     }
@@ -704,7 +705,7 @@ class Program
             ReportTitleBand titleBand = new ReportTitleBand();
             titleBand.Height = 800;  // Large height for web content
 
-            FastReport.HTMLObject htmlObject = new FastReport.HTMLObject();
+            FastReport.HtmlObject htmlObject = new FastReport.HtmlObject();
             htmlObject.Width = 800;
             htmlObject.Height = 1000;
             htmlObject.Text = htmlContent;

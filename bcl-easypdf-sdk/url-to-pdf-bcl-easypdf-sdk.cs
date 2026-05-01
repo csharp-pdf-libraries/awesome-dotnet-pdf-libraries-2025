@@ -1,5 +1,8 @@
-// NuGet: Install-Package BCL.EasyPDF
-using BCL.EasyPDF;
+// No NuGet package — easyPDF SDK is MSI-installed; reference
+// BCL.easyPDF.PDFConverter.dll (.NET Framework) or
+// BCL.easyPDF.PDFConverter.NetCore.dll (.NET Core).
+// Vendor: now part of Apryse (acquired March 2020).
+using BCL.easyPDF;
 using System;
 
 class Program

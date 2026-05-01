@@ -42,11 +42,11 @@ public class PDFConverter
     public void ConvertHtmlToPdf(string htmlContent)
     {
         GrabzItClient grabzIt = new GrabzItClient("YOUR_APPLICATION_KEY", "YOUR_APPLICATION_SECRET");
-        
-        URLToImageOptions options = new URLToImageOptions();
+
+        PDFOptions options = new PDFOptions();
         grabzIt.HTMLToPDF(htmlContent, options);
-        
-        grabzIt.SaveToFile("output.pdf");
+
+        grabzIt.SaveTo("output.pdf");
     }
 }
 ```
@@ -60,9 +60,9 @@ public class PDFConverter
 {
     public void ConvertHtmlToPdf(string htmlContent)
     {
-        var Renderer = new HtmlToPdf();
-        var pdf = Renderer.RenderHtmlAsPdf(htmlContent);
-        
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+
         pdf.SaveAs("output.pdf");
     }
 }
@@ -266,7 +266,7 @@ GrabzIt is a cloud-based screenshot and PDF capture service with fundamental lim
 | `PDFOptions.MarginTop` | `RenderingOptions.MarginTop` | Same unit (mm) |
 | `PDFOptions.PageSize` | `RenderingOptions.PaperSize` | Use enum |
 | `PDFOptions.Delay` | `RenderingOptions.RenderDelay` | In milliseconds |
-| `options.SetCustomWaterMark()` | `pdf.ApplyWatermark()` | HTML-based watermarks |
+| `options.CustomWaterMarkId` | `pdf.ApplyWatermark()` | HTML-based watermarks (no pre-registration) |
 | `options.TemplateId` | `RenderingOptions.HtmlHeader/Footer` | Use HTML templates |
 
 ### Migration Code Example

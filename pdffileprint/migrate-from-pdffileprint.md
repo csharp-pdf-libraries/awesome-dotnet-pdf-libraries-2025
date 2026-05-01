@@ -2,33 +2,32 @@
 
 ## Why Migrate from PDFFilePrint to IronPDF?
 
-PDFFilePrint is a command-line utility for printing PDF files. While useful for simple batch printing, it creates significant architectural limitations:
+[PDFFilePrint](https://www.nuget.org/packages/PDFFilePrint/) is a small open-source NuGet wrapper (MIT, by Christian Andersen) around [PdfiumViewer](https://github.com/pvginkel/PdfiumViewer) and Google's Pdfium. It exists for one purpose: silently print an existing PDF or XPS file to a printer driver (including a "print to file" driver). The latest release is **1.0.3, published 2020-02-10**, targeting **.NET Framework 4.6.1+** on Windows. While useful for batch printing, it creates significant architectural limitations once your needs grow beyond "print this PDF":
 
 ### Critical PDFFilePrint Limitations
 
-1. **Printing-Only**: Cannot create, edit, merge, or manipulate PDFs
-2. **Command-Line Dependency**: Requires external executable, Process.Start() calls
-3. **Windows-Only**: Relies on Windows printing subsystem
-4. **No .NET Integration**: No native API, no NuGet package, no IntelliSense
-5. **External Process Management**: Must handle process lifecycle, exit codes, errors
-6. **Limited Error Handling**: Parsing stdout/stderr for error detection
-7. **Deployment Complexity**: Must bundle PDFFilePrint.exe with application
-8. **No PDF Generation**: Can't create PDFs—only print existing ones
+1. **Printing-Only**: Cannot create, edit, merge, or manipulate PDFs — the public surface is essentially a `FilePrint` class with a `Print()` method.
+2. **Config-File-Driven**: Settings (`PrinterName`, `PaperName`, `Copies`, `PrintToFile`, `DefaultPrintToDirectory`) are read from `app.config` / `Settings.Default` rather than passed as a strongly-typed options object.
+3. **Windows-Only**: Built on PdfiumViewer's Win32 native binaries (`PdfiumViewer.Native.x86.v8-xfa`, `PdfiumViewer.Native.x86_64.v8-xfa`) and the Windows printing subsystem.
+4. **.NET Framework Only**: Targets net461; no .NET Core / .NET 6+ TFM published.
+5. **Effectively Unmaintained**: No release since February 2020; no public source repository linked from NuGet.
+6. **Limited Print Knobs**: Duplex, page range, orientation, and color must be configured at the printer-driver / app.config level — there is no rich API for them.
+7. **No PDF Generation**: Can't create PDFs — only prints existing ones. To go from HTML or a URL to paper you must pair PDFFilePrint with a separate renderer.
 
 ### IronPDF Advantages
 
 | Aspect | PDFFilePrint | IronPDF |
 |--------|--------------|---------|
-| **Type** | Command-line utility | Native .NET library |
-| **Integration** | Process.Start() | Direct API calls |
-| **PDF Printing** | ✓ | ✓ |
-| **PDF Creation** | ✗ | ✓ (HTML, URL, images) |
-| **PDF Manipulation** | ✗ | ✓ (merge, split, edit) |
-| **Cross-Platform** | Windows only | Windows, Linux, macOS |
-| **Error Handling** | Parse stdout/stderr | Native exceptions |
-| **IntelliSense** | ✗ | ✓ |
-| **Async Support** | Manual | Built-in |
-| **NuGet Package** | ✗ | ✓ |
+| **Type** | Pdfium print wrapper | Full PDF library + renderer |
+| **Last release** | 1.0.3 (Feb 2020) | Active, 2026 releases |
+| **PDF Printing** | Yes (PrintDocument under the hood) | Yes (`PdfDocument.Print` / `GetPrintDocument`) |
+| **PDF Creation** | No | Yes (HTML, URL, images) |
+| **PDF Manipulation** | No | Yes (merge, split, edit) |
+| **Cross-Platform** | Windows only (net461) | Windows, Linux, macOS, Docker |
+| **Config Surface** | app.config keys | Strongly-typed `PrinterSettings` |
+| **IntelliSense** | Minimal | Full |
+| **Async Support** | No | Built-in `Async` overloads |
+| **NuGet Package** | `PDFFilePrint` 1.0.3 | `IronPdf` |
 
 Additional process simplification patterns and native API integration examples are available in the [complete walkthrough](https://ironpdf.com/blog/migration-guides/migrate-from-pdffileprint-to-ironpdf/).
 
@@ -37,8 +36,8 @@ Additional process simplification patterns and native API integration examples a
 ## NuGet Package Changes
 
 ```bash
-# PDFFilePrint has no NuGet package
-# Remove the bundled PDFFilePrint.exe from your deployment
+# Remove PDFFilePrint
+dotnet remove package PDFFilePrint
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -49,54 +48,55 @@ dotnet add package IronPdf
 ## Namespace Changes
 
 ```csharp
-// PDFFilePrint - No namespaces, just Process execution
-using System.Diagnostics;
+// PDFFilePrint
+using PDFFilePrint;
 
-// IronPDF
+// IronPDF — printing flows through System.Drawing.Printing
 using IronPdf;
-using IronPdf.Printing;
+using System.Drawing.Printing;
 ```
 
 ---
 
 ## Complete API Reference
 
-### Command-Line to API Mapping
+### Class / Method Mapping
 
-| PDFFilePrint Command | IronPDF API | Notes |
+| PDFFilePrint API | IronPDF API | Notes |
 |---------------------|-------------|-------|
-| `PDFFilePrint.exe "file.pdf" "Printer"` | `pdf.Print("Printer")` | Basic printing |
-| `-printer "Name"` | `PrintSettings.PrinterName = "Name"` | Printer selection |
-| `-copies N` | `PrintSettings.NumberOfCopies = N` | Copy count |
-| `-silent` | `PrintSettings.ShowPrintDialog = false` | Silent mode |
-| `-pages "1-5"` | `PrintSettings.FromPage`, `PrintSettings.ToPage` | Page range |
-| `-orientation landscape` | `PrintSettings.PaperOrientation = Landscape` | Orientation |
-| `-duplex` | `PrintSettings.Duplex = Duplex.Vertical` | Double-sided |
-| `-collate` | `PrintSettings.Collate = true` | Collation |
-| `-fit` | Print scaling options | Fit to page |
+| `new FilePrint(pdfPath, null)` | `PdfDocument.FromFile(pdfPath)` | Load PDF |
+| `fileprint.Print()` | `pdf.Print()` / `pdf.GetPrintDocument(settings).Print()` | Silent print |
+| `Properties.Settings.Default.PrinterName` | `PrinterSettings.PrinterName` | Printer selection |
+| `Properties.Settings.Default.Copies` | `PrinterSettings.Copies` | Copy count |
+| `Properties.Settings.Default.PaperName` | `PrinterSettings.DefaultPageSettings.PaperSize` | Paper size |
+| `Properties.Settings.Default.PrintToFile` + `DefaultPrintToDirectory` | `PrinterSettings.PrintToFile` + `PrintFileName` | Print-to-file |
+| _(driver default)_ | `PrinterSettings.FromPage` / `ToPage` | Page range |
+| _(driver default)_ | `PrinterSettings.Duplex` | Double-sided |
+| _(driver default)_ | `PrinterSettings.Collate` | Collation |
+| _(not available)_ | `pdf.Print(int dpi)` overload | Print quality |
 
 ### Core Print Operations
 
 | PDFFilePrint Pattern | IronPDF Method | Notes |
 |---------------------|----------------|-------|
-| `Process.Start("PDFFilePrint.exe", args)` | `pdf.Print()` | Direct print |
-| Parse exit code | Exception handling | Native errors |
-| Parse stdout for status | Method returns | Direct feedback |
-| Batch script loops | `foreach` loop or `Parallel.ForEach` | Native iteration |
+| `new FilePrint(path, null).Print()` | `pdf.Print()` | Default printer |
+| Configured via `app.config` | `var ps = new PrinterSettings { ... }` | Strongly typed |
+| Errors surface as exceptions from PdfiumViewer | `try`/`catch IronPdfException` | Native errors |
+| Sequential `foreach` only | `foreach` or `Parallel.ForEach` | Native iteration |
 
-### Print Settings Mapping
+### PrinterSettings Mapping (System.Drawing.Printing)
 
-| PDFFilePrint Flag | IronPDF PrintSettings Property | Type |
+| PDFFilePrint Setting | .NET `PrinterSettings` Property | Type |
 |-------------------|-------------------------------|------|
-| `-printer` | `PrinterName` | `string` |
-| `-copies` | `NumberOfCopies` | `int` |
-| `-silent` | `ShowPrintDialog` | `bool` (false = silent) |
-| `-pages "1-5"` | `FromPage`, `ToPage` | `int` |
-| `-orientation` | `PaperOrientation` | `PdfPrintOrientation` |
-| `-duplex` | `Duplex` | `Duplex` enum |
-| `-collate` | `Collate` | `bool` |
-| `-color` | `PrintInColor` | `bool` |
-| _(not available)_ | `DPI` | `int` (print quality) |
+| `PrinterName` (config) | `PrinterName` | `string` |
+| `Copies` (config) | `Copies` | `short` |
+| _(no silent flag — always silent)_ | `pdf.Print(showDialog: false)` | `bool` |
+| _(driver default)_ | `FromPage`, `ToPage` | `int` |
+| `PaperName` (config) | `DefaultPageSettings.PaperSize` | `PaperSize` |
+| _(driver default)_ | `Duplex` | `Duplex` enum |
+| _(driver default)_ | `Collate` | `bool` |
+| _(driver default)_ | `DefaultPageSettings.Color` | `bool` |
+| _(not available)_ | `pdf.Print(dpi)` overload | `int` |
 
 ### New Capabilities (Not in PDFFilePrint)
 
@@ -120,34 +120,19 @@ using IronPdf.Printing;
 
 **Before (PDFFilePrint):**
 ```csharp
-using System.Diagnostics;
+using PDFFilePrint;
 
 public class PrintService
 {
-    private readonly string _pdfFilePrintPath = @"C:\tools\PDFFilePrint.exe";
-
     public void PrintPdf(string pdfPath, string printerName)
     {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = _pdfFilePrintPath,
-            Arguments = $"-printer \"{printerName}\" \"{pdfPath}\"",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
+        // PDFFilePrint reads the printer name from app.config
+        // (Properties.Settings.Default.PrinterName). To override at runtime
+        // you have to mutate Settings.Default before instantiating FilePrint.
+        Properties.Settings.Default.PrinterName = printerName;
 
-        using (var process = Process.Start(startInfo))
-        {
-            process.WaitForExit();
-
-            if (process.ExitCode != 0)
-            {
-                var error = process.StandardError.ReadToEnd();
-                throw new Exception($"Print failed: {error}");
-            }
-        }
+        var fileprint = new FilePrint(pdfPath, null);
+        fileprint.Print();
     }
 }
 ```
@@ -175,56 +160,36 @@ public class PrintService
 
 **Before (PDFFilePrint):**
 ```csharp
-using System.Diagnostics;
+using PDFFilePrint;
 
 public void PrintSilent(string pdfPath, int copies)
 {
-    var args = $"-silent -copies {copies} -printer \"Default Printer\" \"{pdfPath}\"";
+    // PDFFilePrint is always silent (no UI). Copies live in app.config.
+    Properties.Settings.Default.Copies = copies;
+    Properties.Settings.Default.PrinterName = "Default Printer";
 
-    var startInfo = new ProcessStartInfo
-    {
-        FileName = @"C:\tools\PDFFilePrint.exe",
-        Arguments = args,
-        UseShellExecute = false,
-        CreateNoWindow = true,
-        RedirectStandardOutput = true,
-        RedirectStandardError = true
-    };
-
-    using (var process = new Process { StartInfo = startInfo })
-    {
-        process.Start();
-        process.WaitForExit(30000); // 30 second timeout
-
-        if (!process.HasExited)
-        {
-            process.Kill();
-            throw new TimeoutException("Print job timed out");
-        }
-
-        if (process.ExitCode != 0)
-        {
-            throw new Exception($"Print failed with exit code {process.ExitCode}");
-        }
-    }
+    var fileprint = new FilePrint(pdfPath, null);
+    fileprint.Print();
+    // No timeout / cancellation hooks — Print() blocks until PdfiumViewer
+    // hands the job to the spooler.
 }
 ```
 
 **After (IronPDF):**
 ```csharp
 using IronPdf;
+using System.Drawing.Printing;
 
 public void PrintSilent(string pdfPath, int copies)
 {
     var pdf = PdfDocument.FromFile(pdfPath);
 
-    var settings = new PrintSettings
+    var settings = new PrinterSettings
     {
-        ShowPrintDialog = false,
-        NumberOfCopies = copies
+        Copies = (short)copies
     };
 
-    pdf.Print(settings);
+    pdf.GetPrintDocument(settings).Print();
 }
 ```
 
@@ -232,51 +197,37 @@ public void PrintSilent(string pdfPath, int copies)
 
 **Before (PDFFilePrint):**
 ```csharp
-using System.Diagnostics;
+using PDFFilePrint;
 
 public void PrintPageRange(string pdfPath, string printerName, int startPage, int endPage)
 {
-    // PDFFilePrint page range syntax varies by version
-    var args = $"-silent -printer \"{printerName}\" -pages \"{startPage}-{endPage}\" \"{pdfPath}\"";
-
-    var startInfo = new ProcessStartInfo
-    {
-        FileName = @"C:\tools\PDFFilePrint.exe",
-        Arguments = args,
-        UseShellExecute = false,
-        CreateNoWindow = true
-    };
-
-    using (var process = Process.Start(startInfo))
-    {
-        process.WaitForExit();
-
-        // No reliable way to know if specific pages printed successfully
-        if (process.ExitCode != 0)
-        {
-            throw new Exception("Print operation failed");
-        }
-    }
+    // PDFFilePrint has no first-class page-range API. Workarounds: pre-split
+    // the PDF with another tool and feed the smaller file to FilePrint, or
+    // rely on the printer driver's "current page" behaviour.
+    Properties.Settings.Default.PrinterName = printerName;
+    var fileprint = new FilePrint(pdfPath, null);
+    fileprint.Print();
 }
 ```
 
 **After (IronPDF):**
 ```csharp
 using IronPdf;
+using System.Drawing.Printing;
 
 public void PrintPageRange(string pdfPath, string printerName, int startPage, int endPage)
 {
     var pdf = PdfDocument.FromFile(pdfPath);
 
-    var settings = new PrintSettings
+    var settings = new PrinterSettings
     {
-        ShowPrintDialog = false,
         PrinterName = printerName,
         FromPage = startPage,
-        ToPage = endPage
+        ToPage = endPage,
+        PrintRange = PrintRange.SomePages
     };
 
-    pdf.Print(settings);
+    pdf.GetPrintDocument(settings).Print();
 }
 ```
 
@@ -284,25 +235,16 @@ public void PrintPageRange(string pdfPath, string printerName, int startPage, in
 
 **Before (PDFFilePrint):**
 ```csharp
-using System.Diagnostics;
+using PDFFilePrint;
 
 public void PrintDuplex(string pdfPath, string printerName)
 {
-    // Duplex support depends on PDFFilePrint version and printer drivers
-    var args = $"-silent -duplex -printer \"{printerName}\" \"{pdfPath}\"";
-
-    var startInfo = new ProcessStartInfo
-    {
-        FileName = @"C:\tools\PDFFilePrint.exe",
-        Arguments = args,
-        UseShellExecute = false,
-        CreateNoWindow = true
-    };
-
-    using (var process = Process.Start(startInfo))
-    {
-        process.WaitForExit();
-    }
+    // PDFFilePrint has no Duplex setting. You configure duplex on the printer
+    // driver itself (or via the underlying PdfiumViewer PrintDocument), then
+    // tell FilePrint which printer to target.
+    Properties.Settings.Default.PrinterName = printerName;
+    var fileprint = new FilePrint(pdfPath, null);
+    fileprint.Print();
 }
 ```
 
@@ -315,14 +257,13 @@ public void PrintDuplex(string pdfPath, string printerName)
 {
     var pdf = PdfDocument.FromFile(pdfPath);
 
-    var settings = new PrintSettings
+    var settings = new PrinterSettings
     {
-        ShowPrintDialog = false,
         PrinterName = printerName,
         Duplex = Duplex.Vertical // Long edge binding
     };
 
-    pdf.Print(settings);
+    pdf.GetPrintDocument(settings).Print();
 }
 ```
 
@@ -330,33 +271,26 @@ public void PrintDuplex(string pdfPath, string printerName)
 
 **Before (PDFFilePrint):**
 ```csharp
-using System.Diagnostics;
+using PDFFilePrint;
 using System.IO;
 
 public void BatchPrint(string folderPath, string printerName)
 {
-    var pdfFiles = Directory.GetFiles(folderPath, "*.pdf");
+    Properties.Settings.Default.PrinterName = printerName;
 
+    var pdfFiles = Directory.GetFiles(folderPath, "*.pdf");
     foreach (var pdfFile in pdfFiles)
     {
-        var args = $"-silent -printer \"{printerName}\" \"{pdfFile}\"";
-
-        var startInfo = new ProcessStartInfo
+        try
         {
-            FileName = @"C:\tools\PDFFilePrint.exe",
-            Arguments = args,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using (var process = Process.Start(startInfo))
+            var fileprint = new FilePrint(pdfFile, null);
+            fileprint.Print();
+        }
+        catch (Exception ex)
         {
-            process.WaitForExit();
-
-            if (process.ExitCode != 0)
-            {
-                Console.WriteLine($"Failed to print: {pdfFile}");
-            }
+            // Errors surface from PdfiumViewer as plain exceptions —
+            // no exit-code abstraction.
+            Console.WriteLine($"Failed to print {pdfFile}: {ex.Message}");
         }
     }
 }
@@ -365,24 +299,21 @@ public void BatchPrint(string folderPath, string printerName)
 **After (IronPDF):**
 ```csharp
 using IronPdf;
+using System.Drawing.Printing;
 using System.IO;
 
 public void BatchPrint(string folderPath, string printerName)
 {
     var pdfFiles = Directory.GetFiles(folderPath, "*.pdf");
 
-    var settings = new PrintSettings
-    {
-        ShowPrintDialog = false,
-        PrinterName = printerName
-    };
+    var settings = new PrinterSettings { PrinterName = printerName };
 
     foreach (var pdfFile in pdfFiles)
     {
         try
         {
             var pdf = PdfDocument.FromFile(pdfFile);
-            pdf.Print(settings);
+            pdf.GetPrintDocument(settings).Print();
         }
         catch (Exception ex)
         {
@@ -396,25 +327,18 @@ public void BatchPrint(string folderPath, string printerName)
 
 **Before (PDFFilePrint):**
 ```csharp
-using System.Diagnostics;
+using PDFFilePrint;
 using System.Threading.Tasks;
 
-public async Task PrintAsync(string pdfPath, string printerName)
+public Task PrintAsync(string pdfPath, string printerName)
 {
-    await Task.Run(() =>
+    // FilePrint.Print() is synchronous — wrap it in Task.Run if you want
+    // to keep the calling thread responsive.
+    return Task.Run(() =>
     {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = @"C:\tools\PDFFilePrint.exe",
-            Arguments = $"-silent -printer \"{printerName}\" \"{pdfPath}\"",
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using (var process = Process.Start(startInfo))
-        {
-            process.WaitForExit();
-        }
+        Properties.Settings.Default.PrinterName = printerName;
+        var fileprint = new FilePrint(pdfPath, null);
+        fileprint.Print();
     });
 }
 ```
@@ -424,9 +348,9 @@ public async Task PrintAsync(string pdfPath, string printerName)
 using IronPdf;
 using System.Threading.Tasks;
 
-public async Task PrintAsync(string pdfPath, string printerName)
+public Task PrintAsync(string pdfPath, string printerName)
 {
-    await Task.Run(() =>
+    return Task.Run(() =>
     {
         var pdf = PdfDocument.FromFile(pdfPath);
         pdf.Print(printerName);
@@ -438,8 +362,9 @@ public async Task PrintAsync(string pdfPath, string printerName)
 
 **Before (PDFFilePrint):**
 ```csharp
-// PDFFilePrint CANNOT create PDFs
-// You need a separate tool to generate the PDF first
+// PDFFilePrint CANNOT create PDFs. The FilePrint class only consumes
+// existing PDF / XPS files. You need a separate renderer (e.g. IronPDF,
+// PuppeteerSharp, wkhtmltopdf) to generate the PDF first.
 throw new NotSupportedException("PDFFilePrint cannot create PDFs");
 ```
 
@@ -461,27 +386,23 @@ public void CreateAndPrint(string html, string printerName)
 
 **Before (PDFFilePrint):**
 ```csharp
-// PDFFilePrint CANNOT convert URLs to PDF
-// You need to download/convert the URL first with another tool
+// PDFFilePrint CANNOT fetch or render URLs. You must download/convert the
+// URL to a PDF with another tool, then feed the resulting file to FilePrint.
 throw new NotSupportedException("PDFFilePrint cannot convert URLs");
 ```
 
 **After (IronPDF):**
 ```csharp
 using IronPdf;
+using System.Drawing.Printing;
 
 public void PrintWebPage(string url, string printerName)
 {
     var renderer = new ChromePdfRenderer();
     var pdf = renderer.RenderUrlAsPdf(url);
 
-    var settings = new PrintSettings
-    {
-        ShowPrintDialog = false,
-        PrinterName = printerName
-    };
-
-    pdf.Print(settings);
+    var settings = new PrinterSettings { PrinterName = printerName };
+    pdf.GetPrintDocument(settings).Print();
 }
 ```
 
@@ -489,8 +410,8 @@ public void PrintWebPage(string url, string printerName)
 
 **Before (PDFFilePrint):**
 ```csharp
-// PDFFilePrint CANNOT merge PDFs
-// Must use another tool to merge, then print the result
+// PDFFilePrint CANNOT merge PDFs. Merge with another tool first (e.g. IronPDF,
+// PdfSharp), then hand the merged file to FilePrint.
 throw new NotSupportedException("PDFFilePrint cannot merge PDFs");
 ```
 
@@ -498,7 +419,7 @@ throw new NotSupportedException("PDFFilePrint cannot merge PDFs");
 ```csharp
 using IronPdf;
 using System.Collections.Generic;
-using System.IO;
+using System.Linq;
 
 public void MergeAndPrint(List<string> pdfPaths, string printerName)
 {
@@ -513,8 +434,8 @@ public void MergeAndPrint(List<string> pdfPaths, string printerName)
 
 **Before (PDFFilePrint):**
 ```csharp
-// PDFFilePrint CANNOT add watermarks
-// Must use another tool to watermark, then print
+// PDFFilePrint CANNOT add watermarks. Apply a watermark with another library
+// (IronPDF, iText, PdfSharp) and then print the watermarked file with FilePrint.
 throw new NotSupportedException("PDFFilePrint cannot add watermarks");
 ```
 
@@ -527,12 +448,11 @@ public void PrintWithWatermark(string pdfPath, string printerName, string waterm
 {
     var pdf = PdfDocument.FromFile(pdfPath);
 
-    // Add watermark
     pdf.ApplyWatermark(
         $"<div style='color:red; font-size:48px; opacity:0.3;'>{watermarkText}</div>",
-        45,
-        VerticalAlignment.Middle,
-        HorizontalAlignment.Center);
+        rotation: 45,
+        verticalAlignment: VerticalAlignment.Middle,
+        horizontalAlignment: HorizontalAlignment.Center);
 
     pdf.Print(printerName);
 }
@@ -542,37 +462,40 @@ public void PrintWithWatermark(string pdfPath, string printerName, string waterm
 
 ## Print Settings Reference
 
-### Complete PrintSettings Properties
+### Complete PrinterSettings Properties
 
 ```csharp
-var settings = new PrintSettings
+using System.Drawing.Printing;
+
+var settings = new PrinterSettings
 {
     // Printer selection
     PrinterName = "HP LaserJet Pro",
 
-    // Dialog control
-    ShowPrintDialog = false,
-
     // Copy settings
-    NumberOfCopies = 3,
+    Copies = 3,
     Collate = true,
 
     // Page range
+    PrintRange = PrintRange.SomePages,
     FromPage = 1,
     ToPage = 10,
 
-    // Orientation
-    PaperOrientation = PdfPrintOrientation.Portrait,
-
-    // Color
-    PrintInColor = true,
-
     // Duplex
-    Duplex = Duplex.Vertical,
-
-    // Quality
-    DPI = 300
+    Duplex = Duplex.Vertical
 };
+
+// Page-level options (paper size, orientation, color, margins) live on
+// DefaultPageSettings and are passed alongside PrinterSettings.
+settings.DefaultPageSettings.Landscape = false;
+settings.DefaultPageSettings.Color = true;
+
+// Hand the assembled settings to IronPDF and print:
+var pdf = PdfDocument.FromFile("document.pdf");
+pdf.GetPrintDocument(settings).Print();
+
+// IronPDF also exposes a DPI-only convenience overload:
+// pdf.Print(dpi: 300);
 ```
 
 ---
@@ -613,48 +536,22 @@ public bool PrinterExists(string printerName)
 ### Before (PDFFilePrint)
 
 ```csharp
-using System.Diagnostics;
+using PDFFilePrint;
 
 public void PrintWithErrorHandling(string pdfPath, string printerName)
 {
     try
     {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = @"C:\tools\PDFFilePrint.exe",
-            Arguments = $"-silent -printer \"{printerName}\" \"{pdfPath}\"",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardError = true,
-            RedirectStandardOutput = true
-        };
-
-        using (var process = Process.Start(startInfo))
-        {
-            var stdout = process.StandardOutput.ReadToEnd();
-            var stderr = process.StandardError.ReadToEnd();
-            process.WaitForExit();
-
-            if (process.ExitCode != 0)
-            {
-                // Parse error message from stderr
-                throw new Exception($"Print failed (exit code {process.ExitCode}): {stderr}");
-            }
-
-            // Parse stdout to confirm success
-            if (!stdout.Contains("Success") && !string.IsNullOrEmpty(stdout))
-            {
-                Console.WriteLine($"Warning: {stdout}");
-            }
-        }
+        Properties.Settings.Default.PrinterName = printerName;
+        var fileprint = new FilePrint(pdfPath, null);
+        fileprint.Print();
     }
-    catch (System.ComponentModel.Win32Exception ex)
+    catch (Exception ex)
     {
-        throw new Exception("PDFFilePrint.exe not found", ex);
-    }
-    catch (InvalidOperationException ex)
-    {
-        throw new Exception("Failed to start PDFFilePrint process", ex);
+        // PDFFilePrint surfaces failures as plain exceptions bubbled up from
+        // PdfiumViewer / the spooler. There is no granular error type — you
+        // typically log the message and the inner exception.
+        throw new Exception($"Print failed: {ex.Message}", ex);
     }
 }
 ```
@@ -664,6 +561,7 @@ public void PrintWithErrorHandling(string pdfPath, string printerName)
 ```csharp
 using IronPdf;
 using System.Drawing.Printing;
+using System.IO;
 
 public void PrintWithErrorHandling(string pdfPath, string printerName)
 {
@@ -684,13 +582,8 @@ public void PrintWithErrorHandling(string pdfPath, string printerName)
     {
         var pdf = PdfDocument.FromFile(pdfPath);
 
-        var settings = new PrintSettings
-        {
-            ShowPrintDialog = false,
-            PrinterName = printerName
-        };
-
-        pdf.Print(settings);
+        var settings = new PrinterSettings { PrinterName = printerName };
+        pdf.GetPrintDocument(settings).Print();
     }
     catch (IronPdf.Exceptions.IronPdfException ex)
     {
@@ -705,16 +598,15 @@ public void PrintWithErrorHandling(string pdfPath, string printerName)
 
 ### Before (PDFFilePrint)
 
-1. Bundle `PDFFilePrint.exe` with application
-2. Set correct path or add to PATH
-3. Ensure Windows dependencies are installed
-4. Handle different versions across machines
+1. Add `PDFFilePrint` 1.0.3 NuGet package (pulls PdfiumViewer + native Pdfium binaries).
+2. Ship the matching `app.config` keys (`PrinterName`, `PaperName`, `Copies`, `PrintToFile`, `DefaultPrintToDirectory`).
+3. Constrain deployment to **Windows .NET Framework 4.6.1+** — no .NET Core / Linux / macOS support.
 
 ### After (IronPDF)
 
-1. Add NuGet package - dependencies resolved automatically
-2. Set license key at startup
-3. Deploy - works on Windows, Linux, macOS
+1. Add NuGet package — dependencies resolved automatically across .NET Framework 4.6.2+ and .NET 6/7/8/9/10.
+2. Set license key at startup.
+3. Deploy — works on Windows, Linux (CUPS), macOS, and Docker.
 
 ```csharp
 // Program.cs or Startup.cs
@@ -725,34 +617,33 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 ## Common Migration Gotchas
 
-### 1. Silent Mode Flag
+### 1. Settings Live in app.config (PDFFilePrint) vs an Object (IronPDF)
 
 ```csharp
-// PDFFilePrint: -silent flag
-// IronPDF: ShowPrintDialog = false (inverted logic)
-var settings = new PrintSettings { ShowPrintDialog = false };
+// PDFFilePrint: mutate Properties.Settings.Default before instantiating
+Properties.Settings.Default.PrinterName = "HP LaserJet Pro";
+new FilePrint(path, null).Print();
+
+// IronPDF: pass a PrinterSettings instance per call
+pdf.GetPrintDocument(new PrinterSettings { PrinterName = "HP LaserJet Pro" }).Print();
 ```
 
-### 2. Exit Code vs Exceptions
+### 2. No Built-in Page Range or Duplex on PDFFilePrint
 
 ```csharp
-// PDFFilePrint: Check process.ExitCode
-if (process.ExitCode != 0) { ... }
-
-// IronPDF: Use try-catch
-try { pdf.Print(); }
-catch (Exception ex) { ... }
+// PDFFilePrint: rely on the printer driver default; no API knob.
+// IronPDF: System.Drawing.Printing primitives.
+settings.PrintRange = PrintRange.SomePages;
+settings.FromPage = 2;
+settings.ToPage = 5;
+settings.Duplex = Duplex.Vertical;
 ```
 
-### 3. Process Timeout Handling
+### 3. Async / Cancellation
 
 ```csharp
-// PDFFilePrint: Manual timeout
-process.WaitForExit(30000);
-if (!process.HasExited) process.Kill();
-
-// IronPDF: Prints synchronously, no timeout needed
-// For long jobs, wrap in Task with cancellation:
+// PDFFilePrint: synchronous only — wrap in Task.Run for fire-and-forget.
+// IronPDF: prints synchronously by default; cancellation via Task + CTS:
 var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 await Task.Run(() => pdf.Print(), cts.Token);
 ```
@@ -760,18 +651,16 @@ await Task.Run(() => pdf.Print(), cts.Token);
 ### 4. Path Handling
 
 ```csharp
-// PDFFilePrint: Quote paths with spaces
-Arguments = $"\"{pathWithSpaces}\"";
-
-// IronPDF: No quoting needed
-pdf.Print(pathWithSpaces);
+// PDFFilePrint: forwards the path to PdfiumViewer; spaces are fine, no quoting.
+// IronPDF: also accepts raw paths.
+pdf.Print(); // file path was already passed to PdfDocument.FromFile
 ```
 
 ### 5. Default Printer
 
 ```csharp
-// PDFFilePrint: Use -printer "Default Printer" or omit
-// IronPDF: Omit printer name or use null
+// PDFFilePrint: leave PrinterName empty/null in app.config to use the default.
+// IronPDF: omit printer name or pass null.
 pdf.Print(); // Uses default printer
 ```
 
@@ -781,50 +670,49 @@ pdf.Print(); // Uses default printer
 
 | Feature | PDFFilePrint | IronPDF |
 |---------|--------------|---------|
-| Basic printing | ✓ | ✓ |
-| Silent printing | ✓ | ✓ |
-| Multiple copies | ✓ | ✓ |
-| Page range | ✓ | ✓ |
-| Duplex | Varies | ✓ |
-| Landscape | ✓ | ✓ |
-| Create from HTML | ✗ | ✓ |
-| Create from URL | ✗ | ✓ |
-| Merge PDFs | ✗ | ✓ |
-| Split PDFs | ✗ | ✓ |
-| Add watermarks | ✗ | ✓ |
-| Extract text | ✗ | ✓ |
-| Password protection | ✗ | ✓ |
-| Digital signatures | ✗ | ✓ |
-| Cross-platform | ✗ | ✓ |
-| Native .NET API | ✗ | ✓ |
-| NuGet package | ✗ | ✓ |
-| IntelliSense | ✗ | ✓ |
+| Basic printing | Yes | Yes |
+| Silent printing | Yes (always silent) | Yes |
+| Multiple copies | Yes (via config) | Yes |
+| Page range | Driver default only | Yes |
+| Duplex | Driver default only | Yes |
+| Landscape | Driver default only | Yes |
+| Create from HTML | No | Yes |
+| Create from URL | No | Yes |
+| Merge PDFs | No | Yes |
+| Split PDFs | No | Yes |
+| Add watermarks | No | Yes |
+| Extract text | No | Yes |
+| Password protection | No | Yes |
+| Digital signatures | No | Yes |
+| Cross-platform | No (Windows / net461) | Yes |
+| Native .NET API | Yes (small surface) | Yes |
+| NuGet package | Yes (`PDFFilePrint` 1.0.3, MIT) | Yes (`IronPdf`) |
+| Active maintenance | No (last release 2020) | Yes |
 
 ---
 
 ## Pre-Migration Checklist
 
-- [ ] Locate all PDFFilePrint.exe calls in codebase
-- [ ] Document current command-line arguments used
+- [ ] Locate all `using PDFFilePrint;` and `new FilePrint(...)` call sites in the codebase
+- [ ] Document current `app.config` settings (`PrinterName`, `PaperName`, `Copies`, `PrintToFile`, `DefaultPrintToDirectory`)
 - [ ] Identify printer names used across environments
-- [ ] List any batch scripts using PDFFilePrint
-- [ ] Check for custom error handling around Process.Start
-- [ ] Identify any PDF generation needs (currently using separate tools)
-- [ ] Review deployment process for PDFFilePrint.exe bundling
+- [ ] List any external scripts that currently mutate `Settings.Default`
+- [ ] Check for custom error handling around `FilePrint.Print()`
+- [ ] Identify any PDF generation needs (currently fulfilled with separate tools)
+- [ ] Review .NET Framework targeting — IronPDF supports Framework + .NET 6/7/8/9/10
 
 ---
 
 ## Post-Migration Checklist
 
-- [ ] Remove PDFFilePrint.exe from source control
-- [ ] Remove PDFFilePrint.exe from deployment packages
-- [ ] Update build scripts to remove PDFFilePrint copying
-- [ ] Add IronPDF NuGet package
+- [ ] Remove the `PDFFilePrint` NuGet reference
+- [ ] Remove PDFFilePrint-specific keys from `app.config`
+- [ ] Add `IronPdf` NuGet package
 - [ ] Set IronPDF license key in startup code
-- [ ] Replace Process.Start calls with IronPDF API
-- [ ] Replace exit code checks with exception handling
+- [ ] Replace `new FilePrint(...).Print()` calls with `PdfDocument.FromFile(...).Print(...)` (or `GetPrintDocument`)
+- [ ] Move printer/copy/page settings into `System.Drawing.Printing.PrinterSettings`
 - [ ] Test printing on all target printers
-- [ ] Test cross-platform if applicable
+- [ ] Test cross-platform if applicable (Linux requires CUPS)
 - [ ] Update documentation
 
 ---
@@ -832,14 +720,12 @@ pdf.Print(); // Uses default printer
 ## Finding PDFFilePrint References
 
 ```bash
-# Find command-line execution patterns
-grep -r "PDFFilePrint\|ProcessStartInfo.*pdf\|Process.Start.*print" --include="*.cs" .
+# Find usages of the PDFFilePrint API
+grep -r "using PDFFilePrint\|new FilePrint" --include="*.cs" .
 
-# Find batch scripts
-find . -name "*.bat" -o -name "*.cmd" -o -name "*.ps1" | xargs grep -l "PDFFilePrint"
-
-# Find configuration references
-grep -r "PDFFilePrint" --include="*.json" --include="*.config" --include="*.xml" .
+# Find related app.config keys
+grep -r "PrinterName\|PaperName\|PrintToFile\|DefaultPrintToDirectory" \
+    --include="*.config" --include="*.settings" .
 ```
 
 ---
@@ -867,14 +753,14 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 ### "Print dialog appears when it shouldn't"
 
 ```csharp
-// Ensure ShowPrintDialog is explicitly false
-var settings = new PrintSettings { ShowPrintDialog = false };
-pdf.Print(settings);
+// pdf.Print() is silent by default. The print-dialog overload requires
+// passing true explicitly: pdf.Print(true). Make sure you aren't doing that.
+pdf.Print();
 ```
 
 ### "Cross-platform printing issues"
 
-Printing on Linux/macOS requires CUPS. Test thoroughly on non-Windows platforms.
+Printing on Linux/macOS requires CUPS. Test thoroughly on non-Windows platforms — note that PDFFilePrint cannot run there at all (net461 + Win32 native binaries).
 
 ---
 
@@ -891,7 +777,7 @@ Printing on Linux/macOS requires CUPS. Test thoroughly on non-Windows platforms.
   **Why:** Identify all usages to ensure complete migration coverage.
 
 - [ ] **Document current configurations**
-  **Why:** These settings map to IronPDF's RenderingOptions. Document them now to ensure consistent output after migration.
+  **Why:** PDFFilePrint settings (PrinterName, PaperName, Copies, PrintToFile, DefaultPrintToDirectory) live in app.config and map to IronPDF's `PrinterSettings` properties. Document them now to ensure consistent output after migration.
 
 - [ ] **Obtain IronPDF license key**
   **Why:** IronPDF requires a license key for production use. Free trial available at https://ironpdf.com/
@@ -919,7 +805,7 @@ Printing on Linux/macOS requires CUPS. Test thoroughly on non-Windows platforms.
   var pdf = renderer.RenderHtmlAsPdf(html);
   pdf.SaveAs("output.pdf");
   ```
-  **Why:** IronPDF uses ChromePdfRenderer with modern Chromium rendering.
+  **Why:** IronPDF uses ChromePdfRenderer with modern Chromium rendering — something PDFFilePrint cannot do at all.
 
 - [ ] **Update page settings**
   ```csharp
@@ -953,7 +839,7 @@ Printing on Linux/macOS requires CUPS. Test thoroughly on non-Windows platforms.
   pdf.SecuritySettings.UserPassword = "secret";
   pdf.ApplyWatermark("<h1>DRAFT</h1>");
   ```
-  **Why:** IronPDF provides many additional features.
+  **Why:** IronPDF provides many additional features that PDFFilePrint never offered.
 
 ## Additional Resources
 
@@ -962,3 +848,4 @@ Printing on Linux/macOS requires CUPS. Test thoroughly on non-Windows platforms.
 - [HTML to PDF Tutorial](https://ironpdf.com/how-to/html-file-to-pdf/)
 - [IronPDF Tutorials](https://ironpdf.com/tutorials/)
 - [API Reference](https://ironpdf.com/object-reference/api/)
+- [PDFFilePrint NuGet page](https://www.nuget.org/packages/PDFFilePrint/)

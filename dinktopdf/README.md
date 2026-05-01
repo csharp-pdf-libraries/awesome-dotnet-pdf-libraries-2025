@@ -88,7 +88,7 @@ Here’s a comparison between DinkToPdf and IronPDF across different criteria to
 | Security Vulnerabilities        | Inherited from wkhtmltopdf          | Mitigated by design               |
 | Deployment Complexity           | Requires native binaries            | Single managed NuGet package      |
 | Platform Compatibility (latest) | Limited and outdated                | Full .NET Framework & Core support|
-| Support and Maintenance         | Outdated since 2020                 | Regular updates and support       |
+| Support and Maintenance         | Last release April 2017; wkhtmltopdf org archived Jul 2024 | Regular updates and support       |
 
 ---
 
@@ -272,19 +272,19 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from DinkToPdf to IronPDF?
 
-DinkToPdf wraps wkhtmltopdf, which has **critical unpatched security vulnerabilities** including CVE-2022-35583 (SSRF). The project was abandoned in 2018, requires complex native binary deployment, and crashes under concurrent load despite using `SynchronizedConverter`. Modern CSS (Flexbox, Grid) doesn't render correctly.
+DinkToPdf wraps wkhtmltopdf, which has unpatched security advisories such as CVE-2022-35583 (SSRF, disputed upstream but still flagged by NVD/Snyk). The original `DinkToPdf` NuGet package (1.0.8) was last released April 18, 2017, the upstream `wkhtmltopdf/wkhtmltopdf` repo was archived on January 2, 2023, and the entire `wkhtmltopdf` GitHub organization was archived on July 10, 2024. It also requires platform-specific native binary deployment, and modern CSS (Flexbox, Grid) doesn't render correctly.
 
 ### Quick Migration Overview
 
 | Aspect | DinkToPdf | IronPDF |
 |--------|-----------|---------|
-| Security | CVE-2022-35583 (SSRF), unpatched | No known vulnerabilities |
-| Rendering Engine | Outdated WebKit (2015) | Modern Chromium |
-| Thread Safety | Crashes in concurrent use | Fully thread-safe |
-| Native Dependencies | Platform-specific binaries | Pure NuGet package |
-| CSS3 Support | No Flexbox/Grid | Full CSS3 |
+| Security | CVE-2022-35583 (SSRF), unpatched / disputed upstream | No known critical CVEs |
+| Rendering Engine | Older QtWebKit fork (wkhtmltopdf 0.12.6) | Modern Chromium |
+| Thread Safety | Use `SynchronizedConverter`; serialized only | Thread-safe by design |
+| Native Dependencies | `libwkhtmltox.dll/.so/.dylib` per platform | Managed NuGet package |
+| CSS3 Support | No modern Flexbox/Grid | Full CSS3 |
 | JavaScript | Limited, inconsistent | Full support |
-| Maintenance | Abandoned (2018) | Actively maintained |
+| Maintenance | DinkToPdf last release: 2017; wkhtmltopdf org archived Jul 2024 | Actively maintained |
 
 ### Key API Mappings
 

@@ -18,7 +18,7 @@
 
 ### The Critical Security Problem
 
-Haukcode.DinkToPdf is a fork of the abandoned DinkToPdf project, which wraps the wkhtmltopdf binary. **wkhtmltopdf has critical security vulnerabilities that will never be patched because the project is abandoned.**
+Haukcode.DinkToPdf (renamed to **Haukcode.WkHtmlToPdfDotNet** in October 2024 — current package version 1.5.95+) is a fork of the abandoned DinkToPdf project, which wraps the wkhtmltopdf binary. **wkhtmltopdf has critical security vulnerabilities that will never be patched because the project is abandoned.** The wkhtmltopdf repository was archived on January 2, 2023, and the entire `wkhtmltopdf` GitHub organization was archived on July 10, 2024.
 
 #### CVE-2022-35583 - Critical SSRF Vulnerability (CVSS 9.8)
 
@@ -34,7 +34,7 @@ The wkhtmltopdf library (and all wrappers including Haukcode.DinkToPdf) is vulne
 
 ### Additional wkhtmltopdf Issues
 
-1. **Abandoned Project**: Last release was 0.12.6 in 2020; project archived in 2023
+1. **Abandoned Project**: Last wkhtmltopdf release was 0.12.6 in June 2020; repo archived January 2, 2023; org archived July 10, 2024
 2. **Outdated WebKit Engine**: Uses Qt WebKit from ~2015—missing years of security patches
 3. **No HTML5/CSS3 Support**: Limited rendering of modern web standards
 4. **Native Binary Dependency**: Must distribute platform-specific binaries (Windows/Linux/macOS)
@@ -67,11 +67,11 @@ The wkhtmltopdf library (and all wrappers including Haukcode.DinkToPdf) is vulne
 
 ### Identify Haukcode.DinkToPdf Usage
 
-Find all DinkToPdf usage in your codebase:
+Find all DinkToPdf / WkHtmlToPdfDotNet usage in your codebase:
 
 ```bash
-# Find DinkToPdf namespace usage
-grep -r "using DinkToPdf\|using Haukcode" --include="*.cs" .
+# Find namespace usage (covers both old DinkToPdf fork and new WkHtmlToPdfDotNet rename)
+grep -r "using DinkToPdf\|using WkHtmlToPdfDotNet" --include="*.cs" .
 
 # Find converter usage
 grep -r "SynchronizedConverter\|BasicConverter\|HtmlToPdfDocument" --include="*.cs" .
@@ -91,10 +91,10 @@ Check your project file for DinkToPdf packages:
 grep -r "DinkToPdf\|Haukcode" --include="*.csproj" .
 ```
 
-Common package names:
-- `DinkToPdf`
-- `Haukcode.DinkToPdf`
-- `Haukcode.WkHtmlToPdf-DotNet`
+Common package names (any of these indicate the wkhtmltopdf wrapper family):
+- `DinkToPdf` (original abandoned project)
+- `Haukcode.DinkToPdf` (older Haukcode fork name, pre-Oct 2024)
+- `Haukcode.WkHtmlToPdfDotNet` (current name, renamed Oct 2024 — latest 1.5.95+, LGPL-3.0-or-later)
 
 ---
 
@@ -103,10 +103,10 @@ Common package names:
 ### Step 1: Remove DinkToPdf and Native Binaries
 
 ```bash
-# Remove NuGet packages
+# Remove NuGet packages (whichever variant you have)
 dotnet remove package DinkToPdf
 dotnet remove package Haukcode.DinkToPdf
-dotnet remove package Haukcode.WkHtmlToPdf-DotNet
+dotnet remove package Haukcode.WkHtmlToPdfDotNet
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -121,8 +121,8 @@ dotnet add package IronPdf
 
 **Before (Haukcode.DinkToPdf):**
 ```csharp
-using DinkToPdf;
-using DinkToPdf.Contracts;
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 
 public class PdfService
 {
@@ -293,8 +293,8 @@ public void ConfigureServices(IServiceCollection services)
 
 **Before (Haukcode.DinkToPdf):**
 ```csharp
-using DinkToPdf;
-using DinkToPdf.Contracts;
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 
 public byte[] ConvertHtmlToPdf(string html)
 {
@@ -337,8 +337,8 @@ public byte[] ConvertHtmlToPdf(string html)
 
 **Before (Haukcode.DinkToPdf):**
 ```csharp
-using DinkToPdf;
-using DinkToPdf.Contracts;
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 
 public byte[] ConvertUrlToPdf(string url)
 {
@@ -397,8 +397,8 @@ public byte[] ConvertUrlToPdf(string url)
 
 **Before (Haukcode.DinkToPdf):**
 ```csharp
-using DinkToPdf;
-using DinkToPdf.Contracts;
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 
 public byte[] CreateDocumentWithHeaderFooter(string html)
 {
@@ -503,8 +503,8 @@ public byte[] CreateDocumentWithHtmlHeaderFooter(string html)
 
 **Before (Haukcode.DinkToPdf):**
 ```csharp
-using DinkToPdf;
-using DinkToPdf.Contracts;
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 
 public void CreateGrayscaleDocument(string html)
 {
@@ -554,8 +554,8 @@ public void CreateGrayscaleDocument(string html)
 
 **Before (Haukcode.DinkToPdf):**
 ```csharp
-using DinkToPdf;
-using DinkToPdf.Contracts;
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 
 public byte[] CreateMultiSectionDocument(string coverHtml, string contentHtml, string appendixHtml)
 {
@@ -626,8 +626,8 @@ public byte[] CreateMultiSectionDocument(string coverHtml, string contentHtml, s
 
 **Before (Haukcode.DinkToPdf):**
 ```csharp
-using DinkToPdf;
-using DinkToPdf.Contracts;
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 
 public byte[] CreateCustomSizeDocument(string html)
 {
@@ -675,8 +675,8 @@ public byte[] CreateCustomSizeDocument(string html)
 
 **Before (Haukcode.DinkToPdf):**
 ```csharp
-using DinkToPdf;
-using DinkToPdf.Contracts;
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 
 public byte[] ConvertWithJavaScript(string html)
 {
@@ -730,8 +730,8 @@ public byte[] ConvertWithJavaScript(string html)
 **Before (Haukcode.DinkToPdf):**
 ```csharp
 // Startup.cs
-using DinkToPdf;
-using DinkToPdf.Contracts;
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 
 public class Startup
 {
@@ -824,8 +824,8 @@ public class ReportController : Controller
 
 **Before (Haukcode.DinkToPdf):**
 ```csharp
-using DinkToPdf;
-using DinkToPdf.Contracts;
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 
 public byte[] ConvertWithExternalCss(string html, string cssPath)
 {
@@ -880,8 +880,8 @@ public byte[] ConvertWithInlineCss(string html, string css)
 
 **Before (Haukcode.DinkToPdf):**
 ```csharp
-using DinkToPdf;
-using DinkToPdf.Contracts;
+using WkHtmlToPdfDotNet;
+using WkHtmlToPdfDotNet.Contracts;
 
 public byte[] ConvertAsPrintMedia(string html)
 {
@@ -1289,10 +1289,12 @@ renderer.RenderingOptions.GrayScale = true;
   ```
   **Why:** Add IronPDF to the project for PDF generation.
 
-- [ ] **Update namespace imports (`DinkToPdf` → `IronPdf`)**
+- [ ] **Update namespace imports (`DinkToPdf` / `WkHtmlToPdfDotNet` → `IronPdf`)**
   ```csharp
-  // Before (DinkToPdf)
+  // Before (older Haukcode.DinkToPdf or upstream DinkToPdf)
   using DinkToPdf;
+  // Or, after the Oct 2024 rename to Haukcode.WkHtmlToPdfDotNet:
+  using WkHtmlToPdfDotNet;
 
   // After (IronPDF)
   using IronPdf;

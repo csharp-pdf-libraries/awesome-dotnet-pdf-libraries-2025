@@ -60,8 +60,9 @@ prince-pdf-destination: attr(id);
 # Install IronPDF
 dotnet add package IronPdf
 
-# Remove Prince wrapper if using one
+# Remove the official Prince wrapper if you were using it
 dotnet remove package PrinceXMLWrapper
+# (You can also uninstall the Prince binary from each server.)
 ```
 
 ### Step 2: Replace Process Code
@@ -980,15 +981,15 @@ renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
 | Digital Signatures | No | Yes |
 | PDF/A | Yes | Yes |
 | Encryption | Yes | Yes |
-| Forms | No | Yes |
+| Forms | Yes (via `--pdf-forms` / `prince-pdf-form` CSS) | Yes |
 | **Deployment** | | |
 | NuGet Package | No | Yes |
 | Server Install | Required | No |
 | Docker Support | Complex | Simple |
 | Cloud Functions | Difficult | Easy |
 | **Licensing** | | |
-| Model | Per server | Per developer |
-| Pricing | $495+ | Competitive |
+| Model | Desktop / Per server / OEM | Per developer |
+| Pricing | Desktop $495, Server $3,800; free non-commercial use w/ logo watermark | Competitive (perpetual) |
 
 ---
 
@@ -1155,7 +1156,10 @@ grep -r "string-set" --include="*.css" .
 
 - [ ] **Inventory all PrinceXML usages in codebase**
   ```bash
+  # The official wrapper namespace is PrinceXML.Wrapper
   grep -r "using PrinceXML" --include="*.cs" .
+  grep -r "PrinceXML.Wrapper" --include="*.cs" .
+  grep -r "Process.Start" --include="*.cs" . | grep -i prince
   ```
   **Why:** Identify all usages to ensure complete migration coverage.
 
@@ -1169,7 +1173,9 @@ grep -r "string-set" --include="*.css" .
 
 - [ ] **Remove old package and install IronPdf**
   ```bash
-  dotnet remove package PrinceXML
+  # The current official wrapper is PrinceXMLWrapper (older 10.x variants
+  # were published as PrinceXML on NuGet).
+  dotnet remove package PrinceXMLWrapper
   dotnet add package IronPdf
   ```
   **Why:** Clean package switch to IronPDF.

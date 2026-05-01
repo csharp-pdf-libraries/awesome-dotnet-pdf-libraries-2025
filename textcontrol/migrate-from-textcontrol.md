@@ -2,24 +2,24 @@
 
 ## Why Migrate from TX Text Control?
 
-TX Text Control is a document editor component that treats PDF generation as a secondary feature. Key reasons to migrate:
+TX Text Control (Text Control GmbH; current version 34.0 SP2, February 2026) is a Word-processing component whose primary strength is DOCX/RTF editing — PDF generation is a secondary export path. Key reasons to migrate:
 
-1. **Expensive Licensing**: $3,398+/developer with mandatory 40% annual renewals
+1. **Expensive Licensing**: A single TX Text Control .NET Server developer license is $4,198 (perpetual, with one year of updates); annual subscription renewals are ~40% of list price (about $1,698/yr/developer) and the renewal window closes 30 days after expiration.
 2. **PDF as Afterthought**: Core architecture is word processing, not PDF
-3. **Hardware Bugs**: Known Intel Iris Xe Graphics rendering issues requiring registry workarounds
-4. **Bloated Dependencies**: Includes document editing UI components you may not need
-5. **Word-Processor Architecture**: Not optimized for HTML-to-PDF workflows
-6. **Complex API**: ServerTextControl context management and selection model
+3. **Word-Processor Architecture**: Not optimized for HTML-to-PDF workflows
+4. **Heavy Deployment**: The ServerTextControl runtime ships via a licensed Windows installer/MSI (or a private NuGet feed for licensed customers); the public `TXTextControl.Web` package is the editor companion, not a self-contained headless server.
+5. **STA-Affinity in ASP.NET**: ServerTextControl traces back to a STA COM-style component model and historically requires STA-compatible hosting in ASP.NET pipelines.
+6. **Complex API**: ServerTextControl context management, separate `StringStreamType` / `BinaryStreamType` / `StreamType` enums, and a selection-driven document model
 
 ### Cost Comparison
 
-| Aspect | TX Text Control | IronPDF |
-|--------|-----------------|---------|
-| Base License | $3,398+ | Significantly lower |
-| Annual Renewal | 40% mandatory | Optional support |
-| Per Developer | Yes | Yes |
-| UI Components | Bundled (bloat) | PDF-focused |
-| Total 3-Year Cost | $5,750+ | Much lower |
+| Aspect | TX Text Control .NET Server | IronPDF |
+|--------|-----------------------------|---------|
+| Single developer | $4,198 perpetual + 1yr support | One-time per-developer license |
+| Team of 4 | $8,398 perpetual + 1yr support | Lower per-seat |
+| Annual Renewal | ~40% of list (~$1,698/dev/yr) | Optional support |
+| Server runtime | Separate runtime/OEM license required for production servers | None |
+| UI Components | Bundled DOCX editor surface | PDF-focused
 
 These costs and capabilities are explored in detail in the [comprehensive migration reference](https://ironpdf.com/blog/migration-guides/migrate-from-textcontrol-to-ironpdf/).
 
@@ -29,12 +29,14 @@ These costs and capabilities are explored in detail in the [comprehensive migrat
 
 ### Step 1: Replace NuGet Package
 
-```bash
-# Remove TX Text Control
-dotnet remove package TXTextControl.TextControl
-dotnet remove package TXTextControl.DocumentServer
+TX Text Control's headless server runtime is not distributed as a single public NuGet package — the public package is `TXTextControl.Web` (editor) and the actual `ServerTextControl` runtime comes from the licensed Windows installer or the vendor's private NuGet feed. So removal usually means uninstalling those installer-shipped packages plus `TXTextControl.Web` and uninstalling the MSI.
 
-# Install IronPDF
+```bash
+# Remove TX Text Control packages (names depend on which were installed
+# from the licensed installer / private feed / public NuGet)
+dotnet remove package TXTextControl.Web
+
+# Then install IronPDF (single self-contained package)
 dotnet add package IronPdf
 ```
 
@@ -62,12 +64,13 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 | TX Text Control | IronPDF | Notes |
 |-----------------|---------|-------|
 | `ServerTextControl.Create()` | `new ChromePdfRenderer()` | No context management |
-| `tx.Load(html, StreamType.HTMLFormat)` | `renderer.RenderHtmlAsPdf(html)` | Direct rendering |
-| `tx.Load(url, StreamType.HTMLFormat)` | `renderer.RenderUrlAsPdf(url)` | URL support |
-| `tx.Save(path, StreamType.AdobePDF)` | `pdf.SaveAs(path)` | Simple save |
+| `tx.Load(html, StringStreamType.HTMLFormat)` | `renderer.RenderHtmlAsPdf(html)` | String overload uses `StringStreamType` |
+| `tx.Load(bytes, BinaryStreamType.AdobePDF)` | `PdfDocument.FromFile(...)` / `FromBinaryData(...)` | Byte[] overload uses `BinaryStreamType` |
+| `tx.Save(path, StreamType.AdobePDF)` | `pdf.SaveAs(path)` | File-path Save uses `StreamType` |
+| `tx.Append(bytes, BinaryStreamType.AdobePDF, AppendSettings.StartWithNewSection)` | `PdfDocument.Merge(a, b)` | Concatenate documents |
 | `SaveSettings.PDFAConformance` | `RenderingOptions.PdfAFormat` | PDF/A |
 | `DocumentServer.MailMerge` | HTML templates + Razor | Template merging |
-| `DocumentTarget.HeadersAndFooters` | `HtmlHeaderFooter` | Headers/footers |
+| `HeaderFooter` + `Sections[i].HeadersAndFooters` | `HtmlHeaderFooter` / `TextHeaderFooter` | Headers/footers |
 | `LoadSettings` | `RenderingOptions` | Configuration |
 | `StreamType.AdobePDF` | Default output | PDF is primary |
 
@@ -80,12 +83,12 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 **TX Text Control:**
 ```csharp
 using TXTextControl;
-using TXTextControl.DocumentServer;
 
 using (ServerTextControl tx = new ServerTextControl())
 {
     tx.Create();
-    tx.Load("<html><body><h1>Invoice</h1></body></html>", StreamType.HTMLFormat);
+    // String overload uses StringStreamType
+    tx.Load("<html><body><h1>Invoice</h1></body></html>", StringStreamType.HTMLFormat);
     tx.Save("output.pdf", StreamType.AdobePDF);
 }
 ```
@@ -104,15 +107,18 @@ pdf.SaveAs("output.pdf");
 **TX Text Control:**
 ```csharp
 using TXTextControl;
-using TXTextControl.DocumentServer;
 
 using (ServerTextControl tx = new ServerTextControl())
 {
     tx.Create();
 
+    // ServerTextControl does not fetch URLs directly; in practice you download the
+    // HTML yourself (HttpClient) and load it as a string with StringStreamType.HTMLFormat.
+    string html = new System.Net.Http.HttpClient().GetStringAsync("https://example.com/invoice").Result;
+
     LoadSettings loadSettings = new LoadSettings();
     loadSettings.ApplicationFieldFormat = ApplicationFieldFormat.MSWord;
-    tx.Load("https://example.com/invoice", StreamType.HTMLFormat, loadSettings);
+    tx.Load(html, StringStreamType.HTMLFormat, loadSettings);
 
     SaveSettings saveSettings = new SaveSettings();
     saveSettings.PDFAConformance = PDFAConformance.PDFa1b;
@@ -138,23 +144,20 @@ pdf.SaveAs("output.pdf");
 **TX Text Control:**
 ```csharp
 using TXTextControl;
-using TXTextControl.DocumentServer;
 
 using (ServerTextControl tx = new ServerTextControl())
 {
     tx.Create();
-    tx.Load(htmlContent, StreamType.HTMLFormat);
+    tx.Load(htmlContent, StringStreamType.HTMLFormat);
 
-    // Complex DocumentTarget manipulation
-    tx.Selection.DocumentTarget = DocumentTarget.HeadersAndFooters;
-    tx.Selection.HeaderFooterTargetSection = HeaderFooterTargetSection.All;
-    tx.Selection.HeaderFooterTargetPosition = HeaderFooterPosition.Header;
-    tx.Text = "Company Report";
+    // HeaderFooter objects are added to a section's HeadersAndFooters collection
+    HeaderFooter header = new HeaderFooter(HeaderFooterType.Header);
+    header.Text = "Company Report";
+    tx.Sections[0].HeadersAndFooters.Add(header);
 
-    tx.Selection.HeaderFooterTargetPosition = HeaderFooterPosition.Footer;
-    tx.Text = "Page {page} of {numpages}";
-
-    tx.Selection.DocumentTarget = DocumentTarget.Document;
+    HeaderFooter footer = new HeaderFooter(HeaderFooterType.Footer);
+    footer.Text = "Page {page} of {numpages}";
+    tx.Sections[0].HeadersAndFooters.Add(footer);
 
     SaveSettings settings = new SaveSettings();
     settings.CreatorApplication = "My App";
@@ -203,13 +206,14 @@ using TXTextControl.DocumentServer;
 using (ServerTextControl tx = new ServerTextControl())
 {
     tx.Create();
-    tx.Load("template.docx", StreamType.InternalUnicodeFormat);
+    // Load a DOCX template (note: TX Text Control's internal "TX" format is StreamType.InternalUnicodeFormat;
+    // for DOCX use StreamType.WordprocessingML).
+    tx.Load("template.docx", StreamType.WordprocessingML);
 
-    // Complex mail merge
-    MailMerge mailMerge = new MailMerge(tx);
-    mailMerge.MergeFields["CustomerName"].Text = "John Doe";
-    mailMerge.MergeFields["InvoiceNumber"].Text = "12345";
-    mailMerge.MergeFields["Total"].Text = "$1,500.00";
+    // DocumentServer.MailMerge merges template merge fields with a data source.
+    MailMerge mailMerge = new MailMerge();
+    var data = new[] { new { CustomerName = "John Doe", InvoiceNumber = "12345", Total = "$1,500.00" } };
+    mailMerge.MergeObjects(data, tx);
 
     tx.Save("invoice.pdf", StreamType.AdobePDF);
 }
@@ -248,19 +252,18 @@ pdf.SaveAs("invoice.pdf");
 **TX Text Control:**
 ```csharp
 using TXTextControl;
-using TXTextControl.DocumentServer;
 
 using (ServerTextControl tx = new ServerTextControl())
 {
     tx.Create();
-    tx.Load(html, StreamType.HTMLFormat);
+    tx.Load(html, StringStreamType.HTMLFormat);
 
-    // Complex page settings through sections
+    // Page settings are configured per Section.Format (page size in TWIPS).
     foreach (Section section in tx.Sections)
     {
-        section.Format.PageSize = PageSize.A4;
+        section.Format.PageSize = new System.Drawing.Size(11906, 16838); // A4 in TWIPS
         section.Format.PageMargins = new PageMargins(
-            1440, 1440, 1440, 1440); // TWIPS
+            1440, 1440, 1440, 1440); // TWIPS = 1/1440 inch
         section.Format.Landscape = true;
     }
 
@@ -290,12 +293,11 @@ pdf.SaveAs("output.pdf");
 **TX Text Control:**
 ```csharp
 using TXTextControl;
-using TXTextControl.DocumentServer;
 
 using (ServerTextControl tx = new ServerTextControl())
 {
     tx.Create();
-    tx.Load(html, StreamType.HTMLFormat);
+    tx.Load(html, StringStreamType.HTMLFormat);
 
     SaveSettings saveSettings = new SaveSettings();
     saveSettings.UserPassword = "user123";
@@ -381,11 +383,11 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 var html = $"<h1>Invoice #{invoiceNumber}</h1>";
 ```
 
-### Issue 4: Intel Iris Xe Graphics Bug
+### Issue 4: STA-Affinity in ASP.NET
 
-**TX Text Control:** Requires registry workarounds for 11th gen Intel.
+**TX Text Control:** ServerTextControl historically traces back to a STA COM-style component model and is most reliable when hosted on STA-compatible threads (e.g. `[ASPCOMPAT]` in classic Web Forms, or wrapping calls on a dedicated STA thread/queue in ASP.NET Core). Mixing it freely with MTA worker threads can produce occasional thread-affinity errors under load.
 
-**Solution:** IronPDF uses Chromium - no hardware acceleration bugs.
+**Solution:** IronPDF has no STA requirement and runs unmodified on MTA worker threads, in async controllers, and inside Linux containers under .NET 6/7/8/9.
 
 ---
 
@@ -450,15 +452,15 @@ var html = $"<h1>Invoice #{invoiceNumber}</h1>";
   ```
   **Why:** IronPDF does not require context management, simplifying the codebase.
 
-- [ ] **Convert StreamType.HTMLFormat to RenderHtmlAsPdf**
+- [ ] **Convert StringStreamType.HTMLFormat to RenderHtmlAsPdf**
   ```csharp
   // Before (TX Text Control)
-  tx.Load(html, StreamType.HTMLFormat);
+  tx.Load(html, StringStreamType.HTMLFormat);
 
   // After (IronPDF)
   var pdf = renderer.RenderHtmlAsPdf(html);
   ```
-  **Why:** Direct HTML rendering with IronPDF's modern Chromium engine.
+  **Why:** Direct HTML rendering with IronPDF's modern Chromium engine; no need to juggle `StringStreamType` vs `BinaryStreamType` vs `StreamType`.
 
 - [ ] **Convert mail merge to HTML templates**
   ```csharp
@@ -525,8 +527,8 @@ var html = $"<h1>Invoice #{invoiceNumber}</h1>";
 - [ ] **Verify headers/footers**
   **Why:** Confirm that all headers and footers render as expected with IronPDF's HTML capabilities.
 
-- [ ] **Check on Intel 11th gen hardware (no more workarounds!)**
-  **Why:** IronPDF's modern rendering engine eliminates hardware-specific issues, ensuring consistent performance.
+- [ ] **Verify ASP.NET Core hosting on MTA threads / Linux containers**
+  **Why:** Removes the STA-affinity considerations that ServerTextControl inherits from its COM-style threading model.
 ---
 
 ## Additional Resources

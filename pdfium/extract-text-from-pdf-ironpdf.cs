@@ -6,11 +6,13 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         string pdfPath = "document.pdf";
-        
+
         var pdf = PdfDocument.FromFile(pdfPath);
         string text = pdf.ExtractAllText();
-        
+
         Console.WriteLine(text);
     }
 }

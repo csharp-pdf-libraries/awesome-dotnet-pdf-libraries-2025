@@ -6,6 +6,7 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
         var pdf = PdfDocument.FromFile("input.pdf");
         var info = pdf.MetaData;
         Console.WriteLine($"Title: {info.Title}");

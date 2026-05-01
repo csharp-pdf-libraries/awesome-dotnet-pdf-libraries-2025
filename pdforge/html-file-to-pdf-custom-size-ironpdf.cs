@@ -6,6 +6,7 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
         var renderer = new ChromePdfRenderer();
         renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
         renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape;

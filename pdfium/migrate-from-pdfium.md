@@ -1,46 +1,53 @@
-# How Do I Migrate from Pdfium.NET to IronPDF in C#?
+# How Do I Migrate from a PDFium .NET Wrapper to IronPDF in C#?
 
-## Why Migrate from Pdfium.NET to IronPDF?
+## Why Migrate from a PDFium wrapper to IronPDF?
 
-Pdfium.NET is a .NET wrapper around Google's PDFium library—excellent for PDF rendering but severely limited for modern application needs. While it excels at displaying PDFs, it cannot create, edit, or manipulate them.
+There is no official Google-supplied .NET binding for PDFium. Instead, the .NET ecosystem ships several community wrappers around the C++ engine: `PdfiumViewer` (Apache 2.0; archived August 2019, last NuGet release 2.13.0 in November 2017), the maintained `PdfiumViewer.Updated` fork (.NET Core / .NET 6), `PDFiumCore` (Dtronix, .NET Standard 2.1 P/Invoke bindings), and the commercial `Pdfium.Net.SDK` from Patagames. Their APIs differ but they share one trait: PDFium itself is a rendering and parsing engine, not an HTML-to-PDF or document-authoring engine. While the wrappers excel at displaying PDFs, none of them can convert HTML to PDF—because PDFium has no HTML parser.
 
-### Critical Pdfium.NET Limitations
+This guide uses `PdfiumViewer` as the representative wrapper for "before" snippets because its API is the most widely cited; the migration approach is the same for any of the four.
 
-1. **Rendering-Only**: Cannot create PDFs from HTML, images, or programmatically
-2. **No PDF Manipulation**: Cannot merge, split, or modify PDF content
+### Critical PDFium Wrapper Limitations
+
+1. **Rendering-First**: PDFium has no HTML parser, so no wrapper can create PDFs from HTML or URLs
+2. **Limited Manipulation in Open-Source Wrappers**: PdfiumViewer / PDFiumCore expose viewing and text extraction; merge / split / form-edit is partial in Patagames Pdfium.Net.SDK and largely absent in the free wrappers
 3. **Native Binary Dependencies**: Requires platform-specific PDFium binaries
-4. **Deployment Complexity**: Must bundle and manage native DLLs per platform
-5. **Limited Text Extraction**: Basic text extraction without formatting
+4. **Deployment Complexity**: Must bundle and manage native binaries per platform
+5. **Text Extraction**: PdfiumViewer exposes per-page raw text via `GetPdfText`; layout/format information is minimal
 6. **No HTML to PDF**: Cannot convert web content to PDF
-7. **No Headers/Footers**: Cannot add page numbers or repeating content
-8. **No Watermarks**: Cannot stamp documents with overlays
-9. **No Form Support**: Cannot fill or read PDF forms
-10. **No Security Features**: Cannot encrypt or password-protect PDFs
+7. **No Built-in Headers/Footers**: No high-level page-overlay API
+8. **No Built-in Watermarks**: No stamping primitive
+9. **Forms**: Read-only or none in the free wrappers
+10. **Security**: Encryption / permissions not exposed by the free wrappers
 
 ### IronPDF Advantages
 
-| Aspect | Pdfium.NET | IronPDF |
-|--------|------------|---------|
+| Aspect | PDFium wrappers | IronPDF |
+|--------|-----------------|---------|
 | **Primary Focus** | Rendering/viewing | Complete PDF solution |
-| **PDF Creation** | ✗ | ✓ (HTML, URL, images) |
-| **PDF Manipulation** | ✗ | ✓ (merge, split, edit) |
-| **HTML to PDF** | ✗ | ✓ (Chromium engine) |
-| **Watermarks** | ✗ | ✓ |
-| **Headers/Footers** | ✗ | ✓ |
-| **Form Filling** | ✗ | ✓ |
-| **Security** | ✗ | ✓ |
-| **Native Dependencies** | Required | None (fully managed) |
-| **Cross-Platform** | Complex setup | Automatic |
+| **PDF Creation from HTML** | None | Yes (Chromium engine) |
+| **PDF Manipulation** | Limited (varies) | Yes (merge, split, edit) |
+| **HTML to PDF** | None | Yes |
+| **Watermarks** | Not built-in | Yes |
+| **Headers/Footers** | Not built-in | Yes |
+| **Form Filling** | Patagames only | Yes |
+| **Security** | Patagames only | Yes |
+| **Native Dependencies** | Required | Bundled / NuGet-managed |
+| **Cross-Platform** | Manual native binary management | Automatic |
 
 ---
 
 ## NuGet Package Changes
 
 ```bash
-# Remove Pdfium packages
-dotnet remove package Pdfium.NET
-dotnet remove package Pdfium.Net.SDK
+# Remove whichever PDFium wrapper you used:
+#   PdfiumViewer            (Apache 2.0 - archived 2019, .NET Framework only)
+#   PdfiumViewer.Updated    (community fork, .NET Core / .NET 6)
+#   PDFiumCore              (Dtronix - .NET Standard 2.1 P/Invoke bindings)
+#   Pdfium.Net.SDK          (Patagames - commercial, perpetual license)
 dotnet remove package PdfiumViewer
+dotnet remove package PdfiumViewer.Updated
+dotnet remove package PDFiumCore
+dotnet remove package Pdfium.Net.SDK
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -51,10 +58,11 @@ dotnet add package IronPdf
 ## Namespace Changes
 
 ```csharp
-// Pdfium.NET
-using Pdfium;
-using Pdfium.Net;
-using PdfiumViewer;
+// PDFium wrappers (use the one you installed)
+using PdfiumViewer;             // PdfiumViewer / PdfiumViewer.Updated
+using PDFiumCore;               // Dtronix PDFiumCore (P/Invoke bindings)
+using Patagames.Pdf;            // Patagames Pdfium.Net.SDK
+using Patagames.Pdf.Net;        // Patagames Pdfium.Net.SDK
 
 // IronPDF
 using IronPdf;
@@ -68,58 +76,54 @@ using IronPdf.Editing;
 
 ### Core Class Mappings
 
-| Pdfium.NET | IronPDF | Notes |
-|------------|---------|-------|
-| `PdfDocument` | `PdfDocument` | Same name, different capabilities |
-| `PdfPage` | `PdfPage` | Similar interface |
-| `PdfPageCollection` | `PdfPageCollection` | Similar interface |
-| _(not available)_ | `ChromePdfRenderer` | PDF creation |
+| PdfiumViewer | IronPDF | Notes |
+|--------------|---------|-------|
+| `PdfiumViewer.PdfDocument` | `IronPdf.PdfDocument` | Same simple name in different namespaces |
+| `PdfRenderer` (WinForms control) | _(not applicable)_ | PdfiumViewer also ships UI controls; IronPDF is headless |
+| _(not available)_ | `ChromePdfRenderer` | HTML / URL → PDF |
 | _(not available)_ | `HtmlHeaderFooter` | Headers/footers |
 
 ### Document Loading
 
-| Pdfium.NET | IronPDF | Notes |
-|------------|---------|-------|
+| PdfiumViewer | IronPDF | Notes |
+|--------------|---------|-------|
 | `PdfDocument.Load(path)` | `PdfDocument.FromFile(path)` | Load from file |
 | `PdfDocument.Load(stream)` | `PdfDocument.FromStream(stream)` | Load from stream |
-| `PdfDocument.Load(bytes)` | `PdfDocument.FromBinaryData(bytes)` | Load from bytes |
-| `new PdfDocument(path)` | `PdfDocument.FromFile(path)` | Constructor pattern |
+| _(not provided directly; wrap bytes in MemoryStream)_ | `PdfDocument.FromBinaryData(bytes)` | Load from bytes |
 
 ### Document Properties
 
-| Pdfium.NET | IronPDF | Notes |
-|------------|---------|-------|
+| PdfiumViewer | IronPDF | Notes |
+|--------------|---------|-------|
 | `document.PageCount` | `document.PageCount` | Same |
-| `document.Pages` | `document.Pages` | Similar collection |
-| `document.Pages[index]` | `document.Pages[index]` | Zero-based |
-| `document.GetPageSize(index)` | `document.Pages[index].Width/Height` | Direct properties |
+| `document.PageSizes` (`IList<SizeF>`) | `document.Pages[index].Width / Height` | PdfiumViewer exposes sizes; pages are not first-class objects |
+| `document.PageSizes[i].Width` | `document.Pages[i].Width` | Per-page width in points |
 
 ### Page Rendering
 
-| Pdfium.NET | IronPDF | Notes |
-|------------|---------|-------|
-| `page.Render(width, height)` | `pdf.RasterizeToImageFiles(path, dpi)` | Rasterize |
-| `page.Render(width, height, flags)` | DPI parameter | Quality control |
-| `document.Render(index, width, height)` | `pdf.RasterizeToImageFiles()` | Batch render |
-| `page.RenderToScale(scale)` | DPI: `72 * scale` | Scale to DPI |
+| PdfiumViewer | IronPDF | Notes |
+|--------------|---------|-------|
+| `document.Render(page, width, height, dpiX, dpiY, flags)` | `pdf.RasterizeToImageFiles(path, DPI)` | Rasterize |
+| `document.Render(page, ...)` returns `Image` | DPI parameter | Quality control via DPI |
+| (loop calling `document.Render(i, ...)`) | `pdf.RasterizeToImageFiles("page_*.png")` | Batch render across all pages |
+| Manual scale math | `DPI = 72 * scale` | Scale-to-DPI conversion |
 
 ### Text Extraction
 
-| Pdfium.NET | IronPDF | Notes |
-|------------|---------|-------|
+| PdfiumViewer | IronPDF | Notes |
+|--------------|---------|-------|
 | `document.GetPdfText(pageIndex)` | `document.Pages[index].Text` | Per-page |
 | _(manual loop)_ | `document.ExtractAllText()` | All pages |
-| `page.GetTextBounds()` | `page.Text` | Simplified |
 
 ### Saving Documents
 
-| Pdfium.NET | IronPDF | Notes |
-|------------|---------|-------|
-| `document.Save(path)` | `document.SaveAs(path)` | Different method name |
-| `document.Save(stream)` | `document.Stream` | Access stream |
+| PdfiumViewer | IronPDF | Notes |
+|--------------|---------|-------|
+| `document.Save(stream)` | `document.SaveAs(path)` | PdfiumViewer takes a Stream; IronPDF takes a path |
+| _(not available)_ | `document.Stream` | Access raw stream |
 | _(not available)_ | `document.BinaryData` | Get bytes |
 
-### NEW Features (Not in Pdfium.NET)
+### NEW Features (Not in PDFium wrappers)
 
 | IronPDF Feature | Description |
 |-----------------|-------------|
@@ -143,9 +147,9 @@ using IronPdf.Editing;
 
 ### Example 1: Load and Render PDF to Image
 
-**Before (Pdfium.NET):**
+**Before (PdfiumViewer):**
 ```csharp
-using Pdfium;
+using PdfiumViewer;
 using System.Drawing;
 
 public class PdfRenderService
@@ -156,16 +160,14 @@ public class PdfRenderService
         {
             for (int i = 0; i < document.PageCount; i++)
             {
-                using (var page = document.Pages[i])
-                {
-                    // Render at specific size
-                    int width = (int)(page.Width * 2); // 2x scale
-                    int height = (int)(page.Height * 2);
+                // PdfiumViewer exposes per-page sizes via document.PageSizes
+                var size = document.PageSizes[i];
+                int width = (int)(size.Width * 2);   // 2x scale
+                int height = (int)(size.Height * 2);
 
-                    using (var bitmap = page.Render(width, height, PdfRenderFlags.Annotations))
-                    {
-                        bitmap.Save($"{outputFolder}/page_{i + 1}.png");
-                    }
+                using (var bitmap = document.Render(i, width, height, 96, 96, PdfRenderFlags.Annotations))
+                {
+                    bitmap.Save($"{outputFolder}/page_{i + 1}.png");
                 }
             }
         }
@@ -196,9 +198,9 @@ public class PdfRenderService
 
 ### Example 2: Extract Text from PDF
 
-**Before (Pdfium.NET):**
+**Before (PdfiumViewer):**
 ```csharp
-using Pdfium;
+using PdfiumViewer;
 using System.Text;
 
 public string ExtractText(string pdfPath)
@@ -245,9 +247,9 @@ public string ExtractTextPerPage(string pdfPath)
 
 ### Example 3: Get Page Dimensions
 
-**Before (Pdfium.NET):**
+**Before (PdfiumViewer):**
 ```csharp
-using Pdfium;
+using PdfiumViewer;
 
 public void GetPageInfo(string pdfPath)
 {
@@ -257,12 +259,8 @@ public void GetPageInfo(string pdfPath)
 
         for (int i = 0; i < document.PageCount; i++)
         {
-            using (var page = document.Pages[i])
-            {
-                double width = page.Width;
-                double height = page.Height;
-                Console.WriteLine($"Page {i + 1}: {width} x {height} points");
-            }
+            var size = document.PageSizes[i];
+            Console.WriteLine($"Page {i + 1}: {size.Width} x {size.Height} points");
         }
     }
 }
@@ -288,11 +286,11 @@ public void GetPageInfo(string pdfPath)
 
 ### Example 4: Create PDF from HTML (NEW Feature)
 
-**Before (Pdfium.NET):**
+**Before (PDFium wrapper):**
 ```csharp
-// Pdfium.NET CANNOT create PDFs
-// You need a separate library to generate PDFs
-throw new NotSupportedException("Pdfium.NET cannot create PDFs from HTML");
+// PDFium has no HTML parser - no wrapper can create PDFs from HTML.
+// You need a separate library (e.g. wkhtmltopdf, headless Chromium, IronPDF).
+throw new NotSupportedException("PDFium cannot create PDFs from HTML");
 ```
 
 **After (IronPDF):**
@@ -315,10 +313,10 @@ public void CreatePdfFromHtml(string html, string outputPath)
 
 ### Example 5: Create PDF from URL (NEW Feature)
 
-**Before (Pdfium.NET):**
+**Before (PDFium wrapper):**
 ```csharp
-// Pdfium.NET CANNOT convert URLs to PDF
-throw new NotSupportedException("Pdfium.NET cannot convert URLs to PDF");
+// PDFium has no HTTP client and no HTML parser.
+throw new NotSupportedException("PDFium cannot convert URLs to PDF");
 ```
 
 **After (IronPDF):**
@@ -340,11 +338,11 @@ public void CaptureWebPage(string url, string outputPath)
 
 ### Example 6: Merge PDFs (NEW Feature)
 
-**Before (Pdfium.NET):**
+**Before (PDFium wrapper):**
 ```csharp
-// Pdfium.NET CANNOT merge PDFs
-// Must use separate library like iTextSharp or PdfSharp
-throw new NotSupportedException("Pdfium.NET cannot merge PDFs");
+// Open-source PDFium wrappers (PdfiumViewer, PDFiumCore) do not expose
+// document-merge APIs. Use a separate library (PdfSharp, iText) - or move to IronPDF.
+throw new NotSupportedException("PdfiumViewer / PDFiumCore cannot merge PDFs");
 ```
 
 **After (IronPDF):**
@@ -362,10 +360,10 @@ public void MergePdfs(List<string> inputPaths, string outputPath)
 
 ### Example 7: Add Watermark (NEW Feature)
 
-**Before (Pdfium.NET):**
+**Before (PDFium wrapper):**
 ```csharp
-// Pdfium.NET CANNOT add watermarks
-throw new NotSupportedException("Pdfium.NET cannot add watermarks");
+// PDFium has no high-level watermark/stamp API.
+throw new NotSupportedException("PDFium wrappers cannot add watermarks");
 ```
 
 **After (IronPDF):**
@@ -389,10 +387,10 @@ public void AddWatermark(string pdfPath, string outputPath)
 
 ### Example 8: Add Headers and Footers (NEW Feature)
 
-**Before (Pdfium.NET):**
+**Before (PDFium wrapper):**
 ```csharp
-// Pdfium.NET CANNOT add headers/footers
-throw new NotSupportedException("Pdfium.NET cannot add headers/footers");
+// PDFium has no headers/footers primitive.
+throw new NotSupportedException("PDFium wrappers cannot add headers/footers");
 ```
 
 **After (IronPDF):**
@@ -421,10 +419,11 @@ public void AddHeadersFooters(string pdfPath, string outputPath)
 
 ### Example 9: Password Protection (NEW Feature)
 
-**Before (Pdfium.NET):**
+**Before (PDFium wrapper):**
 ```csharp
-// Pdfium.NET CANNOT encrypt PDFs
-throw new NotSupportedException("Pdfium.NET cannot encrypt PDFs");
+// Free PDFium wrappers do not expose encryption/permissions APIs.
+// (Patagames Pdfium.Net.SDK exposes some security features.)
+throw new NotSupportedException("PdfiumViewer / PDFiumCore cannot encrypt PDFs");
 ```
 
 **After (IronPDF):**
@@ -446,10 +445,10 @@ public void SecurePdf(string pdfPath, string outputPath)
 
 ### Example 10: Fill PDF Form (NEW Feature)
 
-**Before (Pdfium.NET):**
+**Before (PDFium wrapper):**
 ```csharp
-// Pdfium.NET CANNOT fill PDF forms
-throw new NotSupportedException("Pdfium.NET cannot fill PDF forms");
+// Free PDFium wrappers do not expose form-fill APIs.
+throw new NotSupportedException("PdfiumViewer / PDFiumCore cannot fill PDF forms");
 ```
 
 **After (IronPDF):**
@@ -473,20 +472,21 @@ public void FillForm(string pdfPath, string outputPath)
 
 ## DPI and Scaling Conversion
 
-### Pdfium.NET Scale to IronPDF DPI
+### PDFium Scale to IronPDF DPI
 
 ```csharp
-// Pdfium.NET uses scale factor (1.0 = 72 DPI)
-// IronPDF uses DPI directly
+// PdfiumViewer's Render(...) takes explicit dpiX/dpiY (96 default).
+// PDFium's underlying rendering is scale-driven (1.0 = 72 DPI = 1 pt per pixel).
+// IronPDF uses DPI directly.
 
 // Conversion formula:
-// IronPDF DPI = 72 * Pdfium scale factor
+// IronPDF DPI = 72 * PDFium scale factor
 
 // Examples:
-// Pdfium scale 1.0 → IronPDF DPI 72
-// Pdfium scale 2.0 → IronPDF DPI 144
-// Pdfium scale 3.0 → IronPDF DPI 216
-// Pdfium scale 4.0 → IronPDF DPI 300
+// PDFium scale 1.0 → IronPDF DPI 72
+// PDFium scale 2.0 → IronPDF DPI 144
+// PDFium scale 3.0 → IronPDF DPI 216
+// PDFium scale 4.0 → IronPDF DPI 300
 
 // Migration helper:
 public int ScaleToDpi(float scale) => (int)(72 * scale);
@@ -498,13 +498,13 @@ The [detailed migration reference](https://ironpdf.com/blog/migration-guides/mig
 
 ## Native Dependency Removal
 
-### Before (Pdfium.NET) - Complex Deployment
+### Before (PDFium wrapper) - Complex Deployment
 
 ```
 MyApp/
 ├── bin/
 │   ├── MyApp.dll
-│   ├── Pdfium.NET.dll
+│   ├── PdfiumViewer.dll      # or PDFiumCore.dll / Patagames.Pdf.dll
 │   ├── x86/
 │   │   └── pdfium.dll
 │   └── x64/
@@ -512,8 +512,12 @@ MyApp/
 ├── runtimes/
 │   ├── win-x86/native/
 │   │   └── pdfium.dll
-│   └── win-x64/native/
-│       └── pdfium.dll
+│   ├── win-x64/native/
+│   │   └── pdfium.dll
+│   ├── linux-x64/native/
+│   │   └── libpdfium.so
+│   └── osx-x64/native/
+│       └── libpdfium.dylib
 ```
 
 ### After (IronPDF) - Clean Deployment
@@ -543,20 +547,19 @@ rm -rf x86/ x64/ runtimes/
 ### 1. Render Method → RasterizeToImageFiles
 
 ```csharp
-// Pdfium.NET: Manual size specification
-page.Render(1024, 768);
+// PdfiumViewer: per-page Render call with explicit pixel size + dpi
+document.Render(0, 1024, 768, 96, 96, PdfRenderFlags.None);
 
-// IronPDF: DPI-based rendering
+// IronPDF: DPI-based rendering across the whole document
 pdf.RasterizeToImageFiles("*.png", DPI: 150);
 ```
 
 ### 2. Disposal Pattern Changes
 
 ```csharp
-// Pdfium.NET: Required explicit disposal
+// PdfiumViewer: explicit disposal of document and the rendered Image
 using (var document = PdfDocument.Load(path))
-using (var page = document.Pages[0])
-using (var bitmap = page.Render(1024, 768))
+using (var bitmap = document.Render(0, 1024, 768, 96, 96, PdfRenderFlags.None))
 {
     bitmap.Save("output.png");
 }
@@ -569,17 +572,18 @@ pdf.RasterizeToImageFiles("output.png");
 ### 3. Page Access
 
 ```csharp
-// Pdfium.NET: Creates page objects that need disposal
-using (var page = document.Pages[0]) { }
+// PdfiumViewer: pages are NOT first-class disposable objects.
+// Use document.PageSizes[i] for size and document.GetPdfText(i) for text.
+var size = document.PageSizes[0];
 
-// IronPDF: Direct property access
+// IronPDF: Direct property access on a Pages collection
 var page = pdf.Pages[0];
 ```
 
 ### 4. Platform-Specific Code Removal
 
 ```csharp
-// Pdfium.NET: Required platform detection
+// PDFium wrapper: Required platform detection / RID-specific binaries
 #if WIN64
     // Load x64 pdfium.dll
 #else
@@ -593,8 +597,9 @@ var page = pdf.Pages[0];
 ### 5. PdfRenderFlags → RenderingOptions
 
 ```csharp
-// Pdfium.NET
-page.Render(width, height, PdfRenderFlags.Annotations | PdfRenderFlags.ForPrinting);
+// PdfiumViewer
+document.Render(0, width, height, 96, 96,
+    PdfRenderFlags.Annotations | PdfRenderFlags.ForPrinting);
 
 // IronPDF: Configuration happens at render time
 // Annotations and print quality are default behaviors
@@ -604,32 +609,32 @@ page.Render(width, height, PdfRenderFlags.Annotations | PdfRenderFlags.ForPrinti
 
 ## Feature Comparison Summary
 
-| Feature | Pdfium.NET | IronPDF |
-|---------|------------|---------|
-| Load PDF | ✓ | ✓ |
-| Render to Image | ✓ | ✓ |
-| Extract Text | ✓ (basic) | ✓ (advanced) |
-| Page Info | ✓ | ✓ |
-| Create from HTML | ✗ | ✓ |
-| Create from URL | ✗ | ✓ |
-| Merge PDFs | ✗ | ✓ |
-| Split PDFs | ✗ | ✓ |
-| Add Watermarks | ✗ | ✓ |
-| Headers/Footers | ✗ | ✓ |
-| Form Filling | ✗ | ✓ |
-| Digital Signatures | ✗ | ✓ |
-| Password Protection | ✗ | ✓ |
-| Native Dependencies | Required | None |
-| Cross-Platform | Complex | Automatic |
+| Feature | PDFium wrappers | IronPDF |
+|---------|-----------------|---------|
+| Load PDF | Yes | Yes |
+| Render to Image | Yes | Yes |
+| Extract Text | Yes (basic, per-page) | Yes (logical / visual order) |
+| Page Info | Yes | Yes |
+| Create from HTML | None | Yes |
+| Create from URL | None | Yes |
+| Merge PDFs | Free wrappers: no; Patagames: partial | Yes |
+| Split PDFs | Free wrappers: no; Patagames: partial | Yes |
+| Add Watermarks | Not built-in | Yes |
+| Headers/Footers | Not built-in | Yes |
+| Form Filling | Free wrappers: no; Patagames: yes | Yes |
+| Digital Signatures | Free wrappers: no; Patagames: yes | Yes |
+| Password Protection | Free wrappers: no; Patagames: yes | Yes |
+| Native Dependencies | Required | Bundled / NuGet-managed |
+| Cross-Platform | Complex (per-RID native binaries) | Automatic |
 | Memory Management | Manual disposal | Simplified |
 
 ---
 
 ## Pre-Migration Checklist
 
-- [ ] Identify all Pdfium.NET usage in codebase
-- [ ] Document current rendering dimensions/scales used
-- [ ] List native binary locations in project
+- [ ] Identify which PDFium wrapper is in use (PdfiumViewer / PdfiumViewer.Updated / PDFiumCore / Pdfium.Net.SDK)
+- [ ] Document current rendering dimensions / DPI / scales used
+- [ ] List native binary locations in project (per RID)
 - [ ] Check for platform-specific loading code
 - [ ] Identify PDF creation needs (currently using separate tools?)
 - [ ] Review disposal patterns for conversion
@@ -639,8 +644,8 @@ page.Render(width, height, PdfRenderFlags.Annotations | PdfRenderFlags.ForPrinti
 
 ## Post-Migration Checklist
 
-- [ ] Remove Pdfium NuGet packages
-- [ ] Delete native pdfium.dll binaries
+- [ ] Remove the PDFium wrapper NuGet package(s)
+- [ ] Delete native pdfium.dll / .so / .dylib binaries
 - [ ] Remove platform-specific conditional compilation
 - [ ] Remove runtimes folder from project
 - [ ] Update .csproj to remove native binary references
@@ -653,17 +658,17 @@ page.Render(width, height, PdfRenderFlags.Annotations | PdfRenderFlags.ForPrinti
 
 ---
 
-## Finding Pdfium.NET References
+## Finding PDFium References
 
 ```bash
-# Find Pdfium usage
-grep -r "Pdfium\|PdfDocument\.Load\|\.Render\(" --include="*.cs" .
+# Find PDFium wrapper usage
+grep -rE "PdfiumViewer|PDFiumCore|Patagames\.Pdf|PdfDocument\.Load|\.Render\(" --include="*.cs" .
 
 # Find native binary references
-grep -r "pdfium\.dll\|pdfium\.so\|pdfium\.dylib" --include="*.csproj" --include="*.config" .
+grep -rE "pdfium\.dll|libpdfium\.(so|dylib)" --include="*.csproj" --include="*.config" .
 
 # Find platform-specific code
-grep -r "#if.*64\|WIN32\|WIN64\|LINUX\|OSX" --include="*.cs" .
+grep -rE "#if.*64|WIN32|WIN64|LINUX|OSX" --include="*.cs" .
 ```
 
 ---
@@ -679,10 +684,10 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 ### "Rendered image quality different"
 
-Convert Pdfium scale to equivalent DPI:
+Convert PDFium scale (or PdfiumViewer's dpiX/dpiY × pixel-size math) to equivalent IronPDF DPI:
 
 ```csharp
-// If Pdfium used scale 2.0, use DPI 144
+// If PDFium effectively used scale 2.0, use DPI 144
 pdf.RasterizeToImageFiles("*.png", DPI: 144);
 ```
 
@@ -698,15 +703,15 @@ IronPDF uses more advanced text extraction. Results may be more accurate but for
 
 ## Performance Notes
 
-| Operation | Pdfium.NET | IronPDF |
-|-----------|------------|---------|
+| Operation | PDFium wrappers | IronPDF |
+|-----------|-----------------|---------|
 | First PDF load | Fast (native) | Moderate (managed) |
 | Page rendering | Very fast | Fast |
-| Text extraction | Basic | Comprehensive |
-| Memory usage | Lower | Higher (more features) |
+| Text extraction | Basic (per page) | Comprehensive (logical / visual order) |
+| Memory usage | Lower | Higher (Chromium init) |
 | Startup time | Fast | Moderate (Chromium init) |
 
-IronPDF trades some raw rendering performance for vastly expanded capabilities.
+IronPDF trades some raw rendering performance for vastly expanded capabilities (HTML/URL → PDF, merge, watermark, headers/footers, security, signatures, forms).
 
 ---
 
@@ -716,9 +721,9 @@ IronPDF trades some raw rendering performance for vastly expanded capabilities.
 
 ### Pre-Migration
 
-- [ ] **Inventory all Pdfium.NET usages in codebase**
+- [ ] **Inventory all PDFium wrapper usages in codebase**
   ```bash
-  grep -r "using Pdfium.NET" --include="*.cs" .
+  grep -rE "using PdfiumViewer|using PDFiumCore|using Patagames\.Pdf" --include="*.cs" .
   ```
   **Why:** Identify all usages to ensure complete migration coverage.
 
@@ -732,7 +737,7 @@ IronPDF trades some raw rendering performance for vastly expanded capabilities.
 
 - [ ] **Remove old package and install IronPdf**
   ```bash
-  dotnet remove package Pdfium.NET
+  dotnet remove package PdfiumViewer       # or PDFiumCore / Pdfium.Net.SDK
   dotnet add package IronPdf
   ```
   **Why:** Clean package switch to IronPDF.

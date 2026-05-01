@@ -1,4 +1,4 @@
-// NuGet: Install-Package Docotic.Pdf
+// NuGet: Install-Package BitMiracle.Docotic.Pdf
 using BitMiracle.Docotic.Pdf;
 using System;
 

@@ -207,11 +207,13 @@ pdf.SaveAs("output.pdf");
 ### Step 1: Update NuGet Packages
 
 ```bash
-# Remove Telerik packages
+# Remove Telerik packages (cross-platform / .NET Standard names shown;
+# .NET Framework variants are Telerik.Windows.Documents.*)
 dotnet remove package Telerik.Documents.Core
 dotnet remove package Telerik.Documents.Flow
 dotnet remove package Telerik.Documents.Flow.FormatProviders.Pdf
 dotnet remove package Telerik.Documents.Fixed
+dotnet remove package Telerik.Documents.Spreadsheet
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -220,7 +222,9 @@ dotnet add package IronPdf
 ### Step 2: Update Using Statements
 
 ```csharp
-// Before
+// Before — namespaces are the same whether you used the
+// .NET Framework packages (Telerik.Windows.Documents.*) or
+// the cross-platform packages (Telerik.Documents.*).
 using Telerik.Windows.Documents.Flow.FormatProviders.Html;
 using Telerik.Windows.Documents.Flow.FormatProviders.Pdf;
 using Telerik.Windows.Documents.Flow.Model;
@@ -929,16 +933,19 @@ class Program
 
 ### Telerik Licensing
 
-| License | Price Range | Includes |
-|---------|-------------|----------|
-| **DevCraft UI** | ~$1,599/year | Document Processing included |
-| **Ultimate** | ~$2,299/year | Full suite |
-| **Per-product** | Not available | Must buy suite |
+Document Processing Libraries are not sold standalone — they ship inside any Telerik UI suite (UI for ASP.NET Core, Blazor, WinForms, WPF, .NET MAUI, etc.) or in DevCraft bundles. Pricing per developer, royalty-free, perpetual license with a renewable one-year support/updates subscription.
+
+| License | Price (per developer) | Includes |
+|---------|-----------------------|----------|
+| **Single Telerik UI product** (e.g., UI for Blazor, UI for WPF) | from ~$1,099/year first year | Document Processing libraries bundled in |
+| **DevCraft UI** | from ~$1,149/year first year | All UI suites + Document Processing |
+| **DevCraft Complete** | from ~$1,763/year first year | DevCraft UI + Reporting + Test Studio |
+| **DevCraft Ultimate** | from ~$2,253/year first year | Complete + extras (Fiddler Everywhere, etc.) |
 
 **Issues:**
-- Must buy entire Telerik suite
-- Annual renewal required
-- Complex deployment licensing
+- Document Processing only ships bundled with a Telerik UI product or DevCraft suite — no standalone SKU
+- Renewals required for ongoing updates and support (perpetual use of the purchased build is allowed after the term ends)
+- Pricing verified against telerik.com purchase pages and componentsource.com listings (April 2026)
 
 ### IronPDF Licensing
 

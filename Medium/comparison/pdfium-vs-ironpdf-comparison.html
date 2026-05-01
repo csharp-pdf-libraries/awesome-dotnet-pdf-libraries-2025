@@ -1,28 +1,29 @@
 <h1>Pdfium vs IronPDF: Solving Common .NET PDF Pain Points</h1>
 
-<p>Picture this: a document management system needs to display PDF thumbnails in a web app. The team finds PDFiumSharp on NuGet, installs it, adds the PDFium.Windows package for native binaries, and writes rendering code. Works locally. Deploy to Azure App Service — crashes with "Unable to load DLL 'pdfium.dll'". Spend two hours discovering the native binaries aren't in the publish output. Fix that. Deploy again — different error on Linux containers. The wrapper doesn't include Linux binaries in that package. Switch to PDFiumCore for cross-platform support. Rewrite the code (different API). Deploy — works, but now PDF forms don't render correctly, and there's no way to extract form data because Pdfium is a viewer, not a manipulation library.</p>
+<p>Picture the shape of this scenario: a document management system needs to display PDF thumbnails in a web app. The team finds a Pdfium wrapper on NuGet (PdfiumViewer, PDFiumSharp, PDFiumCore — take your pick), installs it, adds the platform-specific native binary package, and writes rendering code. Works locally. Deploy to Azure App Service — and the first surprise is "Unable to load DLL 'pdfium.dll'" because the native binaries weren't copied into the publish output. Fix that. Deploy again — different error on a Linux container, because that wrapper's package didn't ship Linux binaries. Switch wrappers for cross-platform coverage, and the API is different enough to require a code rewrite. Then it works for rendering — but PDF forms can't be filled and there's no way to extract form data, because Pdfium is fundamentally a viewer, not a manipulation library.</p>
 
-<p>I've seen this story repeat across dozens of teams. Pdfium wrappers solve one narrow problem well — rendering existing PDFs to bitmaps — but the fragmented ecosystem and native DLL dependencies create pain points that compound fast. Let me walk through the specific problems and how IronPDF addresses them differently.</p>
+<p>Teams I have worked with hit variations of this pattern often enough that it's worth treating as a category, not an anecdote. Pdfium wrappers solve one narrow problem well — rendering existing PDFs to bitmaps — but the fragmented ecosystem and native DLL dependencies create pain points that compound fast. Let me walk through the specific problems and how IronPDF addresses them differently.</p>
 
 <h2>What is Pdfium and where does it fit in the .NET ecosystem?</h2>
 
-<p>Pdfium refers to Google's open-source PDF rendering library used in Chrome and Android. In .NET, "Pdfium" typically means one of several community-maintained wrappers that expose Pdfium's native C API through P/Invoke bindings. Popular wrappers include PDFiumSharp (multiple forks), Pdfium.Net.SDK (commercial with free tier), PDFiumCore (.NET Standard 2.1), and others.</p>
+<p>Pdfium refers to Google's open-source PDF rendering library used in Chrome and Android. In .NET, "Pdfium" typically means one of several community-maintained wrappers that expose Pdfium's native C API through P/Invoke bindings. Common wrappers include PdfiumViewer (a long-running WinForms-friendly wrapper), PDFiumSharp (multiple forks), Pdfium.Net.SDK (commercial with a free tier), PDFiumCore, and others. The code samples in this comparison use PdfiumViewer, since that is the wrapper our companion migration samples target — but the broader points about ecosystem fragmentation apply across the family.</p>
 
-<p>These libraries excel at rendering existing PDF pages to bitmaps for display in viewer controls, but they don't generate PDFs from HTML or provide comprehensive document manipulation. The ecosystem is fragmented — each wrapper has different API surfaces, platform support, and maintenance levels. Most wrappers are individual or small team efforts with community-only support, sparse documentation, and no SLA or response guarantees.</p>
+<p>These libraries excel at rendering existing PDF pages to bitmaps for display in viewer controls, but they don't generate PDFs from HTML or provide comprehensive document manipulation. The ecosystem is fragmented — each wrapper has a different API surface, platform support story, and maintenance cadence. Most wrappers are individual or small-team efforts with community-only support and no SLA.</p>
 
-<p>IronPDF is a comprehensive PDF generation and manipulation library built on a Chromium rendering engine. The core use case is <a href="https://ironpdf.com/tutorials/html-to-pdf/">creating PDFs from HTML</a>, URLs, or other content with pixel-perfect accuracy matching Chrome Print Preview. It runs on .NET Framework 4.6.2+, .NET Core 3.1+, and all modern .NET versions through .NET 10, with native cross-platform support for Windows, Linux, macOS, Docker, and cloud environments — no separate native binary packages required.</p>
+<p>IronPDF is a PDF generation and manipulation library built on a Chromium-based rendering engine. The core use case is <a href="https://ironpdf.com/tutorials/html-to-pdf/">creating PDFs from HTML</a>, URLs, or other content with output that matches Chrome Print Preview. It targets .NET Framework, .NET Core, and modern .NET (check the current NuGet listing for the exact supported range), with cross-platform support for Windows, Linux, macOS, Docker, and cloud environments — no separate native binary packages required.</p>
 
 <h2>Problem 1 — Why does deploying Pdfium wrappers break in cloud and container environments?</h2>
 
-<p><strong>Answer:</strong> This is the single most common pain point I hear from teams using Pdfium wrappers. The native DLL dependency creates deployment fragility that surfaces at the worst possible time — in production.</p>
+<p>This is the single most common pain point teams hit when adopting Pdfium wrappers. The native DLL dependency creates deployment fragility that tends to surface in production rather than locally.</p>
 
-<p>Pdfium wrappers require platform-specific pdfium.dll (or libpdfium.so on Linux) to be present in the right directory at runtime. Different wrappers expect these binaries in different locations. Some need them in the output directory, others in a runtimes folder structure. Windows and Linux require separate packages. The x86/x64 mismatch causes BadImageFormatException. And containerized environments like Docker or Azure App Service require explicit Dockerfile steps to copy the native libraries.</p>
+<p>Pdfium wrappers require a platform-specific pdfium.dll (or libpdfium.so on Linux) to be present in the right directory at runtime. Different wrappers expect these binaries in different locations — some in the output directory, others in a runtimes folder structure. Windows and Linux are typically separate packages. An x86/x64 mismatch surfaces as BadImageFormatException. And containerized environments like Docker or Azure App Service often require explicit Dockerfile steps to copy the native libraries.</p>
 
-<p>The typical troubleshooting path I've seen teams follow looks like this: manually detect the platform, construct the DLL path, verify the file exists, and preload it with platform-specific P/Invoke calls. Here's what that actually looks like in practice.</p>
+<p>A typical troubleshooting path is to manually detect the platform, construct the DLL path, verify the file exists, and surface a useful error if it does not. Here's what that looks like in practice.</p>
 
 <h3>Pdfium: Manual native DLL deployment troubleshooting</h3>
 
-<pre><code>using System;
+<pre><code>// NuGet: Install-Package PdfiumViewer
+using System;
 using System.IO;
 using System.Reflection;
 
@@ -34,11 +35,11 @@ namespace PdfiumDeploymentFix
         {
             try
             {
-                // Step 1: Determine platform
+                // Detect platform and bitness
                 bool isWindows = Environment.OSVersion.Platform == PlatformID.Win32NT;
                 bool is64Bit = Environment.Is64BitProcess;
 
-                // Step 2: Construct DLL path
+                // Construct expected native binary path
                 string dllName = isWindows
                     ? (is64Bit ? "pdfium_x64.dll" : "pdfium_x86.dll")
                     : "libpdfium.so";
@@ -53,7 +54,7 @@ namespace PdfiumDeploymentFix
                 {
                     Console.WriteLine($"ERROR: PDFium library not found at {dllPath}");
                     Console.WriteLine("Deployment checklist:");
-                    Console.WriteLine("1. Install correct NuGet package (PDFium.Windows or PDFiumCore)");
+                    Console.WriteLine("1. Install correct NuGet package for your wrapper and platform");
                     Console.WriteLine("2. Set 'Copy to Output Directory' for native DLLs");
                     Console.WriteLine("3. For Docker, ensure Dockerfile copies runtimes folder");
                     Console.WriteLine("4. For Azure, include DLLs in publish profile");
@@ -75,7 +76,10 @@ namespace PdfiumDeploymentFix
 
 <h3>IronPDF: Zero-configuration deployment</h3>
 
-<pre><code>using IronPdf;
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 // Works in any deployment environment without native DLL management
 var renderer = new ChromePdfRenderer();
@@ -83,21 +87,21 @@ var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Deployed Successfully&lt;/h1&gt;")
 pdf.SaveAs("deployment-test.pdf");
 </code></pre>
 
-<p>IronPDF handles all platform-specific binaries automatically. No manual DLL placement, no runtimes folder structure, no LoadLibrary calls. The same NuGet package works on Windows, Linux, macOS, Docker, Azure Functions, and AWS Lambda without deployment-specific code. The <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> walks through this in detail.</p>
+<p>IronPDF handles platform-specific binaries through the package itself. No manual DLL placement, no separate runtimes packages to install, no LoadLibrary calls. The same NuGet package targets Windows, Linux, macOS, Docker, Azure Functions, and AWS Lambda. The <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> walks through this in detail.</p>
 
 <h2>Problem 2 — How do you generate PDFs from HTML when Pdfium only renders existing ones?</h2>
 
-<p><strong>Answer:</strong> This is the fundamental scope mismatch. Teams discover Pdfium expecting a full PDF library and find it can only render existing PDFs to bitmaps. There is no HTML-to-PDF generation, no URL-to-PDF conversion, no document creation from scratch, and no merge or split capabilities in most wrappers.</p>
+<p>This is the fundamental scope mismatch. Pdfium is a viewer/rendering engine; it isn't designed for PDF generation. Most wrappers expose no HTML-to-PDF, no URL-to-PDF, no document creation from scratch, and no merge or split. That's not a missing feature so much as a different product category.</p>
 
-<p>The Pdfium workflow is strictly: load an existing PDF, render a page to a bitmap, save as an image. That's it. Here's what the rendering code looks like.</p>
+<p>The standard Pdfium workflow is: load an existing PDF, render a page to a bitmap, save it as an image. Here's what that looks like with PdfiumViewer.</p>
 
-<h3>Pdfium (PDFiumSharp): Render existing PDF to bitmap</h3>
+<h3>Pdfium (PdfiumViewer): Render existing PDF to bitmap</h3>
 
-<pre><code>using PDFiumSharp;
+<pre><code>// NuGet: Install-Package PdfiumViewer
+using PdfiumViewer;
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.IO;
 
 namespace PdfiumRenderWorkflow
 {
@@ -107,17 +111,16 @@ namespace PdfiumRenderWorkflow
         {
             try
             {
-                // Load PDF document from file
+                // Load PDF and render page 0 to a bitmap
                 using (var document = PdfDocument.Load("existing-report.pdf"))
                 {
-                    using (var page = document.Pages[0])
+                    var size = document.PageSizes[0];
+                    int width = (int)size.Width;
+                    int height = (int)size.Height;
+
+                    using (var image = document.Render(0, width, height, 96, 96, false))
                     {
-                        // Render page to bitmap at 96 DPI
-                        // API Note: Render() method signature varies between PDFiumSharp versions
-                        using (var bitmap = page.Render(96))
-                        {
-                            bitmap.Save("page-thumbnail.png", ImageFormat.Png);
-                        }
+                        image.Save("page-thumbnail.png", ImageFormat.Png);
                     }
                 }
 
@@ -126,7 +129,7 @@ namespace PdfiumRenderWorkflow
             catch (DllNotFoundException ex)
             {
                 Console.WriteLine($"ERROR: {ex.Message}");
-                Console.WriteLine("Solution: Install PDFium.Windows package and ensure Copy to Output Directory is set.");
+                Console.WriteLine("Solution: Install the matching native binary package and ensure Copy to Output Directory is set.");
             }
             catch (BadImageFormatException ex)
             {
@@ -138,11 +141,14 @@ namespace PdfiumRenderWorkflow
 }
 </code></pre>
 
-<p>Notice the limitations: viewer-only (cannot generate from HTML), native DLL dependency, manual disposal required, DPI hardcoded, no batch rendering, and platform-specific NuGet packages for Windows vs Linux.</p>
+<p>The shape of the API tells the story: viewer-focused, native DLL dependency, manual disposal, and platform-specific binaries. PDF generation, merge, forms, and signing all live outside this scope.</p>
 
 <h3>IronPDF: Generate PDF from HTML with full CSS support</h3>
 
-<pre><code>using IronPdf;
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 var htmlContent = @"
 &lt;html&gt;
@@ -167,67 +173,60 @@ var pdf = renderer.RenderHtmlAsPdf(htmlContent);
 pdf.SaveAs("monthly-report.pdf");
 </code></pre>
 
-<p>No native DLL management required. IronPDF embeds the Chromium engine and handles all platform-specific binaries automatically. Modern web content — CSS Grid, Flexbox, JavaScript — renders accurately without manual layout calculation. The <a href="https://ironpdf.com/how-to/rendering-options/">rendering options documentation</a> covers advanced scenarios like watermarking, headers/footers, and custom page sizes.</p>
+<p>No native DLL management required. IronPDF uses a Chromium-based renderer and handles platform-specific binaries through the package itself. Modern web content — CSS Grid, Flexbox, JavaScript — renders the same way it does in Chrome Print Preview. The <a href="https://ironpdf.com/how-to/rendering-options/">rendering options documentation</a> covers watermarking, headers/footers, and custom page sizes.</p>
 
 <h2>Problem 3 — Why can't I extract text, fill forms, or sign documents with Pdfium wrappers?</h2>
 
-<p><strong>Answer:</strong> Pdfium wrappers are rendering libraries, not document manipulation libraries. Most wrappers provide no form filling or AcroForm manipulation, no digital signatures or encryption, no text extraction in viewer-only wrappers, and no document creation from scratch. Even metadata access is limited — you can read titles and authors in some wrappers but can't update them.</p>
+<p>Pdfium wrappers are rendering libraries, not document manipulation libraries. Most wrappers provide no AcroForm filling, no digital signatures, no encryption, and no document creation. Text extraction varies by wrapper — PdfiumViewer exposes a basic <code>GetPdfText(pageIndex)</code> call that returns plain text without layout fidelity. Metadata write access is generally not part of the surface area.</p>
 
-<p>The commercial Pdfium.Net.SDK offers more capabilities, but the free tier adds watermarks and the API requires explicit initialization and termination calls.</p>
+<p>Some commercial offerings such as Pdfium.Net.SDK extend this with additional features, but those are different libraries with different APIs and licensing models. Verify the specific wrapper's capabilities against its current docs before assuming feature parity.</p>
 
-<h3>Pdfium (Pdfium.Net.SDK): Read-only metadata extraction</h3>
+<h3>Pdfium (PdfiumViewer): Basic text extraction</h3>
 
-<pre><code>using Patagames.Pdf.Net;
+<pre><code>// NuGet: Install-Package PdfiumViewer
+using PdfiumViewer;
 using System;
+using System.Text;
 
-namespace PdfiumMetadataExtraction
+namespace PdfiumTextExtraction
 {
     class Program
     {
         static void Main(string[] args)
         {
-            try
+            using (var document = PdfDocument.Load("contract.pdf"))
             {
-                // SDK-specific initialization required
-                PdfCommon.Initialize();
+                int pageCount = document.PageCount;
+                Console.WriteLine($"Document has {pageCount} pages.");
 
-                using (var document = PdfDocument.Load("contract.pdf"))
+                var sb = new StringBuilder();
+                for (int i = 0; i &lt; pageCount; i++)
                 {
-                    int pageCount = document.Pages.Count;
-                    Console.WriteLine($"Document has {pageCount} pages.");
-
-                    string title = document.DocumentInfo.Title ?? "No title";
-                    string author = document.DocumentInfo.Author ?? "Unknown";
-
-                    Console.WriteLine($"Title: {title}");
-                    Console.WriteLine($"Author: {author}");
+                    sb.AppendLine(document.GetPdfText(i));
                 }
-            }
-            catch (Patagames.Pdf.Net.Exceptions.PdfException ex)
-            {
-                Console.WriteLine($"PDF error: {ex.Message}");
-            }
-            finally
-            {
-                PdfCommon.Terminate();
+
+                Console.WriteLine(sb.ToString());
             }
         }
     }
 }
 </code></pre>
 
-<p>The limitations are significant: read-only metadata (cannot update), no form field extraction, SDK initialization required globally, commercial licensing with free tier watermarks, no text extraction in this tier, and no digital signature validation.</p>
+<p>The shape of the API: read-only access to text and basic page metadata, with no form-field, signature, or encryption surface. Anything beyond viewing/rendering and basic text extraction is out of scope for this wrapper.</p>
 
 <h3>IronPDF: Full read/write access to content and metadata</h3>
 
-<pre><code>using IronPdf;
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 var pdf = PdfDocument.FromFile("contract.pdf");
 
 // Extract all text
 string allText = pdf.ExtractAllText();
 
-// Extract metadata
+// Read metadata
 var metadata = pdf.MetaData;
 Console.WriteLine($"Title: {metadata.Title}");
 Console.WriteLine($"Pages: {pdf.PageCount}");
@@ -238,216 +237,40 @@ metadata.Subject = "Updated Contract";
 pdf.SaveAs("contract-updated.pdf");
 </code></pre>
 
-<p>IronPDF provides full read/write access to metadata, form fields, and content extraction. You can also merge, split, encrypt, sign, watermark, and add headers and footers — all capabilities that Pdfium wrappers simply don't offer. For multi-page scenarios with automatic pagination, see the <a href="https://ironpdf.com/how-to/html-file-to-pdf/">HTML file to PDF guide</a>.</p>
+<p>IronPDF provides read/write access to metadata, form fields, and extracted content, plus merge, split, encryption, signing, watermarks, and headers/footers — categories that fall outside the rendering-focused Pdfium wrappers. For multi-page scenarios with automatic pagination, see the <a href="https://ironpdf.com/how-to/html-file-to-pdf/">HTML file to PDF guide</a>.</p>
 
 <h2>How do the features compare side by side?</h2>
 
-<table>
-<thead>
-<tr>
-<th>Feature</th>
-<th>Pdfium Wrappers</th>
-<th>IronPDF</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Status</strong></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>Maintenance</td>
-<td>Community (fragmented)</td>
-<td>Commercial, active</td>
-</tr>
-<tr>
-<td>Breaking changes</td>
-<td>Common between versions</td>
-<td>Stable, documented migrations</td>
-</tr>
-<tr>
-<td>Platform support</td>
-<td>Varies by wrapper</td>
-<td>Unified cross-platform</td>
-</tr>
-<tr>
-<td><strong>Support</strong></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>Documentation</td>
-<td>Minimal to moderate</td>
-<td>Comprehensive + API reference</td>
-</tr>
-<tr>
-<td>Forums</td>
-<td>GitHub issues only</td>
-<td>24/5 live chat</td>
-</tr>
-<tr>
-<td>Enterprise SLA</td>
-<td>No</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Response time</td>
-<td>Days to weeks</td>
-<td>&lt;1 hour (premium)</td>
-</tr>
-<tr>
-<td><strong>Content Creation</strong></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>HTML to PDF</td>
-<td>No</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>URL to PDF</td>
-<td>No</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Generate from scratch</td>
-<td>No</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Merge PDFs</td>
-<td>Rare (SDK-dependent)</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Split PDFs</td>
-<td>Rare</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td><strong>PDF Operations</strong></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>Render to bitmap</td>
-<td>Yes (core capability)</td>
-<td>Not primary use case</td>
-</tr>
-<tr>
-<td>Extract text</td>
-<td>SDK-dependent</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Extract images</td>
-<td>SDK-dependent</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Form filling</td>
-<td>Limited (viewer focus)</td>
-<td>Full AcroForm support</td>
-</tr>
-<tr>
-<td>Digital signatures</td>
-<td>No</td>
-<td>Yes (X.509)</td>
-</tr>
-<tr>
-<td>Encryption</td>
-<td>No</td>
-<td>Yes (AES 128/256)</td>
-</tr>
-<tr>
-<td>Watermarks</td>
-<td>No</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Headers/footers</td>
-<td>No</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td><strong>Security</strong></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>Password protection</td>
-<td>Read-only</td>
-<td>Read and write</td>
-</tr>
-<tr>
-<td>Certificate signatures</td>
-<td>No</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Redaction</td>
-<td>No</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td><strong>Known Issues</strong></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>DLL deployment</td>
-<td>Yes (major issue)</td>
-<td>No (embedded)</td>
-</tr>
-<tr>
-<td>x86/x64 conflicts</td>
-<td>Common</td>
-<td>N/A</td>
-</tr>
-<tr>
-<td>Thread safety</td>
-<td>Unclear in most wrappers</td>
-<td>Documented, safe</td>
-</tr>
-<tr>
-<td>Memory leaks</td>
-<td>Reported (improper disposal)</td>
-<td>Managed automatically</td>
-</tr>
-<tr>
-<td>Docker support</td>
-<td>Manual DLL management required</td>
-<td>Built-in support</td>
-</tr>
-<tr>
-<td><strong>Development</strong></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>Async/await</td>
-<td>Wrapper-dependent</td>
-<td>Full async API</td>
-</tr>
-<tr>
-<td>Dependency injection</td>
-<td>Difficult</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Unit testing</td>
-<td>Requires DLL mocking</td>
-<td>Standard mocking works</td>
-</tr>
-<tr>
-<td>NuGet packages</td>
-<td>Multiple per platform</td>
-<td>Single, multi-target</td>
-</tr>
-</tbody>
-</table>
+<p><strong>Project status and support.</strong></p>
+<ul>
+<li><strong>Maintenance.</strong> Pdfium wrappers are typically community-maintained (often by individuals or small teams) — IronPDF is a commercially-maintained product with active releases.</li>
+<li><strong>Breaking changes.</strong> API stability varies wrapper-to-wrapper and even fork-to-fork; IronPDF publishes documented migration notes between major versions.</li>
+<li><strong>Platform support.</strong> Each wrapper handles platforms differently; IronPDF targets Windows, Linux, macOS, and containers from a single package.</li>
+<li><strong>Documentation.</strong> Pdfium wrappers typically rely on README-level docs and source reading; IronPDF ships a published API reference and how-to guides.</li>
+<li><strong>Channels and SLA.</strong> Wrapper support is generally GitHub-issues-only with no SLA; IronPDF offers commercial support tiers including live chat and SLA-backed plans.</li>
+</ul>
+
+<p><strong>Content creation.</strong> HTML-to-PDF, URL-to-PDF, programmatic creation from scratch, merge, and split are not in scope for Pdfium itself. A few commercial Pdfium-derived SDKs add some of these, but coverage varies. IronPDF supports all of these directly through <code>ChromePdfRenderer</code> and <code>PdfDocument</code>.</p>
+
+<p><strong>PDF operations.</strong></p>
+<ul>
+<li><strong>Render to bitmap.</strong> Pdfium's core capability — fast and accurate. IronPDF can rasterize to images via <code>RasterizeToImageFiles</code>, though it is not the primary use case.</li>
+<li><strong>Text and image extraction.</strong> Wrapper-dependent for Pdfium; IronPDF exposes <code>ExtractAllText</code> and image extraction APIs.</li>
+<li><strong>Form filling, digital signatures, encryption, watermarks, headers/footers.</strong> Generally not covered by Pdfium wrappers; IronPDF supports AcroForm filling, X.509 signing, AES 128/256 encryption, watermarks, and HTML headers/footers.</li>
+</ul>
+
+<p><strong>Security.</strong> Pdfium wrappers can typically open password-protected PDFs but not apply or change passwords; certificate signatures and redaction are out of scope. IronPDF supports applying user/owner passwords via <code>SecuritySettings</code>, certificate-based signatures, and redaction.</p>
+
+<p><strong>Deployment and runtime.</strong></p>
+<ul>
+<li><strong>Native DLL deployment.</strong> A documented Pdfium pain point — pdfium.dll/libpdfium.so must be present at runtime in the right location. IronPDF ships its native binaries through the package itself.</li>
+<li><strong>x86/x64 conflicts.</strong> Common with Pdfium wrappers when process bitness and binary bitness diverge. Not an issue with IronPDF.</li>
+<li><strong>Thread safety.</strong> Documented thread-safety varies by Pdfium wrapper; IronPDF documents thread-safe usage patterns.</li>
+<li><strong>Memory management.</strong> Pdfium wrappers expose IDisposable types that require careful disposal to avoid native leaks; IronPDF handles native resource lifetime within the managed wrapper.</li>
+<li><strong>Docker.</strong> Pdfium-based deployments often require Dockerfile steps to copy native binaries; IronPDF works in standard containers without extra binary management.</li>
+</ul>
+
+<p><strong>Development experience.</strong> Pdfium wrappers vary in async support, DI-friendliness, and testability. IronPDF exposes async APIs, integrates with DI containers, and uses standard mockable abstractions. NuGet-wise, Pdfium typically requires multiple packages per platform; IronPDF is a single multi-target package.</p>
 
 <h2>FAQ and Troubleshooting Tips</h2>
 
@@ -459,17 +282,17 @@ pdf.SaveAs("contract-updated.pdf");
 
 <p>This is the most common Pdfium deployment issue. The native pdfium.dll (or libpdfium.so on Linux) must be in the correct directory at runtime, and the architecture (x86/x64) must match your process. In containerized environments, the native binaries often aren't included in the publish output. You need to ensure the correct platform-specific NuGet package is installed, set "Copy to Output Directory" for native DLLs, and for Docker, explicitly copy the runtimes folder in your Dockerfile. IronPDF eliminates this entirely — a single NuGet package embeds all platform binaries.</p>
 
-<h3>Which Pdfium wrapper should I choose — PDFiumSharp, PDFiumCore, or Pdfium.Net.SDK?</h3>
+<h3>Which Pdfium wrapper should I choose — PdfiumViewer, PDFiumSharp, PDFiumCore, or Pdfium.Net.SDK?</h3>
 
-<p>The fragmented ecosystem is a real problem. PDFiumSharp has multiple forks with varying maintenance levels. PDFiumCore targets .NET Standard 2.1 (requires .NET Core 3.1+) and has better cross-platform support. Pdfium.Net.SDK is commercial with a free tier that adds watermarks. Each wrapper has a different API surface, so switching between them requires code rewrites. If you need more than bitmap rendering, consider whether Pdfium is the right tool at all.</p>
+<p>The fragmented ecosystem is a real factor. PdfiumViewer has long been a popular WinForms-friendly choice on .NET Framework. PDFiumSharp exists in multiple forks with varying maintenance levels. PDFiumCore is a more recent .NET Standard wrapper aimed at cross-platform use — verify the current target framework against its NuGet listing. Pdfium.Net.SDK is a commercial offering with its own licensing terms; check the vendor's site for current edition details. Each wrapper has a different API surface, so switching between them generally requires code changes. If you need more than bitmap rendering, consider whether Pdfium-derived libraries are the right tool at all.</p>
 
 <h3>How does installation differ between Pdfium wrappers and IronPDF?</h3>
 
-<p>Pdfium requires multiple packages — the wrapper itself plus platform-specific native binaries. For PDFiumSharp on Windows, that's <code>Install-Package PDFiumSharp</code> plus <code>Install-Package PDFium.Windows</code>. For Linux, you manually obtain libpdfium.so from the pdfium-binaries repository and place it in the runtimes folder structure. IronPDF is a single command: <code>Install-Package IronPdf</code>. One package, all platforms, no additional configuration.</p>
+<p>Pdfium typically requires multiple packages — the wrapper itself plus platform-specific native binaries. For PdfiumViewer on Windows, that's <code>Install-Package PdfiumViewer</code> plus a matching native binary package. On Linux, libpdfium.so usually needs to be sourced separately and placed in a runtimes folder. IronPDF is a single command: <code>Install-Package IronPdf</code>. One package, multi-platform target, no separate runtimes packages.</p>
 
 <h3>Is IronPDF thread-safe for parallel PDF processing?</h3>
 
-<p>Yes. IronPDF is fully thread-safe with a documented parallel processing model. Chromium engine resources are pooled and reused across conversions. In contrast, most Pdfium wrappers have unclear thread safety documentation. PDFiumCore's docs don't specify whether PdfDocument is safe for concurrent access. IronPDF supports <code>Parallel.ForEach</code> and <code>async/await</code> patterns out of the box for batch generation scenarios.</p>
+<p>IronPDF documents thread-safe usage and a parallel processing model, with renderer resources pooled across conversions. Thread-safety guidance for Pdfium wrappers varies — verify in the specific wrapper's docs before parallelizing access to <code>PdfDocument</code>. IronPDF supports <code>Parallel.ForEach</code> and <code>async/await</code> patterns for batch generation scenarios.</p>
 
 <h2>When should you use Pdfium vs IronPDF?</h2>
 
@@ -477,6 +300,6 @@ pdf.SaveAs("contract-updated.pdf");
 
 <p>Use <a href="https://ironpdf.com/tutorials/html-to-pdf/">IronPDF</a> when you need to generate PDFs from HTML, manipulate existing documents (merge, split, forms, signatures, encryption), extract content, or deploy to cloud and container environments. IronPDF replaces Pdfium's viewing capability with comprehensive PDF generation through a Chromium rendering engine, plus full document manipulation — all in a single NuGet package with embedded platform-specific binaries.</p>
 
-<p>Migration becomes mandatory when HTML-to-PDF generation is required, PDF manipulation is needed beyond viewing, cross-platform deployment is on the roadmap, commercial support and SLA are business requirements, or native DLL management is causing deployment issues. For teams hitting any of these walls, IronPDF provides full document lifecycle support from .NET Framework 4.6.2 through .NET 10 with zero configuration changes across Windows, Linux, macOS, Docker, Azure Functions, AWS Lambda, and Kubernetes.</p>
+<p>Migration becomes the practical choice when HTML-to-PDF generation is required, PDF manipulation is needed beyond viewing, cross-platform deployment is on the roadmap, commercial support and SLA are business requirements, or native DLL management is causing deployment friction. For teams hitting any of those walls, IronPDF provides full document lifecycle support across modern .NET targets, on Windows, Linux, macOS, Docker, Azure Functions, AWS Lambda, and Kubernetes — without separate native binary packages per platform.</p>
 
 <p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

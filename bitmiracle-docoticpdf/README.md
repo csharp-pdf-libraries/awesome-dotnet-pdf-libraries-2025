@@ -14,8 +14,8 @@ The library provides an extensive range of features including document creation 
 
 ### Weaknesses
 
-**1. Lack of HTML-to-PDF Conversion**  
-One of the notable downsides of BitMiracle Docotic.Pdf is the absence of HTML-to-PDF conversion capabilities. In modern development environments, converting HTML to PDF is a common requirement, and the lack of this feature can limit its use cases.
+**1. HTML-to-PDF Requires a Separate Add-On**  
+HTML-to-PDF conversion is not part of the core `BitMiracle.Docotic.Pdf` package. To convert HTML, you must additionally install the `BitMiracle.Docotic.Pdf.HtmlToPdf` add-on (which bundles Chromium) and use its async-only `HtmlConverter` API. This split-package model adds setup overhead compared with libraries that include HTML rendering in a single package.
 
 **2. Smaller Community**  
 Though feature-rich, the library’s relatively smaller adoption translates to fewer community resources, such as forums, user-contributed tutorials, or quick solutions to common problems.
@@ -63,22 +63,24 @@ This fundamental example illuminates the basics of interacting with the library,
 Here's how **BitMiracle Docotic.Pdf C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package Docotic.Pdf
+// NuGet: Install-Package BitMiracle.Docotic.Pdf
+// NuGet: Install-Package BitMiracle.Docotic.Pdf.HtmlToPdf  (separate add-on required)
 using BitMiracle.Docotic.Pdf;
 using System;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        using (var pdf = new PdfDocument())
-        {
-            string html = "<html><body><h1>Hello World</h1><p>This is HTML to PDF conversion.</p></body></html>";
-            
-            pdf.CreatePage(html);
-            pdf.Save("output.pdf");
-        }
-        
+        // HtmlConverter is async-only and downloads Chromium on first use
+        using var converter = await HtmlConverter.CreateAsync();
+
+        string html = "<html><body><h1>Hello World</h1><p>This is HTML to PDF conversion.</p></body></html>";
+
+        using var pdf = await converter.CreatePdfFromStringAsync(html);
+        pdf.Save("output.pdf");
+
         Console.WriteLine("PDF created successfully");
     }
 }
@@ -115,7 +117,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **BitMiracle Docotic.Pdf C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package Docotic.Pdf
+// NuGet: Install-Package BitMiracle.Docotic.Pdf
 using BitMiracle.Docotic.Pdf;
 using System;
 
@@ -124,12 +126,13 @@ class Program
     static void Main()
     {
         using (var pdf1 = new PdfDocument("document1.pdf"))
-        using (var pdf2 = new PdfDocument("document2.pdf"))
         {
-            pdf1.Append(pdf2);
+            // PdfDocument.Append accepts a file path, Stream, or byte[] —
+            // not another PdfDocument instance.
+            pdf1.Append("document2.pdf");
             pdf1.Save("merged.pdf");
         }
-        
+
         Console.WriteLine("PDFs merged successfully");
     }
 }
@@ -167,7 +170,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **BitMiracle Docotic.Pdf C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package Docotic.Pdf
+// NuGet: Install-Package BitMiracle.Docotic.Pdf
 using BitMiracle.Docotic.Pdf;
 using System;
 
@@ -237,10 +240,10 @@ Docotic.Pdf is a capable 100% managed code PDF library, but its modular add-on a
 |-------------|-------------|---------|
 | Load PDF | `new PdfDocument(path)` | `PdfDocument.FromFile(path)` |
 | Save PDF | `doc.Save(path)` | `pdf.SaveAs(path)` |
-| HTML to PDF | `HtmlEngine.CreatePdfAsync(html)` | `renderer.RenderHtmlAsPdf(html)` |
-| URL to PDF | `HtmlEngine.CreatePdfAsync(uri)` | `renderer.RenderUrlAsPdf(url)` |
+| HTML to PDF | `await converter.CreatePdfFromStringAsync(html)` | `renderer.RenderHtmlAsPdf(html)` |
+| URL to PDF | `await converter.CreatePdfAsync(new Uri(url))` | `renderer.RenderUrlAsPdf(url)` |
 | Extract text | `doc.GetText()` / `page.GetText()` | `pdf.ExtractAllText()` |
-| Merge PDFs | `doc1.Append(doc2)` | `PdfDocument.Merge(pdf1, pdf2)` |
+| Merge PDFs | `doc1.Append("file.pdf")` (path/Stream/bytes) | `PdfDocument.Merge(pdf1, pdf2)` |
 | Get page count | `doc.PageCount` | `pdf.PageCount` |
 | Draw text | `canvas.DrawString(x, y, text)` | HTML with CSS positioning |
 | Add watermark | `canvas.DrawString()` with transparency | `pdf.ApplyWatermark(html)` |
@@ -253,18 +256,20 @@ Docotic.Pdf is a capable 100% managed code PDF library, but its modular add-on a
 **Before (Docotic.Pdf with HtmlToPdf Add-on):**
 ```csharp
 using BitMiracle.Docotic.Pdf;
-using BitMiracle.Docotic.Pdf.HtmlToPdf;
 
-// Create HTML engine (downloads Chromium on first use)
-using var engine = await HtmlEngine.CreateAsync();
+// HtmlConverter downloads Chromium on first use; API is async-only
+using var converter = await HtmlConverter.CreateAsync();
 
 var options = new HtmlConversionOptions();
-options.PageSize = PaperKind.A4;
-options.PageMargins = new PageMargins(20);
+options.Page.SetSize(PdfPaperSize.A4);
+options.Page.MarginTop = 20;
+options.Page.MarginBottom = 20;
+options.Page.MarginLeft = 20;
+options.Page.MarginRight = 20;
 
 string html = "<h1>Invoice #12345</h1><p>Details...</p>";
 
-using var pdf = await engine.CreatePdfAsync(html, options);
+using var pdf = await converter.CreatePdfFromStringAsync(html, options);
 pdf.Save("invoice.pdf");
 ```
 
@@ -313,7 +318,7 @@ dotnet add package IronPdf
 ### Find All Docotic.Pdf References
 
 ```bash
-grep -r "using BitMiracle.Docotic\|PdfDocument\|PdfCanvas\|HtmlEngine" --include="*.cs" .
+grep -r "using BitMiracle.Docotic\|PdfDocument\|PdfCanvas\|HtmlConverter" --include="*.cs" .
 ```
 
 **Ready for the complete migration?** The full guide includes:
@@ -338,7 +343,7 @@ Below is a comparison table positioning BitMiracle Docotic.Pdf amongst other lea
 | API Style         | Object Model      | Object Model | Object Model   | Object Model | Direct Conversion / OM | Fluent / Declarative | GDI+ / Object Model   | Object Model            |
 | Create from Scratch | ✔️            | ✔️         | ✔️             | ✔️       | ✔️                     | ✔️        | ✔️                 | ✔️                     |
 | Modify Existing   | ✔️              | ✔️         | ✔️             | ✔️       | ✔️                     | ❌        | ✔️                 | ✔️                     |
-| HTML-to-PDF       | Add-on (pdfHTML)  | ✔️         | ✔️             | ✔️       | ✔️ (Core Feature)       | ❌        | Add-on (External) | ❌                     |
+| HTML-to-PDF       | Add-on (pdfHTML)  | ✔️         | ✔️             | ✔️       | ✔️ (Core Feature)       | ❌        | Add-on (External) | Add-on (HtmlToPdf)     |
 | Read/Extract Text | ✔️              | ✔️         | ✔️             | ✔️       | ✔️                     | ❌        | ✔️                 | ✔️                     |
 | Form Creation     | ✔️              | ✔️         | ✔️             | ✔️       | ✔️                     | ❌        | ✔️                 | ✔️                     |
 | Form Filling      | ✔️              | ✔️         | ✔️             | ✔️       | ✔️                     | ❌        | ✔️                 | ✔️                     |

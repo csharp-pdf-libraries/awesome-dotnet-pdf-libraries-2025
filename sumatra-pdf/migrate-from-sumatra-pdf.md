@@ -2,23 +2,23 @@
 
 ## Why Migrate from Sumatra PDF?
 
-Sumatra PDF is a **desktop PDF viewer application**, not a development library. If you're using Sumatra PDF in your .NET application, you're likely:
+Sumatra PDF is a **standalone Windows desktop PDF viewer/printer application** (current release 3.6.1, April 2026), not a development library. There is no official .NET SDK or NuGet package — community wrappers like `SumatraPDFWrapper` exist but simply shell out to `SumatraPDF.exe`. If you're using Sumatra PDF from your .NET application, you're likely:
 
 1. Launching it as an external process to display PDFs
-2. Using it for printing PDFs via command-line
+2. Using it for printing PDFs via command-line (`-print-to-default`, `-print-to "<printer>"`)
 3. Relying on it as a dependency your users must install
 
 ### Key Problems with Sumatra PDF Integration
 
 | Problem | Impact |
 |---------|--------|
-| **Not a Library** | Cannot programmatically create or edit PDFs |
-| **External Process** | Requires spawning separate processes |
-| **GPL License** | Restrictive for commercial software |
-| **User Dependency** | Users must install Sumatra separately |
-| **No API** | Limited to command-line arguments |
-| **View-Only** | Cannot create, edit, or manipulate PDFs |
-| **No Web Support** | Desktop-only application |
+| **Not a library** | Cannot programmatically create or edit PDFs |
+| **External process** | Requires spawning `SumatraPDF.exe`; no in-process API |
+| **AGPLv3 license** | Strong copyleft — bundling Sumatra source/binaries into a closed-source product imposes obligations most commercial vendors avoid |
+| **User dependency** | Users (or your installer) must place SumatraPDF.exe on disk |
+| **CLI only** | Limited to documented command-line arguments |
+| **View / print only** | Cannot create, edit, or manipulate PDFs |
+| **Windows only** | No Linux or macOS builds |
 
 ### What IronPDF Offers Instead
 
@@ -34,7 +34,7 @@ Sumatra PDF is a **desktop PDF viewer application**, not a development library. 
 | Text Extraction | No | Yes |
 | .NET Integration | None | Native |
 | Web Applications | No | Yes |
-| Commercial License | GPL | Yes |
+| Commercial License | AGPLv3 (copyleft) | Yes (commercial) |
 
 ---
 
@@ -109,22 +109,21 @@ Process.Start(new ProcessStartInfo
 });
 ```
 
-**IronPDF (Native Print):**
+**IronPDF (Native Print — Windows only):**
 ```csharp
 using IronPdf;
 
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 var pdf = PdfDocument.FromFile("document.pdf");
 
 // Print to default printer
 pdf.Print();
 
-// Print with options
-pdf.Print(new PrintOptions
-{
-    PrinterName = "HP LaserJet",
-    NumberOfCopies = 2,
-    DPI = 300
-});
+// Print to a named printer at a specified DPI
+pdf.Print(300, 300, "HP LaserJet");
+
+// For copies, paper size, duplex etc., use the .NET PrintDocument
+// returned by GetPrintDocument and configure System.Drawing.Printing.PrinterSettings.
 ```
 
 ### Pattern 3: Creating PDF (Not Possible with Sumatra)
@@ -297,22 +296,23 @@ pdf.SaveAs("protected.pdf");
 Process.Start("SumatraPDF.exe", pdfPath);
 ```
 
-**New Approach:** Use IronPDF's built-in viewer or system viewer
+**New Approach:** Generate the PDF with IronPDF and hand it to the system viewer (or, on .NET MAUI, embed the IronPDF Viewer component).
 ```csharp
 using IronPdf;
-using IronPdf.Viewing;
+using System.Diagnostics;
+using System.IO;
 
-// Option 1: IronPDF's built-in viewer (WinForms/WPF)
-var pdf = PdfDocument.FromFile("document.pdf");
-var viewer = new PdfViewer();
-viewer.LoadPdf(pdf);
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
-// Option 2: Create PDF and open with system viewer
+// Create PDF and open with the user's default PDF viewer
 var renderer = new ChromePdfRenderer();
 var pdf = renderer.RenderHtmlAsPdf(htmlContent);
-var tempPath = Path.GetTempFileName() + ".pdf";
+var tempPath = Path.ChangeExtension(Path.GetTempFileName(), ".pdf");
 pdf.SaveAs(tempPath);
 Process.Start(new ProcessStartInfo(tempPath) { UseShellExecute = true });
+
+// On .NET MAUI you can also embed the IronPDF Viewer control directly
+// (see https://ironpdf.com/tutorials/pdf-viewing/ — IronPdf.Viewer.Maui).
 ```
 
 ### Scenario 2: Web Application PDF Generation
@@ -358,9 +358,9 @@ foreach (var htmlFile in htmlFiles)
 
 **Solution:** IronPDF is bundled with your app - no external dependencies.
 
-### Issue 2: GPL License Restrictions
+### Issue 2: AGPLv3 License Restrictions
 
-**Problem:** Sumatra's GPL license may conflict with proprietary software.
+**Problem:** Sumatra PDF is licensed under AGPLv3 (with some BSD-licensed files). Bundling or linking AGPLv3 code into a proprietary product triggers strong copyleft obligations that most commercial vendors cannot meet.
 
 **Solution:** IronPDF has commercial licensing compatible with proprietary software.
 

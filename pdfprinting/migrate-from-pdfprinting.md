@@ -2,19 +2,19 @@
 
 ## Why Migrate from PDFPrinting.NET?
 
-PDFPrinting.NET is a specialized library focused exclusively on silent PDF printing within Windows environments. While excellent for its narrow purpose, it cannot help when your application needs to evolve beyond printing to creating, editing, or manipulating PDFs.
+PDFPrinting.NET (Terminalworks; NuGet package `PdfPrintingNet`, current 5.4.2 as of March 2026) is a specialized library focused on silent PDF printing within Windows environments. It also offers PDF viewing, basic editing, and PDF-to-image rasterization as separately licensed components. What it does not do is generate PDFs from HTML, URLs, or any other source — its API has no `HtmlToPdfConverter` or `WebPageToPdfConverter` class. When your application needs to evolve beyond printing existing PDFs into creating or rendering them, you need a different tool.
 
-### The Printing-Only Limitation
+### The Printing-Centric Limitation
 
-PDFPrinting.NET focuses exclusively on one task:
+PDFPrinting.NET concentrates on a narrow set of operations:
 
-1. **Printing Only**: Cannot create, edit, or manipulate PDF documents
-2. **Windows Only**: Tied to Windows printing infrastructure—no Linux/macOS support
-3. **No PDF Generation**: Cannot convert HTML, URLs, or data to PDF
-4. **No Document Manipulation**: Cannot merge, split, watermark, or secure PDFs
-5. **No Text Extraction**: Cannot read or extract content from PDFs
-6. **No Form Handling**: Cannot fill or flatten PDF forms
-7. **No Modern Web Content**: Cannot render JavaScript or complex CSS layouts
+1. **Print-centric**: Creates no new PDF content — it only prints, views, edits, and rasterizes pre-existing PDFs
+2. **Windows-only printing**: Print path is tied to Windows printing infrastructure
+3. **No HTML/URL-to-PDF**: There is no `HtmlToPdfConverter` and no `WebPageToPdfConverter` class — these features simply do not exist
+4. **Limited manipulation**: Has basic merge/split/extract via `PdfPrintDocument` but no watermarking or modern content authoring
+5. **No text extraction API surface comparable to a full PDF SDK**
+6. **No form filling/flattening**
+7. **No JavaScript or modern CSS rendering** — rasterization is for printing existing documents
 
 ### Why Choose [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/)?
 
@@ -44,7 +44,7 @@ IronPDF provides complete PDF lifecycle management plus printing:
 | Printer Integration | Windows Print API | Cross-platform printing |
 | Silent Printing | Yes | Yes |
 | Print Settings | Basic | Comprehensive |
-| License | Commercial | Commercial |
+| License | Commercial (Site $299+, Redistributable $699+, Full $2,249) | Commercial |
 
 Explore performance benchmarks and pricing in the [comprehensive guide](https://ironsoftware.com/suite/blog/comparison/compare-pdfprinting-vs-ironpdf/).
 
@@ -53,9 +53,8 @@ Explore performance benchmarks and pricing in the [comprehensive guide](https://
 ## NuGet Package Changes
 
 ```bash
-# Remove PDFPrinting.NET
-dotnet remove package PDFPrinting.NET
-dotnet remove package PDFPrintingNET
+# Remove PDFPrinting.NET (the actual NuGet ID is PdfPrintingNet)
+dotnet remove package PdfPrintingNet
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -67,9 +66,10 @@ dotnet add package IronPdf
 
 ```csharp
 // Before: PDFPrinting.NET
-using PDFPrintingNET;
-using PDFPrinting;
-using PDFPrinting.NET;
+// Newer API:
+using PdfPrintingNet;
+// Older code may use:
+using TerminalWorks.PDFPrinting;
 
 // After: IronPDF
 using IronPdf;
@@ -84,26 +84,25 @@ using IronPdf.Printing;
 
 | PDFPrinting.NET | IronPDF | Notes |
 |-----------------|---------|-------|
-| `PDFPrinter` | `PdfDocument` | Core PDF object |
-| `PDFPrintDocument` | `PdfDocument` | Alternative class name |
-| `HtmlToPdfConverter` | `ChromePdfRenderer` | PDF generation |
-| `WebPageToPdfConverter` | `ChromePdfRenderer` | URL conversion |
+| `PdfPrint` (newer) / `PDFPrinter` (legacy) | `PdfDocument` + `Print()` | Core printing entry point |
+| `PdfPrintDocument` | `PdfDocument` | Document representation |
+| _(no HTML-to-PDF class exists)_ | `ChromePdfRenderer.RenderHtmlAsPdf` | IronPDF only |
+| _(no URL-to-PDF class exists)_ | `ChromePdfRenderer.RenderUrlAsPdf` | IronPDF only |
 | Print settings properties | `PrintSettings` | Print configuration |
 
 ### Printing Methods
 
 | PDFPrinting.NET | IronPDF | Notes |
 |-----------------|---------|-------|
-| `printer.Print(filePath)` | `pdf.Print()` | Print to default printer |
-| `printer.Print(filePath, printerName)` | `pdf.Print(printerName)` | Print to specific printer |
-| `printer.PrinterName = "..."` | `pdf.Print("...")` | Specify printer |
-| `printer.GetPrintDocument(path)` | `pdf.GetPrintDocument()` | Get PrintDocument |
-| `printer.PageScaling` | `printSettings.PrinterResolution` | Scaling options |
-| `printer.Copies = n` | `printSettings.NumberOfCopies = n` | Copy count |
-| `printer.Duplex` | `printSettings.DuplexMode` | Duplex printing |
-| `printer.CollatePages` | `printSettings.Collate` | Collation |
-| `printer.PrintInColor` | `printSettings.GrayscaleOutput` | Color settings |
-| `printer.PaperSource` | `printSettings.PaperTray` | Paper source |
+| `pdfPrint.Print(filePath)` | `pdf.Print()` | Print to default printer |
+| `pdfPrint.PrinterName = "..."; pdfPrint.Print(filePath)` | `pdf.Print(printerName)` | Specify printer |
+| `pdfPrintDocument` instance | `pdf.GetPrintDocument()` | Get PrintDocument |
+| Property: page scaling | `printSettings.PrinterResolution` | Scaling options |
+| Property: copies | `printSettings.NumberOfCopies = n` | Copy count |
+| Property: duplex | `printSettings.DuplexMode` | Duplex printing |
+| Property: collate | `printSettings.Collate` | Collation |
+| Property: color | `printSettings.GrayscaleOutput` | Color settings |
+| Property: paper source | `printSettings.PaperTray` | Paper source |
 
 ### PDF Generation (NEW in IronPDF)
 
@@ -133,7 +132,7 @@ using IronPdf.Printing;
 
 **Before (PDFPrinting.NET):**
 ```csharp
-using PDFPrintingNET;
+using PdfPrintingNet;
 using System;
 
 class Program
@@ -142,10 +141,10 @@ class Program
     {
         string filePath = "document.pdf";
 
-        var printer = new PDFPrinter();
-        printer.Print(filePath);
+        var pdfPrint = new PdfPrint("license-owner", "license-key");
+        var status = pdfPrint.Print(filePath);
 
-        Console.WriteLine("PDF printed successfully.");
+        Console.WriteLine($"PDF printed: {status}");
     }
 }
 ```
@@ -175,16 +174,16 @@ class Program
 
 **Before (PDFPrinting.NET):**
 ```csharp
-using PDFPrintingNET;
+using PdfPrintingNet;
 using System;
 
 class Program
 {
     static void Main()
     {
-        var printer = new PDFPrinter();
-        printer.PrinterName = "HP LaserJet Pro";
-        printer.Print("document.pdf");
+        var pdfPrint = new PdfPrint("license-owner", "license-key");
+        pdfPrint.PrinterName = "HP LaserJet Pro";
+        pdfPrint.Print("document.pdf");
 
         Console.WriteLine("PDF sent to HP LaserJet Pro.");
     }
@@ -214,22 +213,22 @@ class Program
 
 **Before (PDFPrinting.NET):**
 ```csharp
-using PDFPrintingNET;
+using PdfPrintingNet;
 using System;
 
 class Program
 {
     static void Main()
     {
-        var printer = new PDFPrinter();
-        printer.PrinterName = "Office Printer";
-        printer.Copies = 3;
-        printer.PageScaling = PDFPageScaling.FitToPrintableArea;
-        printer.Duplex = true;
-        printer.CollatePages = true;
-        printer.PrintInColor = false;
+        var pdfPrint = new PdfPrint("license-owner", "license-key");
+        pdfPrint.PrinterName = "Office Printer";
+        pdfPrint.Copies = 3;
+        pdfPrint.PageScaling = PageScaling.FitToPrintableArea;
+        pdfPrint.Duplex = true;
+        pdfPrint.Collate = true;
+        pdfPrint.PrintInColor = false;
 
-        printer.Print("report.pdf");
+        pdfPrint.Print("report.pdf");
 
         Console.WriteLine("Printed 3 grayscale duplex copies.");
     }
@@ -270,7 +269,7 @@ class Program
 
 **Before (PDFPrinting.NET):**
 ```csharp
-using PDFPrintingNET;
+using PdfPrintingNet;
 using System.Drawing.Printing;
 using System;
 
@@ -278,10 +277,9 @@ class Program
 {
     static void Main()
     {
-        var printer = new PDFPrinter();
-        var printDoc = printer.GetPrintDocument("document.pdf");
+        // PdfPrintDocument inherits System.Drawing.Printing.PrintDocument
+        var printDoc = new PdfPrintDocument("license-owner", "license-key", "document.pdf");
 
-        // Access System.Drawing.Printing.PrintDocument
         printDoc.PrinterSettings.PrinterName = "Network Printer";
         printDoc.PrinterSettings.Copies = 2;
         printDoc.PrinterSettings.FromPage = 1;
@@ -322,18 +320,18 @@ class Program
 
 **Before (PDFPrinting.NET):**
 ```csharp
-using PDFPrintingNET;
+using PdfPrintingNet;
 using System;
 
 class Program
 {
     static void Main()
     {
-        var printer = new PDFPrinter();
-        printer.FromPage = 2;
-        printer.ToPage = 5;
+        var pdfPrint = new PdfPrint("license-owner", "license-key");
+        pdfPrint.FromPage = 2;
+        pdfPrint.ToPage = 5;
 
-        printer.Print("document.pdf");
+        pdfPrint.Print("document.pdf");
     }
 }
 ```
@@ -450,7 +448,7 @@ class Program
 
 **Before (PDFPrinting.NET):**
 ```csharp
-using PDFPrintingNET;
+using PdfPrintingNet;
 using System;
 using System.Collections.Generic;
 
@@ -458,8 +456,8 @@ class Program
 {
     static void Main()
     {
-        var printer = new PDFPrinter();
-        printer.PrinterName = "Office Printer";
+        var pdfPrint = new PdfPrint("license-owner", "license-key");
+        pdfPrint.PrinterName = "Office Printer";
 
         var files = new List<string>
         {
@@ -470,7 +468,7 @@ class Program
 
         foreach (var file in files)
         {
-            printer.Print(file);
+            pdfPrint.Print(file);
             Console.WriteLine($"Printed: {file}");
         }
     }
@@ -597,32 +595,32 @@ class Program
 // PDFPrinting.NET settings → IronPDF equivalents
 
 // Copies
-// Before: printer.Copies = 3;
+// Before: pdfPrint.Copies = 3;
 // After:
 var settings = new PrintSettings { NumberOfCopies = 3 };
 
 // Duplex
-// Before: printer.Duplex = true;
+// Before: pdfPrint.Duplex = true;
 // After:
 settings.DuplexMode = System.Drawing.Printing.Duplex.Vertical;
 
 // Collate
-// Before: printer.CollatePages = true;
+// Before: pdfPrint.Collate = true;
 // After:
 settings.Collate = true;
 
 // Grayscale
-// Before: printer.PrintInColor = false;
+// Before: pdfPrint.PrintInColor = false;
 // After:
 settings.GrayscaleOutput = true;
 
 // DPI/Resolution
-// Before: printer.PrintQuality = PrintQuality.High;
+// Before: pdfPrint.PrintQuality = PrintQuality.High;
 // After:
 settings.Dpi = 300;
 
 // Printer name
-// Before: printer.PrinterName = "MyPrinter";
+// Before: pdfPrint.PrinterName = "MyPrinter";
 // After:
 settings.PrinterName = "MyPrinter";
 
@@ -889,10 +887,10 @@ apt-get install -y cups
 
 ## Post-Migration Checklist
 
-- [ ] Remove PDFPrinting.NET NuGet package
-- [ ] Update all namespace imports
+- [ ] Remove PdfPrintingNet NuGet package
+- [ ] Update all namespace imports (`PdfPrintingNet` / legacy `TerminalWorks.PDFPrinting` → `IronPdf`)
 - [ ] Set IronPDF license key at application startup
-- [ ] Convert direct Print(path) calls to FromFile().Print() pattern
+- [ ] Convert `PdfPrint.Print(path)` calls to `PdfDocument.FromFile(path).Print()` pattern
 - [ ] Update print settings to IronPDF equivalents
 - [ ] Verify printer names work correctly
 - [ ] Test printing on all target platforms
@@ -904,14 +902,14 @@ apt-get install -y cups
 ## Find All PDFPrinting.NET References
 
 ```bash
-# Find PDFPrinting.NET usage
-grep -r "PDFPrinting\|PDFPrinter\|PDFPrintDocument" --include="*.cs" .
+# Find PDFPrinting.NET usage (newer + legacy namespaces)
+grep -rE "PdfPrintingNet|TerminalWorks\.PDFPrinting|PdfPrint\b|PdfPrintDocument|PDFPrinter" --include="*.cs" .
 
 # Find printer-related code
-grep -r "\.Print(\|PrinterName\|GetPrintDocument" --include="*.cs" .
+grep -r "\.Print(\|PrinterName" --include="*.cs" .
 
 # Find package references
-grep -r "PDFPrinting" --include="*.csproj" .
+grep -r "PdfPrintingNet" --include="*.csproj" .
 ```
 
 ---
@@ -924,7 +922,7 @@ grep -r "PDFPrinting" --include="*.csproj" .
 
 - [ ] **Inventory all PDFPrinting.NET usages in codebase**
   ```bash
-  grep -r "using PDFPrinting.NET" --include="*.cs" .
+  grep -rE "using PdfPrintingNet|using TerminalWorks\.PDFPrinting" --include="*.cs" .
   ```
   **Why:** Identify all usages to ensure complete migration coverage.
 
@@ -938,7 +936,7 @@ grep -r "PDFPrinting" --include="*.csproj" .
 
 - [ ] **Remove old package and install IronPdf**
   ```bash
-  dotnet remove package PDFPrinting.NET
+  dotnet remove package PdfPrintingNet
   dotnet add package IronPdf
   ```
   **Why:** Clean package switch to IronPDF.

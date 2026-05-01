@@ -18,34 +18,34 @@
 
 ### Critical Security Issues with DinkToPdf
 
-DinkToPdf wraps wkhtmltopdf, which has **critical unpatched security vulnerabilities**:
+DinkToPdf wraps wkhtmltopdf, which is now archived upstream and has **unpatched security advisories**:
 
-1. **CVE-2022-35583 (SSRF)**: Server-Side Request Forgery allowing attackers to access internal network resources
-2. **Abandoned Project**: wkhtmltopdf has been unmaintained since 2020
-3. **No Security Patches**: Known vulnerabilities will never be fixed
+1. **CVE-2022-35583 (SSRF)**: A Server-Side Request Forgery advisory against wkhtmltopdf 0.12.6 (CVSS 9.8 in NVD; disputed by the upstream wkhtmltopdf project, which views it as an application-side input-sanitization issue rather than a library bug). Either way, it will not be patched — the upstream project is archived.
+2. **Archived Project**: The `wkhtmltopdf/wkhtmltopdf` repository was archived on January 2, 2023, and the entire `wkhtmltopdf` GitHub organization was marked as archived by an administrator on July 10, 2024.
+3. **No Future Security Patches**: Any known or future vulnerabilities will not be fixed by the upstream project.
 
 ### DinkToPdf Technical Problems
 
 | Issue | Impact |
 |-------|--------|
-| **Thread Safety** | SynchronizedConverter still crashes in production |
-| **Native Binaries** | Complex deployment with platform-specific binaries |
-| **CSS Limitations** | No Flexbox, Grid, or modern CSS support |
+| **Thread Safety** | `BasicConverter` is single-threaded only; `SynchronizedConverter` serializes calls and can still hit native-side crashes under load |
+| **Native Binaries** | Complex deployment with platform-specific `libwkhtmltox` binaries |
+| **CSS Limitations** | Older WebKit fork — no modern Flexbox/Grid layout support |
 | **JavaScript** | Inconsistent execution, timeouts |
-| **Rendering** | Outdated WebKit engine (circa 2015) |
-| **Maintenance** | Last update: 2018 |
+| **Rendering** | Outdated QtWebKit-based engine (wkhtmltopdf 0.12.6, last release 2020) |
+| **Maintenance** | DinkToPdf 1.0.8 last released April 18, 2017 on NuGet |
 
 ### Key Advantages of IronPDF
 
 | Aspect | DinkToPdf | IronPDF |
 |--------|-----------|---------|
-| **Security** | CVE-2022-35583 (SSRF), unpatched | No known vulnerabilities |
-| **Rendering Engine** | Outdated WebKit (2015) | Modern Chromium |
-| **Thread Safety** | Crashes in concurrent use | Fully thread-safe |
-| **Native Dependencies** | Platform-specific binaries | Pure NuGet package |
-| **CSS Support** | No Flexbox/Grid | Full CSS3 |
+| **Security** | CVE-2022-35583 (SSRF), unpatched / disputed upstream | No known critical CVEs |
+| **Rendering Engine** | Older QtWebKit fork (wkhtmltopdf 0.12.6) | Modern Chromium |
+| **Thread Safety** | Use `SynchronizedConverter`; serialized only | Thread-safe by design |
+| **Native Dependencies** | `libwkhtmltox.dll/.so/.dylib` per platform | Managed NuGet package (Chromium downloaded at runtime) |
+| **CSS Support** | No modern Flexbox/Grid | Full CSS3 |
 | **JavaScript** | Limited, inconsistent | Full support |
-| **Maintenance** | Abandoned (2018) | Actively maintained |
+| **Maintenance** | DinkToPdf last release: 2017; wkhtmltopdf org archived Jul 2024 | Actively maintained |
 | **Support** | Community only | Professional support |
 
 ### Feature Comparison
@@ -54,19 +54,19 @@ For developers requiring additional migration patterns and real-world implementa
 
 | Feature | DinkToPdf | IronPDF |
 |---------|-----------|---------|
-| HTML to PDF | ✅ (outdated engine) | ✅ (Chromium) |
-| URL to PDF | ✅ | ✅ |
-| Custom margins | ✅ | ✅ |
-| Headers/Footers | ✅ (limited) | ✅ (full HTML) |
-| CSS3 | ❌ Limited | ✅ Full |
-| Flexbox/Grid | ❌ | ✅ |
-| JavaScript | ⚠️ Limited | ✅ Full |
-| PDF manipulation | ❌ | ✅ |
-| Form filling | ❌ | ✅ |
-| Digital signatures | ❌ | ✅ |
-| Encryption | ❌ | ✅ |
-| Watermarks | ❌ | ✅ |
-| Merge/Split | ❌ | ✅ |
+| HTML to PDF | Yes (older WebKit) | Yes (Chromium) |
+| URL to PDF | Yes | Yes |
+| Custom margins | Yes | Yes |
+| Headers/Footers | Yes (limited placeholder API) | Yes (full HTML/CSS) |
+| CSS3 | Limited | Full |
+| Flexbox/Grid | Not supported | Supported |
+| JavaScript | Limited / unreliable | Full |
+| PDF manipulation (merge, split, watermark, etc.) | Not provided — wrapper is HTML→PDF only | Yes |
+| Form filling | Not provided | Yes |
+| Digital signatures | Not provided | Yes |
+| Encryption (passwords) | Not provided | Yes |
+| Watermarks | Not provided | Yes |
+| Merge/Split | Not provided | Yes |
 
 ---
 
@@ -74,7 +74,8 @@ For developers requiring additional migration patterns and real-world implementa
 
 ### Prerequisites
 
-- **.NET Version**: IronPDF supports .NET Framework 4.6.2+, .NET Core 3.1+, .NET 5/6/7/8/9
+- **.NET Version**: IronPDF supports .NET Framework 4.6.2+, .NET Core 3.1+, and .NET 5/6/7/8/9/10
+- **DinkToPdf Note**: The original `DinkToPdf` package on NuGet (v1.0.8, April 18, 2017) is the most-installed but unmaintained variant. A community fork lives on as `Haukcode.WkHtmlToPdfDotNet` (renamed from `Haukcode.DinkToPdf`), latest 1.5.95 published October 22, 2024 under LGPL-3.0-or-later; both still bind to the archived wkhtmltopdf binary.
 - **NuGet Access**: Ensure you can install packages from nuget.org
 - **License Key**: Obtain from [IronPDF website](https://ironpdf.com/) (free trial available)
 
@@ -103,8 +104,8 @@ find . -name "libwkhtmltox*"
 | **Settings** | `GlobalSettings` + `ObjectSettings` | `RenderingOptions` | Single options object |
 | **Return type** | `byte[]` | `PdfDocument` | More powerful object |
 | **Binary** | `libwkhtmltox.dll/so` | None (managed) | Remove native files |
-| **Thread safety** | `SynchronizedConverter` required | Thread-safe by default | Simpler code |
-| **DI** | Singleton required | Any lifetime | Flexible |
+| **Thread safety** | `BasicConverter` for single-threaded; `SynchronizedConverter` for multi-threaded (serializes) | Thread-safe by default | Simpler code |
+| **DI** | Recommended singleton (per DinkToPdf docs) | Any lifetime | Flexible |
 
 ---
 

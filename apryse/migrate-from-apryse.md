@@ -16,17 +16,20 @@
 
 ## Why Migrate from Apryse to IronPDF
 
+PDFTron Systems Inc. rebranded as Apryse on February 8, 2023. The NuGet packages and .NET namespaces still use the historical `PDFTron.*` / `pdftron.*` names — only the company brand and pricing pages have been renamed.
+
 ### Cost Comparison
 
-Apryse (formerly PDFTron) is one of the most expensive PDF SDKs on the market, targeting enterprise customers with premium pricing:
+Apryse (formerly PDFTron) targets enterprise customers with sales-led pricing. Public price points are not published on apryse.com; the figures below are from third-party aggregators (Vendr, G2) and should be confirmed with Apryse sales:
 
 | Aspect | Apryse (PDFTron) | IronPDF |
 |--------|-----------------|---------|
-| **Starting Price** | $1,500+/developer/year (reported) | $749 one-time (Lite) |
-| **License Model** | Annual subscription | Perpetual license |
-| **Viewer License** | Separate, additional cost | N/A (use standard viewers) |
+| **Entry-level** | ~$1,500/developer/year (reported by Vendr) | $749 one-time (Lite) |
+| **Typical range** | ~$9,275–$35,816/year (per Vendr marketplace data) | Tiered Lite/Plus/Professional |
+| **License Model** | Annual subscription, sales-led quote | Perpetual license |
+| **Viewer License** | WebViewer/PDFViewCtrl priced separately | N/A (use standard viewers) |
 | **Server License** | Enterprise pricing required | Included in license tiers |
-| **Total 3-Year Cost** | $4,500+ per developer | $749 one-time |
+| **Enterprise deployments** | $150K–$500K+/year reported | Per-tier flat |
 
 ### Complexity vs. Simplicity
 
@@ -105,11 +108,19 @@ grep -r "ElementReader\|ElementWriter\|ElementBuilder" --include="*.cs" .
 
 ### Step 1: Replace NuGet Packages
 
+Apryse publishes the .NET SDK under several `PDFTron.*` package IDs depending on target framework and architecture (the brand changed in 2023, but the package IDs did not). Common ones:
+
+- `PDFTron.NET.x64` — primary .NET / .NET Core x64 package (current 11.x)
+- `PDFTron.NetFramework.x64` — .NET Framework 4.5.1+ x64 only
+- `PDFTron.NETCore.Windows.x64` — .NET Core on Windows x64
+- `PDFNet` — legacy combined Windows .NET Framework 32/64-bit package
+
 ```bash
-# Remove Apryse/PDFTron packages
+# Remove whichever Apryse/PDFTron package(s) you have installed
 dotnet remove package PDFTron.NET.x64
-dotnet remove package PDFTron.NET.x86
-dotnet remove package pdftron
+dotnet remove package PDFTron.NetFramework.x64
+dotnet remove package PDFTron.NETCore.Windows.x64
+dotnet remove package PDFNet
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -124,12 +135,13 @@ Install-Package IronPdf
 ### Step 2: Update Namespaces
 
 ```csharp
-// ❌ Remove these
+// ❌ Remove these (Apryse retained the pdftron.* namespaces after the rebrand)
 using pdftron;
 using pdftron.PDF;
 using pdftron.PDF.Convert;
 using pdftron.SDF;
 using pdftron.Filters;
+using pdftron.Common;
 
 // ✅ Add these
 using IronPdf;
@@ -248,7 +260,7 @@ pdf.SaveAs("output.pdf");
 | `doc.GetPageCount()` | `pdf.PageCount` | Page count |
 | `doc.GetPage(index)` | `pdf.Pages[index]` | Access page |
 | `doc.PageInsert(pos, page)` | `pdf.InsertPage(index, page)` | Insert page |
-| `doc.PageRemove(pos)` | `pdf.RemovePage(index)` | Remove page |
+| `doc.PageRemove(pos)` | `pdf.RemovePages(index)` | Remove page (0-indexed) |
 | `doc.AppendPages(doc2, start, end)` | `PdfDocument.Merge(pdfs)` | Merge documents |
 | `doc.InsertPages(pos, doc2, start, end)` | `pdf.InsertPdf(doc2, index)` | Insert pages |
 
@@ -1319,7 +1331,7 @@ Console.WriteLine($"Licensed: {isLicensed}");
   pdfdraw.Export(doc.GetPage(1), "output.png");
 
   // After (IronPDF)
-  var image = pdf.RasterizeToImageFiles(1, "output.png");
+  pdf.RasterizeToImageFiles("output_*.png");
   ```
   **Why:** IronPDF provides easy methods for rasterizing PDFs to images.
 
@@ -1377,7 +1389,10 @@ Console.WriteLine($"Licensed: {isLicensed}");
 ### Apryse References
 - **Apryse API Documentation**: https://sdk.apryse.com/api/PDFTronSDK/index.html
 - **PDFDoc Class Reference**: https://sdk.apryse.com/api/PDFTronSDK/dotnet/pdftron.PDF.PDFDoc.html
-- **Getting Started Guide**: https://docs.apryse.com/core/guides/get-started/dotnetcore
+- **.NET / .NET Core Getting Started Guide**: https://docs.apryse.com/core/guides/get-started/dotnetcore
+- **NuGet — PDFTron.NET.x64**: https://www.nuget.org/packages/PDFTron.NET.x64
+- **Apryse Pricing**: https://apryse.com/pricing (sales-led; quote required)
+- **Rebrand announcement (Feb 8 2023)**: https://apryse.com/blog/news/pdftron-rebrands-as-apryse
 
 ---
 

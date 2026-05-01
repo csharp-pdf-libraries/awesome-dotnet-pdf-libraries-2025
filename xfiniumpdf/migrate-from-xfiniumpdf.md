@@ -4,7 +4,7 @@
 
 XFINIUM.PDF is a low-level PDF library that relies on coordinate-based graphics programming, forcing developers to manually position every element on the page. This approach becomes a maintenance nightmare as requirements change. Key reasons to migrate:
 
-1. **No HTML Support**: Cannot convert HTML/CSS to PDF - only low-level drawing primitives
+1. **No Native HTML Engine**: No built-in HTML-to-PDF converter; the vendor ships a sample XHTML walker that supports only `p`, `font`, `b`, `i`, `u`, `ul`, `li` and ignores CSS/JavaScript
 2. **Coordinate-Based API**: Manual positioning with pixel coordinates like `DrawString("text", font, brush, 50, 100)`
 3. **Manual Font Management**: Must create and manage font objects explicitly
 4. **No CSS Styling**: No support for modern web styling - must handle colors, fonts, layouts manually
@@ -40,8 +40,9 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 ### Step 1: Replace NuGet Package
 
 ```bash
-# Remove XFINIUM.PDF
-dotnet remove package Xfinium.Pdf
+# Remove XFINIUM.PDF (the actual NuGet IDs are platform-specific)
+dotnet remove package Xfinium.Pdf.NetStandard
+# or: dotnet remove package Xfinium.Pdf.NetCore
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -82,7 +83,7 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 | `PdfRgbColor` | CSS `color` | Standard CSS colors |
 | `PdfBrush` | CSS properties | Background, color, etc. |
 | `PdfPen` | CSS `border` | Line styling |
-| `PdfHtmlTextElement` | `RenderHtmlAsPdf()` | Full HTML support |
+| Vendor sample HTML converter (`PdfFormattedContent`) | `RenderHtmlAsPdf()` | Full HTML support |
 | `document.Save(stream)` | `pdf.SaveAs()` or `pdf.BinaryData` | Multiple output options |
 | `PdfStringAppearanceOptions` | CSS styling | Use CSS for appearance |
 | `PdfStringLayoutOptions` | CSS layout | Flexbox, Grid, etc. |
@@ -579,19 +580,20 @@ cover.SaveAs("book.pdf");
 **XFINIUM.PDF:**
 ```csharp
 using Xfinium.Pdf;
-using Xfinium.Pdf.Security;
+using Xfinium.Pdf.Core.Security;
 
 PdfFixedDocument document = new PdfFixedDocument();
 // ... create content ...
 
-// Set security
-document.Security.UserPassword = "user123";
-document.Security.OwnerPassword = "owner456";
-document.Security.AllowPrinting = false;
-document.Security.AllowContentCopying = false;
-document.Security.EncryptionAlgorithm = PdfEncryptionAlgorithm.Aes256;
+// Build a security handler (AES-256) and pass it to Save()
+PdfAesSecurityHandler security = new PdfAesSecurityHandler();
+security.UserPassword = "user123";
+security.OwnerPassword = "owner456";
+security.KeySize = PdfAesKeySize.Key256Bits;
+security.EnablePrint = false;
+security.EnableContentExtraction = false;
 
-document.Save("protected.pdf");
+document.Save("protected.pdf", security);
 ```
 
 **IronPDF:**
@@ -637,7 +639,7 @@ pdf.SaveAs("dashboard.pdf");
 | Feature | XFINIUM.PDF | IronPDF |
 |---------|-------------|---------|
 | **Content Creation** | | |
-| HTML to PDF | Limited (PdfHtmlTextElement) | Full Chromium rendering |
+| HTML to PDF | None native; vendor sample XHTML converter only | Full Chromium rendering |
 | URL to PDF | No | Yes |
 | CSS Support | No | Full CSS3 |
 | JavaScript | No | Full ES2024 |
@@ -658,7 +660,7 @@ pdf.SaveAs("dashboard.pdf");
 | Password Protection | Yes | Yes |
 | Digital Signatures | Yes | Yes |
 | Encryption | Yes | Yes |
-| PDF/A | Limited | Yes |
+| PDF/A | Yes (PDF/A-1, A-2, A-3 conformance) | Yes |
 | **Development** | | |
 | Learning Curve | High (coordinate system) | Low (HTML/CSS) |
 | Code Verbosity | Very High | Low |
@@ -758,7 +760,8 @@ pdf.SaveAs("dashboard.pdf");
 
 - [ ] **Remove Xfinium.Pdf package**
   ```bash
-  dotnet remove package Xfinium.Pdf
+  dotnet remove package Xfinium.Pdf.NetStandard
+  # or Xfinium.Pdf.NetCore depending on which variant your project targets
   ```
   **Why:** Clean package switch to IronPDF.
 

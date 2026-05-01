@@ -2,14 +2,14 @@
 
 ## Why Migrate from Telerik Reporting?
 
-Telerik Reporting is a full-featured enterprise reporting platform with a visual designer, but comes with significant overhead for PDF generation tasks. Key reasons to migrate:
+Telerik Reporting is a full-featured enterprise reporting platform (Progress Software / Telerik) with a visual designer, but comes with significant overhead for PDF generation tasks. Key reasons to migrate:
 
-1. **Expensive Bundle Licensing**: Requires DevCraft bundle ($1,000+ per developer) or standalone license
-2. **Report Designer Dependency**: Requires installing Visual Studio extensions and runtime components
-3. **Complex Infrastructure**: Needs report service hosting, connection strings, and data source configuration
-4. **Proprietary Format**: Uses `.trdp`/`.trdx` files that lock you into the Telerik ecosystem
-5. **Heavy Runtime**: Large deployment footprint for what may be simple PDF generation
-6. **Annual Subscription**: Ongoing costs for updates and support
+1. **Per-developer licensing**: Standalone Telerik Reporting starts at ~$685 per developer (2026 Q1, ComponentSource), and the broader DevCraft Complete bundle starts at ~$1,763. Both are sold as either perpetual + 1 year of maintenance or as annual subscription.
+2. **Report Designer Dependency**: Requires the Standalone, Web, or Visual Studio-integrated designer plus runtime assemblies pulled from the private Telerik NuGet feed (`https://nuget.telerik.com/v3/index.json`, license key required).
+3. **Complex Infrastructure**: For HTML5 viewer scenarios you also host a Reporting REST Service (`Telerik.Reporting.Services.AspNetCore`) with storage, resolver and viewer-script configuration.
+4. **Proprietary Format**: Uses `.trdp`/`.trdx` XML report definitions (Telerik's own format — not RDL/RDLC, which is explicitly unsupported) that lock you into the Telerik ecosystem.
+5. **Heavy Runtime**: Large deployment footprint for what may be simple PDF generation, plus optional rendering DLLs for DOCX/XLSX/PPTX/XPS.
+6. **Renewable maintenance**: Even on a perpetual license, ongoing updates, fixes and support require renewing the maintenance subscription.
 
 ### When Telerik Reporting is Overkill
 
@@ -30,12 +30,12 @@ IronPDF provides focused PDF generation without the enterprise reporting overhea
 ### Step 1: Replace NuGet Packages
 
 ```bash
-# Remove Telerik Reporting packages
+# Remove Telerik Reporting packages (hosted on the private Telerik NuGet feed)
 dotnet remove package Telerik.Reporting
 dotnet remove package Telerik.Reporting.Services.AspNetCore
 dotnet remove package Telerik.ReportViewer.Mvc
 
-# Install IronPDF
+# Install IronPDF (hosted on nuget.org)
 dotnet add package IronPdf
 ```
 
@@ -109,6 +109,8 @@ using (FileStream fs = new FileStream("invoice.pdf", FileMode.Create))
 **IronPDF:**
 ```csharp
 using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 var invoiceNumber = "INV-001";
 var customerName = "Acme Corp";
@@ -272,6 +274,9 @@ var pageFooter = new PageFooterSection();
 pageFooter.Height = new Unit(0.5, UnitType.Inch);
 
 var pageNumber = new TextBox();
+// Telerik Reporting page numbers use expression syntax (leading '='),
+// not token placeholders. PageNumber/PageCount are built-ins and only
+// usable inside Page Header/Footer sections.
 pageNumber.Value = "= 'Page ' + PageNumber + ' of ' + PageCount";
 pageNumber.Style.TextAlign = HorizontalAlign.Right;
 pageFooter.Items.Add(pageNumber);
@@ -326,16 +331,19 @@ var mainReport = new Report();
 
 // Create subreport
 var subReport = new SubReport();
-subReport.ReportSource = new TypeReportSource
+var detailSource = new TypeReportSource
 {
     TypeName = typeof(DetailReport).AssemblyQualifiedName
 };
-subReport.Parameters.Add("ParentId", "= Fields.Id");
+// Bind a sub-report parameter to a field on the parent's data row
+detailSource.Parameters.Add(new Telerik.Reporting.Parameter("ParentId", "= Fields.Id"));
+subReport.ReportSource = detailSource;
 
 mainReport.Items.Add(subReport);
 
 var processor = new ReportProcessor();
-var result = processor.RenderReport("PDF", mainReport, null);
+var instance = new InstanceReportSource { ReportDocument = mainReport };
+var result = processor.RenderReport("PDF", instance, null);
 ```
 
 **IronPDF:**
@@ -370,26 +378,22 @@ merged.SaveAs("complete_report.pdf");
 
 ### Example 5: Charts and Visualizations
 
-**Telerik Reporting:**
+**Telerik Reporting:** Modern reports use the `Graph` item (the older `Chart` item is now obsolete) and require a fully configured Cartesian/coordinate system, axes, and series. Programmatic construction is verbose; in practice charts are built in the designer.
+
 ```csharp
 using Telerik.Reporting;
 
-var report = new Report();
+var report = new Report { DataSource = GetChartData() };
 
-// Create chart
-var chart = new Chart();
-chart.ChartType = ChartTypes.Bar;
-chart.DataSource = GetChartData();
-chart.Series.Add(new ChartSeries
-{
-    DataFieldY = "Value",
-    DataFieldX = "Category"
-});
-
-report.Items.Add(chart);
+// Programmatic Graph construction is non-trivial — typical configuration
+// is done in the .trdp/.trdx designer. The Graph item supports BarSeries,
+// LineSeries, PieSeries and ScatterSeries on a CartesianCoordinateSystem.
+var graph = new Graph();
+report.Items.Add(graph);
 
 var processor = new ReportProcessor();
-var result = processor.RenderReport("PDF", report, null);
+var instance = new InstanceReportSource { ReportDocument = report };
+var result = processor.RenderReport("PDF", instance, null);
 ```
 
 **IronPDF (using Chart.js):**
@@ -610,31 +614,32 @@ pdf.SaveAs("invoice.pdf");
 | Feature | Telerik Reporting | IronPDF |
 |---------|-------------------|---------|
 | **Licensing** | | |
-| Cost Model | DevCraft bundle or standalone | Per-developer |
-| Annual Fee | Required for updates | Optional |
+| Cost Model | Standalone (~$685) or DevCraft bundle (~$1,763) | Per-developer |
+| License Type | Perpetual + maintenance OR annual subscription | Perpetual + optional support |
+| NuGet Source | Private Telerik feed (license key required) | Public nuget.org |
 | **Development** | | |
-| Visual Designer | Yes | Use HTML editors |
-| Template Format | `.trdp` / `.trdx` | HTML/CSS/Razor |
-| Learning Curve | Telerik-specific | Standard web |
+| Visual Designer | Standalone, Web, and VS-integrated designers | Use HTML editors |
+| Template Format | `.trdp` / `.trdx` (XML; not RDL/RDLC) | HTML/CSS/Razor |
+| Learning Curve | Telerik-specific (expression language, sections) | Standard web |
 | **Rendering** | | |
-| HTML to PDF | Limited | Full Chromium |
-| URL to PDF | No | Yes |
-| CSS Support | Limited | Full CSS3 |
-| JavaScript | No | Full ES2024 |
-| Charts | Built-in | Via JS libraries |
+| HTML to PDF | Server-side via `HtmlTextBox` (limited HTML/CSS) | Full Chromium |
+| URL to PDF | Not built-in (fetch HTML yourself) | Yes |
+| CSS Support | Limited (CSS-like selectors in designer) | Full CSS3 |
+| JavaScript at render time | No (server engine doesn't execute JS) | Full ES2024 |
+| Charts | Built-in (Graph, Crosstab, Map items) | Via JS libraries |
 | **Output** | | |
 | PDF Export | Yes | Native |
-| Other Formats | Excel, Word, etc. | PDF-focused |
+| Other Formats | XLSX, DOCX, PPTX, XPS, MHTML, RTF, CSV, image | PDF-focused |
 | **Infrastructure** | | |
-| Report Server | Optional | Not needed |
-| Runtime Size | Large | Smaller |
-| Dependencies | Many | Minimal |
+| Reporting REST Service | Required for HTML5 viewer scenarios | Not needed |
+| Runtime Size | Large (engine + per-format rendering DLLs) | Smaller |
+| Dependencies | Open XML SDK 2.0 for DOCX/XLSX/PPTX, etc. | Minimal |
 | **PDF Features** | | |
-| Merge PDFs | Limited | Built-in |
-| Split PDFs | Limited | Built-in |
-| Watermarks | Via designer | HTML/CSS |
-| Digital Signatures | No | Yes |
-| PDF/A | No | Yes |
+| Merge PDFs | Via `ReportBook` of multiple reports | Built-in |
+| Split PDFs | Not a first-class feature | Built-in |
+| Watermarks | Via designer (overlay items) | HTML/CSS |
+| Digital Signatures | Yes (X.509 / .PFX via PDF device info) | Yes |
+| PDF/A | PDF/A-1b, PDF/A-2b, PDF/A-3b | PDF/A-3 |
 
 ---
 

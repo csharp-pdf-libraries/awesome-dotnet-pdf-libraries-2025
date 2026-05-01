@@ -2,20 +2,20 @@
 
 ## Why Migrate from PDFiumViewer to IronPDF?
 
-PDFiumViewer is a .NET wrapper for Google's PDFium rendering engine, designed specifically for Windows Forms PDF viewing. While excellent for displaying PDFs, it cannot create, edit, or manipulate them—and its uncertain maintenance status creates risk for production applications.
+PdfiumViewer (NuGet package `PdfiumViewer`, repo [pvginkel/PdfiumViewer](https://github.com/pvginkel/PdfiumViewer), Apache 2.0) is a .NET wrapper for Google's PDFium rendering engine, designed specifically for Windows Forms PDF viewing. The upstream repository was archived by its maintainer on August 2, 2019 and the last NuGet release (2.13.0) shipped on November 6, 2017 — so while existing code keeps working, there are no further fixes, .NET 6+ updates, or CVE patches coming. While excellent for displaying PDFs, it cannot create or substantially edit them.
 
-### Critical PDFiumViewer Limitations
+### Critical PdfiumViewer Limitations
 
-1. **Viewing-Only**: Cannot create PDFs from HTML, images, or programmatically
-2. **Windows Forms Only**: Restricted to WinForms applications
-3. **No PDF Manipulation**: Cannot merge, split, or modify PDF content
-4. **Native Binary Dependencies**: Requires platform-specific PDFium binaries
-5. **Uncertain Maintenance**: Limited updates and unclear long-term support
-6. **No Text Extraction**: Cannot extract text from PDFs (only render as images)
+1. **Viewer / renderer only**: Cannot create PDFs from HTML, images, or programmatically
+2. **Windows Forms / Windows only**: Built around `System.Drawing` and WinForms controls
+3. **No PDF manipulation**: Cannot merge, split, or modify PDF content
+4. **Native binary dependencies**: Requires platform-specific PDFium binaries (`PdfiumViewer.Native.x86.v8-xfa`, `PdfiumViewer.Native.x86_64.v8-xfa`, or the no-V8 / no-XFA variants)
+5. **Archived upstream**: Repo archived 2019-08-02; last release 2.13.0 (2017-11-06); no updates since
+6. **Text extraction is page-level only**: `PdfDocument.GetPdfText(int page)` returns raw page text — no per-word coordinates, no layout reconstruction, no OCR
 7. **No HTML to PDF**: Cannot convert web content to PDF
-8. **No Headers/Footers**: Cannot add page numbers or repeating content
-9. **No Watermarks**: Cannot stamp documents with overlays
-10. **No Security Features**: Cannot encrypt or password-protect PDFs
+8. **No headers/footers**: Cannot add page numbers or repeating content
+9. **No watermarks**: Cannot stamp documents with overlays
+10. **No security features**: Cannot encrypt or password-protect PDFs
 
 ### [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) Advantages
 
@@ -25,13 +25,14 @@ PDFiumViewer is a .NET wrapper for Google's PDFium rendering engine, designed sp
 | **PDF Creation** | ✗ | ✓ (HTML, URL, images) |
 | **PDF Manipulation** | ✗ | ✓ (merge, split, edit) |
 | **HTML to PDF** | ✗ | ✓ (Chromium html to pdf c# engine) |
-| **Text Extraction** | ✗ | ✓ |
+| **Text Extraction** | Page-level only (`GetPdfText`) | Full (with layout, per-page) |
 | **Watermarks** | ✗ | ✓ |
 | **Headers/Footers** | ✗ | ✓ |
 | **Security** | ✗ | ✓ |
-| **Platform Support** | Windows Forms only | Console, Web, Desktop |
-| **Framework Support** | .NET Framework | .NET Framework, Core, 5+ |
-| **Maintenance** | Uncertain | Active |
+| **Platform Support** | Windows / WinForms only | Console, Web, Desktop, cross-platform |
+| **Framework Support** | .NET Framework 2.0+ | .NET Framework, Core, 5+ |
+| **License** | Apache 2.0 | Commercial (free dev license) |
+| **Maintenance** | Archived 2019-08-02 | Active |
 
 For a side-by-side feature analysis including viewer control alternatives and backend processing strategies, see the [complete guide](https://ironpdf.com/blog/migration-guides/migrate-from-pdfiumviewer-to-ironpdf/).
 
@@ -40,10 +41,10 @@ For a side-by-side feature analysis including viewer control alternatives and ba
 ## NuGet Package Changes
 
 ```bash
-# Remove PDFiumViewer packages
+# Remove PdfiumViewer packages
 dotnet remove package PdfiumViewer
 dotnet remove package PdfiumViewer.Native.x86.v8-xfa
-dotnet remove package PdfiumViewer.Native.x64.v8-xfa
+dotnet remove package PdfiumViewer.Native.x86_64.v8-xfa
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -82,15 +83,16 @@ using IronPdf.Editing;
 |--------------|---------|-------|
 | `PdfDocument.Load(path)` | `PdfDocument.FromFile(path)` | Load from file |
 | `PdfDocument.Load(stream)` | `PdfDocument.FromStream(stream)` | Load from stream |
-| `PdfDocument.Load(bytes)` | `PdfDocument.FromBinaryData(bytes)` | Load from bytes |
+| `PdfDocument.Load(path, password)` | `PdfDocument.FromFile(path, password)` | Load encrypted file |
+| _(no bytes overload — wrap in MemoryStream)_ | `PdfDocument.FromBinaryData(bytes)` | Load from bytes |
 
 ### Document Properties
 
 | PDFiumViewer | IronPDF | Notes |
 |--------------|---------|-------|
 | `document.PageCount` | `document.PageCount` | Same |
-| `document.PageSizes` | `document.Pages[i].Width/Height` | Per-page access |
-| `document.GetPageSize(index)` | `document.Pages[index].Width/Height` | Direct properties |
+| `document.PageSizes[i]` | `document.Pages[i].Width/Height` | Per-page access |
+| `document.GetPdfText(pageIndex)` | `pdf.Pages[pageIndex].Text` | Page-level text extraction |
 
 ### Page Rendering
 
@@ -307,13 +309,27 @@ public void GetPageInfo(string pdfPath)
 }
 ```
 
-### Example 4: Extract Text (NEW Feature)
+### Example 4: Extract Text (Improved in IronPDF)
 
-**Before (PDFiumViewer):**
+**Before (PdfiumViewer):**
 ```csharp
-// PDFiumViewer CANNOT extract text
-// You would need OCR or another library
-throw new NotSupportedException("PDFiumViewer cannot extract text from PDFs");
+using PdfiumViewer;
+using System.Text;
+
+public string ExtractText(string pdfPath)
+{
+    using (var document = PdfDocument.Load(pdfPath))
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < document.PageCount; i++)
+        {
+            // GetPdfText returns raw page text — no layout, no per-word
+            // coordinates, no OCR for image-only PDFs.
+            sb.AppendLine(document.GetPdfText(i));
+        }
+        return sb.ToString();
+    }
+}
 ```
 
 **After (IronPDF):**
@@ -571,7 +587,7 @@ rm -rf x86/ x64/ runtimes/
 
 # Remove from .csproj native package references
 # <PackageReference Include="PdfiumViewer.Native.x86.v8-xfa" />
-# <PackageReference Include="PdfiumViewer.Native.x64.v8-xfa" />
+# <PackageReference Include="PdfiumViewer.Native.x86_64.v8-xfa" />
 ```
 
 ---
@@ -632,7 +648,7 @@ pdf.Print("HP LaserJet");
 | Render to Image | ✓ | ✓ |
 | Built-in Viewer | ✓ | ✗ |
 | Print PDF | ✓ | ✓ |
-| Extract Text | ✗ | ✓ |
+| Extract Text | Page-level (`GetPdfText`) | Full (`ExtractAllText`, per-page) |
 | Create from HTML | ✗ | ✓ |
 | Create from URL | ✗ | ✓ |
 | Merge PDFs | ✗ | ✓ |
@@ -643,8 +659,8 @@ pdf.Print("HP LaserJet");
 | Password Protection | ✗ | ✓ |
 | WinForms Support | ✓ | ✓ |
 | ASP.NET Support | ✗ | ✓ |
-| .NET Core Support | Limited | ✓ |
-| Active Maintenance | Uncertain | ✓ |
+| .NET Core Support | Limited (System.Drawing tied to Windows) | ✓ |
+| Active Maintenance | Archived 2019-08-02 | ✓ |
 
 ---
 
@@ -735,9 +751,9 @@ pdf.Print(settings);
 
 ### Pre-Migration
 
-- [ ] **Inventory all PDFiumViewer usages in codebase**
+- [ ] **Inventory all PdfiumViewer usages in codebase**
   ```bash
-  grep -r "using PDFiumViewer" --include="*.cs" .
+  grep -r "using PdfiumViewer" --include="*.cs" .
   ```
   **Why:** Identify all usages to ensure complete migration coverage.
 
@@ -751,10 +767,12 @@ pdf.Print(settings);
 
 - [ ] **Remove old package and install IronPdf**
   ```bash
-  dotnet remove package PDFiumViewer
+  dotnet remove package PdfiumViewer
+  dotnet remove package PdfiumViewer.Native.x86.v8-xfa
+  dotnet remove package PdfiumViewer.Native.x86_64.v8-xfa
   dotnet add package IronPdf
   ```
-  **Why:** Clean package switch to IronPDF.
+  **Why:** Clean package switch to IronPDF; the native PDFium binaries are no longer needed.
 
 - [ ] **Add license key initialization**
   ```csharp

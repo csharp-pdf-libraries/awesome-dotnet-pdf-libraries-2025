@@ -22,9 +22,9 @@ CraftMyPDF, like many cloud PDF services, introduces fundamental issues that mak
 
 1. **Your Data Leaves Your System**: Every HTML template and JSON data payload is transmitted to CraftMyPDF's servers. For invoices, contracts, medical records, or any sensitive business data, this creates compliance risks (HIPAA, GDPR, SOC2).
 
-2. **Network Latency and Reliability**: Each PDF generation requires a round-trip to the cloud. Average latency of 1.5-30 seconds per PDF (per CraftMyPDF's own documentation) vs. milliseconds for local generation.
+2. **Network Latency and Reliability**: Each PDF generation requires a round-trip to the cloud. Cloud PDF APIs typically take seconds per request (network + queue + render) vs. milliseconds for local generation. CraftMyPDF mitigates this with regional endpoints (US, EU, Singapore, Australia) but cannot eliminate the network leg.
 
-3. **Ongoing Costs**: Pay-per-PDF pricing (1 credit per PDF) adds up. 10,000 PDFs/month = significant recurring costs vs. one-time license.
+3. **Ongoing Costs**: Credit-based pricing (1 credit per PDF generation; 0.5 credit per watermark, merge, or text-add operation) adds up. 10,000 PDFs/month = significant recurring costs vs. one-time license.
 
 4. **Print-Optimized, Not Screen-Accurate**: Cloud PDF APIs typically optimize for print—reducing backgrounds, simplifying colors to save "ink." The output never looks like your HTML on screen.
 
@@ -35,8 +35,8 @@ CraftMyPDF, like many cloud PDF services, introduces fundamental issues that mak
 | Aspect | CraftMyPDF | IronPDF |
 |--------|------------|---------|
 | **Data Location** | Cloud (your data leaves your system) | On-premise (data never leaves) |
-| **Latency** | 1.5-30 seconds per PDF | Milliseconds |
-| **Pricing** | Per-PDF subscription ($0.01-0.05/PDF) | One-time perpetual license |
+| **Latency** | Network round-trip + render (typically seconds) | Milliseconds |
+| **Pricing** | Credit-based subscription (~$0.003-0.024/PDF) | One-time perpetual license |
 | **Template System** | Proprietary drag-and-drop only | Any HTML/CSS/JavaScript |
 | **Output Quality** | Print-optimized (ink reduction) | Pixel-perfect screen rendering |
 | **API Dependency** | Internet required | Works offline |
@@ -63,11 +63,13 @@ Additional context and code samples are provided in the [full walkthrough](https
 
 ### True Cost Comparison
 
-**CraftMyPDF Costs (Monthly):**
-- Lite Plan: $19/month for 1,200 PDFs
-- Professional: $49/month for 5,000 PDFs
-- Enterprise: $99/month for 15,000 PDFs
-- At scale: 100,000 PDFs = ~$500-600/month
+**CraftMyPDF Costs (Monthly, verified at craftmypdf.com/pricing/ April 2026):**
+- Free: $0/month for 50 PDFs (3 templates)
+- Lite: $29/month for 1,200 PDFs (6 templates)
+- Plus: $49/month for 3,000 PDFs (15 templates)
+- Professional: $99/month for 12,000 PDFs (50 templates)
+- Premium: $299/month for 40,000 PDFs (1,000 templates)
+- Business: $499/month for 150,000 PDFs (10,000 templates)
 
 **IronPDF Cost (One-Time):**
 - Lite License: $749 (one developer, one project)

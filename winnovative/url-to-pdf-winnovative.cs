@@ -1,4 +1,4 @@
-// NuGet: Install-Package Winnovative.WebToPdfConverter
+// NuGet: Install-Package Winnovative.HtmlToPdf
 using Winnovative;
 using System;
 

@@ -41,28 +41,35 @@ To place this in a more practical context, let us look at a simple C# code examp
 
 ```csharp
 using System;
+using System.IO;
 using Scryber.Components;
-using Scryber.PDF;
 
-// Example HTML to PDF using Scryber.core
+// Example HTML to PDF using Scryber.Core
 public class PDFGenerator
 {
     public static void Main(string[] args)
     {
-        string htmlContent = "<html><head><title>Test PDF</title></head><body><h1>Hello World</h1></body></html>";
+        string htmlContent = @"<html xmlns='http://www.w3.org/1999/xhtml'>
+            <head><title>Test PDF</title></head>
+            <body><h1>Hello World</h1></body>
+        </html>";
         GeneratePDF(htmlContent);
     }
 
     public static void GeneratePDF(string html)
     {
-        Document document = Document.Parse(html);
-        document.Save("output.pdf");
+        using (var reader = new StringReader(html))
+        using (var doc = Document.ParseDocument(reader, string.Empty, ParseSourceType.DynamicContent))
+        using (var stream = new FileStream("output.pdf", FileMode.Create))
+        {
+            doc.SaveAsPDF(stream);
+        }
         Console.WriteLine("PDF Generated Successfully");
     }
 }
 ```
 
-In this example, we initialize a simple HTML document, and using Scryber.core's `Document` object, we parse the HTML content and save the output as a PDF file. This ease of use and reliance on familiar HTML/CSS makes Scryber.core an attractive library for developers working on applications that require dynamic, templated PDF generation.
+In this example, we wrap the XHTML content in a `StringReader`, hand it to `Document.ParseDocument` with `ParseSourceType.DynamicContent`, and emit the PDF to a `FileStream` via `SaveAsPDF`. Note Scryber requires well-formed XHTML — the `xmlns` declaration is not optional. This template-first model is what makes Scryber.Core attractive for HTML-driven PDF generation, but it also means real-world HTML usually needs to be cleaned up before it parses cleanly.
 
 ---
 

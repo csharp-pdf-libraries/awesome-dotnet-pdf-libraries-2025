@@ -1,13 +1,16 @@
 // NuGet: Install-Package IronPdf
 using IronPdf;
+using System;
 using System.IO;
 
 class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         var renderer = new ChromePdfRenderer();
-        
+
         string imageBase64 = Convert.ToBase64String(File.ReadAllBytes("image.jpg"));
         string html = $@"
             <html>
@@ -16,7 +19,7 @@ class Program
                     <img src='data:image/jpeg;base64,{imageBase64}' width='200' height='150' />
                 </body>
             </html>";
-        
+
         var pdf = renderer.RenderHtmlAsPdf(html);
         pdf.SaveAs("output.pdf");
     }

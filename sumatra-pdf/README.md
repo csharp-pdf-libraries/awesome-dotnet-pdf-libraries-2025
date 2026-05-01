@@ -16,9 +16,9 @@ Sumatra PDF is primarily a standalone application aimed at providing users with 
 - Simple and user-friendly interface.
 
 **Weaknesses:**
-- **Reader only** - It is only a PDF reader and lacks PDF creation or editing functions.
-- **Standalone app** - This is not a library that can be integrated into other applications.
-- **GPL license** - The GPL license restricts its use in commercial products, making it less flexible for enterprise solutions.
+- **Reader / printer only** - Sumatra views and prints PDFs (and EPUB/MOBI/CBZ/CBR/FB2/CHM/XPS/DjVu); it cannot create or edit them.
+- **Standalone Windows app** - Not a .NET library. From C# you call `SumatraPDF.exe` via `Process.Start`. Windows-only.
+- **AGPLv3 license** - Sumatra PDF is licensed under AGPLv3 (with some files under BSD). Linking or bundling AGPLv3 code into a closed-source product imposes copyleft obligations, so most teams ship it as a separate executable users install themselves.
 
 ## Introduction to IronPDF
 
@@ -36,9 +36,10 @@ IronPDF is a powerful library designed for developers who need to integrate comp
 Here's how **Sumatra PDF (integration)** handles this:
 
 ```csharp
-// NuGet: Install-Package SumatraPDF (Note: Sumatra is primarily a viewer, not a generator)
-// Sumatra PDF doesn't have direct C# integration for HTML to PDF conversion
-// You would need to use external tools or libraries and then open with Sumatra
+// Sumatra PDF is a standalone Windows app (AGPLv3) — there is NO official NuGet package.
+// Download SumatraPDF.exe from https://www.sumatrapdfreader.org/ and shell out to it.
+// Sumatra is a viewer/printer only; it cannot convert HTML to PDF.
+// You must use a separate HTML-to-PDF tool (e.g. wkhtmltopdf) and then view/print with Sumatra.
 using System.Diagnostics;
 using System.IO;
 
@@ -98,7 +99,9 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Sumatra PDF (integration)** handles this:
 
 ```csharp
-// NuGet: Install-Package SumatraPDF.CommandLine (or direct executable)
+// Sumatra PDF is a standalone Windows app (AGPLv3) — no official NuGet package.
+// Download SumatraPDF.exe from https://www.sumatrapdfreader.org/ and call it via Process.Start.
+// Useful CLI flags: -page <n>, -print-to-default, -print-to "<printer>", -print-settings, -silent.
 using System.Diagnostics;
 using System.IO;
 
@@ -159,8 +162,10 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Sumatra PDF (integration)** handles this:
 
 ```csharp
-// Sumatra PDF doesn't provide C# API for text extraction
-// You would need to use command-line tools or other libraries
+// Sumatra PDF is a standalone Windows viewer (AGPLv3) — no official NuGet package
+// and no programmatic text-extraction API. To extract text you must shell out to a
+// separate tool such as pdftotext (Xpdf / Poppler).
+using System;
 using System.Diagnostics;
 using System.IO;
 
@@ -245,12 +250,13 @@ Here's a comparative analysis of Sumatra PDF (integration) and IronPDF:
 
 | Feature                     | Sumatra PDF (integration) | IronPDF                           |
 |-----------------------------|---------------------------|-----------------------------------|
-| Type                        | Application               | Library                           |
-| PDF Reading                 | Yes                       | Yes                               |
+| Type                        | Standalone Windows app    | .NET library (NuGet)              |
+| PDF Reading (view)          | Yes                       | Yes (via viewer / browser)        |
+| PDF Printing                | Yes (CLI: -print-to)      | Yes (pdf.Print API)               |
 | PDF Creation                | No                        | Yes                               |
 | PDF Editing                 | No                        | Yes                               |
-| Integration                 | Limited (standalone)      | Full integration in applications  |
-| License                     | GPL                       | Commercial                        |
+| Integration                 | Process.Start to .exe     | In-process .NET API               |
+| License                     | AGPLv3                    | Commercial                        |
 
 ## C# Code Example with IronPDF
 
@@ -263,8 +269,9 @@ class Program
 {
     static void Main(string[] args)
     {
-        // Initialize IronPDF
-        var Renderer = new HtmlToPdf();
+        // Initialize IronPDF (Chromium-based renderer)
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        var Renderer = new ChromePdfRenderer();
 
         // Define the HTML content or HTML file path
         string htmlString = "<h1>Hello World</h1><p>This is a PDF generated from HTML!</p>";

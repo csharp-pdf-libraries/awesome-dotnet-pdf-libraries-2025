@@ -6,13 +6,12 @@ NReco.PdfGenerator wraps the deprecated wkhtmltopdf binary, inheriting all its s
 
 ### Critical Issues with NReco.PdfGenerator
 
-1. **Security Vulnerabilities**: Inherits all wkhtmltopdf CVEs (20+ documented vulnerabilities)
-   - CVE-2020-21365: Server-side request forgery (SSRF)
-   - CVE-2022-35583: Local file read via HTML injection
-   - CVE-2022-35580: Remote code execution potential
-   - No patches available—wkhtmltopdf is abandoned since 2020
+1. **Security Vulnerabilities**: Inherits unpatched wkhtmltopdf CVEs
+   - CVE-2020-21365: Directory traversal / local file read via crafted HTML (same-origin policy weakness)
+   - CVE-2022-35583: Server-side request forgery (SSRF) via injected `<iframe>` in 0.12.6 (CVSS 9.8)
+   - No patches available — the wkhtmltopdf repository was archived on January 2, 2023 (last stable release 0.12.6 in June 2020)
 
-2. **Watermarked Free Version**: Production use requires paid license with opaque pricing
+2. **Licensing**: Free for non-SaaS single-server production deployments only; the $199 enterprise pack is required for SaaS, multi-server, or redistribution scenarios (per nrecosite.com)
 
 3. **Deprecated Rendering Engine**: WebKit Qt (circa 2012) with limited CSS3/JS support:
    - No CSS Grid or Flexbox
@@ -22,7 +21,7 @@ NReco.PdfGenerator wraps the deprecated wkhtmltopdf binary, inheriting all its s
 
 4. **External Binary Dependency**: Requires managing wkhtmltopdf binaries per platform
 
-5. **No Active Development**: Wrapper maintenance without underlying engine updates
+5. **Stalled Maintenance**: NReco.PdfGenerator 1.2.1 was published Jan 8, 2023 and has had no further releases on nuget.org; the underlying wkhtmltopdf engine is no longer updated
 
 6. **Limited Async Support**: Synchronous API blocks threads in web applications
 
@@ -31,14 +30,14 @@ NReco.PdfGenerator wraps the deprecated wkhtmltopdf binary, inheriting all its s
 | Aspect | NReco.PdfGenerator | IronPDF |
 |--------|-------------------|---------|
 | Rendering Engine | WebKit Qt (2012) | Chromium (current) |
-| Security | 20+ CVEs, no patches | Active security updates |
+| Security | Multiple unpatched CVEs (e.g., CVE-2020-21365, CVE-2022-35583) | Active security updates |
 | CSS Support | CSS2.1, limited CSS3 | Full CSS3, Grid, Flexbox |
 | JavaScript | Basic ES5 | Full ES6+, async/await |
 | Dependencies | External wkhtmltopdf binary | Self-contained |
 | Async Support | Synchronous only | Full async/await |
 | Web Fonts | Limited | Full Google Fonts, @font-face |
-| Licensing | Opaque pricing, contact sales | Transparent pricing |
-| Free Trial | Watermarked | Full functionality |
+| Licensing | Free for non-SaaS single-server only; $199 enterprise pack for SaaS / multi-server | Transparent commercial pricing |
+| Free Tier | Free under non-SaaS single-server license | Trial requires no watermark |
 
 ---
 
@@ -85,8 +84,8 @@ dotnet add package IronPdf
 |-------------------|---------|-------|
 | `GeneratePdf(html)` | `RenderHtmlAsPdf(html)` | Returns PdfDocument |
 | `GeneratePdf(html, coverHtml)` | `RenderHtmlAsPdf()` + `Merge()` | Multi-step |
-| `GeneratePdfFromFile(url, output)` | `RenderUrlAsPdf(url)` | Direct URL support |
-| `GeneratePdfFromFile(htmlPath, output)` | `RenderHtmlFileAsPdf(path)` | File path |
+| `GeneratePdfFromFile(url, coverHtml)` | `RenderUrlAsPdf(url)` | 2nd arg is optional cover HTML, not output |
+| `GeneratePdfFromFile(htmlPath, coverHtml)` | `RenderHtmlFileAsPdf(path)` | File path; pass `null` for no cover |
 | _(async not supported)_ | `RenderHtmlAsPdfAsync(html)` | Async version |
 | _(async not supported)_ | `RenderUrlAsPdfAsync(url)` | Async version |
 
@@ -532,8 +531,9 @@ COPY . /app
 **Delete code like:**
 ```csharp
 // DELETE: NReco binary configuration
-NReco.PdfGenerator.HtmlToPdfConverter.WkHtmlToPdfExeName = "wkhtmltopdf.exe";
-NReco.PdfGenerator.HtmlToPdfConverter.WkHtmlToPdfPath = @"C:\Tools\wkhtmltopdf\bin";
+var converter = new NReco.PdfGenerator.HtmlToPdfConverter();
+converter.WkHtmlToPdfExeName = "wkhtmltopdf.exe";
+converter.PdfToolPath = @"C:\Tools\wkhtmltopdf\bin"; // NReco property is PdfToolPath
 
 // DELETE: Binary extraction
 ExtractWkHtmlToPdfBinary();

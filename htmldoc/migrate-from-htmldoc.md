@@ -17,12 +17,12 @@
 
 ### The HTMLDOC Reality
 
-HTMLDOC is legacy technology from the late 1990s/early 2000s with fundamental limitations:
+HTMLDOC was first released in 1997 by Easy Software Products and is now maintained by Michael R Sweet. Small point releases still ship (1.9.23 was published on January 28, 2026), but the rendering engine and design assumptions are anchored in the standards of its era:
 
-1. **Prehistoric Web Standards**: Built before CSS became integral to web design—no support for CSS3, HTML5, Flexbox, or Grid
+1. **Pre-CSS Standards**: Built around HTML 3.2 with basic HTML 4 table extensions (THEAD/TBODY). The maintainer explicitly notes HTMLDOC does not support CSS, forms, full Unicode, or emoji—no HTML5, CSS3, Flexbox, or Grid.
 2. **No JavaScript Support**: Cannot execute JavaScript, making dynamic content impossible
-3. **GPL License Concerns**: Viral GPL license requires any incorporating software to also be GPL—problematic for commercial products
-4. **Command-Line Only**: No native .NET library—requires process spawning, temp files, and output parsing
+3. **GPL v2 Only**: Originally dual-licensed (GPL plus a commercial license from Easy Software Products), but Easy Software Products is no longer in business and the commercial license is no longer offered. The remaining GPL v2 copyleft is incompatible with closed-source distribution.
+4. **Command-Line Only**: No native .NET library and no maintained NuGet wrapper—integration means `Process.Start("htmldoc", ...)` with temp files and stderr parsing
 5. **Deprecated Rendering**: Simple HTML parser struggles with modern web layouts
 6. **No Async Support**: Synchronous process execution blocks threads
 7. **Limited Font Support**: Basic font handling with manual embedding required
@@ -32,13 +32,13 @@ HTMLDOC is legacy technology from the late 1990s/early 2000s with fundamental li
 
 | Feature | HTMLDOC | IronPDF |
 |---------|---------|---------|
-| Rendering Engine | Custom HTML parser (1990s) | Modern Chromium |
-| HTML/CSS Support | HTML 3.2, minimal CSS | HTML5, CSS3, Flexbox, Grid |
+| Rendering Engine | Custom HTML 3.2 parser | Modern Chromium |
+| HTML/CSS Support | HTML 3.2, no CSS | HTML5, CSS3, Flexbox, Grid |
 | JavaScript | None | Full execution |
 | .NET Integration | None (command-line) | Native library |
 | Async Support | No | Full async/await |
-| License | GPL (viral) | Commercial (permissive) |
-| Maintenance | Minimal updates | Active development |
+| License | GPL v2 (viral) | Commercial (permissive) |
+| Maintenance | Solo maintainer, point releases | Active development |
 | Support | Community only | Professional support |
 | Deployment | Install binary | NuGet package |
 
@@ -220,7 +220,7 @@ public class PdfService
 |--------------|-------------------|-------|
 | `--format pdf` | Default | IronPDF generates PDF by default |
 | `--format pdf14` | `RenderingOptions.PdfVersion = PdfVersion.Pdf14` | PDF 1.4 |
-| `--encryption` | `pdf.SecuritySettings.MakeDocumentReadOnly(password)` | Password protection |
+| `--encryption` | `pdf.SecuritySettings.MakePdfDocumentReadOnly(password)` | 128-bit encryption + read-only |
 | `--user-password xxx` | `pdf.SecuritySettings.UserPassword` | User password |
 | `--owner-password xxx` | `pdf.SecuritySettings.OwnerPassword` | Owner password |
 | `--embedfonts` | Default behavior | IronPDF embeds fonts by default |
@@ -241,9 +241,9 @@ public class PdfService
 
 | HTMLDOC Flag | IronPDF Equivalent | Notes |
 |--------------|-------------------|-------|
-| `--toclevels 3` | `RenderingOptions.CreateTableOfContents()` | Auto-generate TOC |
-| `--toctitle "Contents"` | Configure in HTML | Custom TOC title |
-| `--no-toc` | Default | No TOC unless requested |
+| `--toclevels 3` | `RenderingOptions.TableOfContents = TableOfContentsTypes.WithPageNumbers` | Auto-generate TOC from `<h1>`-`<h6>` |
+| `--toctitle "Contents"` | Configure in HTML (TOC anchored at element with `id="ironpdf-toc"`) | Custom TOC title |
+| `--no-toc` | Default (`TableOfContentsTypes.None`) | No TOC unless requested |
 
 #### Miscellaneous
 

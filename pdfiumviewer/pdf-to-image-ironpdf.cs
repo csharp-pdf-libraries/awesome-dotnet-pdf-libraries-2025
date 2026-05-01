@@ -3,6 +3,8 @@ using IronPdf;
 using System;
 using System.Linq;
 
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
 string pdfPath = "document.pdf";
 string outputImage = "page1.png";
 

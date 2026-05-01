@@ -269,13 +269,13 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ### The FoNet (FO.NET) Challenges
 
-FoNet is an XSL-FO to PDF renderer with significant limitations for modern development:
+FoNet is an unmaintained C# port of an early Apache FOP, with significant limitations for modern development:
 
-1. **Obsolete Technology**: XSL-FO is a W3C specification from 2001 with no updates since 2006—largely considered obsolete
+1. **Obsolete Technology**: XSL-FO is a W3C specification from 2001; the working group was closed in 2013 and the format is largely considered obsolete
 2. **Steep Learning Curve**: XSL-FO requires complex XML markup with specialized formatting objects (fo:block, fo:table, fo:page-sequence)
 3. **No HTML/CSS Support**: Cannot render HTML or CSS—requires manual conversion from HTML to XSL-FO
-4. **Abandoned/Unmaintained**: Original CodePlex repository defunct; GitHub forks are no longer maintained
-5. **Windows-Only**: Internal System.Drawing dependencies prevent Linux/macOS usage
+4. **Abandoned/Unmaintained**: `Fonet` on NuGet last shipped April 2011 (.NET Framework 2.0); the `Fonet.Standard` fork last shipped May 2020. CodePlex is defunct and GitHub forks are dormant.
+5. **Windows-Only in practice**: Internal `System.Drawing` (GDI+) dependencies prevent Linux/macOS usage of the legacy build
 6. **No URL Rendering**: Cannot directly render web pages
 
 ### Quick Migration Overview

@@ -1,4 +1,6 @@
-// NuGet: Install-Package Syncfusion.Pdf.Net.Core
+// NuGet: Install-Package Syncfusion.HtmlToPdfConverter.Net.Windows
+// (also available: Syncfusion.HtmlToPdfConverter.Net.Linux / .Mac).
+// Pulls in Syncfusion.Pdf.Net.Core as a dependency. Uses the Blink rendering engine.
 using Syncfusion.HtmlConverter;
 using Syncfusion.Pdf;
 using System.IO;

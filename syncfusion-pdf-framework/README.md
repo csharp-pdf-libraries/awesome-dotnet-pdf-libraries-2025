@@ -4,9 +4,9 @@ The Syncfusion PDF Framework is a comprehensive library that provides a wide ran
 
 ## Overview
 
-The Syncfusion PDF Framework offers an extensive feature set that supports creating and manipulating PDF documents, converting PDF files from various sources, and implementing sophisticated security measures. However, one of its most significant drawbacks is that it cannot be purchased as a standalone product; developers must buy the entire suite of Syncfusion components. This requirement can be cumbersome for teams interested solely in PDF functionalities, especially since this bundle might include tools unnecessary for their projects.
+The Syncfusion PDF Framework offers an extensive feature set that supports creating and manipulating PDF documents, converting PDF files from various sources, and implementing sophisticated security measures. Historically the PDF library was sold only as part of the full Essential Studio suite, but Syncfusion now also offers a standalone "Document SDK" tier that bundles the PDF, Word, Excel, and PowerPoint libraries without the UI components. Teams that want only the PDF library still cannot purchase it as a single component — the smallest unit is the Document SDK.
 
-Additionally, while Syncfusion offers a community license that is free, it comes with restrictions—available only to small companies with less than $1 million in revenue and fewer than five developers. Moreover, the licensing terms can become complex due to different deployments requiring varying licenses, posing potential challenges for larger enterprises.
+Additionally, while Syncfusion offers a community license that is free, it comes with multiple stacked restrictions: available only to companies and individuals with less than $1 million USD in annual gross revenue, 5 or fewer developers, AND 10 or fewer total employees, with an additional cap that the entity must never have received more than $3M in outside capital. Moreover, the licensing terms can become complex due to different deployments requiring varying licenses, posing potential challenges for larger enterprises.
 
 ### C# Code Example
 
@@ -55,7 +55,8 @@ This snippet demonstrates the basics of creating a PDF in C# using the Syncfusio
 Here's how **Syncfusion PDF Framework** handles this:
 
 ```csharp
-// NuGet: Install-Package Syncfusion.Pdf.Net.Core
+// NuGet: Install-Package Syncfusion.HtmlToPdfConverter.Net.Windows
+// (or .Net.Linux / .Net.Mac). Uses the Blink rendering engine.
 using Syncfusion.HtmlConverter;
 using Syncfusion.Pdf;
 using System.IO;
@@ -240,22 +241,22 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 Syncfusion's licensing creates significant challenges for teams that only need PDF functionality:
 
-1. **Suite-Only Purchase**: Cannot buy PDF library standalone—must purchase entire Essential Studio
-2. **Community License Restrictions**: Free tier requires BOTH <$1M revenue AND <5 developers
+1. **No Single-Component Purchase**: The PDF library is bundled into the Document SDK (PDF + Word + Excel + PowerPoint) or full Essential Studio — it cannot be licensed on its own
+2. **Community License Restrictions**: Free tier requires <$1M annual revenue, ≤5 developers, AND ≤10 total employees, plus a $3M lifetime outside-capital cap
 3. **Complex Deployment Licensing**: Different licenses for web, desktop, server deployments
-4. **Annual Renewal Required**: Subscription model with yearly costs
-5. **Suite Bloat**: Includes 1000+ components you don't need
+4. **Annual Renewal Required**: Subscription model with yearly costs (minimum 1-year subscription)
+5. **Suite Bloat**: Document SDK pulls in Word/Excel/PowerPoint dependencies even if you only need PDF
 
 ### Quick Migration Comparison
 
 | Aspect | Syncfusion PDF | IronPDF |
 |--------|----------------|---------|
-| Purchase Model | Suite bundle only | Standalone |
-| Licensing | Complex tiers | Simple per-developer |
-| API Style | Coordinate-based graphics | HTML/CSS-first |
-| HTML Support | Requires BlinkBinaries | Native Chromium |
-| CSS Support | Limited | Full CSS3/flexbox/grid |
-| Dependencies | Multiple packages | Single NuGet |
+| Purchase Model | Document SDK or full suite (no per-library SKU) | Standalone |
+| Licensing | Complex tiers, three-axis community gate | Simple per-developer |
+| API Style | Coordinate-based graphics + HTML converter | HTML/CSS-first |
+| HTML Engine | Blink (separate Windows/Linux/Mac NuGets) | Bundled Chromium |
+| CSS Support | Modern (Blink) — close to Chromium parity | Full CSS3/flexbox/grid |
+| Dependencies | Multiple packages (Pdf + HtmlToPdf + Licensing) | Single NuGet |
 
 ### Comprehensive API Mappings
 
@@ -307,7 +308,7 @@ pdf.SaveAs("output.pdf");
 ### NuGet Package Migration
 
 ```bash
-# Remove Syncfusion packages
+# Remove Syncfusion packages (drop the platform variants you used, e.g. .Net.Linux)
 dotnet remove package Syncfusion.Pdf.Net.Core
 dotnet remove package Syncfusion.HtmlToPdfConverter.Net.Windows
 dotnet remove package Syncfusion.Licensing

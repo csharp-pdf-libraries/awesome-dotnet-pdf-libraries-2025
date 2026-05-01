@@ -7,7 +7,7 @@ When it comes to converting HTML to PDF in a C# environment, developers often en
 **TuesPechkin**, known for being a thread-safe wrapper, attempts to help developers generate PDF documents through the WKHtmlToPdf library. This library links to the abandoned version of wkhtmltopdf, which was last updated in 2015. Despite the age of the underlying technology, TuesPechkin is still in use today among developers looking for cost-effective solutions. However, while it remains functional, TuesPechkin requires manual management of threads using the ThreadSafeConverter setup. 
 
 ### Strengths of TuesPechkin
-- **Free to Use**: As per the MIT license, developers can use and modify TuesPechkin without cost.
+- **Free to Use**: Released under the Creative Commons Attribution 3.0 license, so developers can use and modify TuesPechkin without cost (attribution required).
 - **Access to WKHtmlToPdf Features**: Allows utilization of rendering capability inherent to WKHtmlToPdf.
 
 ### Weaknesses of TuesPechkin
@@ -56,7 +56,7 @@ Let's dive deeper into the main features of both solutions with the table below:
 
 | Feature               | TuesPechkin                      | IronPDF                           |
 |-----------------------|----------------------------------|-----------------------------------|
-| **License**           | Free (MIT License)               | Commercial                        |
+| **License**           | Free (CC BY 3.0)                 | Commercial                        |
 | **Thread Safety**     | Requires Manual Management       | Native Support                    |
 | **Concurrency**       | Limited, may crash under load    | Robust, handles high concurrency  |
 | **Development**       | Inactive, last updated 2015      | Active, continuous improvements   |
@@ -181,7 +181,9 @@ Here's how **TuesPechkin** handles this:
 
 ```csharp
 // NuGet: Install-Package TuesPechkin
+// NuGet: Install-Package TuesPechkin.Wkhtmltox.Win64
 using TuesPechkin;
+using System.Drawing.Printing;
 using System.IO;
 
 class Program
@@ -198,8 +200,8 @@ class Program
         var document = new HtmlToPdfDocument
         {
             GlobalSettings = {
-                Orientation = GlobalSettings.PdfOrientation.Landscape,
-                PaperSize = GlobalSettings.PdfPaperSize.A4,
+                Orientation = GlobalSettings.PaperOrientation.Landscape,
+                PaperSize = PaperKind.A4,
                 Margins = new MarginSettings { Unit = Unit.Millimeters, Top = 10, Bottom = 10 }
             },
             Objects = {

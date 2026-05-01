@@ -53,15 +53,15 @@ pdf.SaveToFile("contract.pdf");
 
 | Feature | Spire.PDF | IronPDF |
 |---------|-----------|---------|
-| **HTML Rendering** | IE/Edge-based (outdated) | Chromium (modern) |
-| **Text Output** | Images (not selectable) | Real text (selectable) |
-| **CSS3 Support** | Limited | Full |
-| **Flexbox/Grid** | Not supported | Full support |
-| **JavaScript** | Limited | Full ES6+ |
-| **Font Embedding** | Problematic | Reliable |
-| **PDF Accessibility** | Poor (image-based) | Excellent |
-| **Modern .NET** | .NET 6+ partial | Full .NET 6-9 |
-| **API Design** | Complex | Simple and intuitive |
+| **HTML Rendering** | Legacy IE/QtWebKit by default; opt-in `ChromeHtmlConverter` (requires system Chrome) since v10.7.21 | Bundled Chromium (modern, no extra install) |
+| **Text Output** | Often rendered as images on legacy path | Real text (selectable) |
+| **CSS3 Support** | Limited on legacy path | Full |
+| **Flexbox/Grid** | Not supported on legacy path | Full support |
+| **JavaScript** | Limited on legacy path | Full ES6+ |
+| **Font Embedding** | Issues reported on legacy path | Reliable |
+| **PDF Accessibility** | Poor on legacy path (image-based output) | Tagged-text output |
+| **Modern .NET** | .NET Framework 4.0+, .NET 6/8/9/10 | .NET Framework 4.6.2+, .NET 6/7/8/9 |
+| **API Design** | Many overloads, manual page settings | Single fluent renderer |
 
 ---
 
@@ -149,16 +149,16 @@ pdf.SaveAs("contract.pdf");
 
 ### Spire.PDF's Rendering Engine
 
-Spire.PDF relies on **Internet Explorer/Edge Legacy** for HTML rendering in many scenarios:
+Spire.PDF historically offered two HTML-rendering paths via `PdfDocument.LoadFromHTML(...)`: a **non-plugin** path that relies on the Windows Internet Explorer/Edge Legacy WebBrowser control, and a **QT/WebKit plugin** path that ships as a separate download. As of Spire.PDF 10.7.21 (mid-2024) e-iceblue added a third option, `ChromeHtmlConverter`, which shells out to a locally installed Google Chrome — but this is opt-in and the original `LoadFromHTML` API still defaults to the legacy engines:
 
 ```csharp
-// ❌ Spire.PDF - Uses IE/Edge rendering
-// Problems:
-// 1. IE was deprecated in 2022
-// 2. Modern CSS doesn't work
-// 3. JavaScript support is limited
-// 4. Security vulnerabilities
-// 5. Inconsistent rendering across systems
+// Spire.PDF — default LoadFromHTML(...) behavior
+// Problems with the legacy engines (IE/Edge Legacy, QtWebKit):
+// 1. IE/Edge Legacy was deprecated by Microsoft in 2022
+// 2. Modern CSS (Flexbox, Grid, custom properties) renders incorrectly
+// 3. JavaScript support is partial/unreliable
+// 4. QtWebKit plugin is unmaintained upstream
+// 5. ChromeHtmlConverter requires a system-installed Chrome binary
 ```
 
 ### Modern CSS That Fails in Spire.PDF
@@ -250,11 +250,18 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 **Before (Spire.PDF):**
 ```csharp
 using Spire.Pdf;
-using Spire.Pdf.HtmlConverter;
+using Spire.Pdf.Graphics;
 
-// HTML to PDF (creates image-based PDF)
+// HTML string to PDF — uses the URL overload's signature is wrong;
+// real overload: LoadFromHTML(string html, bool autoDetectPageBreak,
+//                             PdfPageSettings setting, PdfHtmlLayoutFormat layout)
 PdfDocument pdf = new PdfDocument();
-pdf.LoadFromHTML("<h1>Hello World</h1>", false, true, true);
+PdfPageSettings setting = new PdfPageSettings();
+setting.Size = PdfPageSize.A4;
+PdfHtmlLayoutFormat layout = new PdfHtmlLayoutFormat();
+layout.IsWaiting = false;
+
+pdf.LoadFromHTML("<h1>Hello World</h1>", true, setting, layout);
 pdf.SaveToFile("output.pdf");
 pdf.Close();
 ```
@@ -277,9 +284,10 @@ pdf.SaveAs("output.pdf");
 
 | Spire.PDF Namespace | IronPDF Namespace | Notes |
 |---------------------|-------------------|-------|
-| `Spire.Pdf` | `IronPdf` | Main namespace |
+| `Spire.Pdf` (note lowercase `d`) | `IronPdf` | Main namespace |
 | `Spire.Pdf.Graphics` | `IronPdf.Rendering` | Rendering options |
-| `Spire.Pdf.HtmlConverter` | `IronPdf` | `ChromePdfRenderer` |
+| `Spire.Pdf.HtmlConverter` (legacy IE/QtWebKit path) | `IronPdf` | `ChromePdfRenderer` |
+| `Spire.Additions.Chrome` (newer `ChromeHtmlConverter`, requires Chrome installed) | `IronPdf` | `ChromePdfRenderer` (built-in Chromium, no system Chrome required) |
 | `Spire.Pdf.Widget` | `IronPdf.Forms` | Form handling |
 | `Spire.Pdf.Security` | `IronPdf` | Security settings |
 | `Spire.Pdf.Annotations` | `IronPdf` | PDF annotations |
@@ -338,20 +346,22 @@ pdf.SaveAs("output.pdf");
 **Before (Spire.PDF):**
 ```csharp
 using Spire.Pdf;
-using Spire.Pdf.HtmlConverter;
+using Spire.Pdf.Graphics;
 
 class Program
 {
     static void Main()
     {
         PdfDocument pdf = new PdfDocument();
+        PdfPageSettings setting = new PdfPageSettings();
+        setting.Size = PdfPageSize.A4;
         PdfHtmlLayoutFormat htmlLayoutFormat = new PdfHtmlLayoutFormat();
         htmlLayoutFormat.IsWaiting = false;
 
         string html = "<html><body><h1>Hello World</h1><p>This is a test.</p></body></html>";
 
-        // WARNING: Creates image-based PDF!
-        pdf.LoadFromHTML(html, false, true, true);
+        // HTML-string overload (4 args). Legacy IE/QtWebKit engine renders text as images.
+        pdf.LoadFromHTML(html, true, setting, htmlLayoutFormat);
 
         pdf.SaveToFile("output.pdf");
         pdf.Close();
@@ -391,7 +401,8 @@ class Program
     {
         PdfDocument pdf = new PdfDocument();
 
-        // Renders with IE engine, text often as images
+        // URL overload: LoadFromHTML(url, enableJavaScript, enableHyperlinks, autoDetectPageBreak)
+        // Renders with the legacy IE/QtWebKit engine — text often produced as images.
         pdf.LoadFromHTML("https://example.com", false, true, true);
 
         pdf.SaveToFile("webpage.pdf");
@@ -927,31 +938,33 @@ class Program
 
 ### Spire.PDF Licensing
 
-| Edition | Price Range | Limitations |
+| Edition | Price (verified at e-iceblue.com) | Limitations |
 |---------|-------------|-------------|
-| **Free** | $0 | 10 pages max, watermarks, limited features |
-| **Developer** | ~$999+ | Per developer |
-| **Site** | ~$2,999+ | All developers at one location |
-| **OEM** | ~$9,999+ | Distribution rights |
+| **Free Spire.PDF** (Community Edition) | $0 | 10-page limit on loading/creating; first 3 pages only when converting to image/Word/HTML/XPS; no commercial support |
+| **Developer Small Business** | $999 | 1 developer, 1 deployment location; internal use only |
+| **Developer OEM** | $2,549 | 1 developer, unlimited deployments; required for public-facing/SaaS/Docker |
+| **Site Small Business** | $4,599 | Up to 10 developers, up to 10 locations |
+| **Site OEM** | $13,088 | Up to 10 developers, unlimited deployments |
 
 **Hidden Costs:**
-- Separate licenses for different products (Spire.Doc, Spire.XLS, etc.)
-- Annual renewal for updates
-- Support costs extra
+- Separate licenses for sister products (Spire.Doc, Spire.XLS, Spire.Office bundle)
+- Paid support tiers from $499 to $3,599/year on top of license
+- OEM tier required for any public website, cloud, or Docker deployment
 
 ### IronPDF Licensing
 
 | License | Price | Includes |
 |---------|-------|----------|
-| **Lite** | $749 | 1 developer, 1 project |
-| **Professional** | $1,499 | 10 developers, 10 projects |
-| **Unlimited** | $2,999 | Unlimited developers and projects |
+| **Lite** | $799 | 1 developer, 1 location, 1 project |
+| **Plus** | $1,199 | 3 developers, 3 locations, 3 projects |
+| **Professional** | $2,399 | 10 developers, 10 locations, 10 projects |
+| **Unlimited** | $4,799 | Unlimited developers, locations, and projects |
 
 **Benefits:**
 - Perpetual license (no annual fees)
-- Includes 1 year of updates and support
-- SaaS/OEM available
-- Clear, simple pricing
+- Same license covers dev, staging, and production
+- SaaS/OEM redistribution available
+- 30-day money-back guarantee
 
 ---
 
@@ -1137,9 +1150,9 @@ pdf.SaveAs(...);
   ```csharp
   // Before (Spire.PDF) - Creates IMAGE-BASED PDFs (text not selectable!)
   var doc = new PdfDocument();
-  var settings = new PdfHtmlLayoutFormat();
-  settings.IsWaiting = true;
-  PdfDocument.LoadFromHTML(htmlContent, true, true, true);
+  var pageSetting = new PdfPageSettings { Size = PdfPageSize.A4 };
+  var layout = new PdfHtmlLayoutFormat { IsWaiting = false };
+  doc.LoadFromHTML(htmlContent, true, pageSetting, layout);
   doc.SaveToFile("output.pdf");
   doc.Close();
 

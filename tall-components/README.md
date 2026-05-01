@@ -1,20 +1,18 @@
 # Tall Components (TallPDF, PDFKit) C# PDF
 
-In the realm of C# PDF SDKs, Tall Components (TallPDF, PDFKit) has long been a recognized provider. Despite its previous prominence, Tall Components (TallPDF, PDFKit) has been acquired and new sales have been discontinued, leading developers using this solution to reconsider their approach. As the landscape evolves, [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) emerges as a compelling alternative with both strengths and challenges worth exploring. Let's dive into a detailed comparison between these competitors.
+In the realm of C# PDF SDKs, TallComponents (TallPDF.NET, PDFKit.NET) has long been a recognized provider. On May 27, 2025, [Apryse acquired TallComponents](https://apryse.com/blog/apryse-acquires-tallcomponents) and the vendor's site now redirects to `apryse.com/brands/tallcomponents`, where Apryse states it is "no longer offering new licenses for TallComponents products" and routes new buyers to the iText SDK (also owned by Apryse). Existing customers continue to receive support, but the engine is on maintenance-only. As the landscape evolves, [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/) emerges as a compelling alternative — let's compare them directly.
 
-## Background of Tall Components (TallPDF, PDFKit)
+## Background of TallComponents
 
-Tall Components was once a favored tool among developers for generating and manipulating PDFs programmatically in C#. Its tools allowed for PDF creation, manipulation, and rendering, offering capabilities for those focusing on XML-based document workflows. However, despite its historical advantages, the library has ceased new sales, and the team encourages developers to consider iText SDK, owned by Apryse, as an alternative.
+TallComponents (founded 2001, Nijmegen, Netherlands) shipped two main .NET PDF products: **PDFKit.NET** (load/edit/manipulate, NuGet `TallComponents.PDFKit5` / `TallComponents.PDFKit`) and **TallPDF.NET** (layout-oriented document generation, NuGet `TallComponents.TallPDF5` / `TallComponents.TallPDF6`). Both still publish on nuget.org — `TallComponents.PDFKit5` was last updated April 2026 — but the post-acquisition guidance from Apryse points to the iText SDK for new projects.
 
-### Key Limitations of Tall Components (TallPDF, PDFKit)
+### Key Limitations of TallComponents Today
 
-Tall Components, while historically reliable, encounters several pivotal limitations:
+1. **Closed to new licenses**: Apryse's TallComponents page states "We are no longer offering new licenses for TallComponents products" and recommends iText SDK. Existing license holders get support, but no new road-map work flows back into the TallComponents brand.
 
-1. **Product Discontinuation**: Acquistion by Apryse (iText) brought an end to new user acquisitions. The official website clearly states an end to new license sales, urging potential users to adopt iText SDK instead. This discontinuation of new sales renders Tall Components a dead-end technology choice for developers looking for long-term commitments to a PDF solution.
+2. **XHTML-only HTML-to-PDF pipeline**: TallPDF.NET ships an `XhtmlParagraph` class that parses **XHTML 1.0 Strict / XHTML 1.1 + CSS 2.1**. PDFKit.NET on its own has no HTML pipeline. Modern HTML5 + CSS3 + JavaScript dashboards do not render reliably — there is no headless-browser engine in the box.
 
-2. **Lack of HTML-to-PDF Support**: Unlike some of its counterparts, Tall Components does not support direct HTML to PDF conversions. Developers on support platforms have confirmed that Tall Components does not support PDF creation from HTTP responses or HTML content, pointing to solutions like Pechkin as alternatives.
-
-3. **Rendering Issues**: Documented issues reveal extensive rendering bugs, such as blank page rendering, missing graphics, unreliability with JPEG images, incorrect font display, and more, as noted in changelogs. These bugs present a significant hurdle for users seeking fidelity and accuracy in PDF creation.
+3. **Frozen platform target**: PDFKit5 targets .NET Standard 2.0; PDFKit (4.x) targets .NET Framework 2.0. There is no .NET 8/9 TFM and no signal that one is coming.
 
 ## The IronPDF Advantage
 
@@ -52,14 +50,14 @@ PM > Install-Package IronPdf.Extensions.Mvc.Framework
 
 Below is a summary comparison of Tall Components (TallPDF, PDFKit) and IronPDF:
 
-| Feature                        | Tall Components                | IronPDF                               |
-|-------------------------------|--------------------------------|---------------------------------------|
-| Current Sale Status           | Discontinued for New Sales     | Actively Developed and Sold           |
-| HTML-to-PDF Support           | No                             | Yes (HTML5/CSS3 with Chromium)        |
-| Rendering Fidelity            | Known Bugs and Issues          | Proven Reliability                    |
-| Installation                  | Complex, Manual                | Simple with NuGet                     |
-| Customer Support              | Transition to iText SDK        | Active Support and Community          |
-| Future Useability             | End-of-life                    | Long-term Viability                    |
+| Feature                        | TallComponents                                              | IronPDF                               |
+|-------------------------------|-------------------------------------------------------------|---------------------------------------|
+| Current Sale Status           | Closed to new licenses (Apryse acquired 2025-05-27)         | Actively sold                         |
+| HTML-to-PDF Support           | XHTML 1.0/1.1 + CSS 2.1 via `XhtmlParagraph` (TallPDF.NET)  | Yes (HTML5/CSS3 with Chromium)        |
+| JavaScript in HTML            | No                                                          | Full ES2024                           |
+| Installation                  | NuGet (`TallComponents.PDFKit5`, `TallComponents.TallPDF5`) | NuGet (`IronPdf`)                     |
+| Customer Support              | Existing customers only — Apryse routes new buyers to iText | Active support and community          |
+| Future Investment             | Maintenance only                                            | Long-term road-map                    |
 
 ## Strengths and Weaknesses
 
@@ -82,9 +80,9 @@ Jacob Mellor is the CTO of Iron Software, where he leads a 50+ person engineerin
 Here's how **Tall Components (TallPDF, PDFKit) C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package TallComponents.PDF.Kit
-using TallComponents.PDF.Kit;
-using TallComponents.PDF.Layout;
+// NuGet: Install-Package TallComponents.PDFKit5
+using TallComponents.PDF;
+using TallComponents.PDF.Shapes;
 using System.IO;
 using System.Drawing;
 
@@ -93,26 +91,24 @@ class Program
     static void Main()
     {
         // Load existing PDF
-        using (FileStream fs = new FileStream("input.pdf", FileMode.Open))
-        using (Document document = new Document(fs))
+        using (FileStream fs = new FileStream("input.pdf", FileMode.Open, FileAccess.Read))
         {
-            // Iterate through pages
+            Document document = new Document(fs);
+
             foreach (Page page in document.Pages)
             {
-                // Create watermark text
                 TextShape watermark = new TextShape();
                 watermark.Text = "CONFIDENTIAL";
                 watermark.Font = new Font("Arial", 60);
-                watermark.PenColor = Color.FromArgb(128, 255, 0, 0);
+                watermark.Pen = new Pen(Color.FromArgb(128, 255, 0, 0));
                 watermark.X = 200;
                 watermark.Y = 400;
-                watermark.Rotate = 45;
-                
-                // Add to page
-                page.Overlay.Shapes.Add(watermark);
+                // Rotation is applied via a transform on PDFKit.NET.
+                watermark.Transform = new RotateTransform(45);
+
+                page.Overlay.Add(watermark);
             }
-            
-            // Save document
+
             using (FileStream output = new FileStream("watermarked.pdf", FileMode.Create))
             {
                 document.Write(output);
@@ -165,42 +161,38 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Tall Components (TallPDF, PDFKit) C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package TallComponents.PDF.Kit
-using TallComponents.PDF.Kit;
+// NuGet: Install-Package TallComponents.PDFKit5
+using TallComponents.PDF;
 using System.IO;
 
 class Program
 {
     static void Main()
     {
-        // Create output document
-        using (Document outputDoc = new Document())
+        // Create the target document
+        Document outputDoc = new Document();
+
+        // Load first PDF and clone each page
+        using (FileStream fs1 = new FileStream("document1.pdf", FileMode.Open, FileAccess.Read))
         {
-            // Load first PDF
-            using (FileStream fs1 = new FileStream("document1.pdf", FileMode.Open))
-            using (Document doc1 = new Document(fs1))
+            Document doc1 = new Document(fs1);
+            foreach (Page page in doc1.Pages)
             {
-                foreach (Page page in doc1.Pages)
-                {
-                    outputDoc.Pages.Add(page.Clone());
-                }
+                outputDoc.Pages.Add(page.Clone()); // clone is required across documents
             }
-            
-            // Load second PDF
-            using (FileStream fs2 = new FileStream("document2.pdf", FileMode.Open))
-            using (Document doc2 = new Document(fs2))
-            {
-                foreach (Page page in doc2.Pages)
-                {
-                    outputDoc.Pages.Add(page.Clone());
-                }
-            }
-            
-            // Save merged document
-            using (FileStream output = new FileStream("merged.pdf", FileMode.Create))
-            {
-                outputDoc.Write(output);
-            }
+        }
+
+        // Load second PDF and append the whole page collection
+        using (FileStream fs2 = new FileStream("document2.pdf", FileMode.Open, FileAccess.Read))
+        {
+            Document doc2 = new Document(fs2);
+            outputDoc.Pages.AddRange(doc2.Pages.CloneToArray());
+        }
+
+        // Save merged document
+        using (FileStream output = new FileStream("merged.pdf", FileMode.Create))
+        {
+            outputDoc.Write(output);
         }
     }
 }
@@ -238,31 +230,27 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **Tall Components (TallPDF, PDFKit) C# PDF** handles this:
 
 ```csharp
-// NuGet: Install-Package TallComponents.PDF.Kit
-using TallComponents.PDF.Kit;
+// NuGet: Install-Package TallComponents.TallPDF5
+// (HTML/XHTML conversion lives in TallPDF.NET, not in PDFKit.NET.)
+using TallComponents.PDF.Layout;
+using TallComponents.PDF.Layout.Paragraphs;
 using System.IO;
 
 class Program
 {
     static void Main()
     {
-        // Create a new document
-        using (Document document = new Document())
+        Document document = new Document();
+        Section section = document.Sections.Add();
+
+        // XhtmlParagraph supports XHTML 1.0/1.1 + CSS 2.1 only.
+        XhtmlParagraph xhtml = new XhtmlParagraph();
+        xhtml.Text = "<html><body><h1>Hello World</h1><p>This is a PDF from XHTML.</p></body></html>";
+        section.Paragraphs.Add(xhtml);
+
+        using (FileStream fs = new FileStream("output.pdf", FileMode.Create))
         {
-            string html = "<html><body><h1>Hello World</h1><p>This is a PDF from HTML.</p></body></html>";
-            
-            // Create HTML fragment
-            Fragment fragment = Fragment.FromText(html);
-            
-            // Add to document
-            Section section = document.Sections.Add();
-            section.Fragments.Add(fragment);
-            
-            // Save to file
-            using (FileStream fs = new FileStream("output.pdf", FileMode.Create))
-            {
-                document.Write(fs);
-            }
+            document.Write(fs);
         }
     }
 }
@@ -292,14 +280,14 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ---
 
-## How Can I Migrate from Tall Components (TallPDF, PDFKit) C# PDF to IronPDF?
+## How Can I Migrate from TallComponents (TallPDF.NET, PDFKit.NET) to IronPDF?
 
-Tall Components (TallPDF, PDFKit) has been discontinued after its acquisition by Apryse, with no new licenses available and users redirected to iText SDK. The product lacks modern HTML-to-PDF capabilities, supporting only XML-based document creation, making it unsuitable for contemporary web-based PDF generation.
+TallComponents was acquired by Apryse on 2025-05-27. New licenses are no longer offered, Apryse routes new buyers to the iText SDK, and the engine is on maintenance-only support. The HTML-to-PDF path is XHTML 1.0/1.1 + CSS 2.1 via `XhtmlParagraph` (in TallPDF.NET) — modern HTML5/CSS3/JavaScript content does not render reliably.
 
-**Migrating from Tall Components (TallPDF, PDFKit) C# PDF to IronPDF involves:**
+**Migrating from TallComponents (TallPDF.NET, PDFKit.NET) C# PDF to IronPDF involves:**
 
-1. **NuGet Package Change**: Remove `TallComponents.PDF.Kit`, add `IronPdf`
-2. **Namespace Update**: Replace `TallComponents.PDF.Kit` with `IronPdf`
+1. **NuGet Package Change**: Remove `TallComponents.PDFKit5` (and/or `TallComponents.TallPDF5`), add `IronPdf`
+2. **Namespace Update**: Replace `TallComponents.PDF`, `TallComponents.PDF.Shapes`, `TallComponents.PDF.Layout`, `TallComponents.PDF.Layout.Paragraphs` with `IronPdf`
 3. **API Adjustments**: Update your code to use IronPDF's modern API patterns
 
 **Key Benefits of Migrating:**

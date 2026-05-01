@@ -2,7 +2,7 @@
 
 > **Migration Complexity:** Medium
 > **Estimated Time:** 2-4 hours for typical projects
-> **Last Updated:** December 2024
+> **Last Updated:** April 2026 (ABCpdf 13.4.4, released 9 April 2026)
 
 ## Table of Contents
 
@@ -25,22 +25,22 @@ ABCpdf from WebSupergoo has been a capable PDF library for .NET developers, but 
 
 ### The Case for Leaving ABCpdf
 
-**Licensing Complexity**: ABCpdf uses a tiered licensing model that can be confusing to navigate, as detailed in the [migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-abcpdf-to-ironpdf/). Pricing starts at $349 but escalates based on features, server deployments, and use cases. Many developers report the licensing maze as a significant administrative burden.
+**Licensing Complexity**: ABCpdf uses a tiered licensing model that can be confusing to navigate, as detailed in the [migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-abcpdf-to-ironpdf/). The Standard Single Computer license is $329 (32-bit only); Professional is $479; Professional Redistribution / Enterprise is $4,790; the Group License runs to $33,530 — perpetual, with v13 keys also covering v8–v12. Many developers report the tier maze as a significant administrative burden.
 
-**Windows-First Architecture**: While ABCpdf has added cross-platform support, its historical Windows-centric design occasionally surfaces in workflows. Developers targeting Linux containers or macOS development environments may encounter friction.
+**Windows-First Architecture (until v13)**: ABCpdf was Windows-only for most of its history. Linux support was added in v13 (April 2026 release line) via the `ABCpdf.ABCChrome117.Linux` and `ABCpdf.ABCChrome123.Linux` runtime packages. macOS is not supported. Some Windows-specific features (XPS, WPF) remain unavailable on Linux.
 
 **Documentation Style**: ABCpdf's documentation, while comprehensive, follows an older style that can feel dated compared to modern API documentation standards. New users often struggle to find the exact examples they need.
 
-**Engine Configuration Overhead**: ABCpdf requires explicit engine selection (Gecko, Chrome, etc.) and manual resource management with `Clear()` calls. This adds boilerplate code to every PDF operation.
+**Engine Configuration Overhead**: ABCpdf requires explicit engine selection — `EngineType.Chrome123` (default in v13), `Chrome117`, `Chrome86`, `Chrome65`, `Gecko`, `WebKit`, or `MSHtml` — and manual resource management with `Clear()` calls. This adds boilerplate code to every PDF operation.
 
 ### What IronPDF Provides
 
 | ABCpdf Limitation | IronPDF Solution |
 |-------------------|------------------|
 | Complex tiered licensing | Simple, transparent pricing |
-| Requires engine selection | Chrome engine by default |
+| Requires versioned engine selection (`EngineType.Chrome123`/`Chrome117`/`Gecko`/`WebKit`/`MSHtml`) | Single bundled Chromium engine |
 | Manual `Clear()` cleanup | IDisposable with `using` statements |
-| Windows-first design | Native cross-platform support |
+| Windows-only until v13 (Linux added 2026, no macOS) | Native Windows, Linux, macOS, Docker |
 | Dated documentation | Modern docs with extensive examples |
 | Registry-based licensing | Simple code-based license key |
 
@@ -70,7 +70,7 @@ grep -r "ABCpdf" --include="*.csproj" .
 |----------|-----------------|------------------|------------------|
 | Object Model | `Doc` class is central | `ChromePdfRenderer` + `PdfDocument` | Separate rendering from document |
 | Resource Cleanup | Manual `doc.Clear()` | IDisposable pattern | Use `using` statements |
-| Engine Selection | `doc.HtmlOptions.Engine = EngineType.Chrome` | Built-in Chrome | Remove engine config |
+| Engine Selection | `doc.HtmlOptions.Engine = EngineType.Chrome123` (or `Chrome117`/`Chrome86`/`Chrome65`/`Gecko`/`WebKit`/`MSHtml`) | Built-in Chromium | Remove engine config |
 | Page Coordinates | Point-based with `doc.Rect` | CSS-based margins | Use CSS or RenderingOptions |
 | Save to Memory | `doc.GetData()` | `pdf.BinaryData` | Property access |
 | Multi-page HTML | Loop with `doc.AddImageHtml()` | Automatic pagination | Simplify code |
@@ -113,7 +113,7 @@ using WebSupergoo.ABCpdf13;
 using WebSupergoo.ABCpdf13.Objects;
 
 Doc doc = new Doc();
-doc.HtmlOptions.Engine = EngineType.Chrome;
+doc.HtmlOptions.Engine = EngineType.Chrome123;
 doc.AddImageHtml("<h1>Hello World</h1>");
 doc.Save("output.pdf");
 doc.Clear();
@@ -205,7 +205,7 @@ pdf.SaveAs("output.pdf");
 
 | ABCpdf Setting | IronPDF Equivalent | Default |
 |----------------|-------------------|---------|
-| `doc.HtmlOptions.Engine = EngineType.Chrome` | Built-in Chrome | Chrome |
+| `doc.HtmlOptions.Engine = EngineType.Chrome123` | Built-in Chromium (no selection needed) | Chromium |
 | `doc.HtmlOptions.PageCacheEnabled` | Not needed | N/A |
 | `doc.Rect.String = "A4"` | `RenderingOptions.PaperSize = PdfPaperSize.A4` | A4 |
 | `doc.Rect.String = "Letter"` | `RenderingOptions.PaperSize = PdfPaperSize.Letter` | Letter |
@@ -228,7 +228,7 @@ using WebSupergoo.ABCpdf13.Objects;
 public byte[] CreatePdfFromHtml(string html)
 {
     Doc doc = new Doc();
-    doc.HtmlOptions.Engine = EngineType.Chrome;
+    doc.HtmlOptions.Engine = EngineType.Chrome123;
     doc.Rect.Inset(20, 20);
     doc.AddImageHtml(html);
     byte[] data = doc.GetData();
@@ -264,7 +264,7 @@ using WebSupergoo.ABCpdf13.Objects;
 public void ConvertUrlToPdf(string url, string outputPath)
 {
     Doc doc = new Doc();
-    doc.HtmlOptions.Engine = EngineType.Chrome;
+    doc.HtmlOptions.Engine = EngineType.Chrome123;
     doc.HtmlOptions.PageCacheEnabled = false;
     doc.AddImageUrl(url);
     doc.Save(outputPath);
@@ -495,7 +495,7 @@ using WebSupergoo.ABCpdf13;
 public void CreateCustomSizePdf(string html, string outputPath)
 {
     Doc doc = new Doc();
-    doc.HtmlOptions.Engine = EngineType.Chrome;
+    doc.HtmlOptions.Engine = EngineType.Chrome123;
     doc.MediaBox.String = "0 0 400 600"; // Custom size in points
     doc.AddImageHtml(html);
     doc.Save(outputPath);
@@ -527,7 +527,7 @@ using WebSupergoo.ABCpdf13;
 public void ConvertHtmlFile(string htmlPath, string outputPath)
 {
     Doc doc = new Doc();
-    doc.HtmlOptions.Engine = EngineType.Chrome;
+    doc.HtmlOptions.Engine = EngineType.Chrome123;
     doc.HtmlOptions.AddLinks = true;
 
     int id = doc.AddImageUrl("file://" + htmlPath);
@@ -571,7 +571,7 @@ public void BatchConvert(string[] htmlFiles, string outputDir)
     foreach (var htmlFile in htmlFiles)
     {
         Doc doc = new Doc();
-        doc.HtmlOptions.Engine = EngineType.Chrome;
+        doc.HtmlOptions.Engine = EngineType.Chrome123;
         doc.AddImageUrl("file://" + htmlFile);
 
         string outputPath = Path.Combine(outputDir,
@@ -614,7 +614,7 @@ public void BatchConvert(string[] htmlFiles, string outputDir)
 public IActionResult GeneratePdf([FromBody] ReportRequest request)
 {
     Doc doc = new Doc();
-    doc.HtmlOptions.Engine = EngineType.Chrome;
+    doc.HtmlOptions.Engine = EngineType.Chrome123;
     doc.AddImageHtml(request.Html);
     byte[] pdfBytes = doc.GetData();
     doc.Clear();

@@ -6,6 +6,8 @@ class Program
 {
     static void Main()
     {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
         // IronPDF has native HTML to PDF rendering
         var renderer = new ChromePdfRenderer();
         

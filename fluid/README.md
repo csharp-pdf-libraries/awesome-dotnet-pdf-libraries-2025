@@ -2,7 +2,7 @@
 
 When it comes to generating documents dynamically in your C# applications, the choice of technology can make a significant difference in your workflow efficiency and output quality. This article explores the Fluid templating engine and compares it with [IronPDF](https://ironpdf.com/tutorials/csharp-pdf-tutorial-beginners/), examining their respective strengths and weaknesses when it comes to PDF generation in C# with html to pdf c# capabilities.
 
-**Fluid (templating)** is a .NET library that implements the Liquid templating language. It is primarily used for generating dynamic text outputs using templates. Fluid (templating) benefits developers by allowing them to separate content and presentation logic, promoting clean code and easier management. However, unlike some comprehensive solutions, Fluid (templating) does not directly support PDF generation, adding layers of complexity if PDF output is a requirement.
+**Fluid (templating)** is an open-source .NET library that implements the Liquid template language (shipped on NuGet as `Fluid.Core`, authored by Sebastien Ros, MIT-licensed). It is primarily used for generating dynamic text outputs — HTML pages, emails, configuration files — using templates. Fluid benefits developers by allowing them to separate content and presentation logic, promoting clean code and easier management. However, Fluid is **not** a PDF library: it produces text/HTML strings, so any PDF output requires a downstream HTML-to-PDF tool, adding layers of complexity if PDF is the final goal.
 
 ## Fluid Templating in C#
 
@@ -20,13 +20,13 @@ namespace FluidExample
         static void Main(string[] args)
         {
             string templateText = "Hello, {{ name }}!";
-            var template = new FluidTemplate();
+            var parser = new FluidParser();
 
-            if (template.TryParse(templateText, out var result))
+            if (parser.TryParse(templateText, out var template, out var error))
             {
-                var model = new Dictionary<string, object> { ["name"] = "World" };
-                var context = new TemplateContext(model);
-                var renderedOutput = result.Render(context);
+                var context = new TemplateContext();
+                context.SetValue("name", "World");
+                var renderedOutput = template.Render(context);
 
                 Console.WriteLine(renderedOutput);
             }

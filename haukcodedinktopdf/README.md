@@ -248,7 +248,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Haukcode.DinkToPdf wraps the **abandoned wkhtmltopdf library** which has critical, unfixable security vulnerabilities:
 
 1. **CVE-2022-35583 (CVSS 9.8 CRITICAL)**: Server-Side Request Forgery (SSRF) vulnerability allows attackers to access internal resources, AWS metadata, and local files
-2. **Abandoned Project**: wkhtmltopdf was archived in January 2023—no security patches coming
+2. **Abandoned Project**: wkhtmltopdf repo archived January 2, 2023; org archived July 10, 2024—no security patches coming
 3. **Outdated WebKit**: Uses Qt WebKit from ~2015—missing years of security updates
 4. **Native Binary Dependency**: Must distribute platform-specific DLLs/binaries
 5. **Thread Safety Issues**: Requires strict singleton pattern with `SynchronizedConverter`
@@ -381,7 +381,7 @@ public class PdfService
 # Remove DinkToPdf packages
 dotnet remove package DinkToPdf
 dotnet remove package Haukcode.DinkToPdf
-dotnet remove package Haukcode.WkHtmlToPdf-DotNet
+dotnet remove package Haukcode.WkHtmlToPdfDotNet
 
 # Install IronPDF
 dotnet add package IronPdf

@@ -1,4 +1,6 @@
-// NuGet: Install-Package Rotativa.Core
+// NuGet: Install-Package Rotativa.AspNetCore  (v1.4.0, last released 2024-11-06; webgio fork)
+// Requires wkhtmltopdf.exe in a "Rotativa" folder at the application root.
+// Underlying wkhtmltopdf binary was archived 2023-01-02 with unpatched CVE-2022-35583.
 using Microsoft.AspNetCore.Mvc;
 using Rotativa.AspNetCore;
 using System.Threading.Tasks;

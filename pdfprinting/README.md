@@ -39,23 +39,23 @@ IronPDF, on the other hand, presents a more comprehensive solution by addressing
 Below is a simplified C# code example demonstrating the usage of PDFPrinting.NET for silent printing of a PDF document:
 
 ```csharp
-using PDFPrintingNET;
+using PdfPrintingNet;
 
 class Program
 {
     static void Main()
     {
         string filePath = "path/to/document.pdf";
-        var printer = new PDFPrinter();
+        var pdfPrint = new PdfPrint("license-owner", "license-key");
 
         // Specify printer settings
-        printer.PrinterName = "Your Printer Name";
-        printer.PageScaling = PDFPageScaling.FitToPrintableArea;
+        pdfPrint.PrinterName = "Your Printer Name";
+        pdfPrint.PageScaling = PageScaling.FitToPrintableArea;
 
         // Perform silent printing
-        printer.Print(filePath);
+        var status = pdfPrint.Print(filePath);
 
-        Console.WriteLine("PDF printed successfully.");
+        Console.WriteLine($"PDF printed: {status}");
     }
 }
 ```
@@ -64,21 +64,22 @@ class Program
 
 ## How Do I Convert HTML to PDF in C# with PDFPrinting.NET?
 
-Here's how **PDFPrinting.NET** handles this:
+You don't — **PDFPrinting.NET has no HTML-to-PDF API**. The library has no `HtmlToPdfConverter` class. The closest you can do is generate the PDF with another tool, then hand the file to PDFPrinting.NET for printing:
 
 ```csharp
-// NuGet: Install-Package PDFPrinting.NET
-using PDFPrinting.NET;
+// NuGet: Install-Package PdfPrintingNet
+using PdfPrintingNet;
 using System;
 
 class Program
 {
     static void Main()
     {
-        var converter = new HtmlToPdfConverter();
-        string html = "<html><body><h1>Hello World</h1></body></html>";
-        converter.ConvertHtmlToPdf(html, "output.pdf");
-        Console.WriteLine("PDF created successfully");
+        // Step 1: Produce the PDF with another library (PDFPrinting.NET cannot).
+        // Step 2: Print the existing PDF file.
+        var pdfPrint = new PdfPrint("license-owner", "license-key");
+        var status = pdfPrint.Print("output.pdf");
+        Console.WriteLine($"Printed: {status}");
     }
 }
 ```
@@ -109,23 +110,21 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Do I Headers Footers?
 
-Here's how **PDFPrinting.NET** handles this:
+PDFPrinting.NET cannot author headers or footers — it does not generate PDFs from HTML or any other source, and offers no header/footer composition API. If your PDF already contains headers and footers, PDFPrinting.NET can print it:
 
 ```csharp
-// NuGet: Install-Package PDFPrinting.NET
-using PDFPrinting.NET;
+// NuGet: Install-Package PdfPrintingNet
+using PdfPrintingNet;
 using System;
 
 class Program
 {
     static void Main()
     {
-        var converter = new HtmlToPdfConverter();
-        converter.HeaderText = "Company Report";
-        converter.FooterText = "Page {page} of {total}";
-        string html = "<html><body><h1>Document Content</h1></body></html>";
-        converter.ConvertHtmlToPdf(html, "report.pdf");
-        Console.WriteLine("PDF with headers/footers created");
+        // Headers/footers must already be baked into the PDF.
+        var pdfPrint = new PdfPrint("license-owner", "license-key");
+        pdfPrint.Print("report.pdf");
+        Console.WriteLine("PDF with pre-existing headers/footers printed");
     }
 }
 ```
@@ -165,21 +164,22 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Do I Convert a URL to PDF in .NET?
 
-Here's how **PDFPrinting.NET** handles this:
+You can't with PDFPrinting.NET — there is no `WebPageToPdfConverter` class and the library does not download or render web pages. You would need a separate library to capture the URL as PDF first, then PDFPrinting.NET can print the resulting file:
 
 ```csharp
-// NuGet: Install-Package PDFPrinting.NET
-using PDFPrinting.NET;
+// NuGet: Install-Package PdfPrintingNet
+using PdfPrintingNet;
 using System;
 
 class Program
 {
     static void Main()
     {
-        var converter = new WebPageToPdfConverter();
-        string url = "https://www.example.com";
-        converter.Convert(url, "webpage.pdf");
-        Console.WriteLine("PDF from URL created successfully");
+        // Step 1: Capture the URL with another library (PDFPrinting.NET cannot).
+        // Step 2: Print the resulting PDF.
+        var pdfPrint = new PdfPrint("license-owner", "license-key");
+        pdfPrint.Print("webpage.pdf");
+        Console.WriteLine("Existing PDF printed (URL capture not supported by PDFPrinting.NET)");
     }
 }
 ```
@@ -210,16 +210,16 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from PDFPrinting.NET to IronPDF?
 
-### The Printing-Only Limitation
+### The Printing-Centric Limitation
 
-PDFPrinting.NET focuses exclusively on silent PDF printing within Windows:
+PDFPrinting.NET concentrates on a narrow set of operations:
 
-1. **Printing Only**: Cannot create, edit, or manipulate PDF documents
-2. **Windows Only**: Tied to Windows printing infrastructure—no Linux/macOS support
-3. **No PDF Generation**: Cannot convert HTML, URLs, or data to PDF
-4. **No Document Manipulation**: Cannot merge, split, watermark, or secure PDFs
-5. **No Text Extraction**: Cannot read or extract content from PDFs
-6. **No Form Handling**: Cannot fill or flatten PDF forms
+1. **Print-centric**: Authors no new PDF content — only prints, views, edits, and rasterizes pre-existing PDFs
+2. **Windows-only printing**: Tied to Windows printing infrastructure
+3. **No HTML/URL-to-PDF**: No `HtmlToPdfConverter`, no `WebPageToPdfConverter` — these classes do not exist
+4. **Limited manipulation**: Basic merge/split/extract via `PdfPrintDocument`, no watermarking
+5. **No comprehensive text extraction or form-fill API**
+6. **No JavaScript / modern CSS rendering**
 
 ### Quick Migration Overview
 
@@ -237,14 +237,13 @@ PDFPrinting.NET focuses exclusively on silent PDF printing within Windows:
 
 | PDFPrinting.NET | IronPDF | Notes |
 |-----------------|---------|-------|
-| `new PDFPrinter()` | `PdfDocument.FromFile(path)` | Load PDF first |
-| `printer.Print(filePath)` | `pdf.Print()` | Print to default |
-| `printer.Print(path, printerName)` | `pdf.Print(printerName)` | Specific printer |
-| `printer.PrinterName = "..."` | `pdf.Print("...")` | Printer selection |
-| `printer.GetPrintDocument(path)` | `pdf.GetPrintDocument()` | Get PrintDocument |
-| `printer.Copies = n` | `printSettings.NumberOfCopies = n` | Copy count |
-| `printer.Duplex = true` | `printSettings.DuplexMode = Duplex.Vertical` | Duplex |
-| `printer.CollatePages = true` | `printSettings.Collate = true` | Collation |
+| `new PdfPrint(owner, key)` | `PdfDocument.FromFile(path)` | Load PDF first |
+| `pdfPrint.Print(filePath)` | `pdf.Print()` | Print to default |
+| `pdfPrint.PrinterName = "..."; pdfPrint.Print(path)` | `pdf.Print(printerName)` | Specific printer |
+| `new PdfPrintDocument(...)` | `pdf.GetPrintDocument()` | Get PrintDocument |
+| `pdfPrint.Copies = n` | `printSettings.NumberOfCopies = n` | Copy count |
+| `pdfPrint.Duplex = true` | `printSettings.DuplexMode = Duplex.Vertical` | Duplex |
+| `pdfPrint.Collate = true` | `printSettings.Collate = true` | Collation |
 | _(not available)_ | `renderer.RenderHtmlAsPdf(html)` | NEW: HTML to PDF |
 | _(not available)_ | `PdfDocument.Merge()` | NEW: Merge PDFs |
 | _(not available)_ | `pdf.ApplyWatermark()` | NEW: Watermarks |
@@ -253,13 +252,13 @@ PDFPrinting.NET focuses exclusively on silent PDF printing within Windows:
 
 **Before (PDFPrinting.NET):**
 ```csharp
-using PDFPrintingNET;
+using PdfPrintingNet;
 
-var printer = new PDFPrinter();
-printer.PrinterName = "Office Printer";
-printer.Copies = 2;
-printer.PageScaling = PDFPageScaling.FitToPrintableArea;
-printer.Print("document.pdf");
+var pdfPrint = new PdfPrint("license-owner", "license-key");
+pdfPrint.PrinterName = "Office Printer";
+pdfPrint.Copies = 2;
+pdfPrint.PageScaling = PageScaling.FitToPrintableArea;
+pdfPrint.Print("document.pdf");
 ```
 
 **After (IronPDF):**
@@ -282,13 +281,13 @@ pdf.Print(settings);
 
 1. **Load-Then-Print Pattern**: PDFPrinting.NET passes path directly; IronPDF loads first
    ```csharp
-   // PDFPrinting.NET: printer.Print("document.pdf");
+   // PDFPrinting.NET: pdfPrint.Print("document.pdf");
    // IronPDF: var pdf = PdfDocument.FromFile("document.pdf"); pdf.Print();
    ```
 
 2. **Print Settings**: Property-based → Settings object
    ```csharp
-   // PDFPrinting.NET: printer.Copies = 2;
+   // PDFPrinting.NET: pdfPrint.Copies = 2;
    // IronPDF: new PrintSettings { NumberOfCopies = 2 };
    ```
 
@@ -304,8 +303,8 @@ pdf.Print(settings);
 ### NuGet Package Migration
 
 ```bash
-# Remove PDFPrinting.NET
-dotnet remove package PDFPrinting.NET
+# Remove PDFPrinting.NET (real NuGet ID is PdfPrintingNet)
+dotnet remove package PdfPrintingNet
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -314,11 +313,11 @@ dotnet add package IronPdf
 ### Find All PDFPrinting.NET References
 
 ```bash
-# Find PDFPrinting.NET usage
-grep -r "PDFPrinting\|PDFPrinter" --include="*.cs" .
+# Find PDFPrinting.NET usage (newer + legacy namespaces)
+grep -rE "PdfPrintingNet|TerminalWorks\.PDFPrinting|PdfPrint\b|PdfPrintDocument|PDFPrinter" --include="*.cs" .
 
 # Find print-related code
-grep -r "\.Print(\|PrinterName\|GetPrintDocument" --include="*.cs" .
+grep -r "\.Print(\|PrinterName" --include="*.cs" .
 ```
 
 **Ready for the complete migration?** The full guide includes:

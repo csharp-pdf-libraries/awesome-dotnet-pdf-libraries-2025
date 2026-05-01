@@ -6,7 +6,7 @@ HiQPdf, a commercial HTML-to-PDF library, offers HTML5/CSS3 support, making it a
 
 ## Strengths and Weaknesses of HiQPdf
 
-While HiQPdf supports HTML5/CSS3 content well, it relies on a WebKit-based engine. This older rendering technology can have challenges with modern JavaScript frameworks and complex HTML structures that are commonplace in today's web development. Furthermore, the documentation does not explicitly state support for newer .NET versions, such as .NET Core or .NET 5+, raising questions about its compatibility with modern applications.
+HiQPdf is published by HiQPdf Software (latest stable `HiQPdf` 18.0.2 on nuget.org, February 2026). It supports HTML5/CSS3 content well, but the Classic (`HiQPdf`) line uses an older WebKit-based engine that can struggle with modern JavaScript frameworks and complex HTML. HiQPdf has since shipped a Chromium-based line (`HiQPdf.NG`, `HiQPdf.Chromium.Windows`, plus a Linux variant) for parity with current browsers, but the original Classic engine — which is what the `HiQPdf` package and most existing samples target — remains WebKit-based. Documentation lists support for .NET Framework, .NET Core, and .NET Standard 2.0 (Windows x64 for Classic; Windows + Linux/Docker for the Multi-Platform/NG variants).
 
 Here is a simple example of how HiQPdf might be used in C#:
 
@@ -32,13 +32,13 @@ IronPDF, on the other hand, embraces the latest Chromium rendering engine, enabl
 
 Below is a table comparing the two libraries:
 
-| Feature                      | HiQPdf                                   | IronPDF                                    |
-|------------------------------|------------------------------------------|--------------------------------------------|
-| Rendering Engine             | WebKit-based (older)                     | True Chromium                              |
-| Free Tier Limitations        | 3-page limit, followed by watermark      | 30-day trial with full features            |
-| Modern JavaScript Support    | Limited                                  | Extensive due to Chromium engine           |
-| .NET Core/5+ Compatibility   | Not clearly documented                   | Fully documented for .NET 6, 7, 8, 9, 10   |
-| HTML5/CSS3 Support           | Yes                                      | Yes with advanced html to pdf c# rendering |
+| Feature                      | HiQPdf                                                       | IronPDF                                    |
+|------------------------------|--------------------------------------------------------------|--------------------------------------------|
+| Rendering Engine             | WebKit (Classic) or Chromium (NG/Multi-Platform)             | Chromium                                   |
+| Free Tier Limitations        | `HiQPdf.Free` capped at 3 pages per document                 | 30-day trial with full features            |
+| Modern JavaScript Support    | Limited on Classic; modern on NG/Chromium                    | Full Chromium support                      |
+| .NET Core/5+ Compatibility   | Yes — .NET Framework, .NET Core, .NET Standard 2.0           | Fully documented for .NET 6, 7, 8, 9, 10   |
+| HTML5/CSS3 Support           | Yes                                                          | Yes with advanced html to pdf c# rendering |
 
 ### IronPDF Advantages
 
@@ -248,10 +248,10 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 HiQPdf has several limitations that drive developers to seek alternatives:
 
-1. **3-Page Limit**: "Free" version caps output at 3 pages with intrusive watermarks—essentially a demo
-2. **WebKit Engine**: Older rendering technology struggles with modern JavaScript frameworks
-3. **Fragmented Packages**: Separate packages for different platforms (HiQPdf.Free, HiQPdf)
-4. **Limited .NET Support**: Unclear compatibility with .NET Core/.NET 5+
+1. **3-Page Free-Version Cap**: `HiQPdf.Free` caps output at 3 pages per document — fine for evaluation, not production
+2. **WebKit on the Classic Line**: The Classic `HiQPdf` package uses a WebKit-based engine that struggles with modern JavaScript frameworks (Chromium is only available on `HiQPdf.NG` / `HiQPdf.Chromium.Windows`)
+3. **Fragmented Packages**: Separate NuGet packages for each scenario (HiQPdf, HiQPdf.Free, HiQPdf.NG, HiQPdf_NetCore, HiQPdf.Chromium.Windows)
+4. **Per-Developer Licensing Adds Up**: $245 Startup / $495 Developer / $795 Team / $1,095 Enterprise (perpetual, first year of updates included)
 5. **Point-Based Units**: Uses points (1/72 inch) while IronPDF uses millimeters
 6. **Proprietary Placeholders**: `{CrtPage}`, `{PageCount}` syntax differs from IronPDF
 
@@ -259,12 +259,12 @@ HiQPdf has several limitations that drive developers to seek alternatives:
 
 | Aspect | HiQPdf | IronPDF |
 |--------|--------|---------|
-| Rendering Engine | WebKit (older) | Chromium (modern) |
-| Page Limit | 3 pages (free) | Full documents |
+| Rendering Engine | WebKit on Classic; Chromium on NG/Multi-Platform | Chromium (modern) |
+| Page Limit | 3 pages (HiQPdf.Free) | Full documents |
 | Unit System | Points (72/inch) | Millimeters |
-| .NET Core/5+ | Unclear | Full support |
-| Modern JS | Limited | Full Chromium support |
-| NuGet Package | HiQPdf / HiQPdf.Free | IronPdf |
+| .NET Core/5+ | Supported (Classic = .NET Framework/Core/Standard 2.0; NG adds Linux/Docker) | Full support |
+| Modern JS | Limited on Classic; full on NG | Full Chromium support |
+| NuGet Package | HiQPdf / HiQPdf.Free / HiQPdf.NG / HiQPdf_NetCore | IronPdf |
 
 ### Key API Mappings
 

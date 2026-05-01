@@ -99,9 +99,13 @@ grep -r "ComPDFKit" --include="packages.config" .
 ### Step 1: Update NuGet Packages
 
 ```bash
-# Remove ComPDFKit packages
-dotnet remove package ComPDFKit.NetCore
+# Remove ComPDFKit packages (use whichever you had)
+# .NET Framework projects:
 dotnet remove package ComPDFKit.NetFramework
+# .NET Core / .NET 5+ projects:
+dotnet remove package ComPDFKit.NetCore
+# Optional conversion add-on:
+dotnet remove package ComPDFKit_Conversion.NetFramework
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -228,33 +232,31 @@ pdf.SaveAs("output.pdf");
 
 | Task | ComPDFKit | IronPDF |
 |------|-----------|---------|
-| Get annotations | `page.GetAnnotationList()` | Via PDF structure |
-| Add annotation | `page.CreateAnnot(type)` | Via PDF editing |
+| Get annotations | `page.GetAnnotations()` (returns `CPDFAnnotation` list) | Via PDF structure |
+| Add annotation | `page.CreateAnnot(C_ANNOTATION_TYPE.x)` | Via PDF editing |
 | Delete annotation | `annotation.RemoveAnnot()` | Via PDF manipulation |
-| Flatten annotations | `document.FlattenAllAnnotations()` | Via rendering |
-| Import XFDF | `document.ImportAnnotations(xfdf)` | Via custom handling |
-| Export XFDF | `document.ExportAnnotations(path)` | Via custom handling |
+| Flatten annotations | `document.FlattenAllPages(...)` | Via rendering |
+| Import XFDF | `document.ImportAnnotationFromXFDFPath(...)` | Via custom handling |
+| Export XFDF | `document.WriteAnnotationToXFDFPath(...)` | Via custom handling |
 
 ### Form Operations
 
 | Task | ComPDFKit | IronPDF |
 |------|-----------|---------|
-| Get form | `document.GetForm()` | `pdf.Form` |
-| Get all fields | `form.GetFieldCount()` + loop | `pdf.Form.Fields` |
-| Get field by name | Loop through fields | `pdf.Form.GetFieldByName(name)` |
-| Set field value | `field.SetValue(value)` | `pdf.Form.SetFieldValue(name, value)` |
-| Flatten form | `document.FlattenForm()` | `pdf.Form.Flatten()` |
-| Create form field | `page.CreateWidget(type, rect)` | Via form builder |
+| Iterate fields | Walk widget annotations on each page (`CPDFAnnotation` of type widget) | `pdf.Form.Fields` |
+| Set field value | Mutate the widget annotation's value | `pdf.Form.SetFieldValue(name, value)` |
+| Flatten form | `document.FlattenAllPages(...)` (flattens annotations + widgets) | `pdf.Form.Flatten()` |
+| Create form field | `page.CreateAnnot(...)` for widget annotations | Via form builder |
 
 ### Security and Encryption
 
 | Task | ComPDFKit | IronPDF |
 |------|-----------|---------|
-| Set password | `document.SetPassword(password)` | `pdf.SecuritySettings.UserPassword = "..."` |
-| Set owner password | Via encryption settings | `pdf.SecuritySettings.OwnerPassword = "..."` |
-| Set permissions | `document.SetPermissions(flags)` | `pdf.SecuritySettings.AllowUser...` |
-| Remove password | `document.RemovePassword()` | `pdf.SecuritySettings.RemovePasswordsAndEncryption()` |
-| Check if encrypted | `document.IsEncrypted()` | Via security settings |
+| Set password + permissions | `document.Encrypt(user, owner, CPDFPermissionsInfo)` | `pdf.SecuritySettings.UserPassword = "..."` |
+| Set owner password | Via `Encrypt()` second arg | `pdf.SecuritySettings.OwnerPassword = "..."` |
+| Configure permissions | Properties on `CPDFPermissionsInfo` (`AllowsPrinting`, `AllowsCopying`, etc.) | `pdf.SecuritySettings.AllowUser...` |
+| Unlock encrypted file | `document.UnlockWithPassword(password)` | `PdfDocument.FromFile(path, password)` |
+| Check if encrypted | Via `document.IsLocked` / `IsEncrypted` | Via security settings |
 
 ### Digital Signatures
 
@@ -268,11 +270,11 @@ pdf.SaveAs("output.pdf");
 
 | Task | ComPDFKit | IronPDF |
 |------|-----------|---------|
-| Add image | Via editor `InsertImage()` | HTML `<img>` tag |
-| Extract images | `page.GetImages()` | `pdf.ExtractAllImages()` |
-| Add watermark | Via editor with transparency | `pdf.ApplyWatermark(html)` |
-| Add stamp | `page.CreateStampAnnot()` | `pdf.ApplyStamp(stamp)` |
-| PDF to image | `page.RenderPageBitmap(dpi)` | `pdf.RasterizeToImageFiles()` |
+| Add image | Via page editor (CPDFEditPage) | HTML `<img>` tag |
+| Extract images | Via `CPDFEditPage` image objects | `pdf.ExtractAllImages()` |
+| Add text watermark | `document.InitWatermark(WATERMARK_TYPE_TEXT)` + `CPDFWatermark.SetText(...)` + `CreateWatermark()` | `pdf.ApplyWatermark(html)` |
+| Add image watermark | `document.InitWatermark(WATERMARK_TYPE_IMG)` + `SetImage(bytes, w, h)` + `CreateWatermark()` | `pdf.ApplyStamp(...)` or `<img>` watermark |
+| PDF to image | `page.RenderPageBitmap(...)` | `pdf.RasterizeToImageFiles()` |
 
 ### Metadata
 
@@ -298,22 +300,16 @@ class Program
 {
     static void Main()
     {
-        // ComPDFKit doesn't have native HTML-to-PDF
-        // You would need to manually render HTML or use a separate library
+        // ComPDFKit has no native HTML-to-PDF rendering. You either lay out
+        // text manually via the page editor, or call ComPDFKit's separate
+        // cloud Conversion API (a different SKU).
 
         var document = CPDFDocument.CreateDocument();
-        var page = document.InsertPage(0, 595, 842, "");
+        document.InsertPage(0, 595, 842, string.Empty);
 
-        var editor = page.GetEditor();
-        editor.BeginEdit(CPDFEditType.EditText);
-
-        // Manually add text elements
-        var textArea = editor.CreateTextArea(
-            new System.Drawing.RectangleF(50, 50, 500, 700),
-            "Hello World");
-        textArea.SetFontSize(24);
-
-        editor.EndEdit();
+        // Real HTML/CSS layout is not provided by the .NET SDK.
+        // For ComPDFKit's HTML-to-PDF cloud endpoint see
+        // https://api.compdf.com/api-libraries
 
         document.WriteToFilePath("output.pdf");
         document.Release();
@@ -567,7 +563,7 @@ class Program
 **Before (ComPDFKit):**
 ```csharp
 using ComPDFKit.PDFDocument;
-using System.Drawing;
+using ComPDFKit.PDFWatermark;
 
 class Program
 {
@@ -575,25 +571,20 @@ class Program
     {
         var document = CPDFDocument.InitWithFilePath("document.pdf");
 
-        for (int i = 0; i < document.PageCount; i++)
-        {
-            var page = document.PageAtIndex(i);
-            var editor = page.GetEditor();
-
-            editor.BeginEdit(CPDFEditType.EditText);
-
-            // Create text with transparency
-            var textArea = editor.CreateTextArea(
-                new RectangleF(100, 300, 400, 100),
-                "CONFIDENTIAL");
-            textArea.SetFontSize(48);
-            textArea.SetTransparency(0.3f);
-            textArea.SetColor(Color.Red);
-            textArea.SetRotation(45);
-
-            editor.EndEdit();
-            page.Release();
-        }
+        // Real ComPDFKit watermark API: InitWatermark + CPDFWatermark
+        CPDFWatermark watermark = document.InitWatermark(
+            C_Watermark_Type.WATERMARK_TYPE_TEXT);
+        watermark.SetText("CONFIDENTIAL");
+        watermark.SetFontName("Helvetica");
+        watermark.SetFontSize(48);
+        watermark.SetTextRGBColor(255, 0, 0);
+        watermark.SetRotation(45);
+        watermark.SetOpacity(76);  // 0..255
+        watermark.SetVertalign(C_Watermark_Vertalign.WATERMARK_VERTALIGN_CENTER);
+        watermark.SetHorizalign(C_Watermark_Horizalign.WATERMARK_HORIZALIGN_CENTER);
+        watermark.SetPages($"0-{document.PageCount - 1}");
+        watermark.SetFront(true);
+        watermark.CreateWatermark();
 
         document.WriteToFilePath("watermarked.pdf");
         document.Release();
@@ -711,16 +702,16 @@ class Program
     {
         var document = CPDFDocument.InitWithFilePath("document.pdf");
 
-        // Set encryption
-        var encryptInfo = new CPDFPermissionsInfo
+        // Configure permissions
+        var permission = new CPDFPermissionsInfo
         {
             AllowsCopying = true,
             AllowsPrinting = true,
             AllowsDocumentChanges = false
         };
 
-        document.SetPassword("owner123", "user123");
-        document.SetPermissions(encryptInfo);
+        // Single call sets user password, owner password, and permissions
+        document.Encrypt("user123", "owner123", permission);
         document.WriteToFilePath("encrypted.pdf");
         document.Release();
 
@@ -1385,7 +1376,8 @@ apt-get install -y libgdiplus libc6-dev libx11-dev libnss3 \
 
 - [ ] **Remove ComPDFKit NuGet packages**
   ```bash
-  dotnet remove package ComPDFKit
+  dotnet remove package ComPDFKit.NetFramework   # or ComPDFKit.NetCore
+  dotnet remove package ComPDFKit_Conversion.NetFramework  # if used
   ```
   **Why:** Clean removal of the old library to prevent conflicts.
 
@@ -1415,8 +1407,7 @@ apt-get install -y libgdiplus libc6-dev libx11-dev libnss3 \
 - [ ] **Convert `InitWithFilePath()` to `FromFile()`**
   ```csharp
   // Before (ComPDFKit)
-  var pdf = new PdfDocument();
-  pdf.InitWithFilePath("document.pdf");
+  var document = CPDFDocument.InitWithFilePath("document.pdf");
 
   // After (IronPDF)
   var pdf = PdfDocument.FromFile("document.pdf");
@@ -1443,10 +1434,10 @@ apt-get install -y libgdiplus libc6-dev libx11-dev libnss3 \
   ```
   **Why:** IronPDF uses automatic garbage collection, eliminating the need for manual release calls.
 
-- [ ] **Convert manual text creation to HTML**
+- [ ] **Convert manual text placement to HTML**
   ```csharp
-  // Before (ComPDFKit)
-  pdf.AddText("Hello, World!");
+  // Before (ComPDFKit) - manual layout via the page editor
+  // document.InsertPage(0, 595, 842, ""); + edit operations
 
   // After (IronPDF)
   var renderer = new ChromePdfRenderer();
@@ -1457,8 +1448,9 @@ apt-get install -y libgdiplus libc6-dev libx11-dev libnss3 \
 
 - [ ] **Update text extraction calls**
   ```csharp
-  // Before (ComPDFKit)
-  var text = pdf.ExtractText();
+  // Before (ComPDFKit) - per-page via CPDFTextPage
+  // var textPage = page.GetTextPage();
+  // var text = textPage.GetText(0, textPage.CountChars());
 
   // After (IronPDF)
   var text = pdf.ExtractAllText();
@@ -1468,7 +1460,7 @@ apt-get install -y libgdiplus libc6-dev libx11-dev libnss3 \
 - [ ] **Update merge operations**
   ```csharp
   // Before (ComPDFKit)
-  pdf.MergeWith(otherPdf);
+  doc1.ImportPagesAtIndex(doc2, "0-" + (doc2.PageCount - 1), doc1.PageCount);
 
   // After (IronPDF)
   var mergedPdf = PdfDocument.Merge(pdf, otherPdf);
@@ -1477,18 +1469,17 @@ apt-get install -y libgdiplus libc6-dev libx11-dev libnss3 \
 
 - [ ] **Update form filling code**
   ```csharp
-  // Before (ComPDFKit)
-  pdf.FillFormField("fieldName", "value");
+  // Before (ComPDFKit) - mutate the widget annotation on the page
 
   // After (IronPDF)
-  pdf.Form.FillField("fieldName", "value");
+  pdf.Form.SetFieldValue("fieldName", "value");
   ```
   **Why:** IronPDF provides a clear API for form manipulation.
 
 - [ ] **Update security settings**
   ```csharp
   // Before (ComPDFKit)
-  pdf.SetPassword("password");
+  document.Encrypt("user", "owner", new CPDFPermissionsInfo());
 
   // After (IronPDF)
   pdf.SecuritySettings.UserPassword = "password";

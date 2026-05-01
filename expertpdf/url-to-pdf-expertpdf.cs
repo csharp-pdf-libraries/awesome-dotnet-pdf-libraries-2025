@@ -1,4 +1,6 @@
-// NuGet: Install-Package ExpertPdf.HtmlToPdf
+// NuGet: Install-Package ExpertPdf.HtmlToPdf.NetCore   (modern .NET / .NET Core, .NET 5-9)
+//        Install-Package ExpertPdfHtmlToPdf            (legacy .NET Framework)
+// Vendor: Outside Software Inc. — https://www.html-to-pdf.net/
 using ExpertPdf.HtmlToPdf;
 using System;
 

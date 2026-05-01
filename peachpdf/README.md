@@ -6,31 +6,36 @@ PeachPDF remains enticing because of its pure .NET core, which promises straight
 
 ## C# Code Example Using PeachPDF
 
-Below is a simple illustration of how PeachPDF can be used in a C# project to convert HTML to PDF:
+Below is a simple illustration of how PeachPDF can be used in a C# project to convert HTML to PDF. The library exposes a `PdfGenerator` whose async `GeneratePdf` method takes an HTML string and a `PdfGenerateConfig`, returning a document you save to a stream:
 
 ```csharp
 using PeachPDF;
-using System;
+using PeachPDF.PdfSharpCore;
+using System.IO;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main(string[] args)
+    static async Task Main()
     {
-        string htmlContent = "<html><body><h1>Hello, World!</h1></body></html>";
-        string outputPath = "output.pdf";
+        var html = "<html><body><h1>Hello, World!</h1></body></html>";
 
-        using (var pdf = new PdfDocument())
+        var config = new PdfGenerateConfig
         {
-            pdf.AddHtml(htmlContent);
-            pdf.Save(outputPath);
-        }
+            PageSize = PageSize.Letter,
+            PageOrientation = PageOrientation.Portrait
+        };
 
-        Console.WriteLine("PDF generated successfully at " + outputPath);
+        var generator = new PdfGenerator();
+        var document = await generator.GeneratePdf(html, config);
+
+        using var stream = File.Create("output.pdf");
+        document.Save(stream);
     }
 }
 ```
 
-This code snippet demonstrates the basic functionality of PeachPDF, showing how easy it is to convert a simple HTML string to a PDF file. However, as you delve deeper, the limitations of a community-supported tool with fewer features might become apparent.
+This snippet demonstrates the basic functionality of PeachPDF. The library is .NET 8 only and built on top of `PeachPDF.PdfSharpCore`; as you go beyond simple HTML the limitations of a community-supported tool with fewer features become apparent.
 
 ## IronPDF: A Strong Alternative
 
@@ -49,16 +54,21 @@ Here's how **PeachPDF** handles this:
 
 ```csharp
 using PeachPDF;
+using PeachPDF.PdfSharpCore;
 using System.IO;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
         var html = "<html><body><h1>Hello World</h1></body></html>";
-        var pdf = converter.Convert(html);
-        File.WriteAllBytes("output.pdf", pdf);
+        var config = new PdfGenerateConfig { PageSize = PageSize.Letter };
+        var generator = new PdfGenerator();
+        var document = await generator.GeneratePdf(html, config);
+
+        using var stream = File.Create("output.pdf");
+        document.Save(stream);
     }
 }
 ```
@@ -88,20 +98,33 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Do I Convert a URL to PDF in .NET?
 
-Here's how **PeachPDF** handles this:
+Here's how **PeachPDF** handles this. PeachPDF has no `ConvertUrl` helper; you wire it up by setting `NetworkAdapter` on the config to an `HttpClientNetworkAdapter` and passing `null` HTML so the engine fetches the page:
 
 ```csharp
 using PeachPDF;
+using PeachPDF.Network;
+using PeachPDF.PdfSharpCore;
+using System;
 using System.IO;
+using System.Net.Http;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        var url = "https://www.example.com";
-        var pdf = converter.ConvertUrl(url);
-        File.WriteAllBytes("webpage.pdf", pdf);
+        var http = new HttpClient();
+        var config = new PdfGenerateConfig
+        {
+            PageSize = PageSize.Letter,
+            NetworkAdapter = new HttpClientNetworkAdapter(http, new Uri("https://www.example.com"))
+        };
+
+        var generator = new PdfGenerator();
+        var document = await generator.GeneratePdf(null, config);
+
+        using var stream = File.Create("webpage.pdf");
+        document.Save(stream);
     }
 }
 ```
@@ -131,22 +154,35 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Do I Add Headers and Footers to PDFs?
 
-Here's how **PeachPDF** handles this:
+PeachPDF v0.7.x does not ship a built-in header/footer API. The closest you can get is to embed the header/footer markup inside the source HTML using CSS positioning:
 
 ```csharp
 using PeachPDF;
+using PeachPDF.PdfSharpCore;
 using System.IO;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        converter.Header = "<div style='text-align:center'>My Header</div>";
-        converter.Footer = "<div style='text-align:center'>Page {page}</div>";
-        var html = "<html><body><h1>Document Content</h1></body></html>";
-        var pdf = converter.Convert(html);
-        File.WriteAllBytes("document.pdf", pdf);
+        var html = @"
+            <html><head><style>
+              .header { position: fixed; top: 0; left: 0; right: 0; text-align:center; }
+              .footer { position: fixed; bottom: 0; left: 0; right: 0; text-align:center; }
+            </style></head>
+            <body>
+              <div class='header'>My Header</div>
+              <h1>Document Content</h1>
+              <div class='footer'>Footer text</div>
+            </body></html>";
+
+        var config = new PdfGenerateConfig { PageSize = PageSize.Letter };
+        var generator = new PdfGenerator();
+        var document = await generator.GeneratePdf(html, config);
+
+        using var stream = File.Create("document.pdf");
+        document.Save(stream);
     }
 }
 ```
@@ -204,14 +240,15 @@ Below is a comparison table highlighting the primary aspects of PeachPDF and Iro
 
 | Feature/Characteristic | PeachPDF | IronPDF |
 |------------------------|----------|---------|
-| **Implementation**     | Pure .NET| Managed with broad compatibility |
-| **License**            | Open Source (BSD-3-Clause) | Commercial |
-| **User Base**          | Small    | Large   |
-| **Support**            | Community-driven | Professional with dedicated support |
-| **Features**           | Basic    | Comprehensive, including OCR and watermarking |
-| **Ease of Use**        | Moderate | High, due to extensive documentation |
-| **Development Status** | In development | Mature, stable release |
-| **External Dependencies** | None   | Minimal, platform-based |
+| **Implementation**     | Pure managed .NET (built on PeachPDF.PdfSharpCore + SixLabors) | Managed with embedded Chromium runtime |
+| **License**            | BSD-3-Clause | Commercial |
+| **Target Framework**   | .NET 8 only | .NET Framework 4.6.2+, .NET 6/7/8 |
+| **User Base**          | Small (pre-1.0, ~10k downloads per 0.7.26 release) | Large |
+| **Support**            | Community-driven (single-maintainer, jhaygood86) | Professional with dedicated support |
+| **Features**           | HTML+CSS layout, web fonts, MHTML, configurable page size | Comprehensive, including OCR and watermarking |
+| **Ease of Use**        | Async API, no built-in header/footer or URL helper | High, due to extensive documentation |
+| **Development Status** | Pre-1.0 (latest 0.7.26, Oct 2025) | Mature, stable release |
+| **External Dependencies** | PeachPDF.PdfSharpCore, MimeKit, SixLabors.* | Minimal, platform-based |
 
 ## Strengths and Weaknesses
 

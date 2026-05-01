@@ -1,6 +1,7 @@
-// NuGet: Install-Package SumatraPDF (Note: Sumatra is primarily a viewer, not a generator)
-// Sumatra PDF doesn't have direct C# integration for HTML to PDF conversion
-// You would need to use external tools or libraries and then open with Sumatra
+// Sumatra PDF is a standalone Windows app (AGPLv3) — there is NO official NuGet package.
+// Download SumatraPDF.exe from https://www.sumatrapdfreader.org/ and shell out to it.
+// Sumatra is a viewer/printer only; it cannot convert HTML to PDF.
+// You must use a separate HTML-to-PDF tool (e.g. wkhtmltopdf) and then view/print with Sumatra.
 using System.Diagnostics;
 using System.IO;
 

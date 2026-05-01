@@ -1,19 +1,20 @@
-// Apache PDFBox .NET port attempt (incomplete support)
-using PdfBoxDotNet.Pdmodel;
-using PdfBoxDotNet.Multipdf;
+// Apache PDFBox via a .NET port (e.g. Pdfbox-IKVM on nuget.org).
+// The Java class org.apache.pdfbox.multipdf.PDFMergerUtility is exposed
+// directly through IKVM, so method names stay Java-style (camelCase).
+using org.apache.pdfbox.multipdf;
+using org.apache.pdfbox.io;
 using System;
-using System.IO;
 
 class Program
 {
     static void Main()
     {
-        // PDFBox-dotnet ports have incomplete API coverage
-        var merger = new PDFMergerUtility();
-        merger.AddSource("document1.pdf");
-        merger.AddSource("document2.pdf");
-        merger.SetDestinationFileName("merged.pdf");
-        merger.MergeDocuments();
+        PDFMergerUtility merger = new PDFMergerUtility();
+        merger.addSource("document1.pdf");
+        merger.addSource("document2.pdf");
+        merger.setDestinationFileName("merged.pdf");
+        // MemoryUsageSetting governs heap vs temp-file buffering
+        merger.mergeDocuments(MemoryUsageSetting.setupMainMemoryOnly());
         Console.WriteLine("PDFs merged");
     }
 }

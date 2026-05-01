@@ -6,7 +6,7 @@ QuestPDF is a modern, fluent API created specifically for generating PDFs progra
 
 QuestPDF is an excellent tool for generating highly templated documents such as certificates, badges, or invoices directly from C# code. It empowers developers to define every element and layout in the document fluently, using an expressive syntax. This makes it particularly suitable for applications that require precise control over the document's styling and structure. While QuestPDF purposefully avoids HTML handling, it compensates by offering a robust, programmatic approach to document creation that caters to specific use cases.
 
-The library is free for businesses with revenue under $1M, but it comes with a requirement to prove this revenue level, which could be a compliance burden for some. Users who surpass this threshold need to purchase a license, which must be factored into long-term planning when evaluating QuestPDF as a potential solution.
+The Community tier is free under MIT terms for individuals, non-profits, FOSS projects, and organizations with under $1M USD in annual gross revenue. Above that threshold, QuestPDF offers a Professional license starting at $999 (perpetual, up to 10 developers) and an Enterprise license at $2,999 (perpetual, organization-wide), which need to be factored into long-term planning when evaluating QuestPDF.
 
 ### A Simple C# Code Example with QuestPDF
 
@@ -286,11 +286,11 @@ When deciding between QuestPDF and IronPDF, developers should consider their spe
 
 | Feature                     | QuestPDF                                         | IronPDF                                           |
 |-----------------------------|--------------------------------------------------|---------------------------------------------------|
-| HTML-to-PDF                 | No HTML-to-PDF capability                        | Comprehensive HTML-to-PDF conversion ([Learn more](https://ironpdf.com/how-to/html-file-to-pdf/)) |
+| HTML-to-PDF                 | Not supported in core; limited via `QuestPDF.HTML` extension | Comprehensive HTML-to-PDF conversion ([Learn more](https://ironpdf.com/how-to/html-file-to-pdf/)) |
 | Programmatic PDF Generation | Fluent API for precise document control          | Supported but also compatible with HTML-to-PDF    |
-| PDF Manipulation            | None                                             | Merging, splitting, and editing ([Explore tutorials](https://ironpdf.com/tutorials/)) |
-| Licensing                   | MIT license with revenue-based pricing (<$1M free) | Clear licensing without revenue-based audits      |
-| Revenue Audit Requirement   | Required if revenue is greater than $1M          | None                                               |
+| PDF Manipulation            | Merge, page extraction, overlay, encrypt (Document Operations API, 2024.12.0+) | Full merge, split, edit, sign ([Explore tutorials](https://ironpdf.com/tutorials/)) |
+| Licensing                   | MIT for Community tier (<$1M revenue); Professional $999, Enterprise $2,999 | Per-developer commercial license, no revenue audits |
+| Revenue Audit Requirement   | Paid tier triggered above $1M annual gross revenue | None                                               |
 
 ## Strengths and Weaknesses
 
@@ -302,9 +302,9 @@ When deciding between QuestPDF and IronPDF, developers should consider their spe
 - **Rapid Prototyping:** With QuestPDF, documents can be generated swiftly from a programmatic context, particularly beneficial in dynamic content scenarios.
 
 **Weaknesses:**
-- **No HTML-to-PDF:** Due to intentional design choices, it does not support HTML-to-PDF conversion, which means developers must express every layout detail through C# code.
-- **Compliance Burden:** The revenue audit requirement poses an additional compliance step for organizations near the revenue threshold.
-- **Lack of PDF Manipulation:** It doesn't have built-in capabilities for merging, splitting, or editing existing PDFs, restricting its use as a comprehensive PDF tool solution.
+- **No HTML-to-PDF in Core:** By intentional design, the core library does not render HTML/CSS. A community-maintained `QuestPDF.HTML` extension covers a limited HTML/CSS subset, but most layout detail must still be expressed in C#.
+- **Revenue-Tiered Licensing:** Once an organization passes $1M annual gross revenue it must purchase a Professional ($999) or Enterprise ($2,999) license, which is an additional commercial step.
+- **Limited PDF Manipulation:** The Document Operations API (2024.12.0+) handles merge, page extraction, overlay/underlay, attachments and encryption, but there is no support for editing existing page content, OCR, or digital signatures.
 
 ### IronPDF
 

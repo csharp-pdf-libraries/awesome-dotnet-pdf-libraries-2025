@@ -24,19 +24,19 @@
 | Issue | Impact | IronPDF Solution |
 |-------|--------|------------------|
 | **Windows-only** | Cannot deploy to Linux, Docker, Azure Functions | Full cross-platform support |
-| **Outdated rendering engine** | Modern CSS fails, layouts break | Up-to-date Chromium |
-| **5-page free version limit** | Aggressive watermarking after 5 pages | Generous trial |
-| **No .NET 10 support** | Future-proofing problems | Full .NET 10 support |
-| **Cloud deployment blocked** | Can't use AWS Lambda, Azure Functions | Cloud-native |
+| **Default WebKit engine, optional older Chromium** | Modern CSS may fail unless Blink engine is enabled | Up-to-date Chromium |
+| **5-page free version limit** | Watermark on every page until licensed | Generous trial |
+| **Linux/macOS deployment blocked** | No cloud Linux, Docker, AWS Lambda | Cloud-native |
+| **Cloud deployment blocked (non-Windows)** | Can't use Azure Functions, AWS Lambda | Cloud-native |
 
 ### The Core Problems
 
 SelectPdf markets itself as a robust HTML-to-PDF solution, but has fundamental limitations:
 
-1. **False Cross-Platform Claims**: Despite marketing language, SelectPdf **only works on Windows**
-2. **Outdated Chromium Fork**: Uses an old Blink/WebKit fork that fails with modern CSS
-3. **Restrictive Free Version**: Only 5 pages before watermarking
-4. **No Cloud Support**: Cannot deploy to Azure Functions, AWS Lambda, or Docker
+1. **Windows-Only**: SelectPdf's own documentation states it "currently require[s] Windows; [does] not run on Linux, macOS or Xamarin"
+2. **Default WebKit, optional older Chromium**: The default engine is an internal WebKit; the Blink option ships with Chromium 124 (released April 2024)
+3. **Restrictive Free Version**: 5-page hard cap, plus a per-page watermark on every PDF generated without a license key
+4. **No Linux Cloud Support**: Cannot deploy to Linux Azure Functions, AWS Lambda, or Linux Docker
 
 ### Feature Comparison Overview
 
@@ -50,9 +50,9 @@ SelectPdf markets itself as a robust HTML-to-PDF solution, but has fundamental l
 | **AWS Lambda** | ❌ NOT SUPPORTED | ✅ Full support |
 | **CSS Grid** | ⚠️ Limited | ✅ Full support |
 | **Flexbox** | ⚠️ Limited | ✅ Full support |
-| **CSS Variables** | ❌ Not supported | ✅ Full support |
-| **.NET 10** | ❌ Not supported | ✅ Full support |
-| **Free version limit** | 5 pages | Generous trial |
+| **CSS Variables** | ⚠️ WebKit engine: limited | ✅ Full support |
+| **.NET 10** | ✅ (Windows only, via .NET Standard 2.0) | ✅ Full support (all platforms) |
+| **Free version limit** | 5 pages + per-page watermark | Generous trial |
 
 These limitations and the full migration path are examined in the [complete SelectPdf to IronPDF guide](https://ironpdf.com/blog/migration-guides/migrate-from-selectpdf-to-ironpdf/).
 
@@ -87,7 +87,8 @@ using SelectPdf;
 
 var converter = new HtmlToPdf();
 var doc = converter.ConvertHtmlString("<h1>Hello</h1>");
-// Exception: SelectPdf only works on Windows
+// Throws e.g. DllNotFoundException: "Unable to load shared library 'kernel32.dll'"
+// (see selectpdf/selectpdf-free-html-to-pdf-converter#2 on GitHub)
 ```
 
 ### IronPDF Cross-Platform Support
@@ -129,9 +130,9 @@ pdf.SaveAs("output.pdf");
 
 ## The Outdated Rendering Engine
 
-### SelectPdf's Chromium Fork
+### SelectPdf's Engine Options
 
-SelectPdf uses an **outdated Blink/WebKit fork** that hasn't kept pace with modern web standards:
+SelectPdf ships three rendering engines (per [vendor docs](https://selectpdf.com/pdf-library/html/RenderingEngine.htm)): an internal **WebKit** (the default), **Blink** (introduced in v19.1, shipped with Chromium 124.0.6367.201 — released April 2024), and **Chromium/CEF**. The default WebKit engine in particular hasn't kept pace with modern web standards:
 
 ```html
 <!-- This modern CSS FAILS or renders incorrectly in SelectPdf -->
@@ -185,19 +186,19 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 
 ### CSS Feature Support Comparison
 
-| CSS Feature | SelectPdf | IronPDF |
-|-------------|-----------|---------|
-| CSS Grid | ⚠️ Partial/broken | ✅ Full |
-| Flexbox (basic) | ✅ | ✅ |
-| Flexbox (gap property) | ❌ | ✅ |
-| CSS Variables | ❌ | ✅ |
-| CSS calc() | ⚠️ Limited | ✅ |
-| @media print | ⚠️ Limited | ✅ |
-| @font-face | ⚠️ Limited | ✅ |
-| Web Fonts | ⚠️ Limited | ✅ |
-| SVG | ⚠️ Basic | ✅ Full |
-| CSS Transforms | ⚠️ Limited | ✅ |
-| CSS Animations | ❌ | ✅ |
+| CSS Feature | SelectPdf (WebKit default) | SelectPdf (Blink, Chromium 124) | IronPDF |
+|-------------|----------------------------|----------------------------------|---------|
+| CSS Grid | ⚠️ Partial/broken | ✅ | ✅ Full |
+| Flexbox (basic) | ✅ | ✅ | ✅ |
+| Flexbox (gap property) | ❌ | ✅ | ✅ |
+| CSS Variables | ❌ | ✅ | ✅ |
+| CSS calc() | ⚠️ Limited | ✅ | ✅ |
+| @media print | ⚠️ Limited | ✅ | ✅ |
+| @font-face | ⚠️ Limited | ✅ | ✅ |
+| Web Fonts | ⚠️ Limited | ✅ | ✅ |
+| SVG | ⚠️ Basic | ✅ | ✅ Full |
+| CSS Transforms | ⚠️ Limited | ✅ | ✅ |
+| CSS Animations | ❌ | ⚠️ Partial | ✅ |
 
 ---
 
@@ -205,32 +206,32 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 
 ### SelectPdf's Aggressive Limitations
 
-SelectPdf's free version has severe restrictions:
+SelectPdf's Community Edition has two restrictions that combine into a tight free-tier window (per [selectpdf.com/community-edition](https://selectpdf.com/community-edition/) and the [License doc](https://selectpdf.com/docs/License.htm)):
 
 ```csharp
-// ❌ SelectPdf Free Version
-// - Maximum 5 pages per PDF
-// - After 5 pages: aggressive watermarking on EVERY page
-// - "Created with SelectPdf" watermarks
-// - Cannot be removed without purchase
-// - Even evaluation is limited
+// ❌ SelectPdf Community Edition / unlicensed trial
+// - Hard cap of 5 pages per PDF (Community Edition)
+// - Per-page watermark on EVERY page until a license key is applied
+//   ("free trial is fully functional, but without a license key,
+//   a watermark will be displayed in each page" — vendor docs)
+// - Watermark cannot be removed without purchase
 
 var converter = new HtmlToPdf();
 var doc = converter.ConvertHtmlString(longHtmlContent);
-// If content exceeds 5 pages:
-// - Pages 1-5: Your content
-// - Pages 6+: Watermarked heavily
+// Without a license key:
+//   - Every page is watermarked
+//   - Generation aborts/truncates past page 5 in Community Edition
 ```
 
 ### Commercial Pricing Comparison
 
 | Aspect | SelectPdf | IronPDF |
 |--------|-----------|---------|
-| **Starting Price** | $499 | $749 |
-| **Free Trial Pages** | 5 pages max | Generous trial |
-| **Watermark Behavior** | Aggressive after 5 pages | Trial watermark |
-| **License Type** | Subscription options | Perpetual available |
-| **Price Transparency** | Complex tiers | Clear pricing |
+| **Starting Price** | $499 (Single Developer) | $749 (Lite) |
+| **Free Trial Pages** | 5 pages max (Community Edition) | Generous trial |
+| **Watermark Behavior** | On every page until licensed | Trial watermark |
+| **License Type** | Perpetual w/ 1 yr maintenance | Perpetual available |
+| **Price Transparency** | Published per-tier | Clear pricing |
 
 ---
 
@@ -239,8 +240,9 @@ var doc = converter.ConvertHtmlString(longHtmlContent);
 ### Step 1: Update NuGet Packages
 
 ```bash
-# Remove SelectPdf
+# Remove SelectPdf (use Select.HtmlToPdf.NetCore on .NET Core/.NET 5+)
 dotnet remove package Select.HtmlToPdf
+# or: dotnet remove package Select.HtmlToPdf.NetCore
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -767,18 +769,23 @@ class Program
 
 ### SelectPdf Pricing
 
+(Verified at [selectpdf.com/pricing](https://selectpdf.com/pricing/) — perpetual licenses with 1 year of maintenance/upgrades included.)
+
 | License | Price | Notes |
 |---------|-------|-------|
-| Free | $0 | 5 pages max, watermarked |
-| Single Website | $499 | One website |
-| Developer | $999 | One developer |
-| Team | $1,999 | 5 developers |
-| Enterprise | $3,499 | Unlimited developers |
+| Community Edition | $0 | 5 pages max, watermark on every page |
+| Single Developer | $499 | 1 developer, 1 deployment machine |
+| Single Developer OEM | $799 | 1 developer, unlimited deployment machines |
+| 5-Developers | $799 | up to 5 developers, up to 10 deployment machines |
+| 5-Developers OEM | $1,099 | up to 5 developers, unlimited deployment machines |
+| Enterprise | $1,199 | unlimited developers, up to 100 deployment machines |
+| Enterprise OEM | $1,599 | unlimited developers, unlimited deployment machines |
 
-**Hidden Costs:**
-- Annual renewal for updates
-- Higher tiers for more developers
-- SaaS/OEM licensing extra
+A separate cloud-API plan (selectpdf.com REST API) is sold by monthly conversion volume ($19/mo entry through $449/mo dedicated).
+
+**Cost considerations:**
+- Annual renewal required to receive updates and support after year 1
+- OEM licensing is a separate, more expensive SKU at every tier
 
 ### IronPDF Pricing
 
@@ -827,16 +834,16 @@ class Program
 
 ### .NET Framework Support
 
-| Framework | SelectPdf | IronPDF |
-|-----------|-----------|---------|
-| .NET Framework 4.6.2+ | ✅ | ✅ |
+| Framework | SelectPdf (Windows only) | IronPDF (all platforms) |
+|-----------|--------------------------|-------------------------|
+| .NET Framework 4.6.1+ | ✅ | ✅ |
 | .NET Core 3.1 | ✅ | ✅ |
 | .NET 5 | ✅ | ✅ |
 | .NET 6 | ✅ | ✅ |
 | .NET 7 | ✅ | ✅ |
 | .NET 8 | ✅ | ✅ |
-| .NET 9 | ⚠️ Check | ✅ |
-| .NET 10 | ❌ | ✅ |
+| .NET 9 | ✅ | ✅ |
+| .NET 10 | ✅ (via .NET Standard 2.0) | ✅ |
 
 ---
 
@@ -993,9 +1000,12 @@ var pdf = renderer.RenderHtmlFileAsPdf("template.html");
 
 - [ ] **Remove SelectPdf NuGet package**
   ```bash
-  dotnet remove package SelectPdf
+  # .NET Framework projects:
+  dotnet remove package Select.HtmlToPdf
+  # .NET Core / .NET 5+ projects:
+  dotnet remove package Select.HtmlToPdf.NetCore
   ```
-  **Why:** Clean package removal to prevent conflicts.
+  **Why:** Clean package removal to prevent conflicts. The real package IDs are `Select.HtmlToPdf` and `Select.HtmlToPdf.NetCore` (not "SelectPdf").
 
 - [ ] **Install IronPdf NuGet package**
   ```bash

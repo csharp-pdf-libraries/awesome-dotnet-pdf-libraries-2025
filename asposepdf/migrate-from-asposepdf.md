@@ -18,38 +18,40 @@
 
 ### Cost Comparison
 
-Aspose.PDF uses a traditional enterprise licensing model with annual renewals:
+Aspose.PDF uses a perpetual-license model that includes one year of updates; optional renewal extends update access. Source: [Aspose pricing page](https://purchase.aspose.com/pricing/pdf/net).
 
 | Aspect | Aspose.PDF | IronPDF |
 |--------|-----------|---------|
-| **Starting Price** | $1,199/developer/year | $749 one-time (Lite) |
-| **License Model** | Annual subscription + renewal | Perpetual license |
-| **OEM License** | $5,997+ additional | Included in higher tiers |
-| **Support** | Extra cost tiers | Included |
-| **Total 3-Year Cost** | $3,597+ per developer | $749 one-time |
+| **Starting Price (Developer Small Business)** | $1,199/developer | $749 one-time (Lite) |
+| **License Model** | Perpetual + 1 year of updates; optional renewal for further updates | Perpetual license |
+| **Developer OEM** | $3,597/developer (unlimited deployments) | Included in higher tiers |
+| **Support** | Included with all paid tiers | Included |
+| **Free Evaluation** | 30-day temporary license (otherwise watermark + size limits) | Free for development |
 
 ### HTML Rendering Engine Comparison
 
 Additional implementation examples are available in the [full documentation](https://ironpdf.com/blog/migration-guides/migrate-from-aspose-pdf-to-ironpdf/).
 
-| Feature | Aspose.PDF (Flying Saucer) | IronPDF (Chromium) |
-|---------|---------------------------|-------------------|
-| **CSS3 Support** | Limited (older CSS) | Full CSS3 |
-| **Flexbox/Grid** | Not supported | Full support |
-| **JavaScript** | Very limited | Full support |
+Aspose.PDF uses an in-house HTML/CSS rendering engine (not Chromium); user reports on the Aspose forum confirm limited support for modern CSS layout features such as Flexbox and CSS Grid. IronPDF uses an embedded Chromium build for HTML→PDF rendering.
+
+| Feature | Aspose.PDF (in-house engine) | IronPDF (Chromium) |
+|---------|------------------------------|-------------------|
+| **CSS3 Support** | Partial; gaps in modern layout features | Full CSS3 |
+| **Flexbox/Grid** | Limited / inconsistent (per Aspose forum reports) | Full support |
+| **JavaScript** | Limited | Full support (V8 via Chromium) |
 | **Web Fonts** | Partial | Complete |
-| **Modern HTML5** | Limited | Complete |
-| **Rendering Quality** | Variable | Pixel-perfect |
+| **Modern HTML5** | Partial | Complete |
+| **Rendering Quality** | Variable across complex layouts | Chrome-equivalent |
 
 ### Performance Comparison
 
-Users have reported significant performance differences:
+Users have reported performance differences on the Aspose.PDF support forum. Numbers below reflect community-reported scenarios, not benchmarks we have run; verify against your own workload.
 
 | Metric | Aspose.PDF | IronPDF |
 |--------|-----------|---------|
-| **HTML Rendering** | Documented slowdowns (30x slower in some cases) | Optimized Chromium engine |
-| **Large Documents** | Memory issues reported | Efficient streaming |
-| **Linux Performance** | High CPU, memory leaks reported | Stable |
+| **HTML Rendering** | User-reported slowdowns on complex CSS workloads | Optimized Chromium engine |
+| **Large Documents** | Memory growth reported in some scenarios | Efficient streaming |
+| **Linux Performance** | High CPU and memory growth reported on community forum | Stable |
 | **Batch Processing** | Variable | Consistent |
 
 ### When to Migrate
@@ -1009,13 +1011,15 @@ ENTRYPOINT ["dotnet", "MyApp.dll"]
 
 ### Aspose.PDF vs IronPDF Performance
 
+Figures reflect user-reported scenarios on the Aspose forum and our own observations; benchmark on your workload before drawing conclusions.
+
 | Metric | Aspose.PDF | IronPDF |
 |--------|-----------|---------|
-| **HTML Rendering** | Documented slowdowns (30x in some cases) | Optimized Chromium engine |
-| **Complex CSS** | Poor (Flying Saucer limitations) | Excellent (full CSS3) |
-| **JavaScript** | Very limited | Full support |
-| **Memory Usage** | Higher (document model overhead) | Efficient |
-| **Linux** | Issues reported (CPU, memory leaks) | Stable |
+| **HTML Rendering** | User-reported slowdowns on complex CSS pages | Chromium-based |
+| **Complex CSS** | Limited (Aspose's in-house HTML engine) | Full CSS3 |
+| **JavaScript** | Limited | Full V8 support |
+| **Memory Usage** | Higher with large documents (forum reports) | Efficient |
+| **Linux** | Issues reported on community forum | Stable |
 | **Cold start** | Moderate | ~2s (Chromium init) |
 
 ### Optimizing IronPDF Performance
@@ -1201,14 +1205,17 @@ var html = @"
 
 - [ ] **Calculate current Aspose.PDF licensing costs**
   ```csharp
-  // Aspose.PDF pricing tiers (as of 2024):
-  // Developer Small Business: $999/developer
-  // Developer OEM: $4,997/developer
-  // Site Small Business: $4,995/site
-  // Site OEM: $23,980/site
-  // Plus mandatory annual 40% renewal fees
+  // Aspose.PDF pricing tiers (per https://purchase.aspose.com/pricing/pdf/net):
+  // Developer Small Business: $1,199/developer (1 deployment location)
+  // Developer OEM:            $3,597/developer (unlimited deployments)
+  // Developer SDK:            $23,980/developer (50 commercial deployments)
+  // Site Small Business:      $5,995/site      (up to 10 developers, up to 10 locations)
+  // Site OEM:                 $16,786/site     (up to 10 developers, unlimited locations)
+  // Site SDK:                 $59,950/site     (up to 10 developers, 250 commercial deployments)
+  // Each license is perpetual + includes 1 year of updates;
+  // renewal (optional) extends the update window.
   ```
-  **Why:** Document cost savings from migration (Aspose is typically $999-$11,999/developer).
+  **Why:** Document cost savings from migration. Always re-check the Aspose pricing page before quoting numbers in procurement.
 
 ### Package Changes
 

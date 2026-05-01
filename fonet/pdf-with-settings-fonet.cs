@@ -1,4 +1,5 @@
-// NuGet: Install-Package Fonet
+// NuGet: Install-Package Fonet      (legacy, .NET Framework 2.0)
+//   - or: Install-Package Fonet.Standard  (.NET Standard 2.0 fork)
 using Fonet;
 using Fonet.Render.Pdf;
 using System.IO;
@@ -7,7 +8,10 @@ class Program
 {
     static void Main()
     {
-        // FoNet settings are configured in XSL-FO markup
+        // Page geometry (size, margins) is configured in the XSL-FO markup
+        // itself via fo:simple-page-master. PDF metadata and encryption
+        // (Title, Author, UserPassword, OwnerPassword) are set on
+        // FonetDriver.Options via PdfRendererOptions.
         string xslFo = @"<?xml version='1.0' encoding='utf-8'?>
             <fo:root xmlns:fo='http://www.w3.org/1999/XSL/Format'>
                 <fo:layout-master-set>
@@ -26,7 +30,15 @@ class Program
             </fo:root>";
         
         FonetDriver driver = FonetDriver.Make();
-        driver.Render(new StringReader(xslFo), 
+        driver.Options = new PdfRendererOptions
+        {
+            Title  = "Custom PDF",
+            Author = "Example",
+            // Setting either password triggers PDF encryption:
+            // UserPassword  = "user",
+            // OwnerPassword = "owner",
+        };
+        driver.Render(new StringReader(xslFo),
             new FileStream("custom.pdf", FileMode.Create));
     }
 }

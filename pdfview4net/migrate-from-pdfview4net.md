@@ -2,26 +2,26 @@
 
 ## Why Migrate from PDFView4NET?
 
-PDFView4NET is primarily a **UI viewing component** for WinForms and WPF applications. It focuses on displaying PDFs rather than creating or manipulating them. Key reasons to migrate:
+PDFView4NET (O2 Solutions, [o2sol.com](https://www.o2sol.com/pdfview4net/overview.htm)) is a **viewer / render / print toolkit** for WinForms and WPF applications. It ships as two NuGet packages — `O2S.Components.PDFView4NET.Win` and `O2S.Components.PDFView4NET.WPF` — and includes its own PDF rendering engine. O2 Solutions sells a separate library, **PDF4NET**, for programmatic creation/manipulation; this guide covers PDFView4NET only. Key reasons to migrate:
 
-1. **View-Only Limitations**: PDFView4NET is designed for viewing, not PDF creation
-2. **UI Framework Dependency**: Requires WinForms or WPF context
-3. **No HTML to PDF**: Cannot convert HTML or URLs to PDF
-4. **Limited Manipulation**: Basic editing compared to IronPDF's full feature set
-5. **No Server-Side Support**: Cannot run in web services or Azure Functions
-6. **Legacy Technology**: Less active development and modern feature updates
+1. **View / Render / Print Focus**: PDFView4NET is built around displaying, rendering and printing PDFs, plus annotation and form-filling. It does not generate PDFs from HTML or URLs.
+2. **UI Framework Dependency**: Distributed in WinForms and WPF editions; both target Windows desktop.
+3. **No HTML to PDF**: There is no `HtmlToPdfConverter` or HTML rendering API in `O2S.Components.PDFView4NET`.
+4. **No Linux / Docker / cross-platform path**: The toolkit is Windows-only via WinForms/WPF; not designed for ASP.NET server hosts on Linux or container workloads.
+5. **Per-developer commercial license**: ~US$699 per developer per edition (WinForms or WPF), royalty-free runtime, includes one year of support — confirm current price at the vendor.
+6. **Active, but narrow**: O2 Solutions still ships releases (latest `O2S.Components.PDFView4NET.Win` 11.3.30 published 2026-05-01 on nuget.org). The product is maintained, but its scope is intentionally narrow.
 
 ### Architecture Comparison
 
 | Aspect | PDFView4NET | IronPDF |
 |--------|-------------|---------|
-| Primary Purpose | PDF Viewing | PDF Generation & Manipulation with html to pdf c# |
-| UI Requirement | WinForms/WPF Required | No UI Required |
-| Server-Side | Not Supported | Full Support |
+| Primary Purpose | View / render / print PDFs | PDF Generation & Manipulation with html to pdf c# |
+| UI Requirement | WinForms or WPF (Windows desktop) | Headless library; viewer is BYO |
+| Server-Side | Not designed for server use | Full Support |
 | Web Applications | No | Yes |
-| Console Apps | Limited | Full Support |
-| Azure/Docker | No | Yes |
-| HTML to PDF | No | Yes |
+| Console Apps | Loads/renders/prints PDFs only | Full Support |
+| Azure / Linux / Docker | Not supported | Yes |
+| HTML to PDF | Not supported | Yes |
 
 ---
 
@@ -30,16 +30,18 @@ PDFView4NET is primarily a **UI viewing component** for WinForms and WPF applica
 ### Step 1: Replace NuGet Package
 
 ```xml
-<!-- Remove PDFView4NET -->
-<PackageReference Include="O2S.Components.PDFView4NET" Version="*" Remove />
+<!-- Remove PDFView4NET (the actual NuGet IDs are split by UI framework) -->
+<PackageReference Include="O2S.Components.PDFView4NET.Win" Version="*" Remove />
+<!-- or for WPF: O2S.Components.PDFView4NET.WPF -->
 
 <!-- Add IronPDF -->
-<PackageReference Include="IronPdf" Version="2024.*" />
+<PackageReference Include="IronPdf" Version="*" />
 ```
 
 Or via CLI:
 ```bash
-dotnet remove package O2S.Components.PDFView4NET
+dotnet remove package O2S.Components.PDFView4NET.Win
+# (use O2S.Components.PDFView4NET.WPF for the WPF edition)
 dotnet add package IronPdf
 ```
 
@@ -48,7 +50,6 @@ dotnet add package IronPdf
 ```csharp
 // Before
 using O2S.Components.PDFView4NET;
-using O2S.Components.PDFView4NET.Printing;
 
 // After
 using IronPdf;
@@ -66,17 +67,19 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 | PDFView4NET | IronPDF | Notes |
 |-------------|---------|-------|
-| `PDFFile.Open(path)` | `PdfDocument.FromFile(path)` | Load PDF |
-| `PDFFile.Open(stream)` | `PdfDocument.FromStream(stream)` | Load from stream |
-| `pdfFile.GetPage(index)` | `pdf.Pages[index]` | Access page |
-| `pdfFile.PageCount` | `pdf.PageCount` | Page count |
-| `PDFPrintDocument` | `pdf.Print()` | Print PDF |
-| `pdfViewer.Document` | N/A | No built-in viewer |
-| N/A | `ChromePdfRenderer` | HTML to PDF |
-| N/A | `PdfDocument.Merge()` | Merge PDFs |
-| N/A | `pdf.ApplyWatermark()` | Add watermark |
-| N/A | `pdf.SecuritySettings` | Password protection |
-| `pdfFile.Close()` | `pdf.Dispose()` | Cleanup |
+| `new PDFDocument(); doc.Load(path)` | `PdfDocument.FromFile(path)` | Load PDF |
+| `new PDFDocument(); doc.Load(stream)` | `PdfDocument.FromStream(stream)` | Load from stream |
+| `document.Pages[index]` | `pdf.Pages[index]` | Access page |
+| `document.PageCount` | `pdf.PageCount` | Page count |
+| `page.ExtractText()` | `pdf.ExtractTextFromPage(index)` / `pdf.ExtractAllText()` | Text extraction |
+| `page.SearchText(query)` | iterate `ExtractAllText()` | Text search |
+| `document.Print()` | `pdf.Print()` | Print PDF |
+| `pdfViewer.Document = doc` | (host WebView2 / WebBrowser) | No built-in IronPDF UI control |
+| N/A in PDFView4NET | `ChromePdfRenderer.RenderHtmlAsPdf` | HTML to PDF |
+| N/A in PDFView4NET | `PdfDocument.Merge()` | Merge PDFs |
+| N/A in PDFView4NET | `pdf.ApplyWatermark()` | Add watermark |
+| `document.SecurityManager` | `pdf.SecuritySettings` | Password / permissions |
+| `document.Close()` | `pdf.Dispose()` | Cleanup |
 
 ---
 
@@ -88,10 +91,11 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 ```csharp
 using O2S.Components.PDFView4NET;
 
-PDFFile pdfFile = PDFFile.Open("document.pdf");
-int pageCount = pdfFile.PageCount;
-// Display in viewer
-pdfViewer.Document = pdfFile;
+PDFDocument document = new PDFDocument();
+document.Load("document.pdf");
+int pageCount = document.PageCount;
+// Display in the WinForms PDFViewer control:
+pdfViewer.Document = document;
 ```
 
 **IronPDF:**
@@ -141,13 +145,17 @@ pdf.SaveAs("invoice.pdf");
 **PDFView4NET:**
 ```csharp
 using O2S.Components.PDFView4NET;
-using O2S.Components.PDFView4NET.Printing;
+using System.Drawing.Printing;
 
-PDFFile pdfFile = PDFFile.Open("document.pdf");
-PDFPrintDocument printDoc = new PDFPrintDocument(pdfFile);
-printDoc.PrinterSettings.PrinterName = "HP LaserJet";
-printDoc.PrinterSettings.Copies = 2;
-printDoc.Print();
+PDFDocument document = new PDFDocument();
+document.Load("document.pdf");
+
+PrinterSettings printerSettings = new PrinterSettings
+{
+    PrinterName = "HP LaserJet",
+    Copies = 2
+};
+document.Print(printerSettings, null, null);
 ```
 
 **IronPDF:**
@@ -255,11 +263,21 @@ pdf.SecuritySettings.AllowUserEdits = PdfEditSecurity.NoEdit;
 pdf.SaveAs("protected.pdf");
 ```
 
-### Example 8: Text Extraction (Limited in PDFView4NET)
+### Example 8: Text Extraction (Supported in PDFView4NET)
 
 **PDFView4NET:**
 ```csharp
-// Very limited text extraction
+using O2S.Components.PDFView4NET;
+
+PDFDocument document = new PDFDocument();
+document.Load("document.pdf");
+
+string allText = "";
+for (int i = 0; i < document.PageCount; i++)
+{
+    allText += document.Pages[i].ExtractText();
+}
+document.Close();
 ```
 
 **IronPDF:**
@@ -290,10 +308,10 @@ using IronPdf;
 
 var pdf = PdfDocument.FromFile("form.pdf");
 
-// Fill form fields
-pdf.Form.GetFieldByName("FirstName").Value = "John";
-pdf.Form.GetFieldByName("LastName").Value = "Doe";
-pdf.Form.GetFieldByName("Email").Value = "john@example.com";
+// Fill form fields (FormFieldCollection.FindFormField is the documented API)
+pdf.Form.FindFormField("FirstName").Value = "John";
+pdf.Form.FindFormField("LastName").Value = "Doe";
+pdf.Form.FindFormField("Email").Value = "john@example.com";
 
 pdf.SaveAs("filled_form.pdf");
 ```
@@ -345,18 +363,18 @@ pdf.SaveAs("webpage.pdf");
 | Digital Signatures | No | Yes |
 | Encryption | No | Yes |
 | **Extraction** | | |
-| Text Extraction | Limited | Yes |
+| Text Extraction | Yes (`PDFPage.ExtractText`) | Yes |
 | Image Extraction | No | Yes |
 | **Forms** | | |
-| View Forms | Yes | N/A |
-| Fill Forms | Limited | Yes |
+| View Forms | Yes | (host externally) |
+| Fill Forms | Yes (interactive + programmatic) | Yes |
 | **Platform** | | |
 | WinForms | Yes | Yes |
 | WPF | Yes | Yes |
-| Console | Limited | Yes |
-| ASP.NET | No | Yes |
-| Azure | No | Yes |
-| Docker | No | Yes |
+| Console | Render/print PDFs only | Yes |
+| ASP.NET | Not designed for it | Yes |
+| Azure | Not supported | Yes |
+| Docker / Linux | Not supported | Yes |
 | **Printing** | | |
 | Print to Printer | Yes | Yes |
 | Print Options | Yes | Yes |
@@ -371,32 +389,14 @@ These UI-to-server migration challenges are covered in detail within the [compre
 
 ### PDF Viewing with IronPDF
 
-IronPDF includes a **PDF Viewer component** for desktop applications, so you can maintain viewing functionality after migrating:
+IronPDF is a **headless** library — it does not ship a drop-in WinForms/WPF `PdfViewer` control like PDFView4NET. The IronPDF docs recommend hosting a PDF inside a `WebBrowser`/`WebView2` control, returning the bytes to a browser, or shelling out to the system viewer. Pick whichever fits your migration target:
 
 ```csharp
-using IronPdf.Viewing;
+// Option 1: WPF / WinForms — host the PDF in WebView2
+// (Microsoft.Web.WebView2 NuGet)
+webView2.Source = new Uri(System.IO.Path.GetFullPath("output.pdf"));
 
-// IronPDF's built-in viewer for WinForms/WPF
-var viewer = new PdfViewer();
-viewer.LoadPdf("document.pdf");
-
-// Or load from PdfDocument
-var pdf = PdfDocument.FromFile("document.pdf");
-viewer.LoadPdf(pdf);
-```
-
-**Additional viewing options:**
-
-1. **Web Applications**: Return PDF to browser or use PDF.js for embedded viewing
-2. **Desktop Apps**: Use IronPDF's built-in `PdfViewer` component
-3. **System Viewer**: Open with default PDF application
-
-```csharp
-// Option 1: IronPDF Viewer
-var viewer = new PdfViewer();
-viewer.LoadPdf(pdf);
-
-// Option 2: Web - return to browser
+// Option 2: ASP.NET — return to the browser, which renders inline
 return File(pdf.BinaryData, "application/pdf");
 
 // Option 3: System viewer
@@ -428,9 +428,9 @@ public IActionResult GeneratePdf()
 
 ### Issue 1: No Built-in Viewer
 
-**Problem:** PDFView4NET provides viewer, IronPDF does not.
+**Problem:** PDFView4NET ships a WinForms/WPF `PDFViewer` control; IronPDF does not.
 
-**Solution:** Use browser-based viewing or system PDF reader:
+**Solution:** Host the PDF in a `WebView2` control, return the bytes from a web action, or open the system PDF reader:
 ```csharp
 // Web: Return PDF to browser
 return File(pdf.BinaryData, "application/pdf");
@@ -479,7 +479,9 @@ using (var pdf = PdfDocument.FromFile("document.pdf"))
 - [ ] **Document printing workflows**
   ```csharp
   // Before (PDFView4NET)
-  var printDoc = new PDFPrintDocument(pdfFile);
+  var doc = new PDFDocument();
+  doc.Load("document.pdf");
+  doc.Print(printerSettings, null, null);
 
   // After (IronPDF)
   var pdf = PdfDocument.FromFile("document.pdf");
@@ -500,7 +502,8 @@ using (var pdf = PdfDocument.FromFile("document.pdf"))
 
 - [ ] **Replace NuGet package**
   ```bash
-  dotnet remove package PDFView4NET
+  dotnet remove package O2S.Components.PDFView4NET.Win
+  # or O2S.Components.PDFView4NET.WPF
   dotnet add package IronPdf
   ```
   **Why:** Transition to IronPDF for enhanced PDF generation and manipulation capabilities.
@@ -518,7 +521,8 @@ using (var pdf = PdfDocument.FromFile("document.pdf"))
 - [ ] **Convert loading/saving code**
   ```csharp
   // Before (PDFView4NET)
-  var pdfFile = PDFFile.Open("document.pdf");
+  var doc = new PDFDocument();
+  doc.Load("document.pdf");
 
   // After (IronPDF)
   var pdf = PdfDocument.FromFile("document.pdf");
@@ -529,7 +533,9 @@ using (var pdf = PdfDocument.FromFile("document.pdf"))
 - [ ] **Update printing code**
   ```csharp
   // Before (PDFView4NET)
-  var printDoc = new PDFPrintDocument(pdfFile);
+  var doc = new PDFDocument();
+  doc.Load("document.pdf");
+  doc.Print(printerSettings, null, null);
 
   // After (IronPDF)
   var pdf = PdfDocument.FromFile("document.pdf");

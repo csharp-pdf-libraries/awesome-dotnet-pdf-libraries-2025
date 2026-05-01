@@ -1,4 +1,4 @@
-// NuGet: Install-Package PdfSharp
+// NuGet: Install-Package PDFsharp  (official PDFsharp-Team package; v6.2.4 as of Jan 2026, MIT)
 using PdfSharp.Pdf;
 using PdfSharp.Drawing;
 using System;

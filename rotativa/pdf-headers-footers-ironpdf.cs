@@ -9,6 +9,8 @@ namespace IronPdfExample
     {
         static void Main(string[] args)
         {
+            IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
             var renderer = new ChromePdfRenderer();
             
             renderer.RenderingOptions.TextHeader = new TextHeaderFooter()

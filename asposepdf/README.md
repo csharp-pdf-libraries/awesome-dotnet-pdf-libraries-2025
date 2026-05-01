@@ -44,10 +44,10 @@ This snippet showcases basic document creation, which is often one of the first 
 
 Despite its strengths, Aspose.PDF for .NET has notable disadvantages that might affect your project's efficiency and budget:
 
-- **High Cost**: Starting at $1,199 per developer, it is one of the more costly options available. The necessity for annual renewals makes the cost a recurring consideration.
-- **Performance Concerns**: Users have reported significant performance issues, especially in comparison to alternatives like iText. Forum discussions highlight that tasks can take up to 30 times longer.
-- **Outdated HTML Engine**: Aspose.PDF utilizes the Flying Saucer CSS engine for HTML rendering, which is known to struggle with modern CSS standards. This can impede the library's utility when dealing with web-based PDF generation.
-- **Platform-Specific Issues**: Users have reported issues, such as high CPU usage and memory leaks, particularly on Linux systems. Such issues remain open and unresolved, as highlighted in forum discussions.
+- **High Cost**: Starting at $1,199 per developer (Developer Small Business tier on the [Aspose pricing page](https://purchase.aspose.com/pricing/pdf/net)). Licenses are perpetual but include only one year of updates; renewing for further updates is an ongoing cost to plan for.
+- **Performance Concerns**: Users have reported performance issues with complex CSS workloads on the [Aspose support forum](https://forum.aspose.com/c/pdf/9). Specific magnitudes vary by scenario — benchmark on your own workload.
+- **HTML Engine Limitations**: Aspose.PDF uses an in-house HTML/CSS rendering engine rather than Chromium. Forum reports note gaps with modern layout features such as Flexbox and CSS Grid; verify support for the specific CSS features you rely on.
+- **Platform-Specific Issues**: Some users have reported high CPU usage and memory growth on Linux on the Aspose support forum; investigate against your own deployment before drawing conclusions.
 
 ## IronPDF: A Competitive Alternative
 
@@ -62,11 +62,11 @@ A comprehensive breakdown of features and capabilities is available in the [comp
 
 | Feature/Characteristic         | Aspose.PDF for .NET                              | IronPDF                                                 |
 |--------------------------------|--------------------------------------------------|---------------------------------------------------------|
-| **Price**                      | $1,199+ per developer                            | More competitive, no annual renewal required            |
-| **HTML Rendering**             | Flying Saucer CSS engine, outdated               | Chromium-based, modern and reliable                     |
-| **Performance**                | Documented slowdown issues                       | Optimized for faster processing                          |
-| **Platform Support**           | Issues on Linux                                  | Cross-platform with fewer reported issues                |
-| **Licensing Model**            | Commercial with ongoing renewals                 | More flexible licensing                                  |
+| **Price**                      | From $1,199/developer (perpetual + 1yr updates)  | From $749 one-time (Lite)                               |
+| **HTML Rendering**             | In-house engine; limited modern CSS              | Chromium-based, full CSS3                               |
+| **Performance**                | Forum-reported slowdowns on complex CSS          | Optimized Chromium pipeline                             |
+| **Platform Support**           | Linux issues reported on forum                   | Cross-platform, broadly stable                          |
+| **Licensing Model**            | Perpetual; optional renewal for further updates  | Perpetual with code-based key                           |
 
 ---
 
@@ -225,17 +225,17 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from Aspose.PDF for .NET to IronPDF?
 
-IronPDF offers a compelling alternative to Aspose.PDF with significantly lower costs ($749 one-time vs $1,199+/year), modern Chromium-based HTML rendering that handles CSS3 and JavaScript perfectly, and superior performance without the documented slowdowns (up to 30x slower) reported in Aspose.PDF forums.
+IronPDF offers a compelling alternative to Aspose.PDF: lower entry price ($749 one-time vs $1,199 per developer), modern Chromium-based HTML rendering with full CSS3/JavaScript support, and a code-based licensing model that removes the `.lic` file step.
 
 ### Quick Migration Overview
 
 | Aspect | Aspose.PDF | IronPDF |
 |--------|-----------|---------|
-| Pricing | $1,199/developer/year (subscription) | $749 one-time (Lite) |
-| HTML Engine | Flying Saucer (limited CSS) | Chromium (full CSS3/JS) |
-| Performance | Documented slowdowns | Optimized |
-| License Model | Annual renewal + .lic file | Perpetual + code-based key |
-| Linux Support | Issues reported (CPU, memory) | Stable |
+| Pricing (entry) | $1,199/developer (perpetual + 1yr updates) | $749 one-time (Lite) |
+| HTML Engine | In-house engine (limited modern CSS) | Chromium (full CSS3/JS) |
+| Performance | Forum-reported slowdowns on complex CSS | Optimized Chromium pipeline |
+| License Model | Perpetual + `.lic` file; optional renewal for updates | Perpetual + code-based key |
+| Linux Support | Forum reports of CPU/memory issues | Stable |
 | Page Indexing | 1-based (`Pages[1]`) | 0-based (`Pages[0]`) |
 
 ### Key API Mappings
@@ -301,7 +301,7 @@ pdf.SaveAs("output.pdf");
 
 3. **Page Index Change**: Aspose uses 1-based (`Pages[1]`), IronPDF uses 0-based (`Pages[0]`).
 
-4. **Better CSS Rendering**: IronPDF's Chromium engine handles modern CSS that Aspose.PDF's Flying Saucer engine cannot.
+4. **Better CSS Rendering**: IronPDF's Chromium engine handles modern CSS (Flexbox, Grid, custom properties) that Aspose.PDF's in-house HTML engine handles inconsistently per forum reports.
 
 5. **Facades Replacement**: Replace `PdfFileEditor`, `TextAbsorber`, etc. with direct `PdfDocument` methods.
 

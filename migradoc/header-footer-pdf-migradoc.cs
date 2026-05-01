@@ -1,4 +1,4 @@
-// NuGet: Install-Package PdfSharp-MigraDoc-GDI
+// NuGet: Install-Package PDFsharp-MigraDoc (current 6.2.4, MIT, by PDFsharp-Team / empira)
 using MigraDoc.DocumentObjectModel;
 using MigraDoc.Rendering;
 

@@ -8,7 +8,7 @@ PDFBolt is a cloud-only SaaS service that processes your documents on external s
 
 1. **Cloud-Only Processing**: Every document passes through external servers—no self-hosted option
 2. **Data Privacy Risks**: Sensitive documents (contracts, medical records, financial data) transmitted externally
-3. **Usage Limits**: Free tier capped at 100 documents/month; pay-per-document pricing adds up quickly
+3. **Usage Limits**: Free tier capped at 100 documents/month (20 req/min, 1 concurrent); paid tiers start at $19/mo for 2,000 docs and scale to $249/mo for 50,000 docs (pdfbolt.com/pricing)
 4. **Network Dependency**: Internet outages or PDFBolt downtime = your PDF generation stops
 5. **Latency**: Network round-trip adds seconds to every conversion
 6. **Compliance Issues**: GDPR, HIPAA, SOC2 audits complicated by external processing
@@ -20,23 +20,22 @@ PDFBolt is a cloud-only SaaS service that processes your documents on external s
 | Concern | PDFBolt | IronPDF |
 |---------|---------|---------|
 | **Data Location** | External servers | Your servers only |
-| **Usage Limits** | 100 free, then per-document | Unlimited |
+| **Usage Limits** | 100 free/month, then tiered subscriptions | Unlimited |
 | **Internet Required** | Yes, always | No |
 | **Latency** | Network round-trip | Milliseconds |
 | **Compliance** | Complex (external processing) | Simple (local processing) |
-| **Cost Model** | Per-document | One-time or annual |
+| **Cost Model** | Monthly subscription tiers ($19–$249/mo) | One-time or annual |
 | **Offline Operation** | Impossible | Fully supported |
 | **API Key Risks** | Leaked = billed | License key, no billing risk |
 
 ---
 
-## NuGet Package Changes
+## Package / Integration Changes
+
+PDFBolt does **not publish an official .NET SDK** — there is no `PDFBolt` NuGet package. Integration is via `HttpClient` against the documented REST endpoints (`https://api.pdfbolt.com/v1/direct`, `/v1/sync`, `/v1/async`). To migrate, delete the HTTP wrapper code you wrote and install IronPDF:
 
 ```bash
-# Remove PDFBolt
-dotnet remove package PDFBolt
-
-# Install IronPDF
+# Install IronPDF (replaces hand-rolled PDFBolt HttpClient code)
 dotnet add package IronPdf
 ```
 
@@ -45,10 +44,10 @@ dotnet add package IronPdf
 ## Namespace Changes
 
 ```csharp
-// PDFBolt
-using PDFBolt;
-using PDFBolt.Models;
-using PDFBolt.Options;
+// PDFBolt — REST API, typically wrapped behind System.Net.Http
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 
 // IronPDF
 using IronPdf;
@@ -60,77 +59,73 @@ using IronPdf.Rendering;
 
 ## Complete API Reference
 
-### Core Class Mappings
+### Core Concept Mapping
 
-| PDFBolt | IronPDF | Notes |
-|---------|---------|-------|
-| `new Client(apiKey)` | `new ChromePdfRenderer()` | No API key needed |
-| `new HtmlToPdfConverter()` | `new ChromePdfRenderer()` | Same renderer for all |
-| `new PdfOptions()` | `renderer.RenderingOptions` | Property-based config |
-| `PdfResult` | `PdfDocument` | Rich document object |
+| PDFBolt (REST) | IronPDF | Notes |
+|----------------|---------|-------|
+| `HttpClient` + `API-KEY` header | `new ChromePdfRenderer()` | No API key, no HTTP |
+| JSON request body | `renderer.RenderingOptions` | Strongly-typed config |
+| `https://api.pdfbolt.com/v1/direct` (raw PDF) | `renderer.RenderHtmlAsPdf(...)` | Local Chromium |
+| `https://api.pdfbolt.com/v1/sync` (URL response) | `pdf.SaveAs(path)` | No download step |
+| Response `byte[]` | `PdfDocument` | Rich document object |
 
-### Conversion Methods
+### Conversion Patterns
 
-| PDFBolt | IronPDF | Notes |
-|---------|---------|-------|
-| `await client.HtmlToPdf(html)` | `renderer.RenderHtmlAsPdf(html)` | Sync by default |
-| `await client.HtmlToPdf(html, options)` | `renderer.RenderHtmlAsPdf(html)` | Options on renderer |
-| `await client.UrlToPdf(url)` | `renderer.RenderUrlAsPdf(url)` | Sync by default |
-| `await client.UrlToPdf(url, options)` | `renderer.RenderUrlAsPdf(url)` | Options on renderer |
-| `await client.FileToPdf(path)` | `renderer.RenderHtmlFileAsPdf(path)` | HTML files |
-| `converter.ConvertHtmlString(html)` | `renderer.RenderHtmlAsPdf(html)` | Returns PdfDocument |
-| `converter.ConvertUrl(url)` | `renderer.RenderUrlAsPdf(url)` | Returns PdfDocument |
+| PDFBolt (REST) | IronPDF | Notes |
+|----------------|---------|-------|
+| `POST /v1/direct` with `{ "html": base64 }` | `renderer.RenderHtmlAsPdf(html)` | No base64 needed |
+| `POST /v1/direct` with `{ "url": "..." }` | `renderer.RenderUrlAsPdf(url)` | Direct URL render |
+| Read HTML file, base64, POST | `renderer.RenderHtmlFileAsPdf(path)` | One call |
 
-### Output Methods
+### Output Handling
 
-| PDFBolt | IronPDF | Notes |
-|---------|---------|-------|
-| `await result.SaveToFile(path)` | `pdf.SaveAs(path)` | Sync method |
-| `result.GetBytes()` | `pdf.BinaryData` | Property access |
-| `await result.GetBytesAsync()` | `pdf.BinaryData` | Already available |
-| `result.GetStream()` | `pdf.Stream` | Stream property |
+| PDFBolt (REST) | IronPDF | Notes |
+|----------------|---------|-------|
+| `await response.Content.ReadAsByteArrayAsync()` then `File.WriteAllBytes` | `pdf.SaveAs(path)` | One method |
+| `await response.Content.ReadAsByteArrayAsync()` | `pdf.BinaryData` | Property access |
+| `await response.Content.ReadAsStreamAsync()` | `pdf.Stream` | Stream property |
 
 ### Page Configuration
 
-| PDFBolt | IronPDF | Notes |
-|---------|---------|-------|
-| `options.PageSize = PageSize.A4` | `renderer.RenderingOptions.PaperSize = PdfPaperSize.A4` | Enum names differ |
-| `options.PageSize = PageSize.Letter` | `renderer.RenderingOptions.PaperSize = PdfPaperSize.Letter` | Standard sizes |
-| `options.Orientation = Orientation.Landscape` | `renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape` | Landscape mode |
-| `options.Orientation = Orientation.Portrait` | `renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Portrait` | Default |
-| `options.Width = 210` | `renderer.RenderingOptions.SetCustomPaperSizeinMillimeters(210, 297)` | Custom size |
+| PDFBolt JSON field | IronPDF | Notes |
+|--------------------|---------|-------|
+| `"format": "A4"` | `renderer.RenderingOptions.PaperSize = PdfPaperSize.A4` | Strongly-typed enum |
+| `"format": "Letter"` | `renderer.RenderingOptions.PaperSize = PdfPaperSize.Letter` | Standard sizes |
+| `"landscape": true` | `renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape` | Landscape mode |
+| `"landscape": false` | `renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Portrait` | Default |
+| `"width": "210mm", "height": "297mm"` | `renderer.RenderingOptions.SetCustomPaperSizeinMillimeters(210, 297)` | Custom size |
 
 ### Margins Configuration
 
-| PDFBolt | IronPDF | Notes |
-|---------|---------|-------|
-| `options.MarginTop = 20` | `renderer.RenderingOptions.MarginTop = 20` | In millimeters |
-| `options.MarginBottom = 20` | `renderer.RenderingOptions.MarginBottom = 20` | Individual properties |
-| `options.MarginLeft = 15` | `renderer.RenderingOptions.MarginLeft = 15` | No margins object |
-| `options.MarginRight = 15` | `renderer.RenderingOptions.MarginRight = 15` | Direct assignment |
-| `options.Margins = new Margins(t,r,b,l)` | Individual properties | See above |
+| PDFBolt JSON field | IronPDF | Notes |
+|--------------------|---------|-------|
+| `"margin": { "top": "20mm" }` | `renderer.RenderingOptions.MarginTop = 20` | In millimeters |
+| `"margin": { "bottom": "20mm" }` | `renderer.RenderingOptions.MarginBottom = 20` | Individual properties |
+| `"margin": { "left": "15mm" }` | `renderer.RenderingOptions.MarginLeft = 15` | No margins object |
+| `"margin": { "right": "15mm" }` | `renderer.RenderingOptions.MarginRight = 15` | Direct assignment |
 
 ### Rendering Options
 
-| PDFBolt | IronPDF | Notes |
-|---------|---------|-------|
-| `options.PrintBackground = true` | `renderer.RenderingOptions.PrintHtmlBackgrounds = true` | CSS backgrounds |
-| `options.WaitForNetworkIdle = true` | `renderer.RenderingOptions.WaitFor.NetworkIdle()` | Wait strategy |
-| `options.WaitTime = 2000` | `renderer.RenderingOptions.WaitFor.RenderDelay(2000)` | Milliseconds |
-| `options.Scale = 1.0` | `renderer.RenderingOptions.Zoom = 100` | Percentage |
-| `options.PreferCssPageSize = true` | `renderer.RenderingOptions.UseCssPageSize = true` | CSS @page rules |
+| PDFBolt JSON field | IronPDF | Notes |
+|--------------------|---------|-------|
+| `"printBackground": true` | `renderer.RenderingOptions.PrintHtmlBackgrounds = true` | CSS backgrounds |
+| `"waitUntil": "networkidle0"` | `renderer.RenderingOptions.WaitFor.NetworkIdle()` | Wait strategy |
+| `"delay": 2000` | `renderer.RenderingOptions.WaitFor.RenderDelay(2000)` | Milliseconds |
+| `"scale": 1.0` | `renderer.RenderingOptions.Zoom = 100` | Percentage |
+| `"preferCSSPageSize": true` | `renderer.RenderingOptions.UseCssPageSize = true` | CSS @page rules |
 
 ### Headers and Footers
 
 | PDFBolt | IronPDF | Notes |
 |---------|---------|-------|
-| `options.Header = "Header text"` | `renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter { HtmlFragment = "<div>Header</div>" }` | HTML-based |
-| `options.Footer = "Footer text"` | `renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter { HtmlFragment = "<div>Footer</div>" }` | Full CSS support |
-| `options.DisplayHeaderFooter = true` | Automatic when HtmlHeader/HtmlFooter set | Implicit |
-| `{pageNumber}` | `{page}` | Current page |
-| `{totalPages}` | `{total-pages}` | Total pages |
-| `{date}` | `{date}` | Same |
-| `{title}` | `{html-title}` | Document title |
+| `"headerTemplate": <base64 HTML>` | `renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter { HtmlFragment = "<div>Header</div>" }` | HTML-based, not base64 |
+| `"footerTemplate": <base64 HTML>` | `renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter { HtmlFragment = "<div>Footer</div>" }` | Full CSS support |
+| `"displayHeaderFooter": true` | Automatic when HtmlHeader/HtmlFooter set | Implicit |
+| `<span class="pageNumber"></span>` | `{page}` | Current page |
+| `<span class="totalPages"></span>` | `{total-pages}` | Total pages |
+| `<span class="date"></span>` | `{date}` | Date |
+| `<span class="title"></span>` | `{html-title}` | Document title |
+| `<span class="url"></span>` | `{url}` | Source URL |
 
 ### PDF Manipulation (NEW in IronPDF)
 
@@ -154,36 +149,36 @@ For complete migration workflows including authentication removal and offline de
 
 ### Example 1: Remove API Key Pattern
 
-**Before (PDFBolt):**
+**Before (PDFBolt — HttpClient against `/v1/direct`):**
 ```csharp
-using PDFBolt;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 
 public class PdfService
 {
-    private readonly Client _client;
+    private readonly HttpClient _http;
 
-    public PdfService(IConfiguration config)
+    public PdfService(IConfiguration config, HttpClient http)
     {
         // API key from config - security risk if leaked
         var apiKey = config["PDFBolt:ApiKey"];
-        _client = new Client(apiKey);
+        _http = http;
+        _http.DefaultRequestHeaders.Add("API-KEY", apiKey);
     }
 
     public async Task<byte[]> GeneratePdfAsync(string html)
     {
-        try
-        {
-            var result = await _client.HtmlToPdf(html);
-            return result.GetBytes();
-        }
-        catch (PDFBoltException ex) when (ex.Code == "RATE_LIMIT")
-        {
-            throw new Exception("Monthly limit exceeded");
-        }
-        catch (PDFBoltException ex) when (ex.Code == "INVALID_API_KEY")
-        {
-            throw new Exception("API key invalid or revoked");
-        }
+        var base64Html = Convert.ToBase64String(Encoding.UTF8.GetBytes(html));
+        var body = JsonSerializer.Serialize(new { html = base64Html });
+        using var content = new StringContent(body, Encoding.UTF8, "application/json");
+
+        using var response = await _http.PostAsync(
+            "https://api.pdfbolt.com/v1/direct", content);
+
+        // Quota exhaustion / invalid key surface as 4xx — handle them yourself
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsByteArrayAsync();
     }
 }
 ```
@@ -205,7 +200,7 @@ public class PdfService
 
     public byte[] GeneratePdf(string html)
     {
-        // No rate limits, no API key validation
+        // No quotas, no API key validation
         // No network required, no external processing
         var pdf = _renderer.RenderHtmlAsPdf(html);
         return pdf.BinaryData;
@@ -217,24 +212,31 @@ public class PdfService
 
 **Before (PDFBolt):**
 ```csharp
-using PDFBolt;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 
 public async Task<ActionResult> GenerateInvoice(int orderId)
 {
     var order = await _orderService.GetOrderAsync(orderId);
     var html = await _templateService.RenderInvoiceAsync(order);
 
-    var client = new Client(_apiKey);
-    var options = new PdfOptions
+    var payload = JsonSerializer.Serialize(new
     {
-        PageSize = PageSize.A4,
-        MarginTop = 20,
-        MarginBottom = 20
-    };
+        html = Convert.ToBase64String(Encoding.UTF8.GetBytes(html)),
+        format = "A4",
+        margin = new { top = "20mm", bottom = "20mm" }
+    });
+
+    using var http = new HttpClient();
+    http.DefaultRequestHeaders.Add("API-KEY", _apiKey);
+    using var content = new StringContent(payload, Encoding.UTF8, "application/json");
 
     // Network round-trip to PDFBolt servers
-    var result = await client.HtmlToPdf(html, options);
-    var bytes = result.GetBytes();
+    using var response = await http.PostAsync(
+        "https://api.pdfbolt.com/v1/direct", content);
+    response.EnsureSuccessStatusCode();
+    var bytes = await response.Content.ReadAsByteArrayAsync();
 
     return File(bytes, "application/pdf", $"invoice-{orderId}.pdf");
 }
@@ -265,25 +267,37 @@ public ActionResult GenerateInvoice(int orderId)
 
 **Before (PDFBolt):**
 ```csharp
-using PDFBolt;
-using PDFBolt.Models;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 
 public async Task<byte[]> CaptureWebpageAsync(string url)
 {
-    var client = new Client(_apiKey);
-    var options = new PdfOptions
-    {
-        PageSize = PageSize.A4,
-        Orientation = Orientation.Portrait,
-        DisplayHeaderFooter = true,
-        Header = "Captured from: " + url,
-        Footer = "Page {pageNumber} of {totalPages}",
-        WaitForNetworkIdle = true,
-        PrintBackground = true
-    };
+    // PDFBolt expects header/footer HTML to be base64-encoded;
+    // page-number tokens are HTML class spans, not text placeholders.
+    var headerHtml = $"<div style='font-size:10px'>Captured from: {url}</div>";
+    var footerHtml = "<div style='font-size:10px'>Page <span class=\"pageNumber\"></span> of <span class=\"totalPages\"></span></div>";
 
-    var result = await client.UrlToPdf(url, options);
-    return result.GetBytes();
+    var payload = JsonSerializer.Serialize(new
+    {
+        url,
+        format = "A4",
+        landscape = false,
+        displayHeaderFooter = true,
+        headerTemplate = Convert.ToBase64String(Encoding.UTF8.GetBytes(headerHtml)),
+        footerTemplate = Convert.ToBase64String(Encoding.UTF8.GetBytes(footerHtml)),
+        waitUntil = "networkidle0",
+        printBackground = true
+    });
+
+    using var http = new HttpClient();
+    http.DefaultRequestHeaders.Add("API-KEY", _apiKey);
+    using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+    using var response = await http.PostAsync(
+        "https://api.pdfbolt.com/v1/direct", content);
+    response.EnsureSuccessStatusCode();
+    return await response.Content.ReadAsByteArrayAsync();
 }
 ```
 
@@ -322,35 +336,45 @@ public byte[] CaptureWebpage(string url)
 
 **Before (PDFBolt):**
 ```csharp
-using PDFBolt;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 
 public async Task GenerateMonthlyReports(List<Report> reports)
 {
-    var client = new Client(_apiKey);
+    using var http = new HttpClient();
+    http.DefaultRequestHeaders.Add("API-KEY", _apiKey);
     int processed = 0;
 
     foreach (var report in reports)
     {
-        // Check rate limit - PDFBolt free tier = 100/month
+        // Check monthly quota — PDFBolt free tier = 100 documents/month,
+        // and Free is rate-limited to 20 requests/minute, 1 concurrent.
         if (processed >= 100)
         {
-            throw new Exception("PDFBolt monthly limit reached!");
+            throw new Exception("PDFBolt monthly free-tier limit reached!");
         }
 
-        try
+        var html = RenderReport(report);
+        var payload = JsonSerializer.Serialize(new
         {
-            var html = RenderReport(report);
-            var result = await client.HtmlToPdf(html);
-            await result.SaveToFile($"report-{report.Id}.pdf");
-            processed++;
+            html = Convert.ToBase64String(Encoding.UTF8.GetBytes(html))
+        });
+        using var content = new StringContent(payload, Encoding.UTF8, "application/json");
 
-            // Add delay to avoid hitting rate limits
-            await Task.Delay(1000);
-        }
-        catch (PDFBoltException ex) when (ex.Code == "RATE_LIMIT")
-        {
+        using var response = await http.PostAsync(
+            "https://api.pdfbolt.com/v1/direct", content);
+
+        if ((int)response.StatusCode == 429)
             throw new Exception($"Rate limited after {processed} reports");
-        }
+
+        response.EnsureSuccessStatusCode();
+        var bytes = await response.Content.ReadAsByteArrayAsync();
+        await File.WriteAllBytesAsync($"report-{report.Id}.pdf", bytes);
+        processed++;
+
+        // Throttle to stay under the per-minute cap
+        await Task.Delay(1000);
     }
 }
 ```
@@ -386,31 +410,34 @@ public void GenerateMonthlyReports(List<Report> reports)
 
 **Before (PDFBolt):**
 ```csharp
-using PDFBolt;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 
 public async Task<byte[]> SafeGeneratePdfAsync(string html)
 {
-    var client = new Client(_apiKey);
+    using var http = new HttpClient();
+    http.DefaultRequestHeaders.Add("API-KEY", _apiKey);
+    var payload = JsonSerializer.Serialize(new
+    {
+        html = Convert.ToBase64String(Encoding.UTF8.GetBytes(html))
+    });
+    using var content = new StringContent(payload, Encoding.UTF8, "application/json");
 
     try
     {
-        var result = await client.HtmlToPdf(html);
-        return result.GetBytes();
-    }
-    catch (PDFBoltException ex) when (ex.Code == "RATE_LIMIT")
-    {
-        _logger.LogError("PDFBolt rate limit exceeded");
-        throw;
-    }
-    catch (PDFBoltException ex) when (ex.Code == "INVALID_API_KEY")
-    {
-        _logger.LogError("PDFBolt API key invalid");
-        throw;
-    }
-    catch (PDFBoltException ex) when (ex.Code == "TIMEOUT")
-    {
-        _logger.LogError("PDFBolt request timed out");
-        throw;
+        using var response = await http.PostAsync(
+            "https://api.pdfbolt.com/v1/direct", content);
+
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            { _logger.LogError("PDFBolt rate limit exceeded"); throw new Exception("429"); }
+        if (response.StatusCode == HttpStatusCode.Unauthorized
+            || response.StatusCode == HttpStatusCode.Forbidden)
+            { _logger.LogError("PDFBolt API key invalid"); throw new Exception("auth"); }
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsByteArrayAsync();
     }
     catch (HttpRequestException ex)
     {
@@ -570,6 +597,10 @@ public string ExtractTextFromPage(string pdfPath, int pageIndex)
 
 **Before (PDFBolt):**
 ```csharp
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+
 // PDFBolt cannot work offline - requires internet
 public async Task<byte[]> GeneratePdfOffline(string html)
 {
@@ -579,9 +610,18 @@ public async Task<byte[]> GeneratePdfOffline(string html)
         throw new InvalidOperationException("PDFBolt requires internet connection");
     }
 
-    // Even with internet, PDFBolt servers might be down
-    var client = new Client(_apiKey);
-    return (await client.HtmlToPdf(html)).GetBytes();
+    // Even with internet, api.pdfbolt.com might be down
+    using var http = new HttpClient();
+    http.DefaultRequestHeaders.Add("API-KEY", _apiKey);
+    var payload = JsonSerializer.Serialize(new
+    {
+        html = Convert.ToBase64String(Encoding.UTF8.GetBytes(html))
+    });
+    using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+    using var response = await http.PostAsync(
+        "https://api.pdfbolt.com/v1/direct", content);
+    response.EnsureSuccessStatusCode();
+    return await response.Content.ReadAsByteArrayAsync();
 }
 ```
 
@@ -602,14 +642,16 @@ public byte[] GeneratePdfOffline(string html)
 
 ## Placeholder Mapping
 
+PDFBolt's header/footer placeholders are HTML class spans inside the (base64-encoded) `headerTemplate` / `footerTemplate` body, mirroring Chrome's headless print API. IronPDF uses simple curly-brace tokens inside `HtmlFragment`. PDFBolt explicitly does not support Handlebars-style `{{var}}` tokens in header/footer templates.
+
 | PDFBolt Placeholder | IronPDF Placeholder | Description |
 |---------------------|---------------------|-------------|
-| `{pageNumber}` | `{page}` | Current page number |
-| `{totalPages}` | `{total-pages}` | Total page count |
-| `{date}` | `{date}` | Current date |
-| `{time}` | `{time}` | Current time |
-| `{title}` | `{html-title}` | Document title |
-| _(not available)_ | `{url}` | Source URL |
+| `<span class="pageNumber"></span>` | `{page}` | Current page number |
+| `<span class="totalPages"></span>` | `{total-pages}` | Total page count |
+| `<span class="date"></span>` | `{date}` | Current date |
+| _(not documented)_ | `{time}` | Current time |
+| `<span class="title"></span>` | `{html-title}` | Document title |
+| `<span class="url"></span>` | `{url}` | Source URL |
 
 ---
 
@@ -621,7 +663,8 @@ public byte[] GeneratePdfOffline(string html)
 ```csharp
 // Must secure API key in environment
 var apiKey = Environment.GetEnvironmentVariable("PDFBOLT_API_KEY");
-var client = new Client(apiKey);
+var http = new HttpClient();
+http.DefaultRequestHeaders.Add("API-KEY", apiKey);
 ```
 
 **After (IronPDF):**
@@ -661,10 +704,11 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 ```csharp
 public void ConfigureServices(IServiceCollection services)
 {
-    services.AddSingleton<Client>(sp =>
+    services.AddHttpClient("PDFBolt", (sp, http) =>
     {
         var config = sp.GetRequiredService<IConfiguration>();
-        return new Client(config["PDFBolt:ApiKey"]);
+        http.BaseAddress = new Uri("https://api.pdfbolt.com/v1/");
+        http.DefaultRequestHeaders.Add("API-KEY", config["PDFBolt:ApiKey"]);
     });
 }
 ```
@@ -690,11 +734,11 @@ public void ConfigureServices(IServiceCollection services)
 PDFBolt requires async for network calls. IronPDF is sync by default:
 
 ```csharp
-// PDFBolt: await required
-var result = await client.HtmlToPdf(html);
-var bytes = result.GetBytes();
+// PDFBolt: await required (HttpClient over the wire)
+using var response = await http.PostAsync("https://api.pdfbolt.com/v1/direct", content);
+var bytes = await response.Content.ReadAsByteArrayAsync();
 
-// IronPDF: No await needed
+// IronPDF: No await needed (local Chromium)
 var pdf = renderer.RenderHtmlAsPdf(html);
 var bytes = pdf.BinaryData;
 ```
@@ -713,21 +757,23 @@ if (string.IsNullOrEmpty(apiKey))
 
 ### 3. Margin Units
 
-Both use millimeters, but verify your values:
+PDFBolt accepts CSS-style strings ("20mm", "1in"). IronPDF margins are always millimeters as a numeric property:
 
 ```csharp
-// PDFBolt: Might be pixels in some versions
-options.MarginTop = 20; // pixels?
+// PDFBolt: string with CSS unit suffix
+margin = new { top = "20mm" }
 
-// IronPDF: Always millimeters
+// IronPDF: millimeters as a number
 renderer.RenderingOptions.MarginTop = 20; // mm
 ```
 
 ### 4. Page Number Placeholders
 
+PDFBolt's headers/footers use Chrome-headless class spans (the body itself is base64-encoded inside `headerTemplate`/`footerTemplate`); IronPDF uses curly-brace tokens inside the `HtmlFragment` string:
+
 ```csharp
-// PDFBolt
-"Page {pageNumber} of {totalPages}"
+// PDFBolt (decoded headerTemplate body)
+"Page <span class=\"pageNumber\"></span> of <span class=\"totalPages\"></span>"
 
 // IronPDF
 "Page {page} of {total-pages}"
@@ -735,11 +781,11 @@ renderer.RenderingOptions.MarginTop = 20; // mm
 
 ### 5. Remove Rate Limit Handling
 
-Delete all rate limiting code—IronPDF has no limits:
+Delete all 429 / quota retry logic — IronPDF has no per-document quotas:
 
 ```csharp
-// PDFBolt: Rate limit handling
-catch (PDFBoltException ex) when (ex.Code == "RATE_LIMIT")
+// PDFBolt: HTTP 429 retry
+if (response.StatusCode == HttpStatusCode.TooManyRequests)
 {
     await Task.Delay(60000); // Wait and retry
 }
@@ -760,31 +806,35 @@ catch (TimeoutException)
 // IronPDF: Remove network-specific catches
 ```
 
+### 7. Drop the API Wrapper Classes
+
+If you wrote a `PDFBoltClient` / `Client` wrapper around `HttpClient` (PDFBolt does not ship one — there is no `PDFBolt` NuGet package and no `using PDFBolt;` namespace), delete it; `ChromePdfRenderer` is the only class you need.
+
 ---
 
 ## Pre-Migration Checklist
 
-- [ ] Inventory all PDFBolt API calls in codebase
+- [ ] Inventory all PDFBolt REST calls in codebase (`api.pdfbolt.com`)
 - [ ] Document current API key management
 - [ ] List all async methods that need sync conversion
-- [ ] Identify rate limit handling code to remove
-- [ ] Check margin units (pixels vs millimeters)
-- [ ] Map placeholder syntax differences
-- [ ] Identify features PDFBolt couldn't provide (merge, watermark, security)
+- [ ] Identify 429 / quota retry code to remove
+- [ ] Note PDFBolt margin strings (`"20mm"`) → IronPDF mm numbers
+- [ ] Map placeholder syntax differences (class spans → `{page}` tokens)
+- [ ] Identify features PDFBolt cannot provide (merge, watermark, security, text extraction)
 - [ ] Plan license key deployment
 
 ---
 
 ## Post-Migration Checklist
 
-- [ ] Remove PDFBolt NuGet package
+- [ ] Delete the hand-rolled PDFBolt HttpClient wrapper / DTOs
 - [ ] Delete API key from configuration files
 - [ ] Remove API key from secret managers
 - [ ] Convert async methods to sync
-- [ ] Remove rate limit handling code
+- [ ] Remove 429 / quota retry handling
 - [ ] Remove network error handling
 - [ ] Test all PDF generation paths
-- [ ] Verify placeholder syntax in headers/footers
+- [ ] Verify placeholder syntax (class spans → `{page}` / `{total-pages}`)
 - [ ] Add new features (watermarks, security) as needed
 - [ ] Update documentation
 
@@ -793,14 +843,14 @@ catch (TimeoutException)
 ## Finding PDFBolt References
 
 ```bash
-# Find all PDFBolt usage
-grep -r "PDFBolt\|Client\|HtmlToPdf\|UrlToPdf\|PdfOptions" --include="*.cs" .
+# Find all PDFBolt REST calls
+grep -rE "api\.pdfbolt\.com|API-KEY|/v1/(direct|sync|async)" --include="*.cs" .
 
-# Find API key references
+# Find API key references (config, code, secrets)
 grep -r "PDFBOLT\|ApiKey\|api.key\|apiKey" --include="*.cs" --include="*.json" --include="*.config" .
 
-# Find async patterns to convert
-grep -r "await.*client\.\|await.*HtmlToPdf\|await.*UrlToPdf" --include="*.cs" .
+# Find async PostAsync patterns wrapping the API
+grep -rE "PostAsync\(.*pdfbolt|api\.pdfbolt\.com" --include="*.cs" .
 ```
 
 ---
@@ -866,17 +916,17 @@ renderer.RenderHtmlAsPdf("<html><body></body></html>");
 IronPDF methods are synchronous. Remove await keywords:
 
 ```csharp
-// Old: var result = await client.HtmlToPdf(html);
+// Old: var response = await http.PostAsync("https://api.pdfbolt.com/v1/direct", content);
 // New: var pdf = renderer.RenderHtmlAsPdf(html);
 ```
 
 ### "Rate limit code throws compile errors"
 
-Remove all PDFBolt-specific exception handling:
+Remove all PDFBolt-specific HTTP status handling:
 
 ```csharp
-// Delete: catch (PDFBoltException ex) when (ex.Code == "RATE_LIMIT")
-// IronPDF has no rate limits
+// Delete: 429 / TooManyRequests retry blocks for api.pdfbolt.com
+// IronPDF has no per-document quotas
 ```
 
 ---
@@ -889,24 +939,24 @@ Remove all PDFBolt-specific exception handling:
 
 - [ ] **Inventory all PDFBolt usages in codebase**
   ```bash
-  grep -r "using PDFBolt" --include="*.cs" .
+  grep -rE "api\.pdfbolt\.com|API-KEY" --include="*.cs" .
   ```
-  **Why:** Identify all usages to ensure complete migration coverage.
+  **Why:** Identify every call site of the REST API so nothing is missed.
 
 - [ ] **Document current configurations**
-  **Why:** These settings map to IronPDF's RenderingOptions. Document them now to ensure consistent output after migration.
+  **Why:** Each JSON field (`format`, `margin`, `printBackground`, `headerTemplate`, etc.) maps to a `RenderingOptions` property; capture them before deleting the wrapper.
 
 - [ ] **Obtain IronPDF license key**
   **Why:** IronPDF requires a license key for production use. Free trial available at https://ironpdf.com/
 
 ### Code Changes
 
-- [ ] **Remove old package and install IronPdf**
+- [ ] **Delete the HttpClient wrapper and install IronPdf**
   ```bash
-  dotnet remove package PDFBolt
+  # Delete your hand-rolled PDFBolt HttpClient wrapper / DTOs
   dotnet add package IronPdf
   ```
-  **Why:** Clean package switch to IronPDF.
+  **Why:** PDFBolt has no NuGet SDK, so there is no package to remove — only your wrapper code. Then install IronPDF.
 
 - [ ] **Add license key initialization**
   ```csharp
