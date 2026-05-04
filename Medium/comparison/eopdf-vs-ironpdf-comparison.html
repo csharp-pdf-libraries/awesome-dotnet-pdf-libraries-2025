@@ -69,7 +69,7 @@ namespace HtmlToPdfDemo
 }
 </code></pre>
 
-<p>Common troubleshooting scenarios with EO.Pdf include: the "Could not load file or assembly 'System.Drawing.Common'" error on .NET Core (requires explicit package installation), encoding errors with non-ASCII characters (requires registering System.Text.Encoding.CodePages), eowp.exe process accumulation under high throughput, local file access errors when HTML references relative paths without setting BaseUrl, Azure "BadImageFormatException" from 64-bit vs 32-bit package mismatch, and thread safety issues requiring locking or separate instances per thread.</p>
+<p>Common configuration steps with EO.Pdf on .NET Core / .NET 5+ include installing <code>System.Drawing.Common</code> explicitly, registering <code>System.Text.Encoding.CodePages</code> for non-ASCII text, setting <code>BaseUrl</code> when HTML references relative paths, matching the 64-bit vs 32-bit package to your hosting runtime to avoid <code>BadImageFormatException</code>, and coordinating access to the static <code>HtmlToPdf.Options</code> across threads. Long-running services on Windows may also need to monitor the out-of-process renderer (<code>eowp.exe</code>) — verify against current vendor docs for your version.</p>
 
 <h3>IronPDF — HTML String to PDF</h3>
 
@@ -136,7 +136,7 @@ namespace HtmlFileToPdfDemo
 }
 </code></pre>
 
-<p>With EO.Pdf, you must manually read the file contents and pass a BaseUrl for relative path resolution. Common issues include images not appearing without correct BaseUrl, CSS stylesheets failing due to CORS or file access permissions, custom fonts not rendering if font file paths are inaccessible, JavaScript execution hangs from network resources that don't load in headless environments, and memory spikes from large images or complex layouts.</p>
+<p>With EO.Pdf, you read the file contents manually and pass a <code>BaseUrl</code> in <code>HtmlToPdfOptions</code> for relative path resolution. As with any HTML-to-PDF engine, image and stylesheet resolution depends on a correct base URL, custom fonts require accessible font files, and remote network resources can affect render timing — set timeouts and audit external dependencies for headless environments.</p>
 
 <h3>IronPDF — HTML File with External Assets</h3>
 
@@ -211,7 +211,7 @@ namespace JavaScriptPdfDemo
 }
 </code></pre>
 
-<p>EO.Pdf relies on a fixed delay (AfterRenderDelay) to wait for JavaScript execution. This is guesswork — too short and charts render blank, too long and you waste time. Additional issues include HTTPS resources failing if the rendering process doesn't trust certain certificates, no exposure of JavaScript console output for debugging, inconsistent behavior with window.onload or DOMContentLoaded, and memory leaks from long-running JavaScript with polling or unterminated timers.</p>
+<p>EO.Pdf's documented JavaScript wait mechanism is <code>HtmlToPdfOptions.AfterRenderDelay</code>, a fixed millisecond delay. Tuning it is empirical — too short and charts may render blank, too long and you pay throughput. Other timing concerns common to delay-based renderers include HTTPS certificate trust for external scripts, lack of a built-in JavaScript console hook, and long-running timers that keep the page "busy" past the delay window — verify the current vendor docs for what is exposed in your version.</p>
 
 <h3>IronPDF — JavaScript-Heavy HTML</h3>
 
@@ -274,20 +274,8 @@ namespace PdfMergeDemo
                 PdfDocument doc2 = new PdfDocument("document2.pdf");
                 PdfDocument doc3 = new PdfDocument("document3.pdf");
 
-                PdfDocument mergedDoc = new PdfDocument();
-
-                foreach (PdfPage page in doc1.Pages)
-                {
-                    mergedDoc.Pages.Add(page.Clone());
-                }
-                foreach (PdfPage page in doc2.Pages)
-                {
-                    mergedDoc.Pages.Add(page.Clone());
-                }
-                foreach (PdfPage page in doc3.Pages)
-                {
-                    mergedDoc.Pages.Add(page.Clone());
-                }
+                // EO.Pdf exposes merging as a static method that returns a combined document.
+                PdfDocument mergedDoc = PdfDocument.Merge(doc1, doc2, doc3);
 
                 mergedDoc.Save("merged.pdf");
 
@@ -307,7 +295,7 @@ namespace PdfMergeDemo
 }
 </code></pre>
 
-<p>EO.Pdf merge operations can hit memory exhaustion with large PDFs, bookmark conflicts when source documents contain bookmarks, form field name collisions in interactive PDFs, and font embedding problems if source documents have missing fonts. Manual disposal is critical to prevent resource leaks.</p>
+<p>Merge operations on any library can encounter memory pressure with large source PDFs, bookmark or form-field name collisions across source documents, and font-embedding gaps if source documents reference missing fonts — verify behavior against your version. Manual disposal of each <code>PdfDocument</code> matters here because the type is <code>IDisposable</code>.</p>
 
 <h3>IronPDF — PDF Merging</h3>
 
@@ -328,7 +316,7 @@ merged.SaveAs("merged.pdf");
 <h2>How do the features compare across all categories?</h2>
 
 <ul>
-<li><strong>Platform reach.</strong> EO.Pdf supports .NET Framework 4.6.2+, .NET 8, .NET 9, and .NET 10 — Windows only, including Docker containers (Windows base images). IronPDF supports the same .NET versions and runs on Windows, Linux, and macOS, including Linux Docker images.</li>
+<li><strong>Platform reach.</strong> EO.Pdf targets .NET Framework and .NET Core 3.1 / .NET 5+ — Windows only per Essential Objects' documentation, including Docker containers on Windows base images. IronPDF supports modern .NET on Windows, Linux, and macOS, including Linux Docker images.</li>
 <li><strong>Rendering engine.</strong> Both libraries embed Chromium and support modern HTML5, CSS3, web fonts, SVG, canvas, responsive media queries, and <code>@media print</code>. JavaScript execution is available in both — see the wait-control discussion above for the timing difference.</li>
 <li><strong>PDF operations.</strong> Merge, split, extract pages, rotate, extract text, extract images, fill and flatten forms, set headers/footers, and add page numbers are available in both. IronPDF's headers, footers, and page numbers are HTML-driven; EO.Pdf provides them via its own options API.</li>
 <li><strong>Security.</strong> Both offer password encryption, user permissions, digital signatures, and metadata removal. IronPDF documents 128/256-bit AES encryption and granular permissions; EO.Pdf's certificate-validation and redaction surface should be verified against current vendor docs for your version.</li>
@@ -399,7 +387,7 @@ renderer.RenderingOptions.WaitFor.RenderDelay(500); // milliseconds
 
 <h3>How do I handle eowp.exe process accumulation in production?</h3>
 
-<p>EO.Pdf's Chromium engine runs as a separate process (eowp.exe). In high-throughput scenarios, these processes can accumulate if exceptions interrupt normal disposal flows. Monitor process count and implement application-level recycling if process handles leak. Implement locking or use separate instances per thread to avoid "Object is currently in use elsewhere" exceptions. IronPDF runs the rendering engine in-process rather than as a separate executable, simplifying resource management and automatic cleanup.</p>
+<p>EO.Pdf's Chromium engine runs out-of-process as <code>eowp.exe</code>. In high-throughput scenarios, child processes may accumulate if exceptions interrupt normal disposal — verify against current vendor docs. Monitor process counts and consider application-level recycling if you observe leaked handles, and coordinate access to the static options surface (locking, or separate instances per thread) to avoid "Object is currently in use elsewhere" exceptions. IronPDF runs its rendering engine differently and exposes instance-based options on each <code>ChromePdfRenderer</code>.</p>
 
 <h3>Can I deploy EO.Pdf to Linux Docker containers or macOS?</h3>
 

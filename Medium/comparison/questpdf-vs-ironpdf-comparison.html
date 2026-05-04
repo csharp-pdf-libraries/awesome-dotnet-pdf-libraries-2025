@@ -1,6 +1,6 @@
-<h1>QuestPDF vs IronPDF: The .NET Developer's Decision Guide for 2025</h1>
+<h1>QuestPDF vs IronPDF: The .NET Developer's Decision Guide</h1>
 
-<p>Imagine a logistics company that generates 50,000 shipping labels daily. Their legacy system uses Crystal Reports, but the licensing costs are climbing and the deployment friction is real. The team evaluates two paths: QuestPDF's code-first layout API and IronPDF's HTML-to-PDF Chrome rendering. Both work, both are actively maintained — but they solve fundamentally different problems. QuestPDF asks you to program document layout in C# with a fluent API; IronPDF renders your existing HTML/CSS/JS exactly as Chrome would. Choose wrong, and you will spend months rewriting either C# layout code or migrating away from HTML templates you already have.</p>
+<p>"Do we program our layout in C#, or render the HTML we already have?" That single question separates QuestPDF from IronPDF more cleanly than any feature matrix. Both libraries are actively maintained, both produce PDFs, and both target the same .NET runtimes — but they solve fundamentally different problems. QuestPDF asks you to express document layout through a fluent C# API; IronPDF embeds a Chromium engine and renders your existing HTML, CSS, and JavaScript the way the browser would. Pick the one whose mental model matches the assets your team already has, and migration cost stays low; pick the other, and you will spend weeks rewriting either C# layout code or HTML templates.</p>
 
 <p>This comparison exists because teams often confuse "PDF generation" with "HTML-to-PDF rendering." If you are building invoice templates from scratch and love strongly-typed layout DSLs, QuestPDF might be your tool. If you are converting web reports, dashboards, or any HTML you already have into PDFs, <a href="https://ironpdf.com">IronPDF</a>'s Chrome engine will save you from reinventing CSS layout rules in C#. This guide covers the architectural differences, real code for typical operations, and the tradeoffs that determine which tool fits your workflow.</p>
 
@@ -12,7 +12,7 @@
 
 <h2>What Are the Key Limitations of QuestPDF?</h2>
 
-<p>QuestPDF is actively maintained with regular releases. It is open-source under a dual-license model: free for individuals, nonprofits, and companies under $1M annual revenue; a commercial license is required above that threshold. The project has strong community adoption on GitHub, with PDF/A and PDF/UA conformance support among recent additions — verify against the version you adopt.</p>
+<p>QuestPDF is actively maintained with regular releases. It is open-source under a tiered license model: the Community License (MIT terms) is free for individuals, nonprofits, and companies under $1M USD annual gross revenue, with paid Professional and Enterprise tiers above that threshold. The project has strong community adoption on GitHub, with PDF/A and PDF/UA conformance support among recent additions — verify against the version you adopt.</p>
 
 <p><strong>No HTML rendering engine:</strong> QuestPDF does not parse or render HTML/CSS. You cannot pass an HTML string, file, or URL and get a PDF. All document structure must be expressed using QuestPDF's fluent API in C#. If you have existing HTML reports, dashboards, or templates, you will need to rewrite them entirely in QuestPDF's DSL. This is a deliberate design choice, not a defect — but it is the single biggest factor in whether QuestPDF fits your workflow.</p>
 
@@ -295,9 +295,9 @@ pdf.SaveAs("ironpdf-watermark.pdf");
 
 <h2>How Does Merging Multiple PDFs Compare?</h2>
 
-<h3>QuestPDF — Generate Combined Document</h3>
+<h3>QuestPDF — Generate Combined Document or Use Document Operations API</h3>
 
-<p>QuestPDF does not have a built-in method to merge existing PDF files. Instead, you generate a single document programmatically that combines content:</p>
+<p>For sources that originate inside your QuestPDF code, you generate a single document programmatically that concatenates the content. For combining pre-existing PDF files, the Document Operations API (added in 2024.12.0) supports merge, page extraction, overlay/underlay, and attachments. Here is the in-code composition pattern:</p>
 
 <pre><code>using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -357,7 +357,18 @@ Document.Create(container =&gt;
 .GeneratePdf("questpdf-combined.pdf");
 </code></pre>
 
-<p>Technical limitations: QuestPDF cannot load and merge existing PDF files from disk or streams, all content must be generated in a single document creation call, per-document metadata from original sources is lost, and dynamic assembly of PDFs from separate files is not supported. For workflows requiring merging of existing PDFs (combining invoices, appending legal documents, batch processing), this limitation is significant.</p>
+<p>For loading and combining pre-existing PDF files, QuestPDF 2024.12.0+ exposes a separate Document Operations API:</p>
+
+<pre><code>// QuestPDF Document Operations API (2024.12.0+)
+DocumentOperation
+    .LoadFile("section1.pdf")
+    .TakePages("1-z")
+    .MergeFile("section2.pdf", "1-z")
+    .MergeFile("section3.pdf", "1-z")
+    .Save("combined-report.pdf");
+</code></pre>
+
+<p>The Document Operations API covers merge, page extraction, overlay/underlay, attachments, encryption, and linearization. It does not edit existing page content, fill imported form fields, perform OCR, or apply digital signatures — for those workflows you would still reach for another tool.</p>
 
 <h3>IronPDF — Merge Existing PDFs</h3>
 
@@ -388,19 +399,17 @@ merged.Dispose();
 
 <h2>How Does Applying Security Settings Compare?</h2>
 
-<h3>QuestPDF — No Built-in PDF Security</h3>
+<h3>QuestPDF — Encryption via Document Operations API</h3>
 
-<p>QuestPDF focuses on PDF generation and layout. It does not provide APIs for applying passwords, encryption, or permission restrictions to generated PDFs. To secure a QuestPDF-generated PDF, you must use an external library:</p>
+<p>QuestPDF 2024.12.0+ supports password protection, 40/128/256-bit encryption, and permission flags through its Document Operations API. The pattern is to generate the PDF first with the fluent layout API, then run the file through <code>DocumentOperation</code> to apply encryption settings:</p>
 
 <pre><code>using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
-// Note: QuestPDF does not include security features
-// You would need to use iText, PdfSharp, or another library to apply encryption
 
 QuestPDF.Settings.License = LicenseType.Community;
 
-// Generate PDF with QuestPDF
+// Step 1: Generate PDF with QuestPDF's fluent API
 var outputPath = "unprotected-report.pdf";
 Document.Create(container =&gt;
 {
@@ -418,18 +427,20 @@ Document.Create(container =&gt;
 })
 .GeneratePdf(outputPath);
 
-// To apply security, you must use a separate library:
-// Example pseudocode (requires iText, PdfSharp, or similar):
-// var pdf = PdfReader.Open(outputPath);
-// pdf.SecuritySettings.UserPassword = "user123";
-// pdf.SecuritySettings.OwnerPassword = "owner456";
-// pdf.SecuritySettings.PermitPrint = false;
-// pdf.Save("protected-report.pdf");
-
-Console.WriteLine("QuestPDF generated unprotected PDF. Use external library for encryption.");
+// Step 2: Apply encryption via Document Operations API (2024.12.0+)
+DocumentOperation
+    .LoadFile(outputPath)
+    .Encrypt(new Encryption256Bit
+    {
+        UserPassword = "user123",
+        OwnerPassword = "owner456",
+        AllowPrinting = false,
+        AllowContentExtraction = false
+    })
+    .Save("protected-report.pdf");
 </code></pre>
 
-<p>Technical limitations: no built-in password protection, encryption, or permission APIs; must integrate iText, PdfSharp, or another PDF library for security; external security libraries may have separate licensing requirements; two-step workflow required (generate then encrypt); cannot restrict printing, copying, editing, or form filling from QuestPDF alone.</p>
+<p>QuestPDF's Document Operations API covers user/owner passwords, 40/128/256-bit encryption, and permission flags (printing, content extraction, editing). It does not currently apply digital signatures or certificate-based signing — for PAdES or X.509 signing workflows you would still need a separate library.</p>
 
 <h3>IronPDF — Built-in Security Settings</h3>
 
@@ -475,9 +486,9 @@ pdf.SaveAs("secured-report.pdf");
 <li><strong>Existing HTML/Razor/ASPX reuse.</strong> QuestPDF — must rewrite in C#. IronPDF — render existing markup directly.</li>
 </ul>
 
-<p><strong>PDF operations.</strong> QuestPDF is purpose-built for generating new documents — it does not load, merge, or split existing PDFs. IronPDF supports merging, splitting, page extraction, watermarking via a dedicated <code>ApplyWatermark</code> API, digital signatures with X.509 certificates, form filling, text and image extraction, and redaction. QuestPDF supports form creation as part of its layout API but not filling existing forms.</p>
+<p><strong>PDF operations.</strong> QuestPDF's primary surface is generating new documents through the fluent layout API. Since 2024.12.0 a separate Document Operations API also covers merging, page extraction, overlay/underlay, attachments, and linearization on existing files. It does not edit existing page content, fill imported form fields, perform OCR, or apply digital signatures. IronPDF covers merging, splitting, page extraction, watermarking via a dedicated <code>ApplyWatermark</code> API, digital signatures with X.509 certificates, form filling, text and image extraction, and redaction in the same API.</p>
 
-<p><strong>Security and encryption.</strong> QuestPDF does not include password protection, encryption, or permission APIs — securing the output requires a separate library. IronPDF provides user/owner passwords, AES encryption (128-bit and 256-bit), granular permissions (print, copy, edit, annotations), and metadata controls in the same API.</p>
+<p><strong>Security and encryption.</strong> QuestPDF's Document Operations API (2024.12.0+) supports user/owner passwords, 40/128/256-bit encryption, and permission flags applied as a post-generation step. Digital signatures are not yet supported. IronPDF provides user/owner passwords, AES encryption (128-bit and 256-bit), granular permissions (print, copy, edit, annotations), digital signing with X.509 certificates, and metadata controls in the same API.</p>
 
 <p><strong>Native dependencies.</strong> QuestPDF uses SkiaSharp, which ships native binaries per platform. IronPDF bundles a Chromium runtime. Both have container and Linux deployment paths — verify the current base-image and runtime requirements for your target platform.</p>
 
@@ -493,11 +504,11 @@ pdf.SaveAs("secured-report.pdf");
 
 <h3>Does QuestPDF support PDF security features like passwords and encryption?</h3>
 
-<p>QuestPDF does not provide built-in APIs for password protection, encryption, or permission restrictions. You would need to integrate an external library like iText or PdfSharp to apply security to QuestPDF-generated PDFs. IronPDF includes comprehensive security settings directly in the API, supporting user/owner passwords, 128-bit and 256-bit AES encryption, and granular permission controls.</p>
+<p>Yes, since 2024.12.0. QuestPDF's Document Operations API supports user/owner passwords, 40/128/256-bit encryption, and permission flags (printing, content extraction, editing) applied as a post-generation step on the output file. Digital signatures and certificate-based signing are not currently supported. IronPDF includes the security settings directly in the same API as generation and adds X.509 digital signing alongside encryption and permissions.</p>
 
 <h3>Can QuestPDF merge existing PDF files from disk?</h3>
 
-<p>QuestPDF cannot load and merge existing PDF files. It generates documents programmatically in a single creation call. If you need to combine pre-existing PDFs from multiple sources, you would need an additional library. IronPDF provides a <code>PdfDocument.Merge()</code> method that loads and combines existing PDFs while preserving all content, formatting, and metadata.</p>
+<p>Yes, via the Document Operations API introduced in 2024.12.0. <code>DocumentOperation.LoadFile().MergeFile()</code> loads and combines pre-existing PDFs, and the same API covers page extraction, overlay/underlay, attachments, and linearization. Content editing of imported pages, form filling, and digital signatures are still out of scope. IronPDF's <code>PdfDocument.Merge()</code> covers the same merging case and adds the editing operations QuestPDF does not.</p>
 
 <h3>Which tool has a lower learning curve for web developers?</h3>
 
@@ -505,9 +516,9 @@ pdf.SaveAs("secured-report.pdf");
 
 <h2>Which Tool Should You Choose?</h2>
 
-<p>QuestPDF is a strong fit when you are building document layouts from scratch in strongly-typed C# code. If your team prefers fluent APIs, does not have existing HTML templates, and wants compile-time safety for document structure, it is a solid choice. It is actively maintained, has wide community adoption, and handles programmatic layout cleanly. Just confirm that its dual-license model (free under the $1M revenue threshold, commercial license above) fits your organization.</p>
+<p>QuestPDF is a strong fit when you are building document layouts from scratch in strongly-typed C# code. If your team prefers fluent APIs, does not have existing HTML templates, and wants compile-time safety for document structure, it is a solid choice. It is actively maintained, has wide community adoption, and handles programmatic layout cleanly. Just confirm that its tiered license model (free Community License under the $1M revenue threshold, paid Professional and Enterprise tiers above) fits your organization.</p>
 
-<p>If your organization already has HTML reports, web-based dashboards, or any content expressed in HTML/CSS, migrating those to QuestPDF means rewriting them in C#. IronPDF's Chromium rendering engine lets you reuse existing templates, apply standard web design skills, and iterate in browser DevTools before generating PDFs. For workflows that also need merging, splitting, security settings, or form filling, IronPDF includes those APIs in the same package — capabilities QuestPDF does not aim to provide.</p>
+<p>If your organization already has HTML reports, web-based dashboards, or any content expressed in HTML/CSS, migrating those to QuestPDF means rewriting them in C#. IronPDF's Chromium rendering engine lets you reuse existing templates, apply standard web design skills, and iterate in browser DevTools before generating PDFs. QuestPDF's Document Operations API (2024.12.0+) covers merging, page extraction, and encryption on existing files; IronPDF additionally covers digital signing, form filling, OCR, and content editing in the same package.</p>
 
 <p>IronPDF's Chromium-based rendering aims for browser-faithful output for any HTML that renders correctly in Chrome. It supports modern CSS (Grid, Flexbox), web fonts, JavaScript-driven content, and responsive designs without requiring C# layout code, and bundles PDF manipulation features (merge/split, watermarking, digital signatures, password protection, form filling, and text extraction) in a single NuGet package with commercial support tiers available.</p>
 

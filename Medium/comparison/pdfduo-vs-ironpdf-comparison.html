@@ -1,16 +1,14 @@
 <h1>PDF Duo .Net vs IronPDF in C#: Why It's Time to Leave a Decade-Old Library Behind</h1>
 
-<p>The .NET PDF landscape has shifted dramatically. A library whose last public release activity appears to be from over a decade ago cannot handle what modern C# applications require of an HTML-to-PDF engine.</p>
+<p>The .NET PDF landscape has shifted dramatically. A library whose last public release shipped in December 2010 cannot handle what modern C# applications require of an HTML-to-PDF engine.</p>
 
-<p>Teams I have worked with describe a recurring pattern: a reporting system built around PDF Duo .Net years ago, deployed to an older .NET Framework, and left alone because "if it works, don't fix it." It churns out documents quietly for years.</p>
+<p>Consider the architectural arithmetic. PDF Duo .Net's last public release was version 2.4 in December 2010 — roughly fifteen years ago. CSS Grid did not exist. Flexbox was a draft. WOFF2 had not been specified. ES6 was four years away. An HTML-to-PDF engine frozen at that snapshot of the web platform cannot pick up the standards that landed afterward.</p>
 
-<p>Then compliance or product requirements shift. Reports need QR codes for document verification. CSS tables need better responsive sizing. Font embedding for international character sets becomes mandatory. The team opens the PDF generation module and realizes they are staring at archaeology — an engine whose feature set predates the modern web platform.</p>
-
-<p>The architectural gap, not subjective "feels old" complaints, is what makes the conversation concrete. Here is what that gap looks like.</p>
+<p>That gap is not a "feels old" complaint; it shows up in concrete ways the moment a template needs a modern layout primitive, a web font, or a feature like watermarking the original library never exposed at all. Here is what that gap looks like, dimension by dimension.</p>
 
 <h2>What is PDF Duo .Net and what is it designed for?</h2>
 
-<p>PDF Duo .Net is a lightweight HTML-to-PDF conversion library for .NET Framework, distributed as the <code>PDFDuo.NET</code> NuGet package with a <code>PDFDuo</code> namespace. Public release activity appears to have stopped over a decade ago, with no visible repository, no current vendor channels, and no record of recent security patches or .NET Core/.NET 5+ compatibility work.</p>
+<p>PDF Duo .Net is a lightweight HTML-to-PDF conversion library from DuoDimension, distributed as a direct DLL download (<code>PDFDuo.dll</code>) under the <code>DuoDimension</code> namespace. There is no NuGet package; installation is "download the zip from the vendor site and add a reference to the DLL." The last public release, version 2.4, shipped in December 2010, with no visible repository, no current vendor channel, and no record of recent security patches or .NET Core / .NET 5+ compatibility work.</p>
 
 <p>In its time, PDF Duo addressed a specific problem: converting basic HTML with table-based layouts and system fonts into PDF documents. It targeted older .NET Framework versions and a CSS feature set that predates modern layout primitives.</p>
 
@@ -23,7 +21,7 @@
 <p>The gap shows up across every dimension that matters for production PDF generation.</p>
 
 <ul>
-<li><strong>.NET runtime target.</strong> PDF Duo was built against legacy .NET Framework versions; IronPDF runs on .NET Framework alongside .NET 6 through .NET 10+, so a framework migration does not have to wait on the PDF layer.</li>
+<li><strong>.NET runtime target.</strong> PDF Duo's documented runtimes are .NET Framework 1.1, 2.0, 3.0, and 3.5 on Windows; IronPDF runs on .NET Framework 4.6.2+ alongside .NET 6 through .NET 10+, so a framework migration does not have to wait on the PDF layer.</li>
 <li><strong>HTML parsing.</strong> PDF Duo uses a custom in-process HTML/CSS parser; IronPDF delegates rendering to Chromium, which means CSS3 layout primitives render the same way they do in Chrome.</li>
 <li><strong>Font support.</strong> PDF Duo handles basic font embedding; IronPDF supports WOFF2 and variable fonts via the browser engine, which avoids character-rendering surprises with international scripts.</li>
 <li><strong>Error diagnostics.</strong> PDF Duo surfaces exception messages only; IronPDF exposes detailed logs and standard .NET debugging surfaces.</li>
@@ -40,8 +38,9 @@
 
 <h3>PDF Duo — Basic HTML to PDF</h3>
 
-<pre><code>// NuGet: Install-Package PDFDuo.NET
-using PDFDuo;
+<pre><code>// PDF Duo .NET is not on NuGet — add a project reference to PDFDuo.dll
+// (download from duodimension.com). Targets .NET Framework 1.1-3.5.
+using DuoDimension;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -81,9 +80,14 @@ namespace PdfDuoPerformance
 
                 try
                 {
-                    // PDFDuo writes the PDF to a path directly; no in-memory PDF object is returned.
-                    var converter = new HtmlToPdfConverter();
-                    converter.ConvertHtmlString(html, $&quot;output_{i}.pdf&quot;);
+                    // OpenHTML accepts a file path or URL — there is no documented
+                    // &quot;render this string&quot; call, so persist the markup to disk first.
+                    var htmlPath = $&quot;invoice_{i}.html&quot;;
+                    File.WriteAllText(htmlPath, html);
+
+                    var conv = new HtmlToPdf();
+                    conv.OpenHTML(htmlPath);
+                    conv.SavePDF($&quot;output_{i}.pdf&quot;);
 
                     stopwatch.Stop();
                     totalMilliseconds += stopwatch.ElapsedMilliseconds;
@@ -105,9 +109,10 @@ namespace PdfDuoPerformance
 
 <ul>
 <li>A custom HTML/CSS parser typically carries different overhead characteristics than a tuned browser engine — verify against your own workload.</li>
-<li>The exposed API is synchronous and writes directly to a file path.</li>
+<li>The exposed API is synchronous: <code>OpenHTML</code> reads the source, <code>SavePDF</code> writes the output to a file path, with no in-memory PDF object returned.</li>
+<li>HTML strings have to be written to disk first because <code>OpenHTML</code> does not document a "render this string" overload.</li>
 <li>CSS3 layout primitives such as Grid and Flexbox are not part of the supported feature set documented for this engine.</li>
-<li>Memory is allocated per call; there is no documented pooling primitive for batch scenarios.</li>
+<li>A new <code>HtmlToPdf</code> instance is constructed per call in the documented pattern; there is no documented pooling primitive for batch scenarios.</li>
 </ul>
 
 <h3>IronPDF — Modern HTML Conversion Benchmark</h3>
@@ -178,10 +183,12 @@ class BenchmarkProgram
 
 <h3>PDF Duo — Memory Profile (Single-Threaded Sequential)</h3>
 
-<pre><code>// NuGet: Install-Package PDFDuo.NET
-using PDFDuo;
+<pre><code>// PDF Duo .NET is not on NuGet — add a project reference to PDFDuo.dll
+// (download from duodimension.com). Targets .NET Framework 1.1-3.5.
+using DuoDimension;
 using System;
 using System.Diagnostics;
+using System.IO;
 
 class MemoryTest
 {
@@ -197,8 +204,13 @@ class MemoryTest
         {
             string html = GenerateInvoiceHtml(i);
 
-            var converter = new HtmlToPdfConverter();
-            converter.ConvertHtmlString(html, $&quot;invoice_{i}.pdf&quot;);
+            // OpenHTML reads from a path; persist the string before converting.
+            var htmlPath = $&quot;invoice_{i}.html&quot;;
+            File.WriteAllText(htmlPath, html);
+
+            var conv = new HtmlToPdf();
+            conv.OpenHTML(htmlPath);
+            conv.SavePDF($&quot;invoice_{i}.pdf&quot;);
 
             if (i % 100 == 0)
             {
@@ -231,7 +243,7 @@ class MemoryTest
 <p><strong>What the architecture implies for memory pressure:</strong></p>
 
 <ul>
-<li>A new <code>HtmlToPdfConverter</code> is constructed per call in the documented pattern, with no documented pooling primitive.</li>
+<li>A new <code>HtmlToPdf</code> is constructed per call in the documented pattern, with no documented pooling primitive.</li>
 <li>The API is synchronous, so concurrent batch processing has to be added at the caller level rather than handed to the library.</li>
 <li>Long-running services should profile retention against their own workload — an unmaintained engine has not had memory regressions filed and patched.</li>
 </ul>
@@ -328,7 +340,7 @@ foreach (var (feature, html) in testCases)
 
 <h2>What are the maintenance and security concerns?</h2>
 
-<p>PDF Duo's public release activity appears to have stopped over a decade ago. That shapes the risk surface in predictable ways:</p>
+<p>PDF Duo's last public release (version 2.4) shipped in December 2010. That shapes the risk surface in predictable ways:</p>
 
 <ol>
 <li>Unicode handling for modern character sets (emoji, extended scripts) may not match current expectations — verify against your input data.</li>
@@ -346,15 +358,15 @@ foreach (var (feature, html) in testCases)
 <p>The scope difference is the headline. PDF Duo focuses on HTML-to-PDF conversion plus basic merging. IronPDF covers the full document lifecycle. Grouped by category:</p>
 
 <ul>
-<li><strong>Maintenance status.</strong> PDF Duo has no recent public release activity and no current vendor channel. IronPDF ships on a regular cadence with security and feature updates.</li>
+<li><strong>Maintenance status.</strong> PDF Duo's last public release (v2.4) shipped in December 2010 and there is no current vendor release channel. IronPDF ships on a regular cadence with security and feature updates.</li>
 <li><strong>Documentation and support.</strong> PDF Duo's documentation is sparse and dates from its release era. IronPDF maintains current API reference, how-tos, and a paid support channel.</li>
 <li><strong>HTML-to-PDF engine.</strong> PDF Duo uses a custom HTML/CSS parser scoped to the standards of its release era. IronPDF uses Chromium, which tracks current HTML5/CSS3/ES2020+ behavior.</li>
-<li><strong>URL to PDF.</strong> Both engines accept a URL input — PDF Duo via <code>ConvertUrl(url, path)</code>, IronPDF via <code>RenderUrlAsPdf(url)</code> with async support.</li>
+<li><strong>URL to PDF.</strong> Both engines accept a URL input — PDF Duo via <code>HtmlToPdf.OpenHTML(url)</code> followed by <code>SavePDF(path)</code>, IronPDF via <code>RenderUrlAsPdf(url)</code> with async support.</li>
 <li><strong>Modern fonts.</strong> PDF Duo does not document WOFF2 support. IronPDF inherits Chromium's font handling, including WOFF2 and variable fonts.</li>
 <li><strong>Headers and footers.</strong> Not documented in PDF Duo's published API. IronPDF exposes <code>RenderingOptions.HtmlHeader</code> and <code>HtmlFooter</code> with placeholders such as <code>{page}</code> and <code>{total-pages}</code>.</li>
 <li><strong>Watermarks.</strong> Not part of PDF Duo's documented surface. IronPDF provides <code>PdfDocument.ApplyWatermark(html, ...)</code>.</li>
-<li><strong>PDF manipulation.</strong> PDF Duo's published surface covers HTML conversion plus <code>PdfMerger</code>. IronPDF additionally handles split, text extraction, form filling, digital signatures, and encryption.</li>
-<li><strong>.NET runtime.</strong> PDF Duo targets older .NET Framework versions; .NET Core / .NET 5+ compatibility is not advertised. IronPDF supports .NET Framework alongside .NET 6 through .NET 10+.</li>
+<li><strong>PDF manipulation.</strong> PDF Duo's published surface is HTML conversion only — the vendor docs do not document a native merge, split, watermark, security, signing, form-filling, or text-extraction API. Teams that needed merge in the 2010 era typically paired PDF Duo with a separate library such as iTextSharp 4.x. IronPDF consolidates all of those operations into one library.</li>
+<li><strong>.NET runtime.</strong> PDF Duo's documented runtimes are .NET Framework 1.1 / 2.0 / 3.0 / 3.5 on Windows; .NET Framework 4.x, .NET Core, and .NET 5+ compatibility is not advertised. IronPDF supports .NET Framework 4.6.2+ alongside .NET 6 through .NET 10+.</li>
 <li><strong>Async and threading.</strong> PDF Duo's published API is synchronous. IronPDF exposes <code>Async</code> variants and is documented for thread-safe parallel use.</li>
 <li><strong>Cross-platform and containers.</strong> PDF Duo's published target is Windows-era .NET Framework. IronPDF runs on Windows, Linux, and macOS, with documented Docker guidance.</li>
 </ul>
@@ -364,12 +376,14 @@ foreach (var (feature, html) in testCases)
 <p>If you are migrating from PDF Duo to IronPDF, most of the work is mechanical class and method renames rather than architectural redesign. The mapping:</p>
 
 <ul>
-<li><code>HtmlToPdfConverter</code> &mdash; becomes <code>ChromePdfRenderer</code>.</li>
-<li><code>converter.ConvertHtmlString(html, outputPath)</code> &mdash; becomes <code>renderer.RenderHtmlAsPdf(html).SaveAs(outputPath)</code>. PDF Duo writes directly to a path; IronPDF returns a <code>PdfDocument</code> you can save, post-process, or stream.</li>
-<li><code>converter.ConvertUrl(url, outputPath)</code> &mdash; becomes <code>renderer.RenderUrlAsPdf(url).SaveAs(outputPath)</code>.</li>
-<li><code>PdfMerger</code> + <code>AddFile</code> + <code>Merge</code> &mdash; becomes <code>PdfDocument.FromFile(path)</code> per source plus a single <code>PdfDocument.Merge(pdfs)</code> call, then <code>SaveAs</code> on the result.</li>
-<li><code>PageSize</code>, <code>PageOrientation</code> &mdash; become <code>RenderingOptions.PaperSize</code> and <code>RenderingOptions.PaperOrientation</code>.</li>
-<li>Margins object (e.g. <code>new Margins(t, r, b, l)</code>) &mdash; flatten to <code>RenderingOptions.MarginTop / MarginRight / MarginBottom / MarginLeft</code>.</li>
+<li><code>using DuoDimension;</code> &mdash; becomes <code>using IronPdf;</code>.</li>
+<li><code>new HtmlToPdf()</code> &mdash; becomes <code>new ChromePdfRenderer()</code>.</li>
+<li><code>conv.OpenHTML(filePath); conv.SavePDF(outputPath);</code> &mdash; becomes <code>renderer.RenderHtmlFileAsPdf(filePath).SaveAs(outputPath)</code> for an on-disk HTML file.</li>
+<li><code>conv.OpenHTML(url); conv.SavePDF(outputPath);</code> &mdash; becomes <code>renderer.RenderUrlAsPdf(url).SaveAs(outputPath)</code>.</li>
+<li>Direct HTML-string render &mdash; PDF Duo has no documented overload; teams write the markup to a temp file before calling <code>OpenHTML</code>. IronPDF exposes <code>renderer.RenderHtmlAsPdf(htmlString).SaveAs(outputPath)</code>, which removes the round-trip.</li>
+<li>Merge &mdash; PDF Duo has no native merge API; IronPDF provides <code>PdfDocument.FromFile(path)</code> per source plus <code>PdfDocument.Merge(pdfs)</code>, then <code>SaveAs</code> on the result.</li>
+<li>Page size / orientation &mdash; not exposed on <code>DuoDimension.HtmlToPdf</code>; in IronPDF, set <code>RenderingOptions.PaperSize</code> and <code>RenderingOptions.PaperOrientation</code>.</li>
+<li>Margins &mdash; not exposed on <code>DuoDimension.HtmlToPdf</code>; in IronPDF, set <code>RenderingOptions.MarginTop / MarginRight / MarginBottom / MarginLeft</code> individually.</li>
 <li>Custom font embedding &mdash; not needed in IronPDF; fonts referenced from HTML/CSS are resolved by Chromium.</li>
 <li>JavaScript &mdash; opt in with <code>RenderingOptions.EnableJavaScript = true</code>.</li>
 <li>Async and parallel work &mdash; use <code>RenderHtmlAsPdfAsync</code> / <code>SaveAsAsync</code> and compose with <code>Task.WhenAll</code> or <code>Parallel.ForEachAsync</code>.</li>
@@ -382,14 +396,19 @@ foreach (var (feature, html) in testCases)
 
 <h3>PDF Duo .Net Installation</h3>
 
-<pre><code>dotnet add package PDFDuo.NET</code></pre>
+<p>PDF Duo .Net is not on NuGet. Installation is a manual step: download the zip from duodimension.com, extract <code>PDFDuo.dll</code>, and add it as a project reference in Visual Studio (References &rarr; Add Reference &rarr; Browse).</p>
 
-<pre><code>using PDFDuo;
+<pre><code>using DuoDimension;
+using System.IO;
 
-var converter = new HtmlToPdfConverter();
-converter.ConvertHtmlString(&quot;&lt;h1&gt;Hello&lt;/h1&gt;&quot;, &quot;output.pdf&quot;);</code></pre>
+// OpenHTML reads from a file path or URL, so persist HTML strings to disk first.
+File.WriteAllText(&quot;input.html&quot;, &quot;&lt;h1&gt;Hello&lt;/h1&gt;&quot;);
 
-<p>The package targets older .NET Framework versions; .NET Core / .NET 5+ compatibility is not advertised. No current vendor channel for security or bug-fix updates.</p>
+var conv = new HtmlToPdf();
+conv.OpenHTML(&quot;input.html&quot;);
+conv.SavePDF(&quot;output.pdf&quot;);</code></pre>
+
+<p>The DLL targets .NET Framework 1.1 / 2.0 / 3.0 / 3.5 on Windows; .NET Framework 4.x, .NET Core, and .NET 5+ compatibility is not advertised. No current vendor channel for security or bug-fix updates.</p>
 
 <h3>IronPDF Installation</h3>
 
@@ -461,15 +480,15 @@ pdf.SaveAs(&quot;output.pdf&quot;);</code></pre>
 
 <h3>Is PDF Duo .Net still maintained or supported?</h3>
 
-<p>Public release activity for PDF Duo .Net appears to have stopped over a decade ago. There is no visible repository, no current vendor channel, and no documented stream of security patches. Treat it as an unmaintained dependency for planning purposes.</p>
+<p>The last public release of PDF Duo .Net is version 2.4 from December 2010. There is no visible repository, no current vendor release channel, and no documented stream of security patches. Treat it as an unmaintained dependency for planning purposes.</p>
 
 <h3>Can PDF Duo .Net run on .NET 6 or later?</h3>
 
-<p>PDF Duo's published target is older .NET Framework versions. .NET Core and .NET 5+ compatibility is not advertised, so running it on modern .NET runtimes typically requires compatibility shims and verification on your own workload.</p>
+<p>PDF Duo's documented runtimes are .NET Framework 1.1, 2.0, 3.0, and 3.5 on Windows. .NET Framework 4.x, .NET Core, and .NET 5+ compatibility is not advertised, so running it on modern .NET runtimes typically requires compatibility shims and verification on your own workload.</p>
 
 <h3>How long does it take to migrate from PDF Duo to IronPDF?</h3>
 
-<p>For a typical system with 5-10 PDF templates, the estimated migration effort is 6-10 hours total. This includes installing IronPDF (15 minutes), updating API calls (2-3 hours), testing (1-2 hours), and removing old workarounds (2-4 hours). The API mapping is straightforward — <code>HtmlToPdfConverter</code> becomes <code>ChromePdfRenderer</code>, and <code>ConvertHtmlString</code> becomes <code>RenderHtmlAsPdf</code>.</p>
+<p>For a typical system with 5-10 PDF templates, the estimated migration effort is 6-10 hours total. This includes installing IronPDF (15 minutes), updating API calls (2-3 hours), testing (1-2 hours), and removing old workarounds (2-4 hours). The API mapping is mechanical — <code>DuoDimension.HtmlToPdf</code> becomes <code>ChromePdfRenderer</code>, and the <code>OpenHTML</code> + <code>SavePDF</code> pair becomes <code>RenderHtmlAsPdf</code> (or <code>RenderHtmlFileAsPdf</code> / <code>RenderUrlAsPdf</code>) followed by <code>SaveAs</code>.</p>
 
 <h3>Does IronPDF support CSS Grid and Flexbox?</h3>
 

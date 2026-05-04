@@ -1,16 +1,16 @@
 <h1>Adobe PDF Library SDK vs IronPDF: Solving Common .NET PDF Pain Points</h1>
 
-<p>Teams I have worked with have hit this pattern: they pick Adobe PDF Library SDK for its pedigree (the same technology that powers Adobe Acrobat), then discover six weeks in that their invoicing system needs HTML-to-PDF and the core PDFL SDK they integrated against operates primarily at the PDF specification level—drawing text at coordinates, managing PDF streams, handling font embedding. HTML rendering is available, but only through a separate <em>HTML to PDF Conversion Library</em> add-on that needs to be licensed and integrated alongside the core SDK. The "Acrobat technology" they licensed isn't always pre-configured for the workflow they had in mind.</p>
+<p>One architectural detail tends to surface late: Adobe PDF Library SDK (APDFL, distributed by Datalogics) is a low-level PDF engine. Its conversion surface covers PDF/A, PDF/X, ZUGFeRD, EPS, PS, XPS, and Office formats, but not HTML. Producing a PDF from an HTML string with APDFL alone means hand-building pages, fonts, and content streams — or pairing it with a separate HTML rendering engine. For an invoicing system that started as "render this template," that is a different shape of project than the procurement conversation suggested.</p>
 
-<p>I see variants of this pattern often. Adobe PDF Library SDK is a powerful low-level toolkit for teams that need programmatic control over PDF internals. IronPDF is a higher-level library focused on HTML-to-PDF and common PDF operations in .NET applications. This comparison walks through the troubleshooting scenarios teams encounter when requirements and architectural capabilities don't line up.</p>
+<p>Adobe PDF Library SDK is a powerful low-level toolkit for teams that need programmatic control over PDF internals. IronPDF is a higher-level library focused on HTML-to-PDF and common PDF operations in .NET applications. This comparison walks through the alignment questions teams encounter when requirements and architectural capabilities don't line up.</p>
 
 <h2>What Is Adobe PDF Library SDK?</h2>
 
-<p>Adobe PDF Library SDK is actively maintained by Datalogics (Adobe's longstanding partner for PDFL distribution). Recent releases have shipped under the 21.x line, with updates covering dependency security fixes, PDF-to-Office conversion improvements, and image format support — verify exact version numbers and release dates against the Datalogics release notes for your evaluation. The SDK is based on the same core PDF technology that underlies Adobe's flagship desktop products.</p>
+<p>Adobe PDF Library SDK is actively maintained by Datalogics (Adobe's longstanding partner for PDFL distribution). Releases ship through the <code>Adobe.PDF.Library.LM.NET</code> NuGet package for .NET 6 and later, with a separate <code>Adobe.PDF.Library.LM.NETFramework</code> package for .NET Framework projects. Recent updates cover dependency security fixes, PDF-to-Office conversion improvements, and image format support — verify exact version numbers and release dates against the Datalogics release notes for your evaluation. The SDK is based on the same core PDF technology that underlies Adobe's flagship desktop products.</p>
 
-<p>The architectural detail that matters: APDFL's core is a native (C/C++) library, and Datalogics ships a .NET binding that exposes the API through the <code>Datalogics.PDFL</code> namespace, which is what the migration samples in this repo target. Out of the box the core SDK operates at PDF specification level—manipulating PDF streams, objects, fonts, and graphics primitives. HTML-to-PDF is provided by a separate <em>HTML to PDF Conversion Library</em> add-on (exposed via APIs such as <code>Document.CreateFromHTML</code>); it is not part of the base SDK and is licensed and deployed as an additional component.</p>
+<p>The architectural detail that matters: APDFL's core is a native (C/C++) library, and Datalogics ships a .NET binding that exposes the API through the <code>Datalogics.PDFL</code> namespace. The core SDK operates at PDF specification level — manipulating PDF streams, objects, fonts, and graphics primitives. The vendor's documented conversion surface covers PDF/A, PDF/X, ZUGFeRD, EPS, PS, XPS, and Office formats; HTML-to-PDF is not on that list, so PDFs produced from HTML are typically built by constructing pages and content programmatically or by pairing APDFL with a separate HTML rendering engine. Linux and macOS have been supported since 2020; XFA form support is available through the separately licensed Forms Extension add-on (<code>Adobe.PDF.Library.FormsExtension.LM.NET</code>).</p>
 
-<p>Licensing is generally available through custom agreements for OEMs, ISVs, and enterprise IT on a case-by-case basis — confirm current terms with Datalogics directly.</p>
+<p>Licensing is sales-led: Datalogics does not publish list pricing, but internal-use deployments start around $5,999/year, and OEM, ISV, and SaaS customers negotiate per-platform fees plus per-deployment royalties or revenue-share. Confirm current terms with Datalogics directly.</p>
 
 <h2>What Is IronPDF?</h2>
 
@@ -20,49 +20,55 @@
 
 <h2>How Do You Convert HTML Templates to PDF?</h2>
 
-<p>This is one of the more common alignment questions I see. Teams adopt the base Adobe PDFL SDK expecting full HTML-to-PDF capability, then discover that capability lives in the separately licensed HTML to PDF Conversion Library add-on. Let me show what each approach looks like.</p>
+<p>This is one of the more common alignment questions. APDFL has no built-in HTML rendering engine, so producing a PDF from an HTML string with APDFL alone means constructing pages, fonts, and text runs programmatically. The example below shows the closest equivalent for a "Hello World" page.</p>
 
-<h3>Adobe PDFL — HTML via Add-On Component</h3>
+<h3>Adobe PDFL — Programmatic Page Construction</h3>
 
-<pre><code>// Adobe PDF Library SDK with the HTML to PDF Conversion Library add-on
-// (separate licensable component layered on top of the core SDK)
+<pre><code>// Adobe PDF Library SDK (Datalogics APDFL)
+// NuGet: Install-Package Adobe.PDF.Library.LM.NET
+// Namespace: Datalogics.PDFL
 using Datalogics.PDFL;
 
 class AdobeHtmlToPdf
 {
     static void Main()
     {
+        // Library lifecycle is required: Initialize at startup,
+        // Terminate at shutdown (here via the using-block).
         using (Library lib = new Library())
+        using (Document doc = new Document())
         {
-            // Configure HTML conversion parameters
-            HTMLConversionParameters htmlParams = new HTMLConversionParameters();
-            htmlParams.PaperSize = PaperSize.Letter;
-            htmlParams.Orientation = Orientation.Portrait;
+            // US Letter in points (8.5 x 11 inches @ 72 DPI)
+            Rect pageRect = new Rect(0, 0, 612, 792);
+            using (Page page = doc.CreatePage(Document.BeforeFirstPage, pageRect))
+            {
+                Content content = page.Content;
+                Font font = new Font("Helvetica", FontCreateFlags.Embedded);
 
-            string htmlContent = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello World&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
+                Text text = new Text();
+                text.AddRun(new TextRun("Hello World", font, 24, new Point(72, 720)));
+                content.AddElement(text);
 
-            // Document.CreateFromHTML is provided by the
-            // HTML to PDF Conversion Library add-on
-            Document doc = Document.CreateFromHTML(htmlContent, htmlParams);
+                page.UpdateContent();
+            }
+
             doc.Save(SaveFlags.Full, "output.pdf");
-            doc.Dispose();
         }
     }
 }
 
-// Notes for teams evaluating this path:
-// - Library.Initialize / Terminate lifecycle is required (here via the
-//   using-block on Library lib = new Library()).
-// - HTMLConversionParameters exposes paper size, orientation, and a
-//   number of additional knobs documented in the add-on.
-// - The HTML to PDF Conversion Library is licensed separately from
-//   the base APDFL SDK; check current Datalogics terms.
-// - Modern CSS feature coverage and JavaScript support depend on the
-//   HTML engine shipped with the add-on; verify against your templates
-//   on the version you license.
+// Notes:
+// - APDFL's documented conversion surface covers PDF/A, PDF/X, ZUGFeRD,
+//   EPS, PS, XPS, and Office formats — HTML is not on that list, so
+//   pages and content are built programmatically.
+// - Library lifecycle (Initialize / Terminate) is mandatory; the using
+//   block on Library lib = new Library() handles it here.
+// - Coordinates are PostScript points with a bottom-left origin.
+// - To produce a PDF from rich HTML/CSS templates, teams typically pair
+//   APDFL with a separate HTML rendering engine.
 </code></pre>
 
-<p>Some practical notes: APDFL's HTML-to-PDF path requires the HTML to PDF Conversion Library add-on in addition to the core SDK, so teams should confirm both are in scope when scoping licensing. The core SDK retains its native lifecycle pattern (<code>Library.Initialize()</code>/<code>Terminate()</code>, in this sample wrapped by the <code>using</code> block on <code>Library</code>). For complex modern templates (CSS Grid, custom web fonts, embedded JavaScript), validate behavior against the engine version you license.</p>
+<p>Some practical notes: the core SDK uses the native lifecycle pattern (<code>Library.Initialize()</code>/<code>Terminate()</code>, wrapped here by the <code>using</code> block on <code>Library</code>). Coordinates are PostScript points measured from the bottom-left corner. For HTML-driven templates with modern CSS (Grid, custom web fonts, embedded JavaScript), an additional rendering component is generally needed alongside APDFL.</p>
 
 <h3>IronPDF — HTML Conversion Built-In</h3>
 
@@ -342,12 +348,12 @@ public class IronPdfMemoryManagement
 <h2>How Do the Two Libraries Compare Feature by Feature?</h2>
 
 <ul>
-<li><strong>Maintenance status.</strong> Both products are actively maintained — APDFL by Datalogics on the 21.x line; IronPDF on its current major release. Verify the current version against each vendor before procurement.</li>
+<li><strong>Maintenance status.</strong> Both products are actively maintained — APDFL by Datalogics, distributed via the <code>Adobe.PDF.Library.LM.NET</code> and <code>Adobe.PDF.Library.LM.NETFramework</code> NuGet packages; IronPDF on its current major release. Verify the current version against each vendor before procurement.</li>
 <li><strong>Technology foundation.</strong> APDFL is built on the same core PDF technology that underlies Adobe's desktop products. IronPDF renders HTML using a Chromium-based engine.</li>
 <li><strong>Target audience.</strong> APDFL is positioned at OEMs, ISVs, and enterprise IT teams that need PDF-spec-level control. IronPDF is positioned at .NET application developers.</li>
 <li><strong>Commercial support.</strong> APDFL is supported by Datalogics (typically arranged case-by-case as part of the OEM/ISV agreement). IronPDF is supported by Iron Software with standard commercial channels.</li>
 <li><strong>Documentation altitude.</strong> APDFL's docs lean toward PDF-specification concepts; IronPDF's docs lean toward application-developer task recipes.</li>
-<li><strong>HTML to PDF.</strong> APDFL provides this through its separately licensed HTML to PDF Conversion Library add-on (e.g. <code>Document.CreateFromHTML</code>). IronPDF provides it built-in via <code>ChromePdfRenderer</code>.</li>
+<li><strong>HTML to PDF.</strong> APDFL has no built-in HTML rendering engine; HTML-driven output is typically produced by constructing pages programmatically or by pairing APDFL with a separate HTML engine. IronPDF provides HTML-to-PDF built-in via <code>ChromePdfRenderer</code>.</li>
 <li><strong>Low-level PDF control.</strong> APDFL exposes PDF objects, streams, and graphics primitives directly. IronPDF exposes a higher-level application-task API; some specification-level operations are not surfaced.</li>
 <li><strong>Common PDF operations.</strong> Both libraries cover create, merge, split, text extraction, image extraction, watermarking, digital signatures, and encryption — at different abstraction levels (APDFL programmatically against PDF primitives, IronPDF through application-shaped APIs).</li>
 <li><strong>Form filling.</strong> Both support form filling — APDFL through PDF-specification-level APIs, IronPDF through a higher-level form API.</li>
@@ -355,7 +361,7 @@ public class IronPdfMemoryManagement
 <li><strong>Interop model.</strong> APDFL's core is native (C/C++); .NET teams use the <code>Datalogics.PDFL</code> binding rather than calling C++ directly. IronPDF is a managed .NET library distributed via NuGet.</li>
 <li><strong>Platform packaging.</strong> APDFL ships native binaries that need to be deployed and configured per platform (.dll, .so, .dylib). IronPDF ships as a single cross-platform NuGet package.</li>
 <li><strong>Memory model.</strong> APDFL's resource lifetimes are ultimately backed by native memory — handles managed by the .NET binding and not tracked by the GC. IronPDF uses the standard .NET <code>IDisposable</code> pattern.</li>
-<li><strong>Licensing shape.</strong> APDFL is generally licensed through custom OEM/ISV agreements. IronPDF is sold under standard commercial licensing.</li>
+<li><strong>Licensing shape.</strong> APDFL is sales-led: internal-use deployments start around $5,999/year, with OEM, ISV, and SaaS customers negotiating per-platform fees plus per-deployment royalties or revenue-share. IronPDF is sold under standard commercial licensing.</li>
 <li><strong>Language and .NET targets.</strong> APDFL is consumed from .NET via the Datalogics binding; check the binding's documented .NET target versions against your project. IronPDF supports .NET Framework 4.6.2+ and .NET Core 3.1+ / .NET 5 and later — confirm the precise current support matrix on the IronPDF docs site.</li>
 <li><strong>Installation.</strong> APDFL requires obtaining the SDK from Datalogics and configuring per-platform native dependencies. IronPDF installs via <code>Install-Package IronPdf</code>.</li>
 <li><strong>API style and learning curve.</strong> APDFL is a low-level PDF-primitive API; teams spend more time in the PDF spec. IronPDF is a higher-level API where most of the learning is HTML and CSS.</li>
@@ -419,7 +425,7 @@ using var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Hello&lt;/h1&gt;");
 <li><strong>Programmatic content creation.</strong> APDFL's <code>Page</code> / <code>Content</code> / <code>Text</code> / <code>TextRun</code> / <code>Font</code> primitives map to writing HTML and CSS that IronPDF renders via <code>RenderHtmlAsPdf</code>.</li>
 <li><strong>Layout model.</strong> APDFL's coordinate-based drawing (text and graphics at X/Y) maps to IronPDF's HTML/CSS box model.</li>
 <li><strong>Fonts.</strong> APDFL's manual <code>Font</code> creation and embedding maps to CSS <code>font-family</code> declarations handled by the rendering engine.</li>
-<li><strong>HTML rendering.</strong> APDFL's add-on <code>Document.CreateFromHTML</code> (HTML to PDF Conversion Library) maps to IronPDF's built-in <code>ChromePdfRenderer</code>.</li>
+<li><strong>HTML rendering.</strong> APDFL has no built-in HTML engine; teams either build pages programmatically with <code>Page</code> / <code>Content</code> / <code>Text</code> primitives or pair APDFL with a separate HTML renderer. IronPDF provides this built-in via <code>ChromePdfRenderer</code>.</li>
 <li><strong>Cross-platform packaging.</strong> APDFL's per-platform native libraries map to IronPDF's single cross-platform NuGet package.</li>
 <li><strong>Memory model.</strong> APDFL's native-handle lifetimes map to IronPDF's standard managed <code>IDisposable</code>.</li>
 <li><strong>Error reporting.</strong> APDFL's mix of return codes and exceptions (depending on layer) maps to IronPDF's .NET exceptions.</li>
@@ -432,11 +438,11 @@ using var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Hello&lt;/h1&gt;");
 
 <h3>Can Adobe PDFL convert HTML to PDF?</h3>
 
-<p>Yes — through the separately licensed <em>HTML to PDF Conversion Library</em> add-on, which exposes APIs such as <code>Document.CreateFromHTML</code> (used in this repo's <code>html-to-pdf-adobe-pdf-library-sdk.cs</code> sample). The base APDFL SDK on its own operates at PDF-specification level and does not include an HTML engine. Teams that have only licensed the base SDK need to add the HTML add-on, use a separate Adobe PDF Services product, or render HTML through another component. Validate modern CSS / JavaScript coverage of the HTML add-on against your templates on the version you license.</p>
+<p>Not directly. APDFL's documented conversion list covers PDF/A, PDF/X, ZUGFeRD, EPS, PS, XPS, and Office formats — but not HTML. Producing a PDF from an HTML string with APDFL alone means hand-building pages, fonts, and content runs, or pairing APDFL with a separate HTML rendering engine. Teams whose primary need is HTML-to-PDF typically choose either a Chromium-based renderer (such as IronPDF) or Adobe's separately offered PDF Services product line.</p>
 
 <h3>Does Adobe PDFL provide a .NET binding?</h3>
 
-<p>Yes. Datalogics ships a .NET binding that exposes APDFL through the <code>Datalogics.PDFL</code> namespace — that is the API the migration samples in this repo target. The underlying SDK is still native C/C++, so resource lifetimes and platform-specific binaries still apply, but .NET applications can use the typed <code>Datalogics.PDFL</code> API directly rather than writing hand-rolled P/Invoke.</p>
+<p>Yes. Datalogics ships a .NET binding that exposes APDFL through the <code>Datalogics.PDFL</code> namespace, distributed via the <code>Adobe.PDF.Library.LM.NET</code> NuGet package (and <code>Adobe.PDF.Library.LM.NETFramework</code> for .NET Framework). The underlying SDK is still native C/C++, so resource lifetimes and platform-specific binaries still apply, but .NET applications can use the typed <code>Datalogics.PDFL</code> API directly rather than writing hand-rolled P/Invoke.</p>
 
 <h3>How does IronPDF handle cross-platform deployment?</h3>
 
@@ -444,17 +450,17 @@ using var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Hello&lt;/h1&gt;");
 
 <h3>Is Adobe PDF Library SDK still actively maintained?</h3>
 
-<p>Yes. Adobe PDF Library SDK is actively maintained by Datalogics, with releases on the 21.x line covering dependency security updates and feature improvements. For exact version numbers, release dates, and the supported-versions policy, check the Datalogics release notes and support pages directly.</p>
+<p>Yes. Adobe PDF Library SDK is actively maintained by Datalogics, distributed via the <code>Adobe.PDF.Library.LM.NET</code> and <code>Adobe.PDF.Library.LM.NETFramework</code> NuGet packages, with regular releases covering dependency security updates and feature improvements. For exact version numbers, release dates, and the supported-versions policy, check the Datalogics release notes and support pages directly.</p>
 
 <h3>What are the licensing differences?</h3>
 
-<p>APDFL licensing is generally arranged through custom agreements for OEMs, ISVs, and enterprise IT on a case-by-case basis. IronPDF uses standard commercial licensing. The distinction tends to matter most for teams that need predictable procurement timelines.</p>
+<p>APDFL licensing is sales-led: Datalogics does not publish list pricing, internal-use deployments start around $5,999/year, and OEM, ISV, and SaaS customers negotiate per-platform fees plus per-deployment royalties or revenue-share. IronPDF uses standard commercial licensing. The distinction tends to matter most for teams that need predictable procurement timelines.</p>
 
 <h2>When Should You Use Which?</h2>
 
 <p>Adobe PDF Library SDK is enterprise-grade PDF technology with deep heritage in Adobe's desktop product line. For teams building PDF editors, specialized rendering engines, or applications that genuinely need precise control over PDF-specification details, PDFL is a natural fit.</p>
 
-<p>Most .NET application scenarios, though, are shaped like "convert this HTML invoice to PDF," "merge these documents," or "add password protection." With APDFL, common-case HTML-to-PDF flows depend on the HTML to PDF Conversion Library add-on; lower-level workflows are built against PDF-spec primitives. With <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF</a>, those common-case flows are the default API surface.</p>
+<p>Most .NET application scenarios, though, are shaped like "convert this HTML invoice to PDF," "merge these documents," or "add password protection." With APDFL, common-case HTML-to-PDF flows require either programmatic page construction or pairing the SDK with a separate HTML engine; lower-level workflows are built against PDF-spec primitives. With <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF</a>, those common-case flows are the default API surface.</p>
 
 <p>Choose Adobe PDFL when you're building PDF infrastructure — PDF editors, specialized rendering engines, or PDF/A compliance tooling that benefits from low-level specification control. Choose IronPDF when you're consuming PDF capabilities — converting HTML to PDF, merging documents, adding security, or any workflow where writing HTML/CSS is a better fit than managing PDF streams and coordinate transforms.</p>
 

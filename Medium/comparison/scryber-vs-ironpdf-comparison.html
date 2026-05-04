@@ -2,13 +2,13 @@
 
 <p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
 
-<p>Imagine debugging a PDF rendering issue at 2 AM because a flexbox layout renders differently than expected, and your library's documentation says "CSS support is partial — some features may not work as intended." One team I heard about spent days tracking down why <code>display: grid</code> worked in their HTML preview but broke pagination in the final PDF. The root cause? Their PDF library used a custom CSS parser that didn't implement the Grid spec fully.</p>
+<p>Two pipelines render the same invoice template. The first writes <code>display: grid</code> in a stylesheet that a custom layout engine reads; the second writes the same line and hands the HTML to Chromium. The first relies on whatever CSS the engine's maintainer has implemented; the second inherits whatever Chrome supports today. That gap — between "valid CSS" and "CSS that this particular engine actually paginates" — is the architectural choice this article is about.</p>
 
 <p>Scryber.Core is an open-source, template-driven PDF library for .NET that emphasizes programmatic document layout and data binding with a handlebars-style template syntax. It's built entirely in C# with no browser dependencies, which makes it portable and lightweight. However, this architectural choice creates a predictability problem: HTML/CSS support depends on the maintainer implementing each spec feature manually. If you're reaching for Scryber, this comparison will help you understand when its approach fits — and when Chrome-based rendering would save troubleshooting time.</p>
 
 <h2>What Is IronPDF?</h2>
 
-<p><a href="https://ironpdf.com">IronPDF</a> uses Google Chrome's rendering engine (Chromium/Blink) to generate PDFs, which means it supports whatever Chrome supports: CSS Grid, Flexbox, CSS variables, Web Fonts, SVG, and complex JavaScript. When you call <a href="https://ironpdf.com/tutorials/html-to-pdf/"><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></a>, your HTML renders exactly as it would in Chrome's "Print to PDF" feature. No second-guessing whether a specific CSS property is implemented; if it works in Chrome DevTools, it works in your PDF.</p>
+<p><a href="https://ironpdf.com">IronPDF</a> uses Google Chrome's rendering engine (Chromium/Blink) to generate PDFs, which means it supports whatever Chrome supports: CSS Grid, Flexbox, CSS variables, web fonts, SVG, and JavaScript execution. When you call <a href="https://ironpdf.com/tutorials/html-to-pdf/"><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></a>, your HTML renders the way Chrome's own "Print to PDF" feature would render it. If a CSS property works in Chrome DevTools, it should work in your PDF.</p>
 
 <p>The trade-off is footprint: IronPDF bundles the Chromium engine (~50MB compressed NuGet package vs Scryber's ~5MB). For teams that value "write HTML once, render everywhere" over minimal package size, that's an acceptable trade. IronPDF targets .NET 10, 9, 8, 7, 6, Core, Framework, and runs on Windows, Linux, macOS, Docker, and cloud platforms without modification.</p>
 
@@ -26,10 +26,9 @@
 
 <h3>Scryber.Core — Rendering HTML with Data Binding</h3>
 
-<p>Scryber accepts an XHTML string directly via <code>Document.ParseDocument(html, ParseSourceType.DynamicContent)</code>, with handlebars-style placeholders bound through <code>doc.Params</code>:</p>
+<p>Scryber parses an XHTML string through a <code>StringReader</code> via <code>Document.ParseDocument(reader, string.Empty, ParseSourceType.DynamicContent)</code>, with handlebars-style placeholders bound through <code>doc.Params</code>:</p>
 
-<pre><code>using Scryber.Core;
-using Scryber.Core.Html;
+<pre><code>using Scryber.Components;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -79,8 +78,10 @@ public class ScryberInvoiceGenerator
 
         var invoiceData = FetchInvoiceData(invoiceId);
 
-        // Parse the HTML string in-memory; no temp file required.
-        using (var doc = Document.ParseDocument(templateHtml, ParseSourceType.DynamicContent))
+        // Parse the HTML string in-memory via a StringReader; no temp file required.
+        using (var reader = new StringReader(templateHtml))
+        using (var doc = Document.ParseDocument(reader, string.Empty, ParseSourceType.DynamicContent))
+        using (var stream = new FileStream(outputPath, FileMode.Create))
         {
             doc.Params["invoiceNumber"] = invoiceData.InvoiceNumber;
             doc.Params["invoiceDate"] = invoiceData.Date.ToString("yyyy-MM-dd");
@@ -94,7 +95,7 @@ public class ScryberInvoiceGenerator
                 price = i.Price
             }).ToArray();
 
-            doc.SaveAsPDF(outputPath);
+            doc.SaveAsPDF(stream);
         }
     }
 
@@ -193,9 +194,9 @@ public void GenerateInvoice(int invoiceId, string outputPath)
 
 <p>Scryber's CSS coverage is a subset of the spec, so modern layout features often need traditional fallbacks:</p>
 
-<pre><code>using Scryber.Core;
-using Scryber.Core.Html;
+<pre><code>using Scryber.Components;
 using Scryber.Drawing;
+using Scryber.PDF;
 using System.IO;
 
 public void RenderComplexLayout(string outputPath)
@@ -256,10 +257,11 @@ public void RenderComplexLayout(string outputPath)
 &lt;/body&gt;
 &lt;/html&gt;";
 
-    using (var doc = Document.ParseDocument(templateHtml, ParseSourceType.DynamicContent))
+    using (var reader = new StringReader(templateHtml))
+    using (var doc = Document.ParseDocument(reader, string.Empty, ParseSourceType.DynamicContent))
+    using (var stream = new FileStream(outputPath, FileMode.Create))
     {
-        doc.RenderOptions.PaperSize = PaperSize.A4;
-        doc.SaveAsPDF(outputPath);
+        doc.SaveAsPDF(stream);
     }
 }</code></pre>
 
@@ -339,26 +341,26 @@ public void RenderComplexLayout(string outputPath)
     pdf.SaveAs(outputPath);
 }</code></pre>
 
-<p>No workarounds needed. Preview in Chrome DevTools, get identical PDF output.</p>
+<p>Preview in Chrome DevTools, then re-render through IronPDF using the same engine to get visually consistent output.</p>
 
 <h2>How Do the APIs Map Between Libraries?</h2>
 
 <ul>
-<li><code>Document.ParseDocument(html, ParseSourceType.DynamicContent)</code> &mdash; maps to <code>ChromePdfRenderer.RenderHtmlAsPdf(html)</code>. IronPDF accepts an HTML string directly without a source-type flag.</li>
+<li><code>Document.ParseDocument(reader, string.Empty, ParseSourceType.DynamicContent)</code> &mdash; maps to <code>ChromePdfRenderer.RenderHtmlAsPdf(html)</code>. IronPDF accepts an HTML string directly without a <code>StringReader</code> or source-type flag.</li>
 <li><code>doc.Params[key] = value</code> &mdash; replaced by C# string interpolation or any standard templating engine (Razor, Scriban, Handlebars.Net) before handing the HTML to <code>RenderHtmlAsPdf</code>.</li>
 <li><code>{{variable}}</code> placeholder syntax &mdash; replaced by C# interpolation <code>{variable}</code> in a <code>$"..."</code> string.</li>
-<li><code>{{#each collection}}</code> &mdash; replaced by LINQ <code>.Select(...)</code> + <code>string.Join("", ...)</code> to build the inner markup.</li>
-<li><code>doc.SaveAsPDF(stream)</code> / <code>doc.SaveAsPDF(path)</code> &mdash; maps to <code>pdf.SaveAs(path)</code>, or use <code>pdf.Stream</code> / <code>pdf.BinaryData</code> for in-memory output.</li>
+<li><code>{{#each collection}}</code> with a <code>&lt;template&gt;</code> element &mdash; replaced by LINQ <code>.Select(...)</code> + <code>string.Join("", ...)</code> to build the inner markup.</li>
+<li><code>doc.SaveAsPDF(stream)</code> &mdash; maps to <code>pdf.SaveAs(path)</code>, or use <code>pdf.Stream</code> / <code>pdf.BinaryData</code> for in-memory output.</li>
 <li>Scryber expression engine &mdash; not needed; you compute values in C# and bind them through interpolation.</li>
 <li>Custom font embedding &mdash; replaced by standard CSS <code>@font-face</code>, which Chrome handles natively.</li>
-<li>Page size and orientation via <code>doc.RenderOptions.PaperSize</code> &mdash; maps to <code>renderer.RenderingOptions.PaperSize</code> and <code>PaperOrientation</code> on <code>ChromePdfRenderer</code>.</li>
+<li>Page size and margins declared in <code>@page</code> CSS inside the template &mdash; map to <code>renderer.RenderingOptions.PaperSize</code>, <code>PaperOrientation</code>, and the <code>MarginTop</code>/<code>MarginBottom</code>/<code>MarginLeft</code>/<code>MarginRight</code> properties on <code>ChromePdfRenderer</code>.</li>
 </ul>
 
 <h2>What Does the Full Feature Comparison Look Like?</h2>
 
 <ul>
-<li><strong>Project status and licensing.</strong> Scryber.Core is open source under LGPL 3.0, maintained on GitHub. IronPDF is commercial with a paid licensing model and a dedicated engineering team. Both target current .NET, including .NET 8, 9, and 10.</li>
-<li><strong>Documentation and support.</strong> Scryber relies on GitHub-hosted docs and community-driven issues. IronPDF ships with extensive tutorials and offers paid support plans with SLAs and engineering escalation.</li>
+<li><strong>Project status and licensing.</strong> Scryber.Core is open source under LGPL 3.0, maintained on GitHub. IronPDF is a commercial product with a paid licensing model. Both target current .NET, including .NET 8, 9, and 10.</li>
+<li><strong>Documentation and support.</strong> Scryber relies on GitHub-hosted docs and community issues. IronPDF ships with hosted tutorials and offers paid support plans.</li>
 <li><strong>HTML and CSS engine.</strong> Scryber accepts XHTML with a CSS subset interpreted by its own layout engine. IronPDF uses Chrome's rendering engine, so CSS3, Grid, Flexbox, modern selectors, and pseudo-elements behave the same as in the browser.</li>
 <li><strong>JavaScript.</strong> Scryber does not execute JavaScript &mdash; content must be pre-rendered server-side. IronPDF runs JavaScript via Chromium and exposes <code>WaitFor</code> hooks for async-rendered content.</li>
 <li><strong>PDF operations.</strong> IronPDF has first-class APIs for merging, splitting, HTML- or image-based watermarks, and digital signatures. Equivalent operations in Scryber are limited &mdash; verify what your version exposes against the current docs.</li>
@@ -377,11 +379,11 @@ public void RenderComplexLayout(string outputPath)
 Install-Package Scryber.Core
 
 # Namespace imports:
-using Scryber.Core;
-using Scryber.Core.Html;
-using Scryber.Drawing;</code></pre>
+using Scryber.Components;
+using Scryber.Drawing;
+using Scryber.PDF;</code></pre>
 
-<p>Lightweight package, no native dependencies. Accepts HTML strings in memory via <code>Document.ParseDocument(html, ParseSourceType.DynamicContent)</code>; no template-file-on-disk requirement.</p>
+<p>Lightweight package, no native dependencies. Accepts HTML strings in memory via a <code>StringReader</code> handed to <code>Document.ParseDocument(reader, string.Empty, ParseSourceType.DynamicContent)</code>; no template-file-on-disk requirement.</p>
 
 <h3>IronPDF Installation</h3>
 
@@ -399,7 +401,7 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";</code></pre>
 
 <h3>Can Scryber.Core execute JavaScript during PDF generation?</h3>
 
-<p>No. Scryber.Core does not support JavaScript execution at all. Any dynamic content must be pre-rendered server-side before binding. IronPDF executes JavaScript via its embedded Chromium engine — useful for charts rendered by Chart.js, dynamic forms, or content loaded via AJAX. See the <a href="https://ironpdf.com/examples/javascript-html-to-pdf/">JavaScript in HTML to PDF guide</a> for details.</p>
+<p>No. Scryber.Core does not document JavaScript execution as a feature — its rendering pipeline is static, so any dynamic content must be pre-rendered server-side before binding. IronPDF executes JavaScript via its embedded Chromium engine — useful for charts rendered by Chart.js, dynamic forms, or content loaded via AJAX. See the <a href="https://ironpdf.com/examples/javascript-html-to-pdf/">JavaScript in HTML to PDF guide</a> for details.</p>
 
 <h3>Does Scryber.Core support CSS Grid and Flexbox?</h3>
 
@@ -407,15 +409,15 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";</code></pre>
 
 <h3>What are the licensing differences?</h3>
 
-<p>Scryber.Core is open-source under LGPL 3.0. Commercial use is allowed, but any modifications to Scryber itself must be shared under LGPL terms. Your application code does not need to be open-sourced if you link without modifying the library. IronPDF is a commercial product with paid licenses and includes 24/5 engineering support with SLA availability.</p>
+<p>Scryber.Core is open source under LGPL 3.0. Commercial use is allowed, but any modifications to Scryber itself must be shared under LGPL terms. Your application code does not need to be open-sourced if you link without modifying the library. IronPDF is a commercial product with paid licenses and includes paid support plans.</p>
 
 <h3>How does package size compare?</h3>
 
-<p>Scryber.Core is approximately 5MB with no native dependencies. IronPDF is approximately 50MB due to bundling the Chromium engine. The size difference reflects the architectural choice: Scryber uses a custom rendering engine while IronPDF embeds a full browser engine for pixel-perfect rendering fidelity.</p>
+<p>Scryber.Core is approximately 5MB with no native dependencies. IronPDF is approximately 50MB due to bundling the Chromium engine. The size difference reflects the architectural choice: Scryber uses a custom rendering engine while IronPDF embeds a full browser engine for browser-aligned rendering fidelity.</p>
 
 <h3>Can I debug PDF layout issues with browser DevTools?</h3>
 
-<p>With IronPDF, yes. Because IronPDF uses Chrome's rendering engine, you can design and debug your HTML in Chrome DevTools and get identical output in the generated PDF. With Scryber.Core, debugging layout issues requires understanding Scryber's internal box model, which differs from what browser DevTools shows. This means a guess-and-check workflow when CSS doesn't render as expected.</p>
+<p>With IronPDF, yes. Because IronPDF uses Chrome's rendering engine, you can design and debug your HTML in Chrome DevTools and get visually consistent output in the generated PDF. With Scryber.Core, debugging layout issues typically involves reasoning about Scryber's internal box model, which differs from what browser DevTools shows.</p>
 
 <h2>When Should You Use Scryber.Core?</h2>
 
@@ -427,6 +429,6 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";</code></pre>
 
 <p>For most modern .NET teams, <a href="https://ironpdf.com/tutorials/html-to-pdf/">IronPDF's architecture</a> aligns better with contemporary development practices. If your workflow is "design in browser, export to PDF," IronPDF's Chrome-based rendering eliminates the "looks good in browser, breaks in PDF" problem. Teams using modern CSS (Grid, Flexbox, transforms, animations) avoid Scryber's partial-support uncertainty.</p>
 
-<p>Any scenario requiring JavaScript execution — charts rendered by Chart.js, dynamic forms with validation, content loaded via AJAX — requires a JavaScript-capable renderer. Scryber can't execute JS; IronPDF can. Enterprise teams needing guaranteed response times and engineering escalation can't rely on GitHub issues. IronPDF provides 24/5 support (24/7 in Premium) with SLAs.</p>
+<p>Any scenario requiring JavaScript execution — charts rendered by Chart.js, dynamic forms with validation, content loaded via AJAX — requires a JavaScript-capable renderer. Scryber's pipeline is static; IronPDF runs the script through Chromium before snapshotting the page. Teams that need contractual response times and direct vendor escalation may also prefer a commercial library with paid support plans over a GitHub-issue workflow.</p>
 
-<p>When CSS doesn't render as expected, Chrome DevTools let you inspect, modify, and test fixes in real time. Scryber requires guess-and-check iterations because its rendering engine doesn't expose browser-like inspection tools. For teams building new PDF workflows, the question is: do you optimize for package size (Scryber) or development speed (IronPDF)? Most teams choose speed.</p>
+<p>When CSS doesn't render as expected, Chrome DevTools let you inspect, modify, and test fixes in real time. Scryber's custom rendering pipeline does not expose a browser-style inspection surface, so debugging is more iterative. For teams building new PDF workflows, the question is: do you optimize for package size (Scryber) or for matching browser rendering exactly (IronPDF)? Most teams I have seen choose the latter.</p>

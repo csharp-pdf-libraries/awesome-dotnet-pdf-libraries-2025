@@ -1,14 +1,14 @@
-<h1>PeachPDF vs IronPDF: The .NET Developer's Decision Guide for 2025</h1>
+<h1>PeachPDF vs IronPDF: The .NET Developer's Decision Guide</h1>
 
-<p>A common scenario in containerized .NET apps: teams want HTML-to-PDF conversion without the overhead of bundling Chromium or managing browser processes. PeachPDF appears as the solution — pure .NET, no external dependencies, lightweight. Teams I have worked with have integrated it successfully for simple text-based receipts, then hit friction when the product manager requested adding a company logo, styled tables with borders, and a multi-column layout matching the website design. That is the pattern: a managed-only HTML renderer solves the deployment problem but introduces a rendering-completeness question for layouts that depend on modern CSS.</p>
+<p>One axis frames most HTML-to-PDF decisions in .NET: managed-only renderer versus embedded browser. PeachPDF sits firmly on the managed-only side — pure .NET, no Chromium to ship, a small NuGet footprint, and an async-first API. That deployment story holds up cleanly for text-based receipts and simple invoices, then bends when the same pipeline is asked to render a logo, styled tables with borders, and a multi-column layout matching the marketing site. The architectural question is not which library is "better" but which side of that axis matches the document complexity you actually need to render.</p>
 
-<p>PeachPDF is an open-source HTML-to-PDF library built entirely in managed .NET code using PDFSharpCore plus a custom HTML parser. <a href="https://ironpdf.com">IronPDF</a> uses an embedded Chromium engine for browser-grade rendering. This comparison walks through the architectures, decision criteria with real code, and the practical differences that matter when you are choosing between deployment simplicity and rendering completeness.</p>
+<p>PeachPDF is an open-source HTML-to-PDF library built entirely in managed .NET code on top of PeachPDF.PdfSharpCore plus a custom HTML/CSS layout engine. <a href="https://ironpdf.com">IronPDF</a> uses an embedded Chromium engine for browser-grade rendering. This comparison walks through the architectures, decision criteria with real code, and the practical differences that matter when you are choosing between deployment simplicity and rendering completeness.</p>
 
 <h2>What Is PeachPDF?</h2>
 
-<p>PeachPDF is an open-source HTML-to-PDF library built entirely in managed .NET code. It uses PDFSharpCore (a PDF construction library) plus a custom HTML parser to convert HTML into PDF documents. The architecture avoids external processes — no Puppeteer, no wkhtmltopdf, no Chromium. This makes deployment trivial (single NuGet package) and resource usage minimal (no browser overhead).</p>
+<p>PeachPDF is an open-source HTML-to-PDF library (BSD-3-Clause) built entirely in managed .NET. It layers a custom HTML/CSS layout engine over PeachPDF.PdfSharpCore (a PDF construction library) and exposes an async <code>PdfGenerator.GeneratePdf(html, config)</code> API. The architecture avoids external processes — no Puppeteer, no wkhtmltopdf, no Chromium. This keeps deployment small (a single NuGet package, currently <code>PeachPDF</code> 0.7.x targeting <code>net8.0</code>) and resource usage minimal.</p>
 
-<p>The tradeoff: CSS and HTML support is narrower than browser-based engines. Simple documents (text, basic tables, simple styling) render reliably; complex layouts (CSS Grid, Flexbox, advanced selectors) typically require workarounds or may fail silently — verify against your version.</p>
+<p>The tradeoff: CSS and HTML support is narrower than browser-based engines. Simple documents (text, basic tables, simple styling) render reliably; complex layouts (CSS Grid, Flexbox, advanced selectors) typically require workarounds or may render with visual differences from a browser — verify against your version.</p>
 
 <h2>What Is IronPDF?</h2>
 
@@ -18,11 +18,11 @@
 
 <h2>What Are the Key Limitations of PeachPDF?</h2>
 
-<p><strong>Product status.</strong> Open-source project (MIT license) on GitHub, actively maintained. Requires .NET 8+ (no .NET Framework support per its current targets — verify against your version). Relatively new library compared to long-running commercial alternatives. Community-driven support via GitHub Issues; no commercial support option is advertised. For teams requiring LTS or vendor support, that is a relevant input to risk planning.</p>
+<p><strong>Product status.</strong> Open-source project (BSD-3-Clause) on GitHub, actively maintained by a single primary maintainer. Currently pre-1.0 (latest 0.7.x as of late 2025) and targets <code>net8.0</code> only — .NET Framework and .NET 6 projects need to upgrade or pick a different library. Community-driven support via GitHub Issues; no commercial support option is advertised. For teams requiring LTS or vendor support, that is a relevant input to risk planning.</p>
 
-<p><strong>HTML/CSS coverage.</strong> The renderer is a custom HTML/CSS parser layered on PDFSharpCore, not a browser engine. Modern CSS features such as Flexbox, Grid, transforms, transitions, and animations are typically limited or unimplemented in this engine — verify against your version. JavaScript execution is not part of the rendering pipeline (the library targets static HTML). Web fonts via <code>@font-face</code> are supported with configuration. CSS media queries, complex selectors, SVG, and Canvas have limited or no coverage in common configurations.</p>
+<p><strong>HTML/CSS coverage.</strong> The renderer is a custom HTML/CSS layout engine over PeachPDF.PdfSharpCore, not a browser engine. Modern CSS features such as Flexbox, Grid, transforms, transitions, and animations are typically limited or unimplemented in this engine — verify against your version. JavaScript execution is not part of the rendering pipeline (the library targets static HTML). Web fonts via <code>@font-face</code> are supported. CSS media queries, complex selectors, SVG, and Canvas have limited or no coverage in common configurations.</p>
 
-<p><strong>Resource handling.</strong> Images are loaded from the local filesystem or data URIs by default; remote HTTP images may require a custom network adapter implementation. Base URLs for relative paths typically need to be configured explicitly. The CSS cascade and specificity rules are implemented at a level appropriate for simpler stylesheets — complex stylesheets may render with visual differences from a browser.</p>
+<p><strong>Resource handling.</strong> Remote HTTP fetching for the document and its referenced resources is wired through a network adapter on <code>PdfGenerateConfig.NetworkAdapter</code> (for example, <code>HttpClientNetworkAdapter</code> with a base <code>Uri</code>); a self-contained MHTML adapter is also available. Without an adapter, images and stylesheets resolve from the local filesystem or data URIs. The CSS cascade and specificity rules are implemented at a level appropriate for simpler stylesheets — complex stylesheets may render with visual differences from a browser.</p>
 
 <p><strong>Support model.</strong> Community support via GitHub Issues. Documentation is primarily the README and source. Maintenance cadence depends on the maintainers' availability — a standard consideration for any small-team OSS dependency.</p>
 
@@ -36,11 +36,15 @@
 
 using System;
 using System.IO;
+using System.Net.Http;
+using System.Threading.Tasks;
 using PeachPDF;
+using PeachPDF.Network;
+using PeachPDF.PdfSharpCore;
 
 public class PdfImageExample
 {
-    public void GenerateWithDataUriImage()
+    public async Task GenerateWithDataUriImageAsync()
     {
         // Embed images as data URIs so they travel with the HTML payload
         byte[] imageBytes = File.ReadAllBytes("logo.png");
@@ -55,21 +59,36 @@ public class PdfImageExample
             &lt;/body&gt;
             &lt;/html&gt;";
 
-        var converter = new HtmlToPdfConverter();
-        byte[] pdf = converter.Convert(html);
-        File.WriteAllBytes("output.pdf", pdf);
+        var generator = new PdfGenerator();
+        var document = await generator.GeneratePdf(html, new PdfGenerateConfig
+        {
+            PageSize = PageSize.Letter
+        });
+
+        using var stream = File.Create("output.pdf");
+        document.Save(stream);
     }
 
-    public void GenerateFromUrl()
+    public async Task GenerateFromUrlAsync()
     {
-        // ConvertUrl resolves the document and its referenced resources
-        var converter = new HtmlToPdfConverter();
-        byte[] pdf = converter.ConvertUrl("https://example.com/report");
-        File.WriteAllBytes("output.pdf", pdf);
+        // URL fetching is wired through a network adapter; passing null HTML
+        // tells PeachPDF to fetch the document via the adapter.
+        var http = new HttpClient();
+        var config = new PdfGenerateConfig
+        {
+            PageSize = PageSize.Letter,
+            NetworkAdapter = new HttpClientNetworkAdapter(http, new Uri("https://example.com"))
+        };
+
+        var generator = new PdfGenerator();
+        var document = await generator.GeneratePdf(null, config);
+
+        using var stream = File.Create("output.pdf");
+        document.Save(stream);
     }
 }</code></pre>
 
-<p>Practical notes for image-heavy documents in this engine: data URIs embed cleanly but increase HTML payload size; remote image fetching depends on the converter's network behavior and may need configuration in some scenarios — verify against the version you target. Confirm relative-path resolution by setting an explicit <code>&lt;base&gt;</code> tag if your inputs use relative URLs.</p>
+<p>Practical notes for image-heavy documents in this engine: data URIs embed cleanly but increase HTML payload size; remote image fetching is handled by the configured <code>NetworkAdapter</code> against the base <code>Uri</code> you supply. Without an adapter, set an explicit <code>&lt;base&gt;</code> tag or use absolute filesystem paths so the engine can resolve images consistently.</p>
 
 <h3>IronPDF — Image Handling (No Configuration Needed)</h3>
 
@@ -105,11 +124,13 @@ public class PdfImageHandling
 <h3>PeachPDF — CSS Limitations</h3>
 
 <pre><code>using System.IO;
+using System.Threading.Tasks;
 using PeachPDF;
+using PeachPDF.PdfSharpCore;
 
 public class PdfCssExample
 {
-    public void TableBasedLayout()
+    public async Task TableBasedLayoutAsync()
     {
         // Tables and floats are the safest cross-version layout primitives
         // for the custom CSS engine; verify Flexbox/Grid coverage against
@@ -133,9 +154,14 @@ public class PdfCssExample
             &lt;/body&gt;
             &lt;/html&gt;";
 
-        var converter = new HtmlToPdfConverter();
-        byte[] pdf = converter.Convert(htmlWithTable);
-        File.WriteAllBytes("output.pdf", pdf);
+        var generator = new PdfGenerator();
+        var document = await generator.GeneratePdf(htmlWithTable, new PdfGenerateConfig
+        {
+            PageSize = PageSize.Letter
+        });
+
+        using var stream = File.Create("output.pdf");
+        document.Save(stream);
     }
 }</code></pre>
 
@@ -193,11 +219,13 @@ public class PdfCssHandling
 <h3>PeachPDF — Custom Font Configuration</h3>
 
 <pre><code>using System.IO;
+using System.Threading.Tasks;
 using PeachPDF;
+using PeachPDF.PdfSharpCore;
 
 public class PdfFontExample
 {
-    public void RenderWithSystemFont()
+    public async Task RenderWithSystemFontAsync()
     {
         // Available font families depend on what is installed on the host
         // and on the engine's font resolution; cross-platform behavior may
@@ -215,13 +243,18 @@ public class PdfFontExample
             &lt;/body&gt;
             &lt;/html&gt;";
 
-        var converter = new HtmlToPdfConverter();
-        byte[] pdf = converter.Convert(html);
-        File.WriteAllBytes("output.pdf", pdf);
+        var generator = new PdfGenerator();
+        var document = await generator.GeneratePdf(html, new PdfGenerateConfig
+        {
+            PageSize = PageSize.Letter
+        });
+
+        using var stream = File.Create("output.pdf");
+        document.Save(stream);
     }
 }</code></pre>
 
-<p>Practical font notes for managed-only renderers: default font availability tracks the host OS, so the same HTML may resolve different glyphs on Windows vs. Linux vs. macOS — verify cross-platform output. Web fonts via <code>@font-face</code> are typically supported with explicit configuration, and missing glyphs may fall back or render as blanks depending on engine version.</p>
+<p>Practical font notes for managed-only renderers: default font availability tracks the host OS, so the same HTML may resolve different glyphs on Windows vs. Linux vs. macOS — verify cross-platform output. Web fonts via <code>@font-face</code> are supported, and missing glyphs may fall back or render as blanks depending on engine version.</p>
 
 <h3>IronPDF — Automatic Font Handling</h3>
 
@@ -257,7 +290,7 @@ public class PdfFontHandling
 
 <h2>What Does the Feature Comparison Look Like?</h2>
 
-<p>The two libraries optimize for different ends of the same axis. PeachPDF is an active OSS project targeting .NET 8+ with a managed-only architecture, distributed via a small NuGet package and supported through GitHub Issues; its viability depends on its maintainers. IronPDF is an active commercial product targeting .NET Framework and modern .NET on Windows, Linux, and macOS, distributed as a single NuGet that bundles Chromium and backed by commercial support channels.</p>
+<p>The two libraries optimize for different ends of the same axis. PeachPDF is an active OSS project (BSD-3-Clause) targeting <code>net8.0</code> with a managed-only architecture, distributed via a small NuGet package and supported through GitHub Issues; its viability depends on a small group of maintainers. IronPDF is an active commercial product targeting .NET Framework and modern .NET on Windows, Linux, and macOS, distributed as a single NuGet that bundles Chromium and backed by commercial support channels.</p>
 
 <p>HTML support tracks that split: PeachPDF renders basic HTML5 through a custom parser, with simple layouts coming through reliably; IronPDF renders the full HTML5 surface through Chromium, with the rendering fidelity you would expect from the browser engine.</p>
 
@@ -265,10 +298,10 @@ public class PdfFontHandling
 
 <p><strong>Status &amp; support.</strong></p>
 <ul>
-  <li><strong>License.</strong> PeachPDF is MIT-licensed open source; IronPDF is commercial.</li>
-  <li><strong>Product status.</strong> Both are actively developed — PeachPDF as a community project, IronPDF under a commercial entity.</li>
+  <li><strong>License.</strong> PeachPDF is BSD-3-Clause open source; IronPDF is commercial.</li>
+  <li><strong>Product status.</strong> Both are actively developed — PeachPDF as a pre-1.0 community project, IronPDF under a commercial entity.</li>
   <li><strong>Support.</strong> PeachPDF support runs through GitHub Issues; IronPDF offers multiple support channels.</li>
-  <li><strong>.NET targets.</strong> PeachPDF currently targets .NET 8+; IronPDF supports .NET 6/8/9/10 and .NET Framework — verify the current target list against the package's NuGet page.</li>
+  <li><strong>.NET targets.</strong> PeachPDF currently targets <code>net8.0</code> only; IronPDF supports .NET Framework and modern .NET — verify the current target list against the package's NuGet page.</li>
   <li><strong>Platforms.</strong> Both run on Windows, Linux, and macOS.</li>
 </ul>
 
@@ -283,7 +316,7 @@ public class PdfFontHandling
 
 <p><strong>Content handling.</strong></p>
 <ul>
-  <li><strong>Remote images.</strong> May require a custom network adapter or data-URI embedding in PeachPDF; handled natively by Chromium in IronPDF.</li>
+  <li><strong>Remote images.</strong> Resolved via <code>PdfGenerateConfig.NetworkAdapter</code> (e.g., <code>HttpClientNetworkAdapter</code>) or data-URI embedding in PeachPDF; handled natively by Chromium in IronPDF.</li>
   <li><strong>Data URIs.</strong> Supported by both.</li>
   <li><strong>JavaScript.</strong> PeachPDF targets static HTML — no JS execution. IronPDF executes JS through Chromium.</li>
   <li><strong>SVG and Canvas.</strong> Limited or no coverage in PeachPDF's engine; supported in IronPDF.</li>
@@ -308,14 +341,14 @@ public class PdfFontHandling
 <h2>What Does the API Mapping Between PeachPDF and IronPDF Look Like?</h2>
 
 <ul>
-  <li><code>new HtmlToPdfConverter()</code> &mdash; maps to <code>new ChromePdfRenderer()</code>.</li>
-  <li><code>converter.Convert(html)</code> &mdash; maps to <code>renderer.RenderHtmlAsPdf(html)</code>. PeachPDF returns <code>byte[]</code>; IronPDF returns a <code>PdfDocument</code>.</li>
-  <li><code>converter.ConvertUrl(url)</code> &mdash; maps to <code>renderer.RenderUrlAsPdf(url)</code>.</li>
-  <li><code>converter.Header</code> / <code>converter.Footer</code> (plain HTML strings) &mdash; map to <code>renderer.RenderingOptions.HtmlHeader</code> / <code>HtmlFooter</code> (<code>HtmlHeaderFooter</code> objects with <code>HtmlFragment</code> and layout properties).</li>
-  <li>Page size and orientation &mdash; configured through PeachPDF's converter options; in IronPDF, set <code>renderer.RenderingOptions.PaperSize</code> and <code>PaperOrientation</code>.</li>
-  <li>Font configuration &mdash; PeachPDF uses its converter's font configuration; IronPDF resolves system and web fonts through Chromium without explicit registration in most cases.</li>
-  <li>Network resource loading &mdash; PeachPDF exposes hooks for resource fetching; in IronPDF, HTTP and relative-path resolution are handled by Chromium.</li>
-  <li>Output &mdash; PeachPDF returns <code>byte[]</code> from <code>Convert</code>/<code>ConvertUrl</code>, written via <code>File.WriteAllBytes</code>; IronPDF exposes <code>pdf.SaveAs(path)</code>, <code>pdf.BinaryData</code>, and <code>pdf.Stream</code>.</li>
+  <li><code>new PdfGenerator()</code> &mdash; maps to <code>new ChromePdfRenderer()</code>.</li>
+  <li><code>await generator.GeneratePdf(html, config)</code> &mdash; maps to <code>renderer.RenderHtmlAsPdf(html)</code> (or <code>RenderHtmlAsPdfAsync</code>). PeachPDF's call is async; IronPDF exposes both sync and async overloads.</li>
+  <li>URL fetching via <code>PdfGenerateConfig.NetworkAdapter = new HttpClientNetworkAdapter(http, baseUri)</code> with a <code>null</code> HTML argument &mdash; maps to <code>renderer.RenderUrlAsPdf(url)</code>.</li>
+  <li>Headers and footers &mdash; PeachPDF v0.7.x has no header/footer property; the pattern is to embed CSS-positioned markup inside the source HTML. In IronPDF, set <code>renderer.RenderingOptions.HtmlHeader</code> / <code>HtmlFooter</code> as <code>HtmlHeaderFooter</code> objects with <code>HtmlFragment</code> and layout properties.</li>
+  <li>Page size and orientation &mdash; <code>PdfGenerateConfig.PageSize</code> / <code>PageOrientation</code>; in IronPDF, set <code>renderer.RenderingOptions.PaperSize</code> and <code>PaperOrientation</code>.</li>
+  <li>Font configuration &mdash; PeachPDF resolves fonts against the host OS and supports <code>@font-face</code>; IronPDF resolves system and web fonts through Chromium without explicit registration in most cases.</li>
+  <li>Network resource loading &mdash; PeachPDF uses the configured <code>NetworkAdapter</code> (with <code>MimeKitNetworkAdapter</code> available for self-contained MHTML); in IronPDF, HTTP and relative-path resolution are handled by Chromium.</li>
+  <li>Output &mdash; PeachPDF returns a document whose <code>Save(stream)</code> writes to a <code>Stream</code>; IronPDF exposes <code>pdf.SaveAs(path)</code>, <code>pdf.BinaryData</code>, and <code>pdf.Stream</code>.</li>
   <li>PDF post-processing (merge, split, watermarks, metadata, security, signatures, text extraction) &mdash; outside PeachPDF's HTML-to-PDF scope; available on the <code>PdfDocument</code> surface in IronPDF (e.g., <code>PdfDocument.Merge</code>, <code>pdf.MetaData</code>, <code>pdf.SecuritySettings</code>).</li>
 </ul>
 
@@ -337,7 +370,7 @@ public class PdfFontHandling
 
 <h3>Is PeachPDF suitable for production use?</h3>
 
-<p>PeachPDF is an actively developed MIT-licensed project. It currently targets .NET 8+ and is supported through GitHub Issues; commercial support and SLAs are not part of its model — verify the current support and target list against the project before adopting. For teams comfortable with the OSS support model, it is a reasonable fit for HTML-to-PDF in managed-only environments. Teams that need vendor SLAs or LTS guarantees usually weigh that against the project's small-team maintenance footprint.</p>
+<p>PeachPDF is an actively developed BSD-3-Clause project, currently pre-1.0. It targets <code>net8.0</code> and is supported through GitHub Issues; commercial support and SLAs are not part of its model. For teams comfortable with the OSS support model, it is a reasonable fit for HTML-to-PDF in managed-only environments. Teams that need vendor SLAs or LTS guarantees usually weigh that against the project's small-team maintenance footprint.</p>
 
 <h3>Can PeachPDF render modern CSS like Flexbox and Grid?</h3>
 
@@ -345,7 +378,7 @@ public class PdfFontHandling
 
 <h3>Why does IronPDF handle images and fonts without configuration?</h3>
 
-<p><a href="https://ironpdf.com">IronPDF</a> embeds a Chromium engine that handles HTTP requests, relative paths, image formats, and web font downloading natively — the same way Chrome does. PeachPDF's converter exposes hooks for resource fetching and font configuration, which means there is more explicit setup for non-trivial scenarios — verify against the API surface in the version you target.</p>
+<p><a href="https://ironpdf.com">IronPDF</a> embeds a Chromium engine that handles HTTP requests, relative paths, image formats, and web font downloading natively — the same way Chrome does. PeachPDF wires resource fetching through a <code>NetworkAdapter</code> on <code>PdfGenerateConfig</code> and resolves fonts against the host OS, which means there is more explicit setup for non-trivial scenarios.</p>
 
 <h3>What drives migration from PeachPDF to IronPDF?</h3>
 
@@ -353,7 +386,7 @@ public class PdfFontHandling
 
 <h2>Decision Framework: Which Library Fits Your Project?</h2>
 
-<p>PeachPDF solves a specific problem: HTML-to-PDF conversion in pure .NET without browser dependencies. The lightweight architecture (managed code only) keeps deployment simple — copy DLL, run anywhere. For teams prioritizing minimal resource usage and simple HTML documents (text, basic tables, minimal CSS), PeachPDF delivers without external process overhead. The MIT license provides transparency and flexibility.</p>
+<p>PeachPDF solves a specific problem: HTML-to-PDF conversion in pure .NET without browser dependencies. The lightweight architecture (managed code only) keeps deployment simple — copy DLL, run anywhere. For teams prioritizing minimal resource usage and simple HTML documents (text, basic tables, minimal CSS), PeachPDF delivers without external process overhead. The BSD-3-Clause license provides transparency and flexibility.</p>
 
 <p>Migration from PeachPDF becomes relevant when: (1) CSS gaps require enough HTML restructuring to outweigh the development velocity gains, (2) remote-resource handling creates more friction than a browser-based approach, (3) the visual gap between PDF output and the same HTML rendered in a browser becomes unacceptable, or (4) production support requirements exceed community-driven OSS risk tolerance.</p>
 

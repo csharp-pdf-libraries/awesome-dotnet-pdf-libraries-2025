@@ -1,8 +1,8 @@
 <h1>Api2pdf vs IronPDF: The Practical Breakdown for .NET</h1>
 
-<p>I was working with an engineering team that evaluated Api2pdf for PDF invoice generation. The checklist seemed straightforward: REST API, multiple rendering engines, simple integration. But during implementation, questions multiplied. Where does customer data go during conversion? How do we handle network failures mid-request? What happens if Api2pdf experiences an outage during month-end batch processing? Can we meet GDPR requirements when PDFs are generated on third-party servers?</p>
+<p>Cloud PDF service or local library? The choice looks like a checklist item — REST API, multiple rendering engines, simple integration — until the implementation questions start. Where does customer data go during conversion? How do you handle network failures mid-request? What happens if the upstream service has an outage during month-end batch processing? Can a third-party renderer satisfy your GDPR posture?</p>
 
-<p>The "simple API call" turned into infrastructure decisions about data residency, availability, and compliance. What started as a quick integration became a deep evaluation of architectural trade-offs.</p>
+<p>The "simple API call" pulls in infrastructure decisions about data residency, availability, and compliance. A quick integration becomes an evaluation of architectural trade-offs.</p>
 
 <p>Api2pdf is a cloud-based PDF generation service — pay per use, no infrastructure to manage. IronPDF is an on-premises library — data stays local, full control over processing. This checklist-focused comparison helps teams evaluate architectural fit, not just feature lists.</p>
 
@@ -14,7 +14,7 @@
 
 <h2>What are the key limitations of Api2pdf?</h2>
 
-<p>Api2pdf is a commercial API service built on AWS Lambda serverless architecture. The .NET client SDK (<code>Api2Pdf.DotNet</code>) wraps REST API calls to api2pdf.com. The service offers wkhtmltopdf, Headless Chrome, and LibreOffice as backend rendering engines. It uses a pay-per-use pricing model with API key authentication.</p>
+<p>Api2pdf is a commercial API service built on AWS Lambda serverless architecture. The .NET client SDK (<code>Api2Pdf</code>) wraps REST API calls to api2pdf.com. The service offers wkhtmltopdf, Headless Chrome, and LibreOffice as backend rendering engines. Pricing is metered (a small monthly base plus per-MB bandwidth and per-second compute) with API key authentication — verify current numbers on api2pdf.com.</p>
 
 <p>Api2pdf is a <strong>cloud service</strong>, not a local library. Every PDF generation requires uploading HTML content or URLs to api2pdf.com servers over the internet. Generated PDFs are stored on Api2pdf's infrastructure and accessed via temporary URLs (24-hour default expiration per Api2pdf documentation — verify against your account's current settings). Internet connectivity is required for all operations, and customer data is transmitted to third-party servers as part of the workflow.</p>
 
@@ -36,7 +36,7 @@
 
 <p>At a high level, the two products sit on opposite sides of the cloud-versus-local divide. Api2pdf runs as an active commercial cloud service backed by AWS Lambda, exposing wkhtmltopdf, Headless Chrome, and LibreOffice as selectable engines. IronPDF runs as an active commercial .NET library with a built-in Chromium renderer that ships inside the NuGet package.</p>
 
-<p>Installation reflects that split. Api2pdf integration means installing the <code>Api2Pdf.DotNet</code> client SDK and managing an API key plus outbound network access. IronPDF installation is a single <code>Install-Package IronPdf</code> with the rendering engine bundled. Support for both is commercial — Api2pdf's terms are tied to your subscription plan and SLA, while IronPDF is backed by Iron Software's commercial support.</p>
+<p>Installation reflects that split. Api2pdf integration means installing the <code>Api2Pdf</code> client SDK and managing an API key plus outbound network access. IronPDF installation is a single <code>Install-Package IronPdf</code> with the rendering engine bundled. Support for both is commercial — Api2pdf's terms are tied to your subscription plan and SLA, while IronPDF is backed by Iron Software's commercial support.</p>
 
 <p>For rendering quality, Api2pdf's output depends on which backend engine you select per request, since each engine has different fidelity characteristics. IronPDF uses Chromium for all HTML-to-PDF rendering by default.</p>
 
@@ -56,7 +56,7 @@
 
 <h3>Api2pdf compliance workflow</h3>
 
-<pre><code>using Api2Pdf.DotNet;
+<pre><code>using Api2Pdf;
 using System;
 using System.Threading.Tasks;
 
@@ -64,15 +64,19 @@ public class Api2pdfComplianceConsiderations
 {
     public async Task&lt;string&gt; GenerateInvoiceAsync(string html)
     {
-        var a2pClient = new Api2PdfClient("YOUR-API-KEY");
+        var a2pClient = new Api2Pdf("YOUR-API-KEY");
 
-        // Send HTML to api2pdf.com for rendering and receive a URL back
-        var apiResponse = await a2pClient.HeadlessChrome.FromHtmlAsync(html);
+        // Send HTML to api2pdf.com for rendering and receive a result back
+        var apiResponse = await a2pClient.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest
+        {
+            Html = html
+        });
 
-        // The response contains a temporary URL to the PDF on Api2pdf
-        // infrastructure; download to your storage if you need it beyond
-        // the platform's default retention window.
-        return apiResponse.Pdf;
+        // The response exposes a temporary URL to the PDF on Api2pdf
+        // infrastructure; call GetFileBytes() / SaveFile() to materialize
+        // it into your storage if you need it beyond the platform's
+        // default retention window.
+        return apiResponse.FileUrl;
     }
 }
 
@@ -133,7 +137,7 @@ public class IronPdfComplianceApproach
 
 <h3>Api2pdf availability architecture</h3>
 
-<pre><code>using Api2Pdf.DotNet;
+<pre><code>using Api2Pdf;
 using System;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -141,12 +145,12 @@ using Polly;
 
 public class Api2pdfWithResilience
 {
-    private readonly Api2PdfClient _client;
+    private readonly Api2Pdf _client;
     private readonly IAsyncPolicy _retryPolicy;
 
     public Api2pdfWithResilience(string apiKey)
     {
-        _client = new Api2PdfClient(apiKey);
+        _client = new Api2Pdf(apiKey);
 
         // Retry transient network and timeout failures with exponential backoff
         _retryPolicy = Policy
@@ -161,10 +165,10 @@ public class Api2pdfWithResilience
         try
         {
             var apiResponse = await _retryPolicy.ExecuteAsync(() =&gt;
-                _client.HeadlessChrome.FromHtmlAsync(html));
+                _client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest { Html = html }));
 
             // Returned object exposes a temporary URL to the rendered PDF
-            return apiResponse.Pdf;
+            return apiResponse.FileUrl;
         }
         catch (HttpRequestException ex)
         {
@@ -224,9 +228,9 @@ public class IronPdfReliability
 
 <h2>How does the cost structure break down?</h2>
 
-<p>The pricing models are structurally different. Api2pdf charges per API call (usage-based), while IronPDF uses per-server licensing (fixed cost). Which model is more economical depends on your volume profile and how much budget predictability you need — verify current pricing with both vendors before deciding.</p>
+<p>The pricing models are structurally different. Api2pdf is metered — a small monthly base plus per-MB bandwidth and per-second compute charges — while IronPDF uses per-server licensing (fixed cost). Which model is more economical depends on your volume profile, the size and complexity of your documents, and how much budget predictability you need — verify current pricing with both vendors before deciding.</p>
 
-<p>For variable or low-volume workloads, usage-based billing pays only for what you generate, which can be attractive for prototypes and small applications. Every environment that calls the API — development, test, staging, production — bills against the same usage meter, and traffic spikes (such as a seasonal peak in invoice generation) translate directly into cost spikes. Periods of zero usage cost nothing.</p>
+<p>For variable or low-volume workloads, metered billing pays only for what you generate, which can be attractive for prototypes and small applications. Every environment that calls the API — development, test, staging, production — bills against the same usage meter, and traffic spikes (such as a seasonal peak in invoice generation) translate into bandwidth and compute charges that scale with traffic. Periods of zero usage cost only the small monthly base.</p>
 
 <p>For high or steady volumes, a per-server license is a flat annual cost regardless of how many PDFs are generated, which makes batch processing and burst traffic predictable from a budget perspective. The trade-off is a fixed cost even when usage is low, and you need to estimate server count up front. Test and dev environments running on already-licensed servers are typically covered by the same license.</p>
 
@@ -237,19 +241,21 @@ public class IronPdfReliability
     // Illustrative scenario: invoice generation for an e-commerce platform.
     // Typical month: ~10,000 invoices. Seasonal peak month: ~50,000 invoices.
     // Verify current Api2pdf pricing for your plan; numbers below are
-    // placeholders for the shape of usage-based billing only.
+    // placeholders for the shape of metered billing only.
 
     public void CostAnalysis()
     {
-        // With per-PDF billing (rate R), monthly cost roughly equals
-        // monthly volume * R. A 5x traffic peak produces a 5x cost peak.
+        // Metered billing has three components: a small monthly base,
+        // bandwidth charged per MB transferred, and compute charged per
+        // second of render time. A 5x traffic peak grows the bandwidth
+        // and compute lines roughly in proportion; the monthly base is flat.
 
-        // Cost-shape characteristics of usage-based billing:
-        // - Pay only for actual PDFs generated
-        // - Lower cost for low-volume projects
-        // - Costs scale with traffic spikes
+        // Cost-shape characteristics of metered billing:
+        // - Heavier or JS-heavy pages cost more (longer compute time)
+        // - Larger HTML payloads and PDFs cost more (more bandwidth)
+        // - Lower cost for low-volume / small-document projects
+        // - Costs scale with traffic, file size, and render complexity
         // - Each environment (dev / test / staging / prod) bills separately
-        // - Large batch jobs can produce large monthly variance
     }
 }
 </code></pre>
@@ -295,7 +301,7 @@ public class IronPdfCostScenario
 
 <h3>Api2pdf development workflow</h3>
 
-<pre><code>using Api2Pdf.DotNet;
+<pre><code>using Api2Pdf;
 using System.Threading.Tasks;
 
 public class Api2pdfDevelopment
@@ -304,7 +310,7 @@ public class Api2pdfDevelopment
     // 1. Obtain an API key from the Api2pdf portal
     // 2. Store it in user secrets or environment variables
     // 3. Internet connectivity is required during local development
-    // 4. Each test that hits the live API consumes API quota
+    // 4. Each test that hits the live API meters bandwidth and compute
 
     // Wrap the client behind an interface so unit tests can mock it
     public interface IPdfGenerator
@@ -314,28 +320,28 @@ public class Api2pdfDevelopment
 
     public class Api2pdfGenerator : IPdfGenerator
     {
-        private readonly Api2PdfClient _client;
+        private readonly Api2Pdf _client;
 
         public Api2pdfGenerator(string apiKey)
         {
-            _client = new Api2PdfClient(apiKey);
+            _client = new Api2Pdf(apiKey);
         }
 
         public async Task&lt;string&gt; GeneratePdfAsync(string html)
         {
-            var apiResponse = await _client.HeadlessChrome.FromHtmlAsync(html);
-            return apiResponse.Pdf;
+            var apiResponse = await _client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest { Html = html });
+            return apiResponse.FileUrl;
         }
     }
 
     // Unit tests: mock IPdfGenerator so suites don't call the live API.
-    // Integration tests: call the live API; budget for the resulting usage.
+    // Integration tests: call the live API; budget for the metered usage.
 }
 
 // CI/CD considerations for any cloud-API-backed renderer:
 // - Store the API key in GitHub Secrets or your cloud key vault
 // - Allow CI/CD egress IPs if the API uses IP allowlists
-// - Budget for CI/CD API usage (each integration test run consumes quota)
+// - Budget for CI/CD API usage (each integration test run meters bandwidth and compute)
 // - Use mocks in unit tests to keep API call volume manageable
 </code></pre>
 
@@ -350,7 +356,7 @@ public class IronPdfDevelopment
     // Development environment for an IronPDF-based project:
     // 1. Install-Package IronPdf
     // 2. Renderer works offline; no outbound network is required
-    // 3. Tests generate PDFs locally — no per-call billing meter
+    // 3. Tests generate PDFs locally — no metered billing
 
     public class PdfGenerator
     {
@@ -382,15 +388,15 @@ public class IronPdfDevelopment
 <p>If you are migrating from Api2pdf to IronPDF, here is a concept-by-concept mapping to guide the transition. The biggest shift is moving from a cloud REST API model (send data out, get a URL back) to a local library model (process in memory, get bytes back).</p>
 
 <ul>
-<li><code>Api2PdfClient</code> — replaced by <code>ChromePdfRenderer</code> as the main entry point.</li>
-<li><code>HeadlessChrome.FromHtmlAsync(html)</code> — replaced by <code>renderer.RenderHtmlAsPdf(html)</code> (synchronous) or <code>RenderHtmlAsPdfAsync(html)</code>.</li>
-<li><code>HeadlessChrome.FromUrlAsync(url)</code> — replaced by <code>renderer.RenderUrlAsPdf(url)</code>.</li>
-<li><code>HeadlessChromeOptions</code> — properties move onto <code>renderer.RenderingOptions</code> (margins, paper size, orientation, JavaScript wait, zoom).</li>
-<li><code>PdfSharp.MergePdfsAsync(urls)</code> — replaced by <code>PdfDocument.Merge(pdf1, pdf2, ...)</code> on local <code>PdfDocument</code> instances.</li>
-<li><code>response.Pdf</code> (URL) — replaced by <code>pdf.BinaryData</code>, <code>pdf.Stream</code>, or <code>pdf.SaveAs(path)</code> for direct in-process access.</li>
-<li><code>DeleteAsync(responseId)</code> — replaced by standard .NET <code>using</code> / <code>IDisposable</code> patterns; there is no remote artifact to clean up.</li>
+<li><code>Api2Pdf</code> client — replaced by <code>ChromePdfRenderer</code> as the main entry point.</li>
+<li><code>client.Chrome.HtmlToPdfAsync(new ChromeHtmlToPdfRequest { Html })</code> — replaced by <code>renderer.RenderHtmlAsPdf(html)</code> (synchronous) or <code>RenderHtmlAsPdfAsync(html)</code>.</li>
+<li><code>client.Chrome.UrlToPdfAsync(new ChromeUrlToPdfRequest { Url })</code> — replaced by <code>renderer.RenderUrlAsPdf(url)</code>.</li>
+<li><code>ChromeHtmlToPdfOptions</code> — properties move onto <code>renderer.RenderingOptions</code> (margins, paper size, orientation, JavaScript wait, zoom).</li>
+<li><code>client.PdfSharp.MergePdfs(new PdfMergeRequest { Urls })</code> — replaced by <code>PdfDocument.Merge(pdf1, pdf2, ...)</code> on local <code>PdfDocument</code> instances.</li>
+<li><code>result.FileUrl</code> (URL) plus <code>result.GetFileBytes()</code> / <code>result.SaveFile(path)</code> — replaced by <code>pdf.BinaryData</code>, <code>pdf.Stream</code>, or <code>pdf.SaveAs(path)</code> for direct in-process access.</li>
+<li><code>client.PdfSharp.SetPassword(new PdfPasswordRequest { Url, UserPassword, OwnerPassword })</code> — replaced by <code>pdf.SecuritySettings.UserPassword</code> / <code>pdf.SecuritySettings.OwnerPassword</code>, set in the same process before saving.</li>
 <li>Cloud REST API with internet round-trip — replaced by local in-process .NET library with no outbound network requirement.</li>
-<li>Usage-based per-call billing on data hosted by Api2pdf — replaced by per-server licensing on data hosted in your own infrastructure.</li>
+<li>Metered billing (monthly base plus per-MB bandwidth and per-second compute) on data hosted by Api2pdf — replaced by per-server licensing on data hosted in your own infrastructure.</li>
 </ul>
 
 <h2>How do all the features stack up side by side?</h2>
@@ -403,7 +409,7 @@ public class IronPdfDevelopment
 
 <p><strong>Compliance.</strong> With Api2pdf, content is processed by a third-party in AWS regions, so GDPR processor terms (DPA) typically apply and HIPAA BAA availability should be verified with the vendor. Air-gapped deployments are not a fit. With IronPDF, processing stays inside your environment, so processor agreements aren't required for the rendering step itself, and air-gapped deployments are supported.</p>
 
-<p><strong>Cost.</strong> Api2pdf uses per-API-call (usage-based) pricing — cost-effective at low volume, scaling roughly linearly with traffic. IronPDF uses per-server licensing — a fixed cost regardless of volume, more predictable for budgeting and typically better unit economics at higher volumes.</p>
+<p><strong>Cost.</strong> Api2pdf uses metered pricing — a small monthly base plus per-MB bandwidth and per-second compute — so cost scales with traffic, file size, and render complexity. IronPDF uses per-server licensing — a fixed cost regardless of volume, more predictable for budgeting and typically better unit economics at higher volumes.</p>
 
 <p><strong>Development.</strong> Local development with Api2pdf needs an API key and outbound internet; unit tests typically wrap the client behind a mockable interface; CI/CD needs secret management for the key. Local development with IronPDF works offline; unit tests can call the renderer directly; CI/CD follows a standard .NET build.</p>
 
@@ -423,11 +429,11 @@ public class IronPdfDevelopment
 <p><strong>Choose IronPDF when:</strong></p>
 
 <ul>
-<li>High PDF volume where per-call costs accumulate</li>
+<li>High PDF volume where metered bandwidth and compute charges accumulate</li>
 <li>Data residency requirements mandate on-premises processing</li>
 <li>GDPR/HIPAA/PCI-DSS require local data handling</li>
 <li>Air-gapped or private network deployment needed</li>
-<li>Predictable licensing costs preferred over usage-based</li>
+<li>Predictable licensing costs preferred over metered usage</li>
 <li>Offline processing capability required</li>
 <li>Full control over PDF infrastructure desired</li>
 </ul>
@@ -452,17 +458,17 @@ public class IronPdfDevelopment
 
 <h3>Which option is more cost-effective for high-volume batch processing?</h3>
 
-<p>It depends on volume. With Api2pdf's per-call pricing, costs scale roughly linearly with PDF count, so high recurring volumes turn into a recurring expense that grows with traffic. IronPDF's per-server license is a fixed annual cost regardless of generation volume, which often results in better per-PDF economics at higher volumes. For low-volume projects, prototypes, or workloads with frequent zero-usage periods, Api2pdf's pay-per-use model can be more economical. Run the math on your own expected volume before deciding.</p>
+<p>It depends on volume and document profile. With Api2pdf's metered pricing (bandwidth plus compute time), costs grow with both the number of PDFs and the size and render complexity of each one, so high recurring volumes — especially of large or JS-heavy pages — turn into a recurring expense that scales with traffic. IronPDF's per-server license is a fixed annual cost regardless of generation volume, which often results in better per-PDF economics at higher volumes. For low-volume projects, prototypes, or workloads with frequent zero-usage periods, Api2pdf's metered model can be more economical. Run the math on your own expected volume and document size before deciding.</p>
 
 <h2>What is the bottom line?</h2>
 
 <p>Api2pdf provides cloud-based PDF generation as a managed service — pay per use, no infrastructure maintenance, quick integration. For teams building low-volume applications, prototypes, or scenarios where third-party processing is acceptable, Api2pdf reduces operational complexity.</p>
 
-<p>The cloud service model also introduces architectural dependencies: outbound internet connectivity for every render call, customer data routed through third-party servers, availability bounded by api2pdf.com uptime, costs that scale with usage, compliance audits that have to address third-party data flows, and no offline path for the rendering step.</p>
+<p>The cloud service model also introduces architectural dependencies: outbound internet connectivity for every render call, customer data routed through third-party servers, availability bounded by api2pdf.com uptime, costs that scale with bandwidth and compute time, compliance audits that have to address third-party data flows, and no offline path for the rendering step.</p>
 
-<p>The checklist evaluation surfaces specific scenarios where this architecture creates friction. <strong>GDPR / HIPAA compliance</strong> means third-party processing typically calls for DPAs, BAAs, and careful audit trails. <strong>High-volume processing</strong> means per-call costs accumulate over time. <strong>Air-gapped environments</strong> in banks, government, and defense contractors often disallow internet-connected PDF processing. <strong>Availability requirements</strong> mean upstream service incidents or network failures can interrupt PDF generation. And <strong>data sovereignty</strong> requirements in some jurisdictions ask for processing within specific geographic boundaries.</p>
+<p>The checklist evaluation surfaces specific scenarios where this architecture creates friction. <strong>GDPR / HIPAA compliance</strong> means third-party processing typically calls for DPAs, BAAs, and careful audit trails. <strong>High-volume processing</strong> means metered costs accumulate over time, especially for large or JS-heavy pages. <strong>Air-gapped environments</strong> in banks, government, and defense contractors often disallow internet-connected PDF processing. <strong>Availability requirements</strong> mean upstream service incidents or network failures can interrupt PDF generation. And <strong>data sovereignty</strong> requirements in some jurisdictions ask for processing within specific geographic boundaries.</p>
 
-<p>Migration to <a href="https://ironpdf.com/how-to/pixel-perfect-html-to-pdf/">IronPDF</a> makes sense when compliance frameworks require on-premises data processing, PDF volume makes usage-based pricing expensive relative to fixed licensing, applications deploy in private networks or air-gapped environments, availability SLAs demand eliminating third-party service dependencies, data sovereignty regulations prohibit cloud processing in certain regions, or cost predictability is more valuable than pay-per-use flexibility.</p>
+<p>Migration to <a href="https://ironpdf.com/how-to/pixel-perfect-html-to-pdf/">IronPDF</a> makes sense when compliance frameworks require on-premises data processing, PDF volume makes metered pricing expensive relative to fixed licensing, applications deploy in private networks or air-gapped environments, availability SLAs demand eliminating third-party service dependencies, data sovereignty regulations prohibit cloud processing in certain regions, or cost predictability is more valuable than metered flexibility.</p>
 
 <p>Api2pdf and IronPDF serve different architectural philosophies: managed cloud service versus on-premises library. Evaluate based on data residency requirements, compliance constraints, volume economics, and availability needs — not just feature checklists.</p>
 

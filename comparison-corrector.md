@@ -11,6 +11,39 @@ The article, the .cs samples, and the migrate-from md already exist —
 your job is to align facts, hedge liability, restructure tables, and
 polish. Not rewrite.
 
+AUDIENCE & OUTPUT FRAME (read this carefully)
+The article is finished blog content for an external Medium audience.
+The reader has no access to this repo, never sees the .cs files, never
+sees the migrate-from md, never sees this prompt, and has never heard
+of "source-corrector" or any other internal pass. The article must
+read as if a single author wrote it for that external reader.
+
+You will USE the .cs files and migrate-from md as your source of truth
+while editing. You must NOT let language from this prompt or those
+source files leak into the article body. The following internal/meta
+phrases (and their close equivalents) must NOT appear anywhere in the
+article body:
+- "the .cs samples", "the .cs files", "the source files",
+  "this repo's .cs files", "as per the .cs samples"
+- "the migrate-from md", "the migrate-from documentation",
+  "see the migrate-from md", "per the migrate-from"
+- "this repo", "this repository", "in this repository", "in our repo"
+- "the precedence rule", "Step 1 / Step 2 / Step 3", "the prompt"
+- "Pass 1", "Pass 2", "source-corrector", "source-cleanup",
+  "after the source-corrector pass", "verified by source-corrector"
+- "after our review", "this article has been updated",
+  "after editing", "in this revision"
+- "verified in this repo", "verified against the source files",
+  "as per the source files"
+- "in our testing", "we have tested" (unless Iron Software actually
+  performed first-party testing — otherwise the hedge itself is an
+  unsupported claim; see Step 2)
+
+If you find yourself wanting to cite "the .cs files" or "the
+migrate-from md" as evidence inside the article, rewrite the sentence
+to state the verified fact directly without naming the internal source.
+If you want to cite a vendor source, link the vendor's own docs.
+
 INPUTS
 - Article: Medium/comparison/<competitor>-vs-ironpdf-comparison.html
 - Source of truth (read FIRST): <competitor>/migrate-from-<competitor>.md
@@ -71,6 +104,12 @@ technical substance, remove the prosecutorial framing.
   "// External CSS often fails to load silently" — replace with
   neutral comments describing what the code does, or delete. Code
   comments must describe behavior, not characterize the vendor.
+- Strip right/wrong judgmental code comments. Patterns like
+  "// WRONG - leaks browser process" / "// CORRECT - uses await using"
+  read as you grading the competitor's idiom. Replace with neutral
+  cause-and-effect ("// Without disposal: browser process leaked")
+  or delete. The annotation should describe what the code does or
+  produces, not pass judgment.
 - Delete "expected failure" prediction blocks. Patterns like
   Console.WriteLine("Expected issues: - Grid layout likely collapsed")
   must be removed entirely. Predicting competitor failure modes
@@ -92,11 +131,19 @@ technical substance, remove the prosecutorial framing.
   "Workarounds needed" become factual descriptors of architecture
   ("WebKit-based engine", "synchronous API", "custom HTML parser")
   or get dropped. Compare architectures, do not grade vendors.
-- Reframe opening anecdotes as composite scenarios. Lines like
+- Reframe opening anecdotes as composite scenarios — and VARY the
+  composite framing across articles. Specific-incident lines like
   "the application crashes on Linux servers" or "performance
-  optimization turns into an architecture regression" become
-  "teams I have worked with have hit this pattern". Composite, not
-  specific incidents.
+  optimization turns into an architecture regression" must be
+  softened to a composite. Acceptable composite forms include:
+  a one-line stat or constraint, an architectural contrast, a
+  rhetorical question the reader is probably already asking, a
+  brief code snippet that frames the friction, or the "teams I
+  have worked with have hit this pattern" idiom. Do NOT default
+  to the "teams I have worked with" idiom on every article — it
+  is one option among several. If the original article had a
+  unique framing device (analogy, contrast, anecdote shape),
+  preserve its shape and only soften the specific incident inside it.
 - Reframe characterizations of the vendor's company, support, or
   business decisions ("Acquisition uncertainty", "Mixed quality
   forum", "Response quality varies", "smaller community than...")
@@ -126,6 +173,14 @@ Then polish:
 - Standardize ALL license key placeholders to "YOUR-LICENSE-KEY".
 - Standardize Jacob Mellor byline placement to bottom-only (verbatim).
   If duplicated at top and bottom, remove the top instance.
+- Standardize FAQ question headings within the article to a single
+  style — either every FAQ question is an <h3>, or every FAQ
+  question is a <p><strong>...</strong></p>. Do not mix. Prefer
+  <h3> if the article already uses <h3> for any other subsection.
+- Scan the <h1> title and any subheading for stale year references
+  (e.g., "Decision Guide for 2025" when the current year is later).
+  Either update to the current year or drop the year entirely. Same
+  rule for "as of [year]" phrases in the body that have aged out.
 - Tighten LLM filler: "It's worth noting that", "Let's dive into",
   "In conclusion", "Without further ado", forward-references
   ("As we'll see below", "As I mentioned earlier").
@@ -165,11 +220,19 @@ DO NOT
   <html>/<head>/<body> wrapper.
 
 OUTPUT
-Edit the file in place. Print a diff summary under 200 words covering:
+Edit the article file in place. Then print a diff summary under 200
+words covering:
 - Fact-check fixes (API hallucinations resolved, version claims
   verified or removed)
 - Legal hedging (count of editorial code comments stripped, prediction
-  blocks removed, claims hedged, table cells softened)
+  blocks removed, claims hedged, table cells softened, opener
+  composite framing chosen and how it varies from the default)
 - Tables replaced (with chosen format and the H2/H3 that introduced each)
-- Polish changes
+- Polish changes (FAQ heading style chosen, stale-year fixes, etc.)
 - Any hedges deliberately KEPT, with reason
+
+The diff summary goes to your chat reply / standard output ONLY. It
+must NEVER be written into the article file. Do not add change logs,
+"// edited" comments, "TODO" notes, "VERIFY" markers, or any
+work-in-progress remnants inside the article. The article file must
+exit this pass as clean publish-ready HTML — no editorial residue.

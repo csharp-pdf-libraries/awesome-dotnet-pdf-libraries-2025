@@ -1,16 +1,22 @@
 <h1>ExpertPdf vs IronPDF in C#: Which PDF Library Should Your Team Choose?</h1>
 
-<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+<p>Performance bottlenecks in PDF generation typically manifest as invisible costs -- until they don't. The pattern usually looks like this in code:</p>
 
-<p>Performance bottlenecks in PDF generation typically manifest as invisible costs -- until they don't. A .NET team integrating ExpertPdf for invoice generation might process 100 invoices per hour comfortably, and then six months later -- with the client count up by 5x -- find that same workflow taking hours instead of minutes. No error messages, no failures, just linear single-threaded scaling that does not match the workload's growth curve.</p>
+<pre><code>foreach (var invoice in invoices)
+{
+    var bytes = converter.GetPdfBytesFromHtmlString(invoice.Html);
+    File.WriteAllBytes($"{invoice.Id}.pdf", bytes);
+}</code></pre>
+
+<p>That loop is fine at low volumes and degrades linearly as the workload grows. There are no error messages and no failures, just a single-threaded code path that does not scale with the workload's growth curve.</p>
 
 <p>The question for .NET teams isn't "which library is fastest" but rather "what performance characteristics matter for my workload?" Throughput for batch jobs differs from latency for real-time API responses. Memory footprint matters differently in serverless functions than in long-running services. Understanding these characteristics drives practical tool selection.</p>
 
 <h2>What Is ExpertPdf?</h2>
 
-<p>ExpertPdf is an HTML-to-PDF converter with separate toolkit components for different PDF operations. It uses a Chromium-based rendering engine and supports .NET Framework, .NET Core, and modern .NET via .NET Standard 2.0 targeting. Platform support is Windows-focused -- verify the current version's runtime support against vendor documentation.</p>
+<p>ExpertPdf, published by Outside Software Inc., is an HTML-to-PDF converter with separate toolkit components for different PDF operations. The HTML-to-PDF converter ships two rendering engines: a long-standing Trident (Internet Explorer) engine and a "WebKit2" engine added in v12.2. The .NET Core builds target .NET Standard 2.0 / .NET Framework 4.6.1, so they run on .NET 5 through .NET 9 in compatibility mode rather than as native multi-target assemblies. Platform support is Windows-focused; Linux is not advertised as a supported runtime.</p>
 
-<p>Installation involves multiple NuGet packages -- the entry point is <code>ExpertPdf.HtmlToPdf</code>, with additional packages such as <code>ExpertPdf.PDFMerge</code>, <code>ExpertPdf.PDFSplit</code>, <code>ExpertPdf.PDFSecurity</code>, and <code>ExpertPdf.PdfToImage</code> for the corresponding operations. Components are sold separately, so teams needing HTML conversion, merging, splitting, text extraction, and security operations license each component individually and coordinate versioning across multiple NuGet packages.</p>
+<p>Installation involves multiple NuGet packages. The HTML-to-PDF converter is published as <code>ExpertPdfHtmlToPdf</code> for .NET Framework and <code>ExpertPdf.HtmlToPdf.NetCore</code> for modern .NET, with separate packages such as <code>ExpertPdf.MergePdf</code>, <code>ExpertPdf.SplitPdf</code>, <code>ExpertPdf.PdfSecurity</code>, <code>ExpertPdf.PdfToImage</code>, and <code>ExpertPdf.PdfCreator</code> for the corresponding operations. Components are licensed individually, so teams needing HTML conversion, merging, splitting, rasterization, and security each pull a separate package and coordinate versioning across them.</p>
 
 <h2>What Is IronPDF?</h2>
 
@@ -22,7 +28,9 @@
 
 <p>The differences fall into several key areas. ExpertPdf is Windows-focused per its documentation, and Linux is not advertised as a supported runtime -- this typically limits deployment options for teams using Linux containers, Azure App Service Linux plans, or AWS Lambda on non-Windows runtimes. IronPDF runs cross-platform on Windows, Linux, and macOS.</p>
 
-<p>ExpertPdf sells separate components for different operations -- <code>ExpertPdf.HtmlToPdf</code>, <code>ExpertPdf.PDFMerge</code>, <code>ExpertPdf.PDFSplit</code>, <code>ExpertPdf.PDFSecurity</code>, and <code>ExpertPdf.PdfToImage</code>. Teams needing multiple operations license each component separately. IronPDF ships as a single NuGet package with all features included.</p>
+<p>Rendering engines also differ. ExpertPdf's HTML-to-PDF converter exposes a Trident (IE) engine and a "WebKit2" engine added in v12.2; CSS3 features such as Flexbox, Grid, and CSS variables render best on the WebKit2 engine. IronPDF wraps a current Chromium build, which is the same engine class as Chrome and Edge.</p>
+
+<p>ExpertPdf sells separate components for different operations -- <code>ExpertPdfHtmlToPdf</code> / <code>ExpertPdf.HtmlToPdf.NetCore</code>, <code>ExpertPdf.MergePdf</code>, <code>ExpertPdf.SplitPdf</code>, <code>ExpertPdf.PdfSecurity</code>, <code>ExpertPdf.PdfToImage</code>, and <code>ExpertPdf.PdfCreator</code>. Teams needing multiple operations license each component separately. IronPDF ships as a single NuGet package with all features included.</p>
 
 <p>On thread safety, IronPDF's <code>ChromePdfRenderer</code> is documented as safe for concurrent use, allowing parallel calls from multiple threads without locking or separate instances. ExpertPdf's thread safety guarantees should be verified against its current documentation -- some .NET PDF libraries require locking or separate instances per thread, which impacts throughput in multi-threaded scenarios.</p>
 
@@ -100,7 +108,7 @@ pdf.SaveAs("simple.pdf");
 
 stopwatch.Stop();
 Console.WriteLine($"Conversion time: {stopwatch.ElapsedMilliseconds}ms");
-Console.WriteLine($"PDF size: {new FileInfo(\"simple.pdf\").Length / 1024}KB");</code></pre>
+Console.WriteLine($"PDF size: {new FileInfo("simple.pdf").Length / 1024}KB");</code></pre>
 
 <p>For async operations with better concurrency characteristics, see the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML String to PDF guide</a> which covers <code>RenderHtmlAsPdfAsync</code> patterns.</p>
 
@@ -278,7 +286,7 @@ namespace ConcurrentProcessing
 
         static void ProcessBatch(int threadId, int count, ConcurrentBag&lt;TimeSpan&gt; results)
         {
-            // Separate converter instance per thread
+            // One converter per thread (verify ExpertPdf's thread-safety model for your version)
             PdfConverter converter = new PdfConverter();
 
             for (int i = 0; i &lt; count; i++)
@@ -317,7 +325,7 @@ var concurrencyLevel = 4;
 var documentsPerThread = 10;
 var stopwatch = Stopwatch.StartNew();
 
-var renderer = new ChromePdfRenderer(); // Documented as safe to share across threads
+var renderer = new ChromePdfRenderer(); // Reused across worker tasks
 
 var tasks = Enumerable.Range(0, concurrencyLevel)
     .Select(threadId =&gt; Task.Run(async () =&gt;
@@ -351,9 +359,9 @@ Console.WriteLine($"Throughput: {totalDocs / (stopwatch.ElapsedMilliseconds / 10
 
 <p>ExpertPdf sells separate components for merging, splitting, text extraction, and security operations. Each requires its own NuGet package and license. IronPDF includes all of these as built-in features in a single package.</p>
 
-<p>For merging PDFs, IronPDF provides a built-in static API on <code>PdfDocument.Merge()</code>. The <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Merge PDFs guide</a> covers combining documents, splitting, and extracting pages. ExpertPdf requires the separate <code>ExpertPdf.PDFMerge</code> and <code>ExpertPdf.PDFSplit</code> packages.</p>
+<p>For merging PDFs, IronPDF provides a built-in static API on <code>PdfDocument.Merge()</code>. The <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Merge PDFs guide</a> covers combining documents, splitting, and extracting pages. ExpertPdf requires the separate <code>ExpertPdf.MergePdf</code> and <code>ExpertPdf.SplitPdf</code> packages.</p>
 
-<p>On security, IronPDF supports 128/256-bit AES password encryption, granular user permissions, built-in X.509 digital signatures, and permanent redaction. ExpertPdf offers password encryption, user permissions, and digital signatures through its <code>ExpertPdf.PDFSecurity</code> component. Redaction support availability should be verified in ExpertPdf's documentation.</p>
+<p>On security, IronPDF supports 128/256-bit AES password encryption, granular user permissions, built-in X.509 digital signatures, and permanent redaction. ExpertPdf offers password encryption, user permissions, and digital signatures through its <code>ExpertPdf.PdfSecurity</code> component. Redaction support availability should be verified in ExpertPdf's documentation.</p>
 
 <p>Both libraries support form filling -- IronPDF handles AcroForm fields, and ExpertPdf provides form support as well. For a complete walkthrough of PDF editing operations, see the <a href="https://ironpdf.com/tutorials/csharp-edit-pdf-complete-tutorial/">Edit PDF Documents tutorial</a>.</p>
 
@@ -361,18 +369,20 @@ Console.WriteLine($"Throughput: {totalDocs / (stopwatch.ElapsedMilliseconds / 10
 
 <h3>ExpertPdf Installation</h3>
 
-<pre><code># Base HTML-to-PDF converter
-Install-Package ExpertPdf.HtmlToPdf
+<pre><code># Base HTML-to-PDF converter (pick one based on your target)
+Install-Package ExpertPdfHtmlToPdf            # .NET Framework
+Install-Package ExpertPdf.HtmlToPdf.NetCore   # .NET Core / .NET 5-9
 
 # Additional components require separate packages
-Install-Package ExpertPdf.PDFMerge
-Install-Package ExpertPdf.PDFSplit
-Install-Package ExpertPdf.PDFSecurity
+Install-Package ExpertPdf.MergePdf
+Install-Package ExpertPdf.SplitPdf
+Install-Package ExpertPdf.PdfSecurity
 Install-Package ExpertPdf.PdfToImage
+Install-Package ExpertPdf.PdfCreator
 # etc.</code></pre>
 
 <pre><code>using ExpertPdf.HtmlToPdf;
-using ExpertPdf.PDFMerge; // If using merge features</code></pre>
+using ExpertPdf.MergePdf; // If using merge features</code></pre>
 
 <p>ExpertPdf requires multiple NuGet packages depending on the operations you need. Each component is licensed separately, and you must coordinate versioning across packages.</p>
 
@@ -402,7 +412,7 @@ using IronPdf.Rendering;</code></pre>
 <h3>Content Creation</h3>
 
 <ul>
-<li><strong>HTML5 and CSS3.</strong> Both engines render HTML5 with broad CSS3 support; the exact CSS feature parity depends on the embedded Chromium build version of each library.</li>
+<li><strong>HTML5 and CSS3.</strong> ExpertPdf renders via Trident (IE) or "WebKit2" depending on configuration; modern CSS3 features such as Flexbox, Grid, and variables render best on WebKit2. IronPDF renders via current Chromium.</li>
 <li><strong>JavaScript execution.</strong> Both libraries execute JavaScript during rendering.</li>
 <li><strong>Web fonts.</strong> Both support web fonts; IronPDF documents Google Fonts and custom <code>@font-face</code> sources.</li>
 <li><strong>SVG and Canvas.</strong> Native rendering in both engines.</li>
@@ -412,7 +422,7 @@ using IronPdf.Rendering;</code></pre>
 <h3>PDF Operations</h3>
 
 <ul>
-<li><strong>Merging and splitting.</strong> ExpertPdf provides these via the separate <code>ExpertPdf.PDFMerge</code> and <code>ExpertPdf.PDFSplit</code> packages; IronPDF ships <code>PdfDocument.Merge()</code> and split operations in the main package.</li>
+<li><strong>Merging and splitting.</strong> ExpertPdf provides these via the separate <code>ExpertPdf.MergePdf</code> and <code>ExpertPdf.SplitPdf</code> packages; IronPDF ships <code>PdfDocument.Merge()</code> and split operations in the main package.</li>
 <li><strong>Page extraction and rotation.</strong> Both libraries support extracting and rotating pages.</li>
 <li><strong>Text and image extraction.</strong> ExpertPdf surfaces these through separate components; IronPDF includes them in the main package.</li>
 <li><strong>Form filling.</strong> Both support form filling; IronPDF documents AcroForm field handling.</li>
@@ -424,7 +434,7 @@ using IronPdf.Rendering;</code></pre>
 <ul>
 <li><strong>Password encryption.</strong> Both libraries support user/owner password encryption; IronPDF documents 128/256-bit AES.</li>
 <li><strong>User permissions.</strong> Both expose granular print, copy, edit, and form-fill permissions.</li>
-<li><strong>Digital signatures.</strong> ExpertPdf provides signing through its separate <code>ExpertPdf.PDFSecurity</code> component; IronPDF includes X.509 signing in the main package.</li>
+<li><strong>Digital signatures.</strong> ExpertPdf provides signing through its separate <code>ExpertPdf.PdfSecurity</code> component; IronPDF includes X.509 signing in the main package.</li>
 <li><strong>Redaction.</strong> IronPDF supports permanent redaction. Verify ExpertPdf's redaction support against current documentation.</li>
 <li><strong>Metadata.</strong> Both libraries read and write standard PDF metadata.</li>
 </ul>
@@ -441,7 +451,7 @@ using IronPdf.Rendering;</code></pre>
 <h3>Development</h3>
 
 <ul>
-<li><strong>NuGet installation.</strong> ExpertPdf splits functionality across multiple packages (<code>HtmlToPdf</code>, <code>PDFMerge</code>, <code>PDFSplit</code>, <code>PDFSecurity</code>, <code>PdfToImage</code>); IronPDF ships as a single <code>IronPdf</code> package.</li>
+<li><strong>NuGet installation.</strong> ExpertPdf splits functionality across multiple packages (<code>ExpertPdfHtmlToPdf</code> / <code>ExpertPdf.HtmlToPdf.NetCore</code>, <code>MergePdf</code>, <code>SplitPdf</code>, <code>PdfSecurity</code>, <code>PdfToImage</code>, <code>PdfCreator</code>); IronPDF ships as a single <code>IronPdf</code> package.</li>
 <li><strong>External dependencies.</strong> ExpertPdf's runtime prerequisites should be verified per component; IronPDF bundles its native rendering binaries with the package.</li>
 <li><strong>Licensing.</strong> ExpertPdf licenses each component separately; IronPDF's license covers all features in the package.</li>
 <li><strong>Error reporting and testing.</strong> Both libraries throw .NET exceptions and are usable from unit tests.</li>
@@ -470,7 +480,7 @@ using IronPdf.Rendering;</code></pre>
 
 <h3>Can I use a single ExpertPdf package for all PDF operations?</h3>
 
-<p>No. ExpertPdf sells separate components for different operations -- <code>ExpertPdf.HtmlToPdf</code>, <code>ExpertPdf.PDFMerge</code>, <code>ExpertPdf.PDFSplit</code>, <code>ExpertPdf.PDFSecurity</code>, and <code>ExpertPdf.PdfToImage</code>. Teams needing multiple operations license each component separately and coordinate versioning across multiple NuGet packages. IronPDF ships everything in a single package.</p>
+<p>No. ExpertPdf sells separate components for different operations -- <code>ExpertPdfHtmlToPdf</code> / <code>ExpertPdf.HtmlToPdf.NetCore</code>, <code>ExpertPdf.MergePdf</code>, <code>ExpertPdf.SplitPdf</code>, <code>ExpertPdf.PdfSecurity</code>, <code>ExpertPdf.PdfToImage</code>, and <code>ExpertPdf.PdfCreator</code>. Teams needing multiple operations license each component separately and coordinate versioning across multiple NuGet packages. IronPDF ships everything in a single package.</p>
 
 <h3>Is IronPDF's ChromePdfRenderer thread-safe?</h3>
 
@@ -482,7 +492,7 @@ using IronPdf.Rendering;</code></pre>
 
 <h3>What rendering engine does each library use?</h3>
 
-<p>Both ExpertPdf and IronPDF use Chromium-based rendering engines. This means both support HTML5, CSS3, JavaScript execution, web fonts, SVG, canvas rendering, responsive layouts, and print CSS via @media print.</p>
+<p>ExpertPdf's HTML-to-PDF converter ships two engines: a Trident (Internet Explorer) engine and a "WebKit2" engine added in v12.2. CSS3 features such as Flexbox, Grid, and CSS variables render best on the WebKit2 engine. IronPDF wraps a current Chromium build, the same engine class as Chrome and Edge. Both support JavaScript execution, web fonts, SVG, canvas rendering, responsive layouts, and print CSS via <code>@media print</code>; concrete CSS feature parity depends on the embedded engine version.</p>
 
 <h3>How do support options compare between ExpertPdf and IronPDF?</h3>
 
@@ -504,3 +514,5 @@ using IronPdf.Rendering;</code></pre>
 await pdf.SaveAsAsync(Response.Body); // ASP.NET Core</code></pre>
 
 <p>For detailed performance optimization guidance, see the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> which covers caching strategies, memory management, and load testing methodologies.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

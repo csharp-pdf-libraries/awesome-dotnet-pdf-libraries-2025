@@ -2,17 +2,17 @@
 
 <p>A pattern I have seen with warehouse and logistics teams: a developer searches NuGet for ".NET PDF printing" and finds both raw-printing helpers and IronPDF in the results. The two libraries sit at completely different layers of the stack, and the search terms overlap enough that it is easy to install the wrong one for the job at hand. Raw printing utilities push bytes — PostScript, PCL, ZPL, ESC/POS — straight to a physical printer's spool queue. IronPDF generates a PDF document from HTML, CSS, and JavaScript. They are architectural complements, not substitutes.</p>
 
-<p>The "RawPrint" approach in C# typically uses the Windows printer spooler via P/Invoke (<code>winspool.Drv</code> with <code>OpenPrinter</code>, <code>StartDocPrinter</code>, <code>WritePrinter</code>) — a small helper class commonly named <code>RawPrinterHelper.SendBytesToPrinter</code>. <a href="https://ironpdf.com">IronPDF</a> is a cross-platform PDF generation library that converts HTML/CSS/JavaScript into PDF documents using an embedded Chromium engine, and exposes <code>pdf.Print()</code> for sending the rendered document to a printer through the OS print pipeline. This comparison clarifies which layer each tool occupies and when teams should reach for one, the other, or both together.</p>
+<p>The <code>RawPrint</code> NuGet package (frogmorecs/RawPrint) is a thin .NET wrapper that ships byte streams to the Windows print spooler with the RAW datatype. Its public API is a single <code>Printer</code> class (implementing <code>IPrinter</code>) in the <code>RawPrint</code> namespace, exposing <code>PrintRawFile</code> and <code>PrintRawStream</code> overloads — internally it P/Invokes into <code>winspool.Drv</code>. <a href="https://ironpdf.com">IronPDF</a> is a cross-platform PDF generation library that converts HTML/CSS/JavaScript into PDF documents using an embedded Chromium engine, and exposes <code>pdf.Print()</code> for sending the rendered document to a printer through the OS print pipeline. This comparison clarifies which layer each tool occupies and when teams should reach for one, the other, or both together.</p>
 
 <h2>What Is RawPrint?</h2>
 
-<p>"Raw printing" in C# usually refers to a small P/Invoke helper class (commonly <code>RawPrinterHelper</code>) that wraps the Windows <code>winspool.Drv</code> spooler API. It sends raw bytes directly to a Windows printer queue, bypassing the printer driver's rendering and the Windows print subsystem. It is designed for scenarios where you have pre-formatted print data — typically PostScript (<code>.ps</code>), Printer Command Language (<code>.pcl</code>), Zebra Programming Language (<code>.zpl</code>), or ESC/POS for receipt printers — and need to send it to the device verbatim. Several NuGet packages package this same pattern (for example <code>RawPrint</code> and <code>RawPrint.NetStd</code>), but the underlying technique is a thin wrapper over <code>OpenPrinter</code> / <code>StartDocPrinter</code> / <code>WritePrinter</code>.</p>
+<p>RawPrint is a small .NET package (frogmorecs/RawPrint on GitHub, NuGet ID <code>RawPrint</code>) that wraps the Windows <code>winspool.Drv</code> spooler API behind a single public class — <code>Printer : IPrinter</code> in the <code>RawPrint</code> namespace. It sends raw bytes directly to a Windows printer queue with the RAW datatype, bypassing the printer driver's rendering. It is designed for scenarios where you have pre-formatted print data — typically PostScript (<code>.ps</code>), Printer Command Language (<code>.pcl</code>), Zebra Programming Language (<code>.zpl</code>), or ESC/POS for receipt printers — and need to send it to the device verbatim. The public surface is just two methods (<code>PrintRawFile</code> and <code>PrintRawStream</code>, each with a couple of overloads) plus an <code>OnJobCreated</code> event; the underlying spooler calls (<code>OpenPrinter</code>, <code>StartDocPrinter</code>, <code>WritePrinter</code>, <code>EndDocPrinter</code>, <code>ClosePrinter</code>) are internal P/Invoke targets, not part of RawPrint's public API. A community fork, <code>RawPrint.NetStd</code>, packages the same pattern for .NET Standard.</p>
 
 <p>What raw printing does: sends raw files or byte streams to Windows printer queues, bypasses the Windows printer driver subsystem, and works with specialized printers that expect raw print languages (label printers, receipt printers, industrial devices). It does not parse, render, or generate any content — it requires pre-formatted print data as input.</p>
 
 <p>What raw printing does not do: generate PDFs, parse or render HTML, create print content from data, run on Linux or macOS in this form (the spooler P/Invoke is Windows-only), or convert formats (HTML to PDF, PDF to PCL, etc.).</p>
 
-<p><strong>Maintenance status:</strong> The popular community NuGet packages around this pattern have not received frequent updates in recent years. The technique itself, however, is essentially a stable wrapper over a long-lived Win32 API — most teams either copy the helper class into their project directly or pin to an older package version. Treat it as low-level plumbing rather than a maintained framework.</p>
+<p><strong>Maintenance status:</strong> The <code>RawPrint</code> NuGet package's last release is 0.5.0 (September 2019), and the package is now unlisted on nuget.org as legacy. The technique itself, however, is a stable wrapper over a long-lived Win32 API — most teams either pin to the existing version or copy the helper into their project directly. Treat it as low-level plumbing rather than a maintained framework.</p>
 
 <h2>What Is IronPDF?</h2>
 
@@ -32,13 +32,13 @@
 
 <p><strong>Windows-only in this form:</strong> The <code>winspool.Drv</code> P/Invoke pattern targets the Windows printer spooler. Linux and macOS need a different approach (CUPS, IPP, or a TCP socket directly to the printer's RAW port 9100).</p>
 
-<p><strong>Older .NET targets:</strong> The community packages typically target .NET Framework 4.0 / .NET Standard 2.0. The same P/Invoke pattern works on .NET 5+, but the packages themselves were not updated to take advantage of newer language features or async patterns.</p>
+<p><strong>Older .NET targets:</strong> The <code>RawPrint</code> 0.5.0 package targets .NET Framework 4.0; the community <code>RawPrint.NetStd</code> fork repackages the same pattern for .NET Standard. The underlying P/Invoke pattern still compiles on .NET 5+, but the original package itself was not modernized for newer language features or async patterns.</p>
 
-<p><strong>Minimal error reporting:</strong> The Win32 spooler API returns boolean success and a Win32 error code via <code>SetLastError</code>. Wrappers that ignore <code>Marshal.GetLastWin32Error()</code> can fail without surfacing actionable detail to the caller.</p>
+<p><strong>Minimal error reporting:</strong> The Win32 spooler API returns boolean success and a Win32 error code via <code>SetLastError</code>. RawPrint translates spooler failures into thrown <code>Win32Exception</code>s, but the diagnostic information available is limited to whatever the spooler API surfaces.</p>
 
-<p><strong>No print job management:</strong> The basic helper does not query job status, cancel jobs, or react to printer-offline conditions. Those require additional spooler API calls (<code>EnumJobs</code>, <code>SetJob</code>) that the standard sample does not include.</p>
+<p><strong>Limited print job management:</strong> RawPrint exposes an <code>OnJobCreated</code> event that fires when the spooler accepts a new job, which is enough to capture the job ID. Querying status, cancelling jobs, or reacting to printer-offline conditions still requires additional spooler API calls (<code>EnumJobs</code>, <code>SetJob</code>) that RawPrint itself does not wrap.</p>
 
-<p><strong>Community packaging, not vendor-supported:</strong> The popular NuGet packages are community projects. There is no commercial support contract behind them — typical for low-level OS-interop helpers. Many teams copy the class into their own codebase instead.</p>
+<p><strong>Community packaging, not vendor-supported:</strong> RawPrint is a community project (frogmorecs / Frogmore Computer Services Ltd). There is no commercial support contract behind it — typical for low-level OS-interop helpers — and the package is now unlisted on nuget.org. Many teams copy the class into their own codebase instead of taking a dependency.</p>
 
 <p><strong>Scope is the point, not a flaw:</strong> Raw printing exists to push verbatim bytes to a device. It is not a document generation library, not a format converter, and not a PDF toolkit. When a workflow needs HTML-to-PDF, raw printing is simply the wrong layer of the stack — pair it with a renderer like IronPDF rather than substitute one for the other.</p>
 
@@ -46,16 +46,13 @@
 
 <h3>Raw Printing — Send Pre-formatted Bytes to a Printer</h3>
 
-<p>The raw-printing technique sends bytes directly to a Windows printer queue via the <code>winspool.Drv</code> spooler API. A typical helper class exposes a <code>SendBytesToPrinter</code> method:</p>
+<p>RawPrint sends bytes directly to a Windows printer queue via the <code>winspool.Drv</code> spooler API. The public surface is the <code>Printer</code> class with <code>PrintRawFile</code> and <code>PrintRawStream</code> methods:</p>
 
-<pre><code>// NuGet: Install-Package System.Drawing.Common
+<pre><code>// NuGet: Install-Package RawPrint
 using System;
 using System.IO;
-using System.Runtime.InteropServices;
+using RawPrint;
 
-// RawPrinterHelper wraps OpenPrinter / StartDocPrinter / WritePrinter
-// (P/Invoke into winspool.Drv). See the rawprint sample in this repo
-// for the full helper class definition.
 public class RawPrintExample
 {
     public static void SendFileDirectlyToPrinter()
@@ -64,14 +61,15 @@ public class RawPrintExample
         string printerName = &quot;Zebra ZT230&quot;;
         string filePath = @&quot;C:\print-files\label.zpl&quot;;
 
-        byte[] data = File.ReadAllBytes(filePath);
+        // PrintRawFile streams the file bytes to the spooler with the RAW datatype.
+        // Signature: PrintRawFile(string printer, string path, bool paused)
+        IPrinter printer = new Printer();
+        printer.OnJobCreated += (sender, e) =&gt;
+            Console.WriteLine($&quot;Spooler accepted job {e.JobId} for {printerName}&quot;);
 
-        // Send the bytes verbatim to the printer queue
-        bool ok = RawPrinterHelper.SendBytesToPrinter(printerName, data);
+        printer.PrintRawFile(printerName, filePath, paused: false);
 
-        Console.WriteLine(ok
-            ? $&quot;Sent {Path.GetFileName(filePath)} to {printerName}&quot;
-            : &quot;OpenPrinter failed&quot;);
+        Console.WriteLine($&quot;Sent {Path.GetFileName(filePath)} to {printerName}&quot;);
     }
 }
 
@@ -79,7 +77,7 @@ public class RawPrintExample
 RawPrintExample.SendFileDirectlyToPrinter();
 </code></pre>
 
-<p><strong>Constraints to keep in mind:</strong> The input bytes must already be in a language the printer understands — the helper does not generate <code>.zpl</code>, <code>.pcl</code>, or <code>.ps</code>. Sending ZPL to a regular office laser printer is unlikely to produce useful output. The technique uses the Windows spooler, so it runs on Windows hosts. The basic helper does not verify that the printer is online or that the job was processed; pair it with <code>EnumJobs</code> / <code>GetJob</code> if you need that. And the path never touches PDF — there is no rendered document to inspect.</p>
+<p><strong>Constraints to keep in mind:</strong> The input bytes must already be in a language the printer understands — RawPrint does not generate <code>.zpl</code>, <code>.pcl</code>, or <code>.ps</code>. Sending ZPL to a regular office laser printer is unlikely to produce useful output. The technique uses the Windows spooler, so it runs on Windows hosts. <code>OnJobCreated</code> confirms that the spooler accepted the job, but downstream status (printer offline, paper out, job cancelled) requires additional <code>EnumJobs</code> / <code>GetJob</code> calls that sit outside RawPrint's API. And the path never touches PDF — there is no rendered document to inspect.</p>
 
 <p><strong>Performance notes:</strong> Spooler call overhead is small (a single Win32 call plus the byte copy); end-to-end print time is dominated by the printer hardware itself (label printers commonly run 2–6 inches/sec, receipt printers 50–200 mm/sec — verify against your specific device's datasheet).</p>
 
@@ -257,9 +255,9 @@ public IActionResult ExportReport()
   <li><strong>Primary purpose.</strong> Raw printing pushes pre-formatted bytes to a Windows printer queue; IronPDF generates PDF documents from HTML/CSS/JavaScript and can also print the result via <code>pdf.Print()</code>.</li>
   <li><strong>Content creation.</strong> Raw printing does not render anything — input must already be in PostScript, PCL, ZPL, or ESC/POS. IronPDF uses an embedded Chromium engine to render HTML/CSS/JavaScript into PDF, and offers manipulation features such as merge, split, watermark, and digital signing.</li>
   <li><strong>Platform reach.</strong> The <code>winspool.Drv</code> raw-printing pattern targets the Windows spooler, so it does not run on Linux or macOS in this form. IronPDF runs on Windows, Linux, and macOS, including containerized and cloud (Azure, AWS) environments.</li>
-  <li><strong>.NET targets.</strong> Community raw-printing packages target .NET Framework 4.0 / .NET Standard 2.0 — the same P/Invoke pattern still compiles on .NET 5+, but the packages themselves were not modernized. IronPDF supports .NET Framework 4.6.2+, .NET Core, and current .NET 5/6/7/8 releases.</li>
-  <li><strong>Error handling.</strong> The basic raw-printing helper returns a boolean and exposes Win32 errors via <code>GetLastWin32Error()</code>; you wrap it yourself. IronPDF surfaces failures as .NET exceptions with structured messages.</li>
-  <li><strong>Maintenance and support.</strong> The community raw-printing NuGet packages have not seen frequent recent releases; the technique itself is a thin Win32 wrapper that many teams copy directly. IronPDF is a commercial product with vendor support and SLAs.</li>
+  <li><strong>.NET targets.</strong> The <code>RawPrint</code> 0.5.0 package targets .NET Framework 4.0; the <code>RawPrint.NetStd</code> fork repackages the same pattern for .NET Standard. The same P/Invoke pattern still compiles on .NET 5+, but the original package itself was not modernized. IronPDF supports .NET Framework 4.6.2+, .NET Core, and current .NET 5/6/7/8/9 releases.</li>
+  <li><strong>Error handling.</strong> RawPrint surfaces spooler failures as <code>Win32Exception</code>; the diagnostic detail is whatever the underlying spooler API exposes via <code>GetLastWin32Error()</code>. IronPDF surfaces failures as .NET exceptions with structured messages.</li>
+  <li><strong>Maintenance and support.</strong> RawPrint's last release is 0.5.0 (September 2019), and the package is now unlisted on nuget.org as legacy; the technique itself is a thin Win32 wrapper that many teams copy directly. IronPDF is a commercial product with vendor support and SLAs.</li>
   <li><strong>Layer of the stack.</strong> They are not substitutes — raw printing is the bottom layer (bytes to a device), while IronPDF is a document layer (HTML to PDF). A workflow that needs both can use them together.</li>
 </ul>
 
@@ -268,7 +266,7 @@ public IActionResult ExportReport()
 <ul>
   <li><strong>Generate PDF from HTML</strong> — not in scope for raw printing; <code>ChromePdfRenderer.RenderHtmlAsPdf()</code> in IronPDF.</li>
   <li><strong>Generate PDF from URL</strong> — not in scope for raw printing; <code>ChromePdfRenderer.RenderUrlAsPdf()</code> in IronPDF.</li>
-  <li><strong>Send raw bytes to a printer</strong> — <code>RawPrinterHelper.SendBytesToPrinter(printerName, bytes)</code> via the <code>winspool.Drv</code> P/Invoke wrapper. IronPDF does not target this layer; for high-level printing of a generated PDF, use <code>pdf.Print()</code> instead, which routes through the OS print pipeline rather than the spooler raw queue.</li>
+  <li><strong>Send raw bytes to a printer</strong> — <code>new Printer().PrintRawStream(printerName, stream, documentName, paused)</code> or <code>PrintRawFile(printerName, filePath, paused)</code> from the <code>RawPrint</code> package. IronPDF does not target this layer; for high-level printing of a generated PDF, use <code>pdf.Print()</code> instead, which routes through the OS print pipeline rather than the spooler raw queue.</li>
   <li><strong>Set page size</strong> — printer-dependent for raw printing (encoded into the PCL/PostScript/ZPL stream itself); <code>RenderingOptions.PaperSize</code> in IronPDF.</li>
   <li><strong>Merge PDFs</strong> — not in scope for raw printing; <code>PdfDocument.Merge()</code> in IronPDF.</li>
   <li><strong>Extract text from PDF</strong> — not in scope for raw printing; <code>PdfDocument.ExtractAllText()</code> in IronPDF.</li>
@@ -280,21 +278,25 @@ public IActionResult ExportReport()
 
 <h3>Raw Printing Setup</h3>
 
-<p>The Win32-spooler approach in C# does not require a dedicated NuGet package — the helper class is a P/Invoke wrapper around <code>winspool.Drv</code>. Most teams either copy <code>RawPrinterHelper</code> into their codebase directly, or pull in <code>System.Drawing.Common</code> for related printing types.</p>
+<p>RawPrint is published on NuGet (current/last version 0.5.0, released September 2019, now unlisted as legacy). Because the package is unlisted, new <code>dotnet add package</code> resolution may not pick it up by default; teams either install the existing version explicitly, use the community <code>RawPrint.NetStd</code> fork, or copy the helper class into their codebase directly.</p>
 
-<pre><code># Optional, for adjacent System.Drawing.Printing types
-dotnet add package System.Drawing.Common
+<pre><code># Install the original RawPrint package (legacy, unlisted)
+dotnet add package RawPrint --version 0.5.0
 
-# Community packages that wrap the same pattern also exist on NuGet,
-# e.g. RawPrint or RawPrint.NetStd. Versions vary by release date.
+# Or the community fork for .NET Standard targets
+dotnet add package RawPrint.NetStd
 </code></pre>
 
-<pre><code>// Using the RawPrinterHelper class shown in the code samples above
+<pre><code>using RawPrint;
+
 byte[] data = System.IO.File.ReadAllBytes(@&quot;C:\path\to\file.zpl&quot;);
-RawPrinterHelper.SendBytesToPrinter(&quot;PrinterName&quot;, data);
+using var stream = new System.IO.MemoryStream(data);
+
+IPrinter printer = new Printer();
+printer.PrintRawStream(&quot;PrinterName&quot;, stream, &quot;Label&quot;, paused: false);
 </code></pre>
 
-<p><strong>Constraints to note:</strong> Windows-only in this form (uses the Windows printer spooler API). The basic helper is synchronous; async behavior must be added by the caller. Errors come back as a boolean plus <code>Marshal.GetLastWin32Error()</code>, so wrap it for production with the diagnostics you need.</p>
+<p><strong>Constraints to note:</strong> Windows-only (uses the Windows printer spooler API). The API is synchronous; async behavior must be wrapped by the caller. Spooler failures surface as <code>Win32Exception</code>, so wrap with the diagnostics your environment needs.</p>
 
 <h3>IronPDF Installation</h3>
 
@@ -327,9 +329,9 @@ pdf.SaveAs(&quot;output.pdf&quot;);
 
 <p>Yes — IronPDF exposes <code>pdf.Print()</code> to send a generated <code>PdfDocument</code> to a printer through the OS print pipeline. That is a different layer from raw spooler bytes: <code>pdf.Print()</code> hands the PDF to the print subsystem, which renders it via the printer driver, while raw printing bypasses the driver and sends device-specific commands directly. For PDFs to standard office printers, <code>pdf.Print()</code> is usually the right call; for ZPL or ESC/POS to label and receipt printers, raw printing is the appropriate layer.</p>
 
-<h3>Is the raw-printing technique still maintained?</h3>
+<h3>Is RawPrint still maintained?</h3>
 
-<p>The community NuGet packages built around this pattern have not seen frequent recent updates. The technique itself, however, is a thin wrapper over a stable Win32 API (<code>winspool.Drv</code>) that has not changed in years — most production codebases either pin to an older package or include the helper class inline.</p>
+<p>The <code>RawPrint</code> NuGet package's last release is 0.5.0 from September 2019, and the package is now unlisted on nuget.org as legacy. The community fork <code>RawPrint.NetStd</code> repackages the same pattern for .NET Standard. The technique itself is a thin wrapper over a stable Win32 API (<code>winspool.Drv</code>) that has not changed in years — most production codebases either pin to the existing version or include the helper class inline.</p>
 
 <h3>Does raw printing work on Linux or macOS?</h3>
 
@@ -345,6 +347,6 @@ pdf.SaveAs(&quot;output.pdf&quot;);
 
 <p>IronPDF is a cross-platform PDF generation library for creating PDFs from HTML, CSS, and JavaScript. It produces documents from data, offers PDF manipulation (merge, split, watermark, sign), and runs on Windows, Linux, and macOS, with vendor support behind it.</p>
 
-<p>Teams who land on a raw-printing helper while searching for "PDF generation" are searching one layer too low — raw printing does not produce PDFs. For document generation from data, reach for IronPDF. For specialized printer control on Windows, the <code>winspool.Drv</code> P/Invoke pattern is the standard approach. Many real systems use both side by side: IronPDF for the rendered document, raw printing for the device-specific stream.</p>
+<p>Teams who land on RawPrint while searching for "PDF generation" are searching one layer too low — raw printing does not produce PDFs. For document generation from data, reach for IronPDF. For specialized printer control on Windows, RawPrint (or the same <code>winspool.Drv</code> P/Invoke pattern copied inline) is the standard approach. Many real systems use both side by side: IronPDF for the rendered document, RawPrint for the device-specific stream.</p>
 
 <p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

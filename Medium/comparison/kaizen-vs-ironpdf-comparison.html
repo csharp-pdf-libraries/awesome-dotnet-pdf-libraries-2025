@@ -1,31 +1,40 @@
 <h1>Kaizen.io vs IronPDF in C#: Which Should Your Team Choose?</h1>
 
-<p>A fintech team ships their invoice generator to production using a third-party HTML-to-PDF .NET library. Three months in, the application logs show an interesting pattern: every invoice request constructs HTML, hands it to the converter, gets bytes back, and persists them. The median p95 sits at 340ms, which is acceptable — until a finance ticket arrives asking for password-protected statements, watermarked drafts, and merged year-end packets. The library converts HTML, and that is all it does. Suddenly the team is bolting a second PDF library onto the project to handle everything past the conversion step.</p>
+<p>Two different products, two different shapes. Kaizen.io HTML-to-PDF is a self-hosted Docker container that exposes a single REST endpoint; integration from C# is hand-rolled <code>HttpClient</code> against <code>POST /html-to-pdf</code>. IronPDF is a NuGet package that runs in-process and returns a <code>PdfDocument</code>. Same broad goal — HTML in, PDF out — but the integration model, the API surface, and what you can do after conversion all diverge sharply.</p>
 
-<p>Teams I have worked with hit this pattern often: an HTML-to-PDF tool is chosen because the first requirement is HTML-to-PDF, and the second, third, and fourth requirements arrive later. I want to walk through the specific questions .NET teams ask when evaluating Kaizen.io and IronPDF, with code and facts for each scenario.</p>
+<p>Teams I have worked with hit a familiar pattern: an HTML-to-PDF tool gets chosen because the first requirement is HTML-to-PDF, and the second, third, and fourth requirements arrive later. I want to walk through the specific questions .NET teams ask when evaluating Kaizen.io and IronPDF, with code and facts for each scenario.</p>
 
 <h2>What is Kaizen.io and how does it generate PDFs?</h2>
 
-<p>Kaizen.io is a commercial .NET library focused on HTML-to-PDF conversion. It exposes a <code>HtmlToPdfConverter</code> class in the <code>Kaizen.IO</code> namespace with <code>Convert(html, options)</code> and <code>ConvertUrl(url, options)</code> methods that return raw <code>byte[]</code>. Configuration flows through a <code>ConversionOptions</code> object covering page size, orientation, margins, and HTML headers and footers via <code>HeaderOptions.HtmlContent</code> and <code>FooterOptions.HtmlContent</code>.</p>
+<p>Kaizen.io HTML-to-PDF ships as a Docker image (<code>kaizenio.azurecr.io/html-to-pdf</code>) that runs as a container exposing port 8080 with a single endpoint, <code>POST /html-to-pdf</code>. There is no official .NET SDK or NuGet package — every C# call is a hand-rolled <code>HttpClient</code> request that posts a JSON body containing an <code>html</code> field. Licensing is configured by setting the <code>KAIZEN_PDF_LICENSE</code> environment variable on the container; without it, output PDFs carry a watermark.</p>
 
-<p>You should verify current release cadence, security update policy, and long-term support commitments before production deployment. Support availability and SLA terms are worth confirming directly with the vendor.</p>
+<p>The v1.x JSON body accepts only the <code>html</code> field. URL input, custom stylesheets, headers and footers, page-size, margins, orientation, and JavaScript wait conditions are listed as roadmap items rather than shipping features on the <a href="https://www.kaizen.io/products/html-to-pdf/">product page</a>. Anything beyond rendering a string of HTML therefore has to be expressed inside the HTML itself, typically through <code>@page</code> CSS and absolutely-positioned divs.</p>
 
-<p>Typical usage looks like this:</p>
+<p>Typical usage from C# looks like this:</p>
 
-<pre><code>using Kaizen.IO;
-using System.IO;
+<pre><code>using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 
-var converter = new HtmlToPdfConverter();
-var html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello World&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
-var pdfBytes = converter.Convert(html);
+// Container must be running on localhost:8080
+//   docker run -d -p 8080:8080 -e KAIZEN_PDF_LICENSE=... \
+//     kaizenio.azurecr.io/html-to-pdf:latest
+
+using var http = new HttpClient();
+var payload = JsonSerializer.Serialize(new { html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello World&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;" });
+var content = new StringContent(payload, Encoding.UTF8, "application/json");
+var response = await http.PostAsync("http://localhost:8080/html-to-pdf", content);
+response.EnsureSuccessStatusCode();
+var pdfBytes = await response.Content.ReadAsByteArrayAsync();
 File.WriteAllBytes("output.pdf", pdfBytes);
 </code></pre>
 
 <h2>How does IronPDF differ from Kaizen.io architecturally?</h2>
 
-<p><a href="https://ironpdf.com/examples/using-html-to-create-a-pdf/">IronPDF</a> is a native .NET library that embeds a Chromium rendering engine and returns a rich <code>PdfDocument</code> object instead of raw bytes. That object is the entry point to merging, splitting, watermarking, encrypting, signing, form filling, and text extraction — all in the same library. Kaizen.io is scoped to the conversion step; IronPDF covers the conversion step plus the operations that typically follow it.</p>
+<p><a href="https://ironpdf.com/examples/using-html-to-create-a-pdf/">IronPDF</a> is a native .NET library installed via the <code>IronPdf</code> NuGet package. It embeds a Chromium rendering engine in-process and returns a rich <code>PdfDocument</code> object instead of raw HTTP bytes. That object is the entry point to merging, splitting, watermarking, encrypting, signing, form filling, and text extraction — all in the same library. Kaizen.io is scoped to the conversion step, fronted by a container; IronPDF covers the conversion step plus the operations that typically follow it, in-process.</p>
 
-<p>For .NET applications, this difference shows up the moment a second PDF requirement arrives. With Kaizen.io, raw bytes need to be handed off to another PDF library for any post-conversion work. With IronPDF, the result of <code>RenderHtmlAsPdf</code> is already a manipulable document.</p>
+<p>For .NET applications, the architectural difference shows up in two places. First, no container: there is no sidecar to operate, no port to manage, no HTTP round-trip on every PDF. Second, no second library: when Kaizen returns raw bytes, any post-conversion work needs another PDF library that accepts byte arrays. With IronPDF, the result of <code>RenderHtmlAsPdf</code> is already a manipulable document.</p>
 
 <p>Installation is a single NuGet command:</p>
 
@@ -35,30 +44,36 @@ File.WriteAllBytes("output.pdf", pdfBytes);
 <pre><code>using IronPdf;
 </code></pre>
 
-<p>That difference — conversion-only API surface versus a full PDF document model — drives every other comparison point below.</p>
+<p>That difference — out-of-process REST endpoint versus in-process .NET library with a full PDF document model — drives every other comparison point below.</p>
 
 <h2>How does HTML-to-PDF conversion compare between Kaizen.io and IronPDF?</h2>
 
-<p>Both tools render HTML and produce a PDF. The difference is in the return shape and what you can do with it next.</p>
+<p>Both tools render HTML and produce a PDF. The difference is in the integration shape and what you can do with the result.</p>
 
 <h3>Kaizen.io — HTML String to PDF</h3>
 
-<pre><code>using Kaizen.IO;
-using System.IO;
+<pre><code>using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        var html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello World&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
-        var pdfBytes = converter.Convert(html);
+        using var http = new HttpClient();
+        var payload = JsonSerializer.Serialize(new { html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello World&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;" });
+        var content = new StringContent(payload, Encoding.UTF8, "application/json");
+        var response = await http.PostAsync("http://localhost:8080/html-to-pdf", content);
+        response.EnsureSuccessStatusCode();
+        var pdfBytes = await response.Content.ReadAsByteArrayAsync();
         File.WriteAllBytes("output.pdf", pdfBytes);
     }
 }
 </code></pre>
 
-<p>The call returns a <code>byte[]</code>. To save, you write the bytes to disk yourself. To do anything else with the PDF — merge, encrypt, watermark — you need a separate library that accepts byte arrays.</p>
+<p>The call returns raw bytes via HTTP. To save, you write the bytes to disk yourself. To do anything else with the PDF — merge, encrypt, watermark — you need a separate library that accepts byte arrays.</p>
 
 <h3>IronPDF — HTML String to PDF</h3>
 
@@ -76,32 +91,48 @@ pdf.SaveAs("output.pdf");
 
 <h2>How do URL rendering and headers/footers compare?</h2>
 
-<p>URL-to-PDF and headers/footers are first-class in both libraries, but the placeholder syntax differs and IronPDF additionally exposes a typed text-based header/footer model alongside HTML fragments.</p>
+<p>This is where the v1.x API gap shows up. URL-to-PDF and header/footer fields are roadmap items in Kaizen.io, not shipping features, so the typical workaround is to fetch the page from C#, then bake fake header and footer divs into the HTML using fixed-position CSS before posting. Page-number placeholders like <code>{page}</code> and <code>{total}</code> are not supported by the API at all. IronPDF exposes URL rendering as a first-class method, real header and footer zones, and resolves <code>{page}</code> / <code>{total-pages}</code> placeholders at render time.</p>
 
-<h3>Kaizen.io — URL to PDF with headers and footers</h3>
+<h3>Kaizen.io — URL to PDF with simulated headers and footers</h3>
 
-<pre><code>using Kaizen.IO;
-using System.IO;
+<pre><code>using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        var options = new ConversionOptions
-        {
-            Header = new HeaderOptions { HtmlContent = "&lt;div style='text-align:center'&gt;Company Header&lt;/div&gt;" },
-            Footer = new FooterOptions { HtmlContent = "&lt;div style='text-align:center'&gt;Page {page} of {total}&lt;/div&gt;" },
-            MarginTop = 20,
-            MarginBottom = 20
-        };
-        var pdfBytes = converter.ConvertUrl("https://example.com", options);
+        using var http = new HttpClient();
+
+        // No URL endpoint in v1.x: fetch the page client-side.
+        var pageHtml = await http.GetStringAsync("https://example.com");
+
+        // No header/footer or margin fields: inject via CSS.
+        var wrapped = $@"&lt;!doctype html&gt;
+&lt;html&gt;&lt;head&gt;&lt;style&gt;
+  @page {{ margin: 20mm; }}
+  .k-header {{ position: fixed; top: -15mm; left: 0; right: 0; text-align: center; }}
+  .k-footer {{ position: fixed; bottom: -15mm; left: 0; right: 0; text-align: center; }}
+&lt;/style&gt;&lt;/head&gt;&lt;body&gt;
+  &lt;div class='k-header'&gt;Company Header&lt;/div&gt;
+  &lt;div class='k-footer'&gt;Footer (page numbers unsupported in v1.x)&lt;/div&gt;
+  {pageHtml}
+&lt;/body&gt;&lt;/html&gt;";
+
+        var payload = JsonSerializer.Serialize(new { html = wrapped });
+        var content = new StringContent(payload, Encoding.UTF8, "application/json");
+        var response = await http.PostAsync("http://localhost:8080/html-to-pdf", content);
+        response.EnsureSuccessStatusCode();
+        var pdfBytes = await response.Content.ReadAsByteArrayAsync();
         File.WriteAllBytes("webpage.pdf", pdfBytes);
     }
 }
 </code></pre>
 
-<p>Note the <code>{total}</code> placeholder for total page count. Headers and footers accept HTML fragments via <code>HtmlContent</code>.</p>
+<p>Three things are worth noting. First, the URL fetch is your code — Kaizen never sees the URL. Second, header and footer styling is CSS-by-convention rather than a typed option. Third, page numbers cannot be produced server-side because the API has no placeholders.</p>
 
 <h3>IronPDF — URL to PDF with headers and footers</h3>
 
@@ -118,34 +149,39 @@ var pdf = renderer.RenderUrlAsPdf("https://example.com");
 pdf.SaveAs("webpage.pdf");
 </code></pre>
 
-<p>IronPDF exposes both a text-based header/footer (shown above) and an HTML-based one (<code>HtmlHeader</code> / <code>HtmlFooter</code> with an <code>HtmlFragment</code> property). The total-pages placeholder is <code>{total-pages}</code> rather than <code>{total}</code> — a small but easy migration gotcha. IronPDF's <a href="https://ironpdf.com/tutorials/html-to-pdf/">URL rendering capabilities</a> include configurable timeouts, JavaScript wait conditions, and custom HTTP headers.</p>
+<p>IronPDF exposes both a text-based header/footer (shown above) and an HTML-based one (<code>HtmlHeader</code> / <code>HtmlFooter</code> with an <code>HtmlFragment</code> property). The <code>{page}</code> and <code>{total-pages}</code> placeholders resolve at render time, so "Page 1 of 12" no longer needs hand-substitution before rendering. IronPDF's <a href="https://ironpdf.com/tutorials/html-to-pdf/">URL rendering capabilities</a> include configurable timeouts, JavaScript wait conditions, and custom HTTP headers.</p>
 
 <h2>How does merging, signing, and advanced PDF manipulation compare?</h2>
 
-<p>This is where the gap between a conversion-focused library and a full .NET PDF library becomes stark. Kaizen.io is focused on HTML-to-PDF conversion; additional PDF operations like merging, splitting, watermarking, form filling, text extraction, and digital signatures are not part of its documented API surface — verify the current product page for any additions.</p>
+<p>This is where the gap between a single-endpoint conversion service and a full .NET PDF library becomes stark. Kaizen.io's documented v1.x API is a single endpoint that accepts an <code>html</code> field and returns PDF bytes. Merging, splitting, watermarking, form filling, text extraction, and digital signatures are not part of that surface — confirm the current product page for any additions.</p>
 
-<p>IronPDF provides all of these as native operations on the <code>PdfDocument</code> object. When Kaizen.io returns raw bytes, you still need another library to manipulate those bytes. With IronPDF, the conversion result is already a rich object you can merge, split, sign, encrypt, or annotate in the same code block.</p>
+<p>IronPDF provides all of these as native operations on the <code>PdfDocument</code> object. When Kaizen returns raw bytes, you still need another library to manipulate those bytes. With IronPDF, the conversion result is already a rich object you can merge, split, sign, encrypt, or annotate in the same code block.</p>
 
-<p>For HTML files with external assets, the architectural difference also matters. Kaizen.io accepts HTML strings; resolving relative asset paths to a base directory typically requires reading the file yourself and providing a base URL through whatever option the API exposes. IronPDF's <code>RenderHtmlFileAsPdf</code> automatically resolves relative asset paths using the HTML file's directory as the base. See the <a href="https://ironpdf.com/how-to/html-file-to-pdf/">HTML file rendering documentation</a> for details on asset resolution.</p>
+<p>For HTML files with external assets, the difference also matters. Kaizen accepts a single string of HTML in the JSON body; resolving relative asset paths means reading the file yourself and either inlining the assets or rewriting the URLs to absolute references before posting. IronPDF's <code>RenderHtmlFileAsPdf</code> automatically resolves relative asset paths using the HTML file's directory as the base. See the <a href="https://ironpdf.com/how-to/html-file-to-pdf/">HTML file rendering documentation</a> for details on asset resolution.</p>
 
 <h3>Kaizen.io — HTML file rendering</h3>
 
-<pre><code>using Kaizen.IO;
-using System.IO;
+<pre><code>using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        var htmlContent = File.ReadAllText("input.html");
-        var options = new ConversionOptions
-        {
-            PageSize = PageSize.A4,
-            Orientation = Orientation.Portrait
-        };
-        var pdfBytes = converter.Convert(htmlContent, options);
-        File.WriteAllBytes("document.pdf", pdfBytes);
+        var body = File.ReadAllText("input.html");
+
+        // No file endpoint and no page-size field: embed @page CSS.
+        var html = "&lt;style&gt;@page { size: A4 portrait; }&lt;/style&gt;" + body;
+
+        using var http = new HttpClient();
+        var payload = JsonSerializer.Serialize(new { html });
+        var content = new StringContent(payload, Encoding.UTF8, "application/json");
+        var response = await http.PostAsync("http://localhost:8080/html-to-pdf", content);
+        response.EnsureSuccessStatusCode();
+        File.WriteAllBytes("document.pdf", await response.Content.ReadAsByteArrayAsync());
     }
 }
 </code></pre>
@@ -166,47 +202,50 @@ pdf.SaveAs("document.pdf");
 <h2>How do the features compare side by side?</h2>
 
 <ul>
-<li><strong>Distribution and install.</strong> Kaizen.io is a commercial .NET library; IronPDF is a commercial .NET library installed via the <code>IronPdf</code> NuGet package. Both target .NET Framework and modern .NET; verify Kaizen.io's exact supported target framework moniker list against the current vendor docs.</li>
-<li><strong>Rendering engine.</strong> Both produce HTML-rendered PDFs. IronPDF uses an embedded Chromium engine; verify the engine and version Kaizen.io ships against the current product page.</li>
-<li><strong>API surface.</strong> Kaizen.io's surface centers on <code>HtmlToPdfConverter.Convert(html, options)</code> and <code>ConvertUrl(url, options)</code> returning <code>byte[]</code>. IronPDF returns a <code>PdfDocument</code> with methods for save, merge, split, stamp, encrypt, sign, fill, and extract.</li>
-<li><strong>Headers and footers.</strong> Kaizen.io uses <code>HeaderOptions.HtmlContent</code> / <code>FooterOptions.HtmlContent</code> with the <code>{page}</code> and <code>{total}</code> placeholders. IronPDF supports both text-based (<code>TextHeader</code> / <code>TextFooter</code>) and HTML-based (<code>HtmlHeader</code> / <code>HtmlFooter</code>) header/footer models, using <code>{page}</code> and <code>{total-pages}</code>.</li>
+<li><strong>Distribution and install.</strong> Kaizen.io ships as the Docker image <code>kaizenio.azurecr.io/html-to-pdf</code>; you run, monitor, and update the container yourself. IronPDF is the <code>IronPdf</code> NuGet package and runs in-process inside your .NET application.</li>
+<li><strong>C# integration model.</strong> Kaizen.io has no .NET SDK; integration is hand-rolled <code>HttpClient</code> POST against the container's REST endpoint. IronPDF exposes a strongly-typed <code>ChromePdfRenderer</code> API with compile-time-checked properties.</li>
+<li><strong>API surface.</strong> Kaizen.io v1.x accepts a single <code>html</code> field in the JSON body. IronPDF returns a <code>PdfDocument</code> with methods for save, merge, split, stamp, encrypt, sign, fill, and extract.</li>
+<li><strong>URL input.</strong> Roadmap in Kaizen v1.x; you fetch the page yourself and post the resulting HTML. IronPDF exposes <code>RenderUrlAsPdf(url)</code> directly.</li>
+<li><strong>Headers and footers.</strong> Not part of the v1.x API; the typical workaround is fixed-position divs in the HTML you post. IronPDF supports both text-based (<code>TextHeader</code> / <code>TextFooter</code>) and HTML-based (<code>HtmlHeader</code> / <code>HtmlFooter</code>) header and footer models, with <code>{page}</code> and <code>{total-pages}</code> placeholders resolved at render time.</li>
+<li><strong>Page numbers.</strong> No <code>{page}</code> / <code>{total}</code> placeholder support in the Kaizen API. IronPDF resolves <code>{page}</code> and <code>{total-pages}</code> server-side.</li>
+<li><strong>Page size, orientation, margins.</strong> Embed in <code>@page</code> CSS for Kaizen. Configure via <code>RenderingOptions.PaperSize</code> / <code>PaperOrientation</code> / <code>MarginTop</code> for IronPDF.</li>
 <li><strong>Merge, split, watermark, sign, form fill, extract.</strong> Not part of Kaizen.io's documented API; native on IronPDF's <code>PdfDocument</code>.</li>
 <li><strong>Password protection and permissions.</strong> Not part of Kaizen.io's documented API; IronPDF exposes <code>SecuritySettings.UserPassword</code>, <code>SecuritySettings.OwnerPassword</code>, and granular permission flags.</li>
-<li><strong>Async support.</strong> IronPDF exposes <code>RenderHtmlAsPdfAsync</code> and <code>RenderUrlAsPdfAsync</code>; verify Kaizen.io's async surface against the current API reference.</li>
-<li><strong>Data privacy.</strong> Both run in-process, so HTML and resulting PDF bytes stay inside your application boundary in both cases.</li>
-<li><strong>Error model.</strong> Kaizen.io surfaces conversion failures through library exceptions returned to the caller; IronPDF raises typed exceptions in the <code>IronPdf.Exceptions</code> namespace plus standard .NET exceptions.</li>
+<li><strong>Async support.</strong> Kaizen calls are already async because they are HTTP. IronPDF exposes first-class <code>RenderHtmlAsPdfAsync</code> and <code>RenderUrlAsPdfAsync</code>.</li>
+<li><strong>Data privacy.</strong> Kaizen runs in your own container, so HTML and PDF bytes stay inside your network — but they still leave the calling process and travel over a (usually localhost) socket. IronPDF runs in the calling process; data never leaves it.</li>
+<li><strong>Licensing.</strong> Kaizen uses the <code>KAIZEN_PDF_LICENSE</code> env var on the container, with a watermarked free tier. IronPDF uses <code>IronPdf.License.LicenseKey</code> set once at startup.</li>
 </ul>
 
 <h2>FAQ and Troubleshooting Tips</h2>
 
 <h3>Does Kaizen.io require any external service or container at runtime?</h3>
 
-<p>Based on the public API surface (<code>Kaizen.IO.HtmlToPdfConverter</code> running in-process and returning <code>byte[]</code> directly), Kaizen.io operates as an in-process .NET library. Verify deployment requirements (native dependencies, runtime prerequisites) against the current product documentation for your target framework.</p>
+<p>Yes. Kaizen.io HTML-to-PDF ships only as the Docker image <code>kaizenio.azurecr.io/html-to-pdf</code>. You must run that container somewhere reachable from your application — local Docker, sidecar, or a separate host — and post JSON to its <code>POST /html-to-pdf</code> endpoint on port 8080. There is no in-process .NET option.</p>
 
 <h3>Can I use Kaizen.io for PDF merging, splitting, or digital signatures?</h3>
 
-<p>Kaizen.io is focused on HTML-to-PDF conversion. Additional PDF operations like merging, splitting, watermarking, form filling, text extraction, and digital signatures are not part of its documented API surface — verify against the latest vendor docs. IronPDF provides all of these as native operations on the <code>PdfDocument</code> object returned from any conversion.</p>
+<p>Kaizen.io's documented v1.x API is a single endpoint that accepts an <code>html</code> field. Additional PDF operations like merging, splitting, watermarking, form filling, text extraction, and digital signatures are not part of that surface — verify against the latest vendor docs. IronPDF provides all of these as native operations on the <code>PdfDocument</code> object returned from any conversion.</p>
 
 <h3>How do I handle concurrent PDF generation with Kaizen.io?</h3>
 
-<p>Verify Kaizen.io's documented thread-safety guarantees for <code>HtmlToPdfConverter</code> against the current API reference. As a defensive default, treat each converter instance as scoped to a single request unless the docs state otherwise. IronPDF leverages standard .NET threading; see the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> for async patterns and batch processing.</p>
+<p>Concurrency for Kaizen is bounded by what your container instance can serve before requests queue or time out, plus whatever throughput your <code>HttpClient</code> pool sustains. Scaling means running more containers and load-balancing across them. IronPDF runs in-process on standard .NET threading; concurrency is bounded by CPU and RAM. See the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> for async patterns and batch processing.</p>
 
 <h3>What is the placeholder syntax difference?</h3>
 
-<p>Kaizen.io uses <code>{total}</code> for total page count inside header/footer HTML. IronPDF uses <code>{total-pages}</code>. The current-page placeholder <code>{page}</code> is the same in both. This is the most common rendering difference after migration — a header reads "Page 1 of {total}" literally in IronPDF until you update the placeholder.</p>
+<p>Kaizen v1.x has no server-side placeholder support, so any "{page}" or "{total}" tokens in the HTML you post are rendered literally — page numbers were typically substituted client-side before posting. IronPDF resolves <code>{page}</code> and <code>{total-pages}</code> at render time. The most common surprise after migration is a literal "Page 1 of {total}" footer where the placeholder needs to be updated to <code>{total-pages}</code>.</p>
 
 <h3>Can I migrate from Kaizen.io to IronPDF incrementally?</h3>
 
-<p>Yes. The API mapping is straightforward. <code>HtmlToPdfConverter</code> maps to <code>ChromePdfRenderer</code>. <code>Convert(html, options)</code> maps to <code>RenderHtmlAsPdf(html)</code> after porting <code>ConversionOptions</code> properties to <code>renderer.RenderingOptions</code>. <code>ConvertUrl(url, options)</code> maps to <code>RenderUrlAsPdf(url)</code>. <code>HeaderOptions.HtmlContent</code> / <code>FooterOptions.HtmlContent</code> map to <code>HtmlHeader.HtmlFragment</code> / <code>HtmlFooter.HtmlFragment</code> on <code>RenderingOptions</code>. Update <code>{total}</code> to <code>{total-pages}</code> and consume <code>pdf.BinaryData</code> wherever you used the returned <code>byte[]</code>. For migration guidance, see the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF documentation</a>.</p>
+<p>Yes. The shape of the migration is replacing the HTTP plumbing with a <code>ChromePdfRenderer</code> instance. <code>HttpClient.PostAsync(".../html-to-pdf", { html })</code> maps to <code>renderer.RenderHtmlAsPdf(html)</code>. Inline <code>@page</code> CSS for size, orientation, and margins maps to <code>renderer.RenderingOptions.PaperSize</code> / <code>PaperOrientation</code> / <code>MarginTop</code>. Fake header and footer divs map to <code>RenderingOptions.HtmlHeader</code> / <code>HtmlFooter</code>. Manual placeholder substitution maps to <code>{page}</code> / <code>{total-pages}</code>. The <code>KAIZEN_PDF_LICENSE</code> env var maps to <code>IronPdf.License.LicenseKey</code>. The HTTP <code>byte[]</code> body maps to <code>pdf.BinaryData</code> or <code>pdf.SaveAs(path)</code>. For migration guidance, see the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF documentation</a>.</p>
 
 <h2>Which should your team choose — Kaizen.io or IronPDF?</h2>
 
-<p>Kaizen.io makes sense when the workload is genuinely conversion-only and likely to stay that way: HTML in, PDF bytes out, nothing else. The narrower surface can be a virtue when the team wants a small dependency that does one thing.</p>
+<p>Kaizen.io makes sense when the workload is genuinely conversion-only and the operations team is comfortable running a container. The narrow API surface and small footprint can be a virtue when the team wants a sidecar that does one thing, and the watermarked free tier is convenient for evaluation.</p>
 
-<p>For .NET teams whose PDF requirements have a habit of expanding past conversion — adding watermarks for drafts, merging monthly reports, password-protecting financial statements, filling AcroForm fields, extracting text for indexing — a conversion-only library means a second PDF library shows up in the project sooner or later. Two PDF libraries means two licenses, two byte-shuffling boundaries, and two sets of edge cases.</p>
+<p>For .NET teams whose PDF requirements have a habit of expanding past conversion — adding watermarks for drafts, merging monthly reports, password-protecting financial statements, filling AcroForm fields, extracting text for indexing — a single-endpoint converter means a second PDF library shows up in the project sooner or later. Two PDF dependencies means two licenses, two byte-shuffling boundaries, and two sets of edge cases. Container-based deployment also adds a moving part: pulls, restarts, port management, license env var, and monitoring all become operational surface area.</p>
 
-<p>Migration becomes mandatory when you need PDF manipulation beyond HTML-to-PDF without introducing a second library, when password-protection or signing requirements arrive, or when you want a single <code>PdfDocument</code> object as the unit of work across your PDF code.</p>
+<p>Migration becomes mandatory when you need PDF manipulation beyond HTML-to-PDF without introducing a second library, when password protection or signing requirements arrive, when you want page-number placeholders without hand-substituting strings, or when you want a single <code>PdfDocument</code> object as the unit of work across your PDF code.</p>
 
-<p>IronPDF provides native .NET PDF operations through an <a href="https://ironpdf.com/object-reference/api/index.html">embedded Chromium engine</a>. The <a href="https://ironpdf.com/examples/using-html-to-create-a-pdf/">HTML to PDF conversion</a> works in-process and the returned <code>PdfDocument</code> covers the operations that typically follow conversion. For teams that view PDF generation as a library concern that spans more than the rendering step, IronPDF eliminates the second-library handoff.</p>
+<p>IronPDF provides native .NET PDF operations through an <a href="https://ironpdf.com/object-reference/api/index.html">embedded Chromium engine</a>. The <a href="https://ironpdf.com/examples/using-html-to-create-a-pdf/">HTML to PDF conversion</a> works in-process, with no container or HTTP hop, and the returned <code>PdfDocument</code> covers the operations that typically follow conversion. For teams that view PDF generation as a library concern that spans more than the rendering step, IronPDF eliminates both the second-library handoff and the container dependency.</p>
 
 <p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
