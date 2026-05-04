@@ -4,15 +4,13 @@
 
 <h2>Why Should You Migrate from ZetPDF to IronPDF?</h2>
 
-<p>The build server and the developer machine diverge. ZetPDF renders correctly on every Windows development box the team has tested, but the GitHub Actions runner on Ubuntu fails with a native library error that nobody can reproduce locally. The CI fix that worked last month stopped working after a runner image update. The Docker build that deployed cleanly to staging won't deploy to production because the production container is a different base image.</p>
+<p>ZetPDF (zetpdf.com) is a commercial .NET PDF SDK whose API closely resembles PDFsharp &mdash; to the point that the PDFsharp community has openly questioned whether it is a closed fork. It is not distributed on NuGet; installation is a ZIP download from zetpdf.com, after which you reference the ZetPDF.dll manually. The vendor's public release activity has been quiet since 2021, and the documented feature surface centers on viewer/print, annotations, AES-256 encryption, form fields, and text extraction.</p>
 
-<p>Platform-specific library loading errors are not easy to debug in pipelines, and ZetPDF's narrow user community means Stack Overflow is quiet when you search for the exception message. I have seen this pattern repeatedly, and here are the migration triggers that come up most often.</p>
+<p>The migration triggers I see most often follow from that shape. First, the API is coordinate-based. Building a PDF in ZetPDF means opening an <code>XGraphics</code> surface and calling <code>DrawString</code>, <code>DrawRectangle</code>, <code>DrawImage</code> at exact pixel offsets, calculating page breaks by hand, and measuring text manually. There is no HTML or CSS path in the documented surface, so any change in layout means recalculating coordinates by hand.</p>
 
-<p>First, CI/CD platform divergence. Native component behavior differs between Windows dev machines and Linux-based CI runners. Second, container image sensitivity. Native library loading depends on exact system library versions, and base image updates break deployments.</p>
+<p>Second, the missing high-level helpers. ZetPDF does not ship a documented HTML-to-PDF or URL-to-PDF converter, nor a one-line merge helper, nor a built-in watermark API. Teams that need those features end up gluing ZetPDF to a second library or writing the page-iteration loops themselves.</p>
 
-<p>Maintenance uncertainty is another factor. Smaller library ecosystems carry higher update risk, and limited community support means fewer Stack Overflow questions and slower resolution when edge cases arise.</p>
-
-<p>Then there is the API surface gap. ZetPDF exposes a small, high-level surface &mdash; <code>HtmlToPdfConverter</code> and <code>PdfMerger</code> &mdash; which covers basic generation and merging. Anything beyond that (watermarks, security, signing, forms, page-level editing) needs additional packages. Native dependency management means those native libraries require explicit management in Docker images and CI runners, and debugging friction from CI-only failures without local repro slows down incident response.</p>
+<p>Third, distribution and maintenance. The ZIP-only delivery and the long pause in public releases make dependency hygiene awkward: there is no automated package update, no transitive resolution, and limited community traffic on Stack Overflow when you hit an edge case. Smaller ecosystems carry higher update risk, especially when a .NET runtime upgrade or a CI base image change exposes something the vendor has not retested recently.</p>
 
 <h2>What Does the Migration Effort Look Like?</h2>
 
@@ -21,41 +19,38 @@
 <h3>Effort by Feature</h3>
 
 <ul>
-<li><strong>HTML string to PDF &mdash; Low.</strong> ZetPDF's <code>HtmlToPdfConverter.ConvertHtmlToPdf(html, path)</code> maps directly to <code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code> followed by <code>pdf.SaveAs(path)</code>.</li>
-<li><strong>URL to PDF &mdash; Low.</strong> ZetPDF's <code>HtmlToPdfConverter.ConvertUrlToPdf(url, path)</code> maps to <code>renderer.RenderUrlAsPdfAsync(url)</code>.</li>
-<li><strong>Save to file &mdash; Low.</strong> ZetPDF writes the file inside the converter call; IronPDF separates rendering from <code>pdf.SaveAs(path)</code>.</li>
-<li><strong>Save to stream &mdash; Low.</strong> IronPDF exposes <code>pdf.Stream</code> and <code>pdf.BinaryData</code>; in ZetPDF you write to a path and read it back.</li>
-<li><strong>Load existing PDF &mdash; Low.</strong> IronPDF uses <code>PdfDocument.FromFile(path)</code>; ZetPDF's surface is generation-focused, so loading-and-editing flows usually need a secondary package.</li>
-<li><strong>Merge PDFs &mdash; Medium.</strong> ZetPDF's <code>PdfMerger.MergeFiles(paths, output)</code> takes file paths; IronPDF's <code>PdfDocument.Merge(IEnumerable&lt;PdfDocument&gt;)</code> takes loaded documents, so the call shape changes.</li>
-<li><strong>Watermark &mdash; Medium.</strong> Not part of ZetPDF's documented surface; IronPDF uses <code>TextStamper</code> / <code>ImageStamper</code>.</li>
-<li><strong>Password protection &mdash; Low.</strong> Not part of ZetPDF's documented surface; IronPDF exposes <code>pdf.SecuritySettings</code>.</li>
-<li><strong>Text extraction &mdash; Medium.</strong> Not part of ZetPDF's documented surface; IronPDF uses <code>pdf.ExtractAllText()</code>.</li>
-<li><strong>Concurrent rendering &mdash; Medium.</strong> Verify ZetPDF thread-safety in their docs; IronPDF supports a per-task <code>ChromePdfRenderer</code> with <code>Task.WhenAll</code>.</li>
+<li><strong>HTML string to PDF &mdash; High in ZetPDF, Low in IronPDF.</strong> ZetPDF has no documented HTML-to-PDF converter, so the existing code is almost certainly hand-laid <code>XGraphics.DrawString</code> calls. In IronPDF this collapses to <code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code> followed by <code>pdf.SaveAs(path)</code>.</li>
+<li><strong>URL to PDF &mdash; High in ZetPDF, Low in IronPDF.</strong> No documented URL-to-PDF path in ZetPDF. IronPDF: <code>renderer.RenderUrlAsPdfAsync(url)</code>.</li>
+<li><strong>Save to file &mdash; Low.</strong> ZetPDF: <code>document.Save(path)</code>. IronPDF: <code>pdf.SaveAs(path)</code>.</li>
+<li><strong>Save to stream &mdash; Low.</strong> IronPDF exposes <code>pdf.Stream</code> and <code>pdf.BinaryData</code> directly on the document.</li>
+<li><strong>Load existing PDF &mdash; Low.</strong> ZetPDF: <code>PdfReader.Open(path)</code>. IronPDF: <code>PdfDocument.FromFile(path)</code>.</li>
+<li><strong>Merge PDFs &mdash; Medium.</strong> ZetPDF has no one-line merge helper; merging is a manual page-iteration loop following the PDFsharp pattern. IronPDF: <code>PdfDocument.Merge(IEnumerable&lt;PdfDocument&gt;)</code>.</li>
+<li><strong>Watermark &mdash; Medium.</strong> ZetPDF has no native watermark helper; teams hand-roll a rotated <code>DrawString</code> with a translucent brush. IronPDF: <code>TextStamper</code> / <code>ImageStamper</code> via <code>ApplyStamp</code>, or <code>ApplyWatermark</code> with HTML/CSS.</li>
+<li><strong>Password protection &mdash; Low.</strong> ZetPDF exposes AES-256 settings on the document. IronPDF exposes <code>pdf.SecuritySettings</code> for user/owner passwords and permission flags.</li>
+<li><strong>Text extraction &mdash; Low.</strong> Both libraries support text extraction; ZetPDF lists it among documented features and IronPDF exposes <code>pdf.ExtractAllText()</code>.</li>
+<li><strong>Concurrent rendering &mdash; Medium.</strong> ZetPDF thread-safety is not clearly documented; IronPDF supports a per-task <code>ChromePdfRenderer</code> with <code>Task.WhenAll</code>.</li>
 </ul>
 
 <h3>Decision Matrix</h3>
 
 <ul>
-<li>If CI/CD fails because of a platform-specific ZetPDF native issue, switching resolves the deployment constraint directly.</li>
-<li>If maintenance and support are a hard requirement, switch once you have verified ZetPDF's release cadence is below your bar.</li>
-<li>If ZetPDF is working with no deployment friction, weigh migration cost against the risk timeline before pulling the trigger.</li>
-<li>If a .NET upgrade is blocked by ZetPDF compatibility, verify support at zetpdf.com and switch if the target framework is not on the matrix.</li>
+<li>If your application generates PDFs from HTML, reports, or web content, IronPDF's Chromium renderer removes the need to hand-position every element.</li>
+<li>If your team is maintaining a large body of <code>XGraphics</code> drawing code and the layout rarely changes, the cost of rewriting may not pay back &mdash; budget for a phased migration instead.</li>
+<li>If a .NET upgrade or container base image change has surfaced compatibility risk against a library that has not seen public updates since 2021, that risk is the migration trigger.</li>
+<li>If you only need viewer, annotation, and form-fill features that ZetPDF does cover well, the migration urgency is lower; weigh the gap-filling features (HTML, watermark, merge, signing) against the cost of holding two libraries.</li>
 </ul>
 
 <h2>How Do You Set Up IronPDF and Replace ZetPDF?</h2>
 
-<p>I will walk you through the core migration in three steps. First, find your existing ZetPDF references, then swap the packages, and finally update your code.</p>
+<p>I will walk you through the core migration. First, find your existing ZetPDF references, then swap the dependency, and finally update your code.</p>
 
 <h3>Finding ZetPDF References in Your Codebase</h3>
 
-<pre><code># Find ZetPDF usage (namespace is ZetPDF, all uppercase)
+<pre><code># Find ZetPDF usage (namespace casing is ZetPDF, uppercase)
 rg -l "ZetPDF\b" --type cs
-rg "HtmlToPdfConverter|PdfMerger|ZetPDF\b" --type cs -n
+rg "XGraphics|XFont|PdfReader|ZetPDF\b" --type cs -n
 
-# Find native library loading patterns
-rg "NativeLibrary\|DllImport\|Assembly\.Load" --type cs -n
-
-# Find ZetPDF NuGet reference
+# Find the ZetPDF.dll assembly reference inside your csproj files
 grep -r "ZetPDF" *.csproj **/*.csproj 2&gt;/dev/null
 
 # Find in Dockerfiles and CI pipelines
@@ -64,16 +59,15 @@ grep -r "ZetPDF" Dockerfile* .github/**/*.yml .gitlab-ci.yml 2&gt;/dev/null
 
 <h3>Removing ZetPDF and Installing IronPDF</h3>
 
-<pre><code># Remove ZetPDF package
-dotnet remove package ZetPDF
+<p>ZetPDF is not on NuGet. Remove the manual <code>&lt;Reference Include="ZetPDF"&gt;</code> entry (and the <code>HintPath</code> pointing at the downloaded DLL) from your <code>.csproj</code>, then add IronPDF from NuGet:</p>
 
-# Install IronPDF
+<pre><code># Install IronPDF
 dotnet add package IronPdf
 
 dotnet restore
 </code></pre>
 
-<h3>Step 1: License Configuration</h3>
+<h3>License Configuration</h3>
 
 <pre><code>using IronPdf;
 
@@ -82,11 +76,13 @@ IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE
     ?? throw new InvalidOperationException("IRONPDF_LICENSE_KEY not set");
 </code></pre>
 
-<h3>Step 2: Namespace Swap</h3>
+<h3>Namespace Swap</h3>
 
 <p><strong>Before:</strong></p>
 
 <pre><code>using ZetPDF;
+using ZetPdf.Drawing;
+using ZetPdf.Fonts;
 </code></pre>
 
 <p><strong>After:</strong></p>
@@ -95,23 +91,22 @@ IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE
 using IronPdf.Rendering;
 </code></pre>
 
-<h3>Step 3: Basic PDF Generation</h3>
+<h3>Basic PDF Generation</h3>
 
 <p><strong>Before (ZetPDF):</strong></p>
 
 <pre><code>using ZetPDF;
+using ZetPdf.Drawing;
 using System;
 
-class Program
-{
-    static void Main()
-    {
-        var converter = new HtmlToPdfConverter();
-        var html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
-        converter.ConvertHtmlToPdf(html, "output.pdf");
-        Console.WriteLine("Saved output.pdf");
-    }
-}
+var document = new PdfDocument();
+var page = document.AddPage();
+var graphics = XGraphics.FromPdfPage(page);
+var font = new XFont("Arial", 24, XFontStyle.Bold);
+
+graphics.DrawString("Hello", font, XBrushes.Black, new XPoint(50, 50));
+document.Save("output.pdf");
+Console.WriteLine("Saved output.pdf");
 </code></pre>
 
 <p><strong>After (IronPDF):</strong></p>
@@ -133,38 +128,39 @@ Console.WriteLine($"Saved output.pdf ({pdf.PageCount} page(s))");
 
 <p>Let me walk through four complete migration examples so you can see exactly what changes in real code.</p>
 
-<h3>HTML to PDF with Full Options</h3>
+<h3>Tabular Document (Invoice)</h3>
 
 <p><strong>Before (ZetPDF):</strong></p>
 
 <pre><code>using ZetPDF;
+using ZetPdf.Drawing;
 using System;
 
-class HtmlToPdfBefore
-{
-    static void Main()
-    {
-        var html = @"
-            &lt;html&gt;
-            &lt;head&gt;&lt;style&gt;
-            body { font-family: Arial; padding: 40px; }
-            table { width: 100%; border-collapse: collapse; }
-            th, td { border: 1px solid #ccc; padding: 6px; }
-            &lt;/style&gt;&lt;/head&gt;
-            &lt;body&gt;
-                &lt;h1&gt;Invoice #2024-0099&lt;/h1&gt;
-                &lt;table&gt;
-                    &lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Price&lt;/th&gt;&lt;/tr&gt;
-                    &lt;tr&gt;&lt;td&gt;Widget&lt;/td&gt;&lt;td&gt;$149.00&lt;/td&gt;&lt;/tr&gt;
-                &lt;/table&gt;
-            &lt;/body&gt;&lt;/html&gt;";
+var document = new PdfDocument();
+var page = document.AddPage();
+var graphics = XGraphics.FromPdfPage(page);
 
-        var converter = new HtmlToPdfConverter();
-        converter.ConvertHtmlToPdf(html, "invoice.pdf");
+var titleFont = new XFont("Arial", 18, XFontStyle.Bold);
+var headerFont = new XFont("Arial", 11, XFontStyle.Bold);
+var bodyFont = new XFont("Arial", 11);
 
-        Console.WriteLine("Saved invoice.pdf");
-    }
-}
+graphics.DrawString("Invoice #2024-0099", titleFont, XBrushes.Black,
+    new XPoint(50, 60));
+
+// Header row
+double x = 50, y = 100, colWidth = 200, rowHeight = 22;
+graphics.DrawRectangle(XBrushes.LightGray, x, y, colWidth * 2, rowHeight);
+graphics.DrawString("Item", headerFont, XBrushes.Black, x + 6, y + 15);
+graphics.DrawString("Price", headerFont, XBrushes.Black, x + colWidth + 6, y + 15);
+
+// Data row
+y += rowHeight;
+graphics.DrawRectangle(XPens.Black, x, y, colWidth * 2, rowHeight);
+graphics.DrawString("Widget", bodyFont, XBrushes.Black, x + 6, y + 15);
+graphics.DrawString("$149.00", bodyFont, XBrushes.Black, x + colWidth + 6, y + 15);
+
+document.Save("invoice.pdf");
+Console.WriteLine("Saved invoice.pdf");
 </code></pre>
 
 <p><strong>After (IronPDF):</strong></p>
@@ -203,27 +199,24 @@ Console.WriteLine($"Saved invoice.pdf ({pdf.PageCount} page(s))");
 <p><strong>Before (ZetPDF):</strong></p>
 
 <pre><code>using ZetPDF;
+using ZetPdf.IO;
 using System;
-using System.Collections.Generic;
 
-class MergeBefore
+// ZetPDF has no one-line merge helper. Following the PDFsharp pattern,
+// you open each input and copy pages into a fresh output document.
+var output = new PdfDocument();
+
+foreach (var path in new[] { "section1.pdf", "section2.pdf" })
 {
-    static void Main()
+    var input = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+    for (int i = 0; i &lt; input.PageCount; i++)
     {
-        var converter = new HtmlToPdfConverter();
-        converter.ConvertHtmlToPdf(
-            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 1&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
-            "section1.pdf");
-        converter.ConvertHtmlToPdf(
-            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 2&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
-            "section2.pdf");
-
-        var merger = new PdfMerger();
-        var files = new List&lt;string&gt; { "section1.pdf", "section2.pdf" };
-        merger.MergeFiles(files, "merged.pdf");
-        Console.WriteLine("PDFs merged successfully");
+        output.AddPage(input.Pages[i]);
     }
 }
+
+output.Save("merged.pdf");
+Console.WriteLine("PDFs merged successfully");
 </code></pre>
 
 <p><strong>After (IronPDF):</strong></p>
@@ -252,23 +245,25 @@ Console.WriteLine($"Merged: {merged.PageCount} pages");
 <p><strong>Before (ZetPDF):</strong></p>
 
 <pre><code>using ZetPDF;
+using ZetPdf.Drawing;
+using ZetPdf.IO;
 using System;
 
-class WatermarkBefore
-{
-    static void Main()
-    {
-        // ZetPDF's documented surface (HtmlToPdfConverter, PdfMerger) does
-        // not include a watermark/stamp API. Teams typically generate the
-        // PDF with ZetPDF and then apply the stamp via a secondary library.
-        var converter = new HtmlToPdfConverter();
-        converter.ConvertHtmlToPdf(
-            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Document&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
-            "document.pdf");
+// ZetPDF has no native watermark helper. The common pattern is to open the
+// document, draw a rotated translucent string on each page via XGraphics,
+// and save.
+var document = PdfReader.Open("document.pdf", PdfDocumentOpenMode.Modify);
+var font = new XFont("Arial", 72, XFontStyle.Bold);
+var brush = new XSolidBrush(XColor.FromArgb(40, 128, 128, 128));
 
-        Console.WriteLine("Watermark step requires a secondary PDF library.");
-    }
+foreach (var page in document.Pages)
+{
+    var graphics = XGraphics.FromPdfPage(page);
+    graphics.RotateTransform(-45);
+    graphics.DrawString("CONFIDENTIAL", font, brush, new XPoint(-100, 500));
 }
+
+document.Save("watermarked.pdf");
 </code></pre>
 
 <p><strong>After (IronPDF):</strong></p>
@@ -301,23 +296,22 @@ pdf.SaveAs("watermarked.pdf");
 <p><strong>Before (ZetPDF):</strong></p>
 
 <pre><code>using ZetPDF;
+using ZetPdf.Drawing;
+using ZetPdf.Security;
 using System;
 
-class PasswordBefore
-{
-    static void Main()
-    {
-        // ZetPDF's HtmlToPdfConverter does not expose user/owner password
-        // or permission flags. Encryption typically requires a secondary
-        // PDF library applied to the file after generation.
-        var converter = new HtmlToPdfConverter();
-        converter.ConvertHtmlToPdf(
-            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Protected&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
-            "document.pdf");
+var document = new PdfDocument();
+var page = document.AddPage();
+var graphics = XGraphics.FromPdfPage(page);
+graphics.DrawString("Protected", new XFont("Arial", 24, XFontStyle.Bold),
+    XBrushes.Black, new XPoint(50, 80));
 
-        Console.WriteLine("Password protection requires a secondary PDF library.");
-    }
-}
+// AES-256 encryption is exposed on PdfSecuritySettings.
+var security = document.SecuritySettings;
+security.UserPassword = "open123";
+security.OwnerPassword = "admin456";
+
+document.Save("secured.pdf");
 </code></pre>
 
 <p><strong>After (IronPDF):</strong></p>
@@ -344,13 +338,12 @@ pdf.SaveAs("secured.pdf");
 <h3>Overall Comparison</h3>
 
 <ul>
-<li><strong>Focus.</strong> ZetPDF centers on HTML-to-PDF conversion and file-based merging. IronPDF covers HTML-to-PDF plus broader PDF manipulation, editing, security, and signing.</li>
-<li><strong>Pricing.</strong> Both are commercial; verify ZetPDF terms at zetpdf.com and IronPDF terms at ironsoftware.com.</li>
-<li><strong>API style.</strong> ZetPDF exposes high-level façades (<code>HtmlToPdfConverter</code>, <code>PdfMerger</code>) that take inputs and a destination path. IronPDF exposes a renderer (<code>ChromePdfRenderer</code>) that returns a <code>PdfDocument</code> you then operate on.</li>
-<li><strong>Learning curve.</strong> Both are approachable for .NET developers. IronPDF's surface is broader because the feature set is broader.</li>
-<li><strong>HTML rendering.</strong> Verify ZetPDF's underlying engine in their docs; IronPDF uses an embedded Chromium build.</li>
-<li><strong>Page indexing.</strong> Verify ZetPDF's indexing in their docs; IronPDF is 0-based.</li>
-<li><strong>Thread safety.</strong> Verify ZetPDF guidance in their docs; for IronPDF, verify concurrent-instance guidance in the IronPDF docs.</li>
+<li><strong>Focus.</strong> ZetPDF centers on coordinate-based PDF construction, viewing/printing, annotations, AES-256 encryption, form fields, and text extraction. IronPDF centers on HTML-to-PDF rendering plus broader PDF manipulation, editing, security, and signing.</li>
+<li><strong>Pricing.</strong> ZetPDF sells perpetual licenses tiered by deployment scope &mdash; Single Project at $299, Multi at $449, OEM at $599. IronPDF licensing is published at ironsoftware.com.</li>
+<li><strong>Distribution.</strong> ZetPDF ships as a ZIP from zetpdf.com/download; there is no NuGet package. IronPDF is distributed via NuGet as <code>IronPdf</code>.</li>
+<li><strong>API style.</strong> ZetPDF inherits a PDFsharp-style coordinate API: open an <code>XGraphics</code> surface and call <code>DrawString</code>, <code>DrawRectangle</code>, <code>DrawImage</code> at exact offsets. IronPDF exposes a renderer (<code>ChromePdfRenderer</code>) that returns a <code>PdfDocument</code> you operate on.</li>
+<li><strong>Layout engine.</strong> ZetPDF has no documented HTML or CSS rendering. IronPDF uses an embedded Chromium build that renders HTML, CSS, and JavaScript before producing the PDF.</li>
+<li><strong>Maintenance.</strong> ZetPDF has shown no public release activity since 2021. IronPDF is on an active release cadence.</li>
 <li><strong>Namespace.</strong> ZetPDF lives under <code>ZetPDF</code>; IronPDF lives under <code>IronPdf</code>.</li>
 </ul>
 
@@ -358,6 +351,8 @@ pdf.SaveAs("secured.pdf");
 
 <ul>
 <li><code>ZetPDF</code> &rarr; <code>IronPdf</code> &mdash; core namespace.</li>
+<li><code>ZetPdf.Drawing</code> &rarr; N/A &mdash; obsolete; HTML/CSS replaces XGraphics drawing.</li>
+<li><code>ZetPdf.IO</code> &rarr; <code>IronPdf</code> &mdash; document loading via <code>PdfDocument.FromFile</code>.</li>
 <li>N/A &rarr; <code>IronPdf.Rendering</code> &mdash; rendering config.</li>
 <li>N/A &rarr; <code>IronPdf.Editing</code> &mdash; watermark and stamp types.</li>
 </ul>
@@ -365,49 +360,49 @@ pdf.SaveAs("secured.pdf");
 <h3>Core Class Mapping</h3>
 
 <ul>
-<li><code>HtmlToPdfConverter</code> &rarr; <code>ChromePdfRenderer</code> &mdash; HTML-to-PDF entry point.</li>
-<li><code>PdfMerger</code> &rarr; <code>PdfDocument.Merge</code> &mdash; combine multiple PDFs.</li>
-<li>N/A &rarr; <code>PdfDocument</code> &mdash; loaded-document handle for manipulation.</li>
-<li>N/A &rarr; <code>ChromePdfRenderOptions</code> &mdash; rendering options.</li>
-<li>N/A &rarr; <code>TextStamper</code> &mdash; text watermark.</li>
+<li><code>PdfDocument</code> + <code>XGraphics</code> &rarr; <code>ChromePdfRenderer</code> + HTML/CSS &mdash; rendering entry point.</li>
+<li><code>PdfReader.Open</code> &rarr; <code>PdfDocument.FromFile</code> &mdash; load an existing PDF.</li>
+<li><code>document.Save</code> &rarr; <code>pdf.SaveAs</code> &mdash; write the document.</li>
+<li>Manual <code>foreach</code> over <code>input.Pages</code> &rarr; <code>PdfDocument.Merge</code> &mdash; combine multiple PDFs.</li>
+<li>Hand-rolled rotated <code>DrawString</code> &rarr; <code>TextStamper</code> / <code>ApplyWatermark</code> &mdash; watermarks.</li>
 </ul>
 
 <h3>Document Loading Methods</h3>
 
 <ul>
-<li><strong>HTML string.</strong> ZetPDF: <code>converter.ConvertHtmlToPdf(html, path)</code>. IronPDF: <code>renderer.RenderHtmlAsPdfAsync(html)</code>.</li>
-<li><strong>URL.</strong> ZetPDF: <code>converter.ConvertUrlToPdf(url, path)</code>. IronPDF: <code>renderer.RenderUrlAsPdfAsync(url)</code>.</li>
-<li><strong>Load existing PDF.</strong> Not part of ZetPDF's documented surface. IronPDF: <code>PdfDocument.FromFile(path)</code>.</li>
-<li><strong>Save.</strong> ZetPDF writes the file inside the convert call. IronPDF: <code>pdf.SaveAs(path)</code>.</li>
+<li><strong>HTML string.</strong> Not part of ZetPDF's documented surface. IronPDF: <code>renderer.RenderHtmlAsPdfAsync(html)</code>.</li>
+<li><strong>URL.</strong> Not part of ZetPDF's documented surface. IronPDF: <code>renderer.RenderUrlAsPdfAsync(url)</code>.</li>
+<li><strong>Load existing PDF.</strong> ZetPDF: <code>PdfReader.Open(path, PdfDocumentOpenMode.Modify)</code>. IronPDF: <code>PdfDocument.FromFile(path)</code>.</li>
+<li><strong>Save.</strong> ZetPDF: <code>document.Save(path)</code>. IronPDF: <code>pdf.SaveAs(path)</code>.</li>
 </ul>
 
 <h3>Page Operations</h3>
 
 <ul>
-<li><strong>Page count.</strong> Not part of ZetPDF's documented surface. IronPDF: <code>pdf.PageCount</code>.</li>
-<li><strong>Remove page.</strong> Not part of ZetPDF's documented surface. IronPDF: <code>pdf.RemovePages(index)</code>.</li>
-<li><strong>Extract text.</strong> Not part of ZetPDF's documented surface. IronPDF: <code>pdf.ExtractAllText()</code>.</li>
-<li><strong>Rotate.</strong> Not part of ZetPDF's documented surface. Verify the corresponding IronPDF API in their docs.</li>
+<li><strong>Page count.</strong> ZetPDF: <code>document.PageCount</code>. IronPDF: <code>pdf.PageCount</code>.</li>
+<li><strong>Add page.</strong> ZetPDF: <code>document.AddPage()</code>. IronPDF: pages are produced by HTML rendering and CSS page-break rules.</li>
+<li><strong>Remove page.</strong> ZetPDF: <code>document.Pages.RemoveAt(index)</code>. IronPDF: <code>pdf.RemovePages(index)</code>.</li>
+<li><strong>Extract text.</strong> ZetPDF lists text extraction in its feature surface. IronPDF: <code>pdf.ExtractAllText()</code>.</li>
 </ul>
 
 <h3>Merge/Split Operations</h3>
 
 <ul>
-<li><strong>Merge.</strong> ZetPDF: <code>new PdfMerger().MergeFiles(paths, output)</code>. IronPDF: <code>PdfDocument.Merge(doc1, doc2)</code>.</li>
-<li><strong>Split.</strong> Not part of ZetPDF's documented surface. IronPDF: see the <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split guide</a>.</li>
+<li><strong>Merge.</strong> ZetPDF: manual loop opening each <code>PdfReader</code> and copying pages into an output document. IronPDF: <code>PdfDocument.Merge(doc1, doc2)</code>.</li>
+<li><strong>Split.</strong> ZetPDF: copy a page range into a new document via the same loop pattern. IronPDF: see the <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split guide</a>.</li>
 </ul>
 
 <h2>What Are the Frequently Asked Questions?</h2>
 
 <p>I get these questions on nearly every ZetPDF migration I advise on. Here they are with direct answers.</p>
 
-<h3>How Do I Handle the CI/CD Native Library Failure?</h3>
+<h3>How Do I Handle Container and CI Environment Differences?</h3>
 
-<p>The <code>DllNotFoundException: Unable to load shared library 'libzetpdf.so'</code> pattern appears in CI on Ubuntu but not on Windows dev machines. Native library loading on Linux depends on <code>LD_LIBRARY_PATH</code> and system library presence. The .NET runtime's <code>NativeLibrary.Load()</code> behavior differs between Windows and Linux.</p>
+<p>ZetPDF markets itself as 100% managed code, which simplifies deployment relative to libraries with native dependencies. The deployment friction with ZetPDF is usually upstream of runtime: the ZIP-based distribution model means the DLL is checked into source or fetched manually, and version drift between dev and CI is easy to introduce. After migrating, IronPDF is restored from NuGet like any other package, which removes that whole class of friction.</p>
 
-<p>After migrating to IronPDF, the ZetPDF native library concern is eliminated. IronPDF's Chromium dependency has its own system library requirements. Install them explicitly in your Dockerfile:</p>
+<p>IronPDF's Chromium component does have its own Linux system library requirements. Install them explicitly in your Dockerfile:</p>
 
-<pre><code># IronPDF system dependencies for Linux (verify complete list in IronPDF docs):
+<pre><code># IronPDF system dependencies for Linux:
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 
 RUN apt-get update &amp;&amp; apt-get install -y \
@@ -500,7 +495,7 @@ foreach (var pdf in pdfs) pdf.Dispose();
 
 <h3>What Should I Watch Out for with Stream and Bytes Output?</h3>
 
-<p>The output pattern changes between ZetPDF and IronPDF. ZetPDF's <code>HtmlToPdfConverter.ConvertHtmlToPdf</code> writes directly to a file path; IronPDF returns a <code>PdfDocument</code> that you can save with <code>SaveAs</code> or read bytes from via <code>BinaryData</code>:</p>
+<p>The output pattern changes between ZetPDF and IronPDF. ZetPDF's <code>document.Save</code> writes to a file path or a <code>Stream</code>. IronPDF returns a <code>PdfDocument</code> that you can save with <code>SaveAs</code> or read bytes from via <code>BinaryData</code>:</p>
 
 <pre><code>// IronPDF equivalent:
 using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
@@ -509,16 +504,16 @@ var bytes = pdf.BinaryData; // equivalent byte[] copy
 // pdf disposed by 'using'
 </code></pre>
 
-<p>IronPDF uses 0-based page indexing. Verify ZetPDF's indexing in their documentation and audit any page manipulation code for off-by-one issues before testing.</p>
+<p>IronPDF uses 0-based page indexing. ZetPDF's <code>document.Pages</code> indexer follows the same PDFsharp-style 0-based convention, so the indexing math typically transfers cleanly &mdash; but audit page-manipulation code for off-by-one issues before testing.</p>
 
 <h2>What Is the Recommended Migration Path for Your Team?</h2>
 
-<p>The CI/CD divergence pattern &mdash; works locally, fails in pipeline &mdash; is the hardest kind of library bug to debug, and it is common with native-component dependencies on platforms the library was not primarily designed for. Once IronPDF replaces ZetPDF, that specific class of failure is resolved since IronPDF's Chromium dependencies are well-documented and consistently supported.</p>
+<p>The hardest part of this migration is conceptual rather than mechanical. ZetPDF's coordinate-based drawing model and IronPDF's HTML/CSS rendering model do not map line-for-line, so the work is rewriting layout logic in HTML and CSS rather than translating one API call to another. The payoff is that the rewritten layout is shorter, easier to maintain, and adapts automatically to content changes.</p>
 
-<p>The main investment in this migration is mapping every ZetPDF call site to its IronPDF equivalent before removal. ZetPDF's documented surface is small &mdash; <code>HtmlToPdfConverter</code> for HTML and URL input, <code>PdfMerger</code> for combining files &mdash; so capture the call sites from the codebase itself before starting:</p>
+<p>Capture the call sites from the codebase before starting:</p>
 
 <pre><code># Capture all ZetPDF usage for the migration map
-rg "HtmlToPdfConverter|PdfMerger|ZetPDF" --type cs -n -A 2 &gt; zetpdf-usage-map.txt
+rg "XGraphics|XFont|PdfReader|ZetPDF" --type cs -n -A 2 &gt; zetpdf-usage-map.txt
 cat zetpdf-usage-map.txt
 # Each line becomes a migration point
 </code></pre>

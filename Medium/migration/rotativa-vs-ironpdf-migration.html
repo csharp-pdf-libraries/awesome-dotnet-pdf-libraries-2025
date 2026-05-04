@@ -16,7 +16,9 @@
 
 <p><strong>Action result coupling.</strong> Rotativa is tightly coupled to ASP.NET MVC action results. Using it outside a controller &mdash; in a background service, queue consumer, or similar &mdash; requires workarounds.</p>
 
-<p><strong>Maintenance uncertainty.</strong> Rotativa.AspNetCore's active maintenance status varies. You should verify current commit frequency before committing to it long term.</p>
+<p><strong>Underlying engine is abandoned.</strong> The wkhtmltopdf upstream GitHub repository was archived read-only on January 2, 2023, and the maintainer warns it depends on Qt 4 (unsupported since 2015) and a 2012 WebKit branch. The <code>Rotativa.AspNetCore</code> wrapper itself still ships occasional releases (1.4.0 landed in November 2024), but the engine doing the actual rendering is frozen.</p>
+
+<p><strong>Unpatched SSRF.</strong> CVE-2022-35583 is a critical (CVSS 9.8) server-side request forgery in wkhtmltopdf with no fixed version. Any Rotativa app rendering attacker-influenced HTML is exposed to internal network and cloud-metadata exfiltration unless the HTML is fully sanitized upstream.</p>
 
 <p><strong>Missing PDF manipulation.</strong> Rotativa generates PDFs via wkhtmltopdf but does not support merge, split, watermark, or security operations.</p>
 
@@ -30,12 +32,12 @@
 
 <ul>
 <li><strong>Focus.</strong> Rotativa is ASP.NET MVC PDF generation via Razor views; IronPDF is HTML-to-PDF plus full PDF manipulation.</li>
-<li><strong>Pricing.</strong> Rotativa is open source (verify the specific package's license); IronPDF is a commercial license &mdash; verify current terms at ironsoftware.com.</li>
+<li><strong>Licensing.</strong> Both <code>Rotativa</code> and <code>Rotativa.AspNetCore</code> are MIT-licensed; IronPDF is commercial &mdash; current terms are on the <a href="https://ironpdf.com/licensing/">IronPDF licensing page</a>.</li>
 <li><strong>API style.</strong> Rotativa returns an MVC action result (<code>ViewAsPdf</code>); IronPDF is a plain library API with no controller required.</li>
 <li><strong>Learning curve.</strong> Rotativa is low-friction for MVC devs because it lives inside action results; IronPDF is low-friction for any .NET dev and is usable anywhere in the stack.</li>
 <li><strong>HTML rendering.</strong> Rotativa uses wkhtmltopdf (WebKit-based); IronPDF uses an embedded Chromium engine.</li>
 <li><strong>Page indexing.</strong> Rotativa is generation-only and exposes no page index; IronPDF is 0-based.</li>
-<li><strong>Thread safety.</strong> Rotativa runs one wkhtmltopdf process per render; verify IronPDF's concurrent instance guidance for your version.</li>
+<li><strong>Concurrency model.</strong> Rotativa spawns a wkhtmltopdf process per render; IronPDF runs in-process against an embedded Chromium instance. Reuse a single <code>ChromePdfRenderer</code> across requests rather than instantiating one per call &mdash; consult the <a href="https://ironpdf.com/how-to/async/">IronPDF async guide</a> for the recommended pattern in your version.</li>
 <li><strong>Namespace.</strong> <code>Rotativa.AspNetCore</code> &rarr; <code>IronPdf</code>.</li>
 </ul>
 
@@ -71,7 +73,7 @@
 
 <h2>How Do You Set Up IronPDF and Replace Rotativa?</h2>
 
-<p>I will walk you through the core migration in three steps. First, audit your existing Rotativa references, then swap the packages, and finally update your code.</p>
+<p>The core migration has three pieces: audit your existing Rotativa references, swap the packages, and update your code to use <code>ChromePdfRenderer</code>.</p>
 
 <h3>Finding Rotativa References in Your Codebase</h3>
 
@@ -111,7 +113,7 @@ rm -rf ./Rotativa/  # if folder exists
 # COPY Rotativa/wkhtmltopdf ...       &lt;- remove this
 </code></pre>
 
-<h3>Step 1: License Configuration</h3>
+<h3>License Configuration</h3>
 
 <p><strong>Before (Rotativa):</strong></p>
 
@@ -129,7 +131,7 @@ IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE
     ?? throw new InvalidOperationException("IRONPDF_LICENSE_KEY not set");
 </code></pre>
 
-<h3>Step 2: Namespace Swap</h3>
+<h3>Namespace Swap</h3>
 
 <p><strong>Before:</strong></p>
 
@@ -143,7 +145,7 @@ using Rotativa.AspNetCore.Options;
 using IronPdf.Rendering;
 </code></pre>
 
-<h3>Step 3: Basic Controller Conversion</h3>
+<h3>Basic Controller Conversion</h3>
 
 <p><strong>Before (Rotativa action result):</strong></p>
 
@@ -327,10 +329,10 @@ public class ReportController : ControllerBase
             Growth = 8.2,
         };
 
-        // Step 1: Render Razor view to HTML
+        // Render the Razor view to an HTML string
         var html = await _viewRenderer.RenderToStringAsync("QuarterlyReport", reportData);
 
-        // Step 2: Render HTML to PDF
+        // Render the HTML to PDF
         // https://ironpdf.com/how-to/html-string-to-pdf/
         var renderer = new ChromePdfRenderer();
         renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
@@ -468,13 +470,12 @@ class PasswordBefore
 {
     static IActionResult GetProtectedReport()
     {
-        // wkhtmltopdf has --password flags for opening encrypted PDFs
-        // but generating a password-protected PDF requires --encrypt-level, etc.
-        // VERIFY: exact CustomSwitches flags for your wkhtmltopdf version
+        // CustomSwitches passes raw wkhtmltopdf CLI flags through to the binary.
+        // Encryption flags exist but the engine is unmaintained, so coverage and
+        // behaviour are inconsistent across versions.
 
         return new ViewAsPdf("ConfidentialReport", new { })
         {
-            // CustomSwitches flags are wkhtmltopdf CLI flags - verify at wkhtmltopdf.org
             CustomSwitches = "--encrypt-level 128bit --owner-password admin456 --user-password open123",
         };
     }
@@ -536,7 +537,7 @@ pdf.SaveAs("confidential-report.pdf");
 <li><strong>Page count.</strong> Not exposed by Rotativa &mdash; <code>pdf.PageCount</code> in IronPDF.</li>
 <li><strong>Remove page.</strong> Not available in Rotativa &mdash; <code>pdf.RemovePages(index)</code> in IronPDF.</li>
 <li><strong>Extract text.</strong> Not available in Rotativa &mdash; <code>pdf.ExtractAllText()</code> in IronPDF.</li>
-<li><strong>Rotate.</strong> Not available in Rotativa &mdash; verify the exact rotation API in the current IronPDF docs for your version.</li>
+<li><strong>Rotate.</strong> Not available in Rotativa &mdash; supported in IronPDF; the exact rotation API has shifted between major versions, so confirm the current signature in the <a href="https://ironpdf.com/object-reference/api/">IronPDF API reference</a>.</li>
 </ul>
 
 <h3>Merge / Split Operations</h3>
@@ -568,11 +569,11 @@ pdf.SaveAs("confidential-report.pdf");
 
 <p>Do not instantiate <code>ChromePdfRenderer</code> per controller instantiation. Register it in DI or use a singleton pattern.</p>
 
-<pre><code>// Register renderer in DI (verify thread-safety in IronPDF docs first)
+<pre><code>// Register a single renderer for the application's lifetime
 builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;();
 
-// Or register a factory
-builder.Services.AddScoped&lt;IChromePdfRenderer&gt;(_ =&gt; new ChromePdfRenderer());
+// Or register a per-request scope if your rendering options vary by request
+builder.Services.AddScoped&lt;ChromePdfRenderer&gt;();
 </code></pre>
 
 <h3>Background Service Pattern</h3>

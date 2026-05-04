@@ -4,48 +4,50 @@
 
 <h2>Why Migrate from pdforge to IronPDF?</h2>
 
-<p>The compliance review surfaced it first. Every PDF the billing service generated was being POSTed to a third-party endpoint with the customer's HTML payload &mdash; invoice line items, addresses, the lot &mdash; and the auditor flagged it. The <code>HtmlToPdfConverter</code> calls in the codebase are six lines each and look harmless, but each call leaves your infrastructure, hits pdforge's servers, and comes back with a <code>byte[]</code>. For a small marketing site that is fine. For regulated workloads it is a problem you have to answer for.</p>
+<p>The compliance review surfaced it first. Every PDF the billing service generated was being POSTed to a third-party endpoint with the customer's HTML payload &mdash; invoice line items, addresses, the lot &mdash; and the auditor flagged it. The <code>HttpClient.PostAsync</code> call to <code>api.pdfnoodle.com</code> is fifteen lines including the Bearer header and the signed-URL fetch, and looks harmless on its own. But each call leaves your infrastructure, hits the vendor's servers, and comes back with a JSON envelope you have to download a second time to get the PDF bytes. For a small marketing site that is fine. For regulated workloads it is a problem you have to answer for.</p>
 
-<p>You have two options: keep paying for pdforge and write a data-processing addendum, or move PDF generation back inside your process. I am covering the second path here &mdash; migrating from pdforge to <a href="https://ironpdf.com/">IronPDF</a> &mdash; so you have concrete code to evaluate before making the call.</p>
+<p>(A naming note before we go further: pdforge rebranded to "pdf noodle" in 2026, and the public docs now live at <code>docs.pdfnoodle.com</code>. The <code>api.pdforge.com</code> hostname continues to work via 301 redirects through end of 2026, so existing integrations keep running &mdash; but new code in this guide uses the <code>api.pdfnoodle.com</code> hostname.)</p>
+
+<p>You have two options: keep paying the subscription and write a data-processing addendum, or move PDF generation back inside your process. I am covering the second path here &mdash; migrating from pdforge to <a href="https://ironpdf.com/">IronPDF</a> &mdash; so you have concrete code to evaluate before making the call.</p>
 
 <p>Here are eight neutral reasons the analysis tips toward migration:</p>
 
-<p>1. <strong>Data leaves your infrastructure</strong> &mdash; every <code>ConvertHtmlString</code> call sends HTML and any embedded data to pdforge's cloud. For PII, PHI, or financial records that is a compliance conversation you would rather not have.</p>
+<p>1. <strong>Data leaves your infrastructure</strong> &mdash; every <code>POST /v1/html-to-pdf/sync</code> sends HTML and any embedded data to the vendor's cloud. For PII, PHI, or financial records that is a compliance conversation you would rather not have.</p>
 
-<p>2. <strong>Network latency on the hot path</strong> &mdash; HTTP round-trip + render + response per document. Local rendering removes the round-trip.</p>
+<p>2. <strong>Network latency on the hot path</strong> &mdash; HTTP round-trip + render + signed-URL download per document. Local rendering removes both round-trips.</p>
 
 <p>3. <strong>Subscription cost vs perpetual license</strong> &mdash; monthly fees scale with volume; a perpetual license does not.</p>
 
 <p>4. <strong>Rate limits</strong> &mdash; plan-tier throttling can throttle high-volume batch jobs. Local rendering is bounded by your hardware, not a quota.</p>
 
-<p>5. <strong>Outbound dependency</strong> &mdash; if pdforge has an outage or you lose egress, your PDF pipeline stops.</p>
+<p>5. <strong>Outbound dependency</strong> &mdash; if the service has an outage or you lose egress, your PDF pipeline stops.</p>
 
 <p>6. <strong>Vendor lock-in on a service contract</strong> &mdash; you depend on the provider's uptime, API stability, and pricing decisions.</p>
 
 <p>7. <strong>Limited PDF manipulation</strong> &mdash; pdforge focuses on generation. Merge, split, watermark, sign, and form-fill require either supplementary libraries or are not available.</p>
 
-<p>8. <strong>.NET version future-proofing</strong> &mdash; verify pdforge's .NET 8/9 client compatibility as you plan runtime upgrades.</p>
+<p>8. <strong>No official .NET SDK</strong> &mdash; integration is hand-rolled <code>HttpClient</code> + JSON, which means request shapes, error handling, and signed-URL plumbing are all on your team to maintain.</p>
 
 <h2>How Do pdforge and IronPDF Compare at a Glance?</h2>
 
-<p>The fundamental difference is where rendering happens. pdforge is a cloud service: you instantiate a converter (or, in older client patterns, a <code>PdfClient</code> with an API key), call <code>ConvertHtmlString</code> or <code>ConvertUrl</code>, and the bytes come back over HTTP. Pricing is subscription-based, scope is HTML/URL-to-PDF, and data privacy depends on the vendor's terms.</p>
+<p>The fundamental difference is where rendering happens. pdforge is a cloud service: you POST a JSON body containing your <code>html</code> and a <code>pdfParams</code> object to <code>https://api.pdfnoodle.com/v1/html-to-pdf/sync</code> with a Bearer token, parse the JSON envelope that comes back, and download the PDF from the <code>signedUrl</code> field. There is no official .NET SDK on NuGet; integration is <code>System.Net.Http</code> against the documented REST endpoints. Pricing is subscription-based, scope is HTML-to-PDF, and data privacy depends on the vendor's terms.</p>
 
 <p>IronPDF is an in-process .NET library. <code>ChromePdfRenderer</code> ships with a Chromium-based engine that runs locally, returns a <code>PdfDocument</code> object, uses 0-based page indexing, and is licensed perpetually. The namespace is <code>IronPdf</code>. There are no rate limits, no per-document network calls, and the API surface covers manipulation (merge, split, stamp, sign, forms, security) on top of HTML-to-PDF.</p>
 
 <h2>What Is the Migration Effort by Feature?</h2>
 
 <ul>
-<li><strong>HTML string to PDF &mdash; Low.</strong> <code>converter.ConvertHtmlString(html)</code> maps directly to <code>renderer.RenderHtmlAsPdf(html)</code>.</li>
-<li><strong>URL to PDF &mdash; Low.</strong> <code>converter.ConvertUrl(url)</code> maps directly to <code>renderer.RenderUrlAsPdf(url)</code>.</li>
-<li><strong>HTML file to PDF &mdash; Low.</strong> Read the file and call <code>RenderHtmlAsPdf</code>, or use <code>RenderHtmlFileAsPdf(path)</code>.</li>
-<li><strong>Page size / orientation &mdash; Low.</strong> pdforge's <code>PageSize</code> / <code>Orientation</code> properties become <code>RenderingOptions.PaperSize</code> / <code>PaperOrientation</code>.</li>
-<li><strong>Custom margins &mdash; Low.</strong> Property names match (<code>MarginTop</code>, <code>MarginBottom</code>, etc.); they live on <code>RenderingOptions</code> in IronPDF.</li>
-<li><strong>Headers / footers &mdash; Medium.</strong> Placeholder syntax shifts from <code>{totalPages}</code> to <code>{total-pages}</code>; HTML headers move from string properties to <code>HtmlHeaderFooter</code> objects.</li>
-<li><strong>Password protection &mdash; Low.</strong> pdforge accepts <code>Password</code> on the request; IronPDF exposes <code>SecuritySettings</code> on the <code>PdfDocument</code>.</li>
-<li><strong>Merge / split &mdash; Low (gained).</strong> pdforge does not natively merge; IronPDF ships <code>PdfDocument.Merge</code> and <code>CopyPages</code>.</li>
-<li><strong>Watermark / stamp &mdash; Low (gained).</strong> IronPDF's <code>TextStamper</code> / <code>ImageStamper</code> covers stamping; pdforge generally does not.</li>
-<li><strong>Digital signatures &mdash; Medium (gained).</strong> IronPDF's <code>PdfSignature</code> takes a <code>.pfx</code> + password; pdforge does not provide signing.</li>
-<li><strong>Async pattern &mdash; Low.</strong> pdforge clients are typically async by necessity; IronPDF is sync by default with async variants where useful.</li>
+<li><strong>HTML string to PDF &mdash; Low.</strong> A POST to <code>/v1/html-to-pdf/sync</code> with <code>{ html }</code> maps directly to <code>renderer.RenderHtmlAsPdf(html)</code>.</li>
+<li><strong>URL to PDF &mdash; Low.</strong> pdforge has no dedicated URL endpoint &mdash; you fetch the page yourself and POST its HTML. IronPDF exposes <code>renderer.RenderUrlAsPdf(url)</code> directly.</li>
+<li><strong>HTML file to PDF &mdash; Low.</strong> Read the file and POST its contents, or call <code>renderer.RenderHtmlFileAsPdf(path)</code>.</li>
+<li><strong>Page size / orientation &mdash; Low.</strong> The Chromium-style <code>format: "A4"</code> and <code>landscape: true</code> fields on <code>pdfParams</code> become <code>RenderingOptions.PaperSize</code> / <code>PaperOrientation</code>.</li>
+<li><strong>Custom margins &mdash; Low.</strong> The nested <code>margin: { top: "20px", ... }</code> object becomes plain <code>MarginTop</code>/<code>MarginBottom</code>/<code>MarginLeft</code>/<code>MarginRight</code> properties on <code>RenderingOptions</code> (numeric millimetres, no unit string).</li>
+<li><strong>Headers / footers &mdash; Medium.</strong> pdforge uses Chromium's HTML-template format with <code>&lt;span class="pageNumber"&gt;</code> / <code>&lt;span class="totalPages"&gt;</code> elements; IronPDF uses bracketed placeholders (<code>{page}</code>, <code>{total-pages}</code>) inside <code>TextHeaderFooter</code> or <code>HtmlHeaderFooter</code> objects.</li>
+<li><strong>Password protection &mdash; Low (gained).</strong> pdforge has no documented password parameter; teams typically encrypt downstream. IronPDF exposes <code>SecuritySettings</code> on the <code>PdfDocument</code>.</li>
+<li><strong>Merge / split &mdash; Low (gained).</strong> Not in pdforge; IronPDF ships <code>PdfDocument.Merge</code> and <code>CopyPages</code>.</li>
+<li><strong>Watermark / stamp &mdash; Low (gained).</strong> Not in pdforge; IronPDF's <code>TextStamper</code> / <code>ImageStamper</code> covers stamping.</li>
+<li><strong>Digital signatures &mdash; Medium (gained).</strong> Not in pdforge; IronPDF's <code>PdfSignature</code> takes a <code>.pfx</code> + password.</li>
+<li><strong>Async pattern &mdash; Low.</strong> pdforge calls are async by necessity (every call is HTTP); IronPDF is sync by default with async variants where useful.</li>
 </ul>
 
 <p>The decision matrix is short:</p>
@@ -59,28 +61,23 @@
 
 <h2>How Do I Set Up IronPDF After Removing pdforge?</h2>
 
-<p>Start by removing pdforge and installing IronPDF via NuGet. Then configure your license key and update your namespace imports.</p>
+<p>Because pdforge has no .NET package on NuGet, there is nothing to <code>dotnet remove</code>. The migration is an additive install of IronPDF, followed by deleting your <code>HttpClient</code> call sites once the new code is in place.</p>
 
-<h3>Remove pdforge and install IronPDF</h3>
+<h3>Install IronPDF</h3>
 
-<pre><code>dotnet remove package PdfForge
-
-dotnet add package IronPdf
+<pre><code>dotnet add package IronPdf
 dotnet restore
 </code></pre>
 
-<h3>License configuration &mdash; pdforge (before)</h3>
+<h3>Authentication &mdash; pdforge (before)</h3>
 
-<pre><code>// pdforge: API key authentication, often per-client
-// using PdfForge;
-// using PdfForge.Client;
+<pre><code>// pdforge: Bearer token sent on every HTTP request — no SDK to remove.
+using System.Net.Http;
+using System.Net.Http.Headers;
 
-// Older client pattern:
-// var client = new PdfClient("your-pdforge-api-key");
-//
-// Newer / simpler pattern in this repo's samples:
-// var converter = new HtmlToPdfConverter();
-// (key picked up from configuration or constructor; verify in your version)
+using var http = new HttpClient();
+http.DefaultRequestHeaders.Authorization =
+    new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
 </code></pre>
 
 <h3>License configuration &mdash; IronPDF (after)</h3>
@@ -94,9 +91,10 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 <h3>Namespace imports &mdash; pdforge (before)</h3>
 
-<pre><code>using PdfForge;
-using PdfForge.Client;   // older client-based pattern
-using PdfForge.Models;   // request/options types
+<pre><code>using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 </code></pre>
 
 <h3>Namespace imports &mdash; IronPDF (after)</h3>
@@ -109,21 +107,36 @@ using IronPdf.Security;
 
 <h2>How Do I Convert HTML to PDF with IronPDF?</h2>
 
-<p>The basic HTML-to-PDF conversion is the most common migration target. I will show the pdforge pattern alongside the IronPDF replacement, followed by a version with custom rendering options.</p>
+<p>The basic HTML-to-PDF conversion is the most common migration target. Below is the pdforge REST pattern alongside the IronPDF replacement, followed by a version with custom rendering options.</p>
 
 <h3>Basic HTML-to-PDF &mdash; pdforge (before)</h3>
 
-<pre><code>using PdfForge;
-using System.IO;
+<pre><code>using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        var html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello World&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
-        byte[] pdf = converter.ConvertHtmlString(html);
-        File.WriteAllBytes("output.pdf", pdf);
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
+
+        var body = new { html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello World&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;" };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+
+        // The sync endpoint returns a JSON envelope with a signedUrl pointing to the PDF.
+        var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+        resp.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var signedUrl = doc.RootElement.GetProperty("signedUrl").GetString();
+        var pdfBytes = await http.GetByteArrayAsync(signedUrl);
+        File.WriteAllBytes("output.pdf", pdfBytes);
     }
 }
 </code></pre>
@@ -142,20 +155,41 @@ pdf.SaveAs("output.pdf");
 
 <h3>HTML-to-PDF with custom options &mdash; pdforge (before)</h3>
 
-<pre><code>using PdfForge;
-using System.IO;
+<pre><code>using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        converter.PageSize    = PageSize.A4;
-        converter.Orientation = PageOrientation.Landscape;
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
 
         var htmlContent = File.ReadAllText("input.html");
-        byte[] pdf = converter.ConvertHtmlString(htmlContent);
-        File.WriteAllBytes("invoice.pdf", pdf);
+
+        var body = new
+        {
+            html = htmlContent,
+            pdfParams = new
+            {
+                format    = "A4",
+                landscape = true,
+                margin    = new { top = "10mm", bottom = "10mm", left = "15mm", right = "15mm" }
+            }
+        };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+
+        var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+        resp.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var pdfBytes = await http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
+        File.WriteAllBytes("invoice.pdf", pdfBytes);
     }
 }
 </code></pre>
@@ -183,20 +217,37 @@ pdf.SaveAs("invoice.pdf");
 
 <h2>How Do I Convert a URL to PDF After Migrating?</h2>
 
-<p>URL-to-PDF is pdforge's other primary entry point. The mapping is one-for-one; the only thing that changes is that the request never leaves your process.</p>
+<p>URL-to-PDF is where the API-shape mismatch is most visible. pdforge has no dedicated URL endpoint &mdash; the canonical pattern is to fetch the page yourself with <code>HttpClient.GetStringAsync</code>, then submit the resulting HTML to <code>/v1/html-to-pdf/sync</code>. IronPDF exposes the URL path directly as a one-liner, and the request never leaves your process.</p>
 
 <h3>URL to PDF &mdash; pdforge (before)</h3>
 
-<pre><code>using PdfForge;
-using System.IO;
+<pre><code>using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
-        byte[] pdf = converter.ConvertUrl("https://example.com");
-        File.WriteAllBytes("webpage.pdf", pdf);
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
+
+        // Two-step: fetch the source page, then POST its HTML.
+        var sourceHtml = await http.GetStringAsync("https://example.com");
+
+        var body = new { html = sourceHtml };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+
+        var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+        resp.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var pdfBytes = await http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
+        File.WriteAllBytes("webpage.pdf", pdfBytes);
     }
 }
 </code></pre>
@@ -215,7 +266,7 @@ pdf.SaveAs("webpage.pdf");
 
 <h2>How Do I Merge PDFs After Migrating?</h2>
 
-<p>Merging is one of the features pdforge does not cover natively, so teams often pull in PdfSharp or iTextSharp alongside it. After migrating, the secondary library can usually go.</p>
+<p>Merging is one of the features pdforge does not cover, so teams often pull in PdfSharp or iTextSharp alongside it. After migrating, the secondary library can usually go.</p>
 
 <h3>Merge PDFs &mdash; PdfSharp pattern alongside pdforge (before)</h3>
 
@@ -293,30 +344,37 @@ for (int i = 1; i &lt;= 3; i++)
 
 <h2>How Do I Add Password Protection with IronPDF?</h2>
 
-<p>IronPDF exposes security settings directly on the <code>PdfDocument</code> object. There is no separate security class to instantiate &mdash; you set properties and save.</p>
+<p>pdforge does not expose password protection or encryption in its documented HTML-to-PDF parameters, so teams generally generate the PDF, download it, and encrypt it locally with a separate library. After migration that two-step pattern collapses: IronPDF exposes security settings directly on the <code>PdfDocument</code> object &mdash; you set properties and save.</p>
 
 <h3>Password protection &mdash; pdforge (before)</h3>
 
-<pre><code>using PdfForge;
-using PdfForge.Client;
-using System.IO;
+<pre><code>using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 class Program
 {
     static async Task Main()
     {
-        var client = new PdfClient("your-api-key");
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "pdfnoodle_api_YOUR_KEY");
 
-        var request = new HtmlToPdfRequest
-        {
-            Html = "&lt;h1&gt;Confidential Document&lt;/h1&gt;",
-            Password      = "secret123",   // user password
-            OwnerPassword = "admin456"
-        };
+        var body = new { html = "&lt;h1&gt;Confidential Document&lt;/h1&gt;" };
+        var json = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
-        byte[] pdf = await client.GenerateAsync(request);
-        File.WriteAllBytes("secure.pdf", pdf);
+        var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
+        resp.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var pdfBytes = await http.GetByteArrayAsync(doc.RootElement.GetProperty("signedUrl").GetString());
+        File.WriteAllBytes("secure.pdf", pdfBytes);
+
+        // Encrypt secure.pdf with a separate library — pdforge has no built-in
+        // user/owner password parameter on its HTML-to-PDF endpoint.
     }
 }
 </code></pre>
@@ -341,48 +399,43 @@ pdf.SaveAs("secure.pdf");
 
 <h2>What Are the API Mapping Tables Between pdforge and IronPDF?</h2>
 
-<p>These mappings give you a systematic reference for every pdforge call site. I recommend exporting your call sites first and working through them row by row.</p>
+<p>These mappings give you a systematic reference for every pdforge call site. I recommend grepping for <code>api.pdfnoodle.com</code> / <code>api.pdforge.com</code> first and working through the call sites row by row.</p>
 
-<h3>Namespace mapping</h3>
-
-<ul>
-<li><code>PdfForge</code> &rarr; <code>IronPdf</code> &mdash; core namespace</li>
-<li><code>PdfForge.Client</code> &rarr; <code>IronPdf</code> / <code>IronPdf.Rendering</code> &mdash; renderer + render config (no separate client; license is global)</li>
-<li><code>PdfForge.Models</code> &rarr; <code>IronPdf.Rendering</code> &mdash; request/option types collapse into <code>RenderingOptions</code></li>
-</ul>
-
-<h3>Core class mapping</h3>
+<h3>Endpoint and class mapping</h3>
 
 <ul>
-<li><code>HtmlToPdfConverter</code> / <code>PdfClient</code> &rarr; <code>ChromePdfRenderer</code> &mdash; HTML and URL to PDF</li>
-<li><code>HtmlToPdfRequest</code> / <code>UrlToPdfRequest</code> &rarr; <code>ChromePdfRenderOptions</code> &mdash; render configuration on <code>renderer.RenderingOptions</code></li>
-<li>API response (<code>byte[]</code>) &rarr; <code>PdfDocument</code> &mdash; result object, with <code>BinaryData</code> and <code>Stream</code> for raw bytes</li>
-</ul>
-
-<h3>Document loading methods</h3>
-
-<ul>
-<li><strong>HTML string.</strong> <code>converter.ConvertHtmlString(html)</code> &rarr; <code>renderer.RenderHtmlAsPdf(html)</code></li>
-<li><strong>URL.</strong> <code>converter.ConvertUrl(url)</code> &rarr; <code>renderer.RenderUrlAsPdf(url)</code></li>
-<li><strong>HTML file.</strong> <code>converter.ConvertHtmlString(File.ReadAllText(path))</code> &rarr; <code>renderer.RenderHtmlFileAsPdf(path)</code></li>
-<li><strong>Existing PDF.</strong> n/a in pdforge &rarr; <code>PdfDocument.FromFile(path)</code></li>
+<li><code>HttpClient</code> + <code>Authorization: Bearer</code> &rarr; <code>ChromePdfRenderer</code> &mdash; main PDF generator (no client object to construct, license is global)</li>
+<li>JSON request body <code>{ html, pdfParams }</code> &rarr; <code>renderer.RenderingOptions</code> &mdash; render configuration moves from a serialized object to a typed property bag</li>
+<li><code>POST /v1/html-to-pdf/sync</code> with <code>{ html }</code> &rarr; <code>renderer.RenderHtmlAsPdf(html)</code> &mdash; HTML-string conversion</li>
+<li>Fetch URL via <code>HttpClient.GetStringAsync</code>, then POST &rarr; <code>renderer.RenderUrlAsPdf(url)</code> &mdash; URL conversion (one step instead of two)</li>
+<li><code>File.ReadAllText(path)</code> then POST &rarr; <code>renderer.RenderHtmlFileAsPdf(path)</code> &mdash; HTML-file conversion</li>
+<li>JSON envelope with <code>signedUrl</code> &rarr; <code>PdfDocument</code> &mdash; result object exposing <code>BinaryData</code> and <code>Stream</code> for raw bytes; no second download required</li>
 </ul>
 
 <h3>Page operations</h3>
 
 <ul>
-<li><strong>Paper size.</strong> <code>converter.PageSize = PageSize.A4</code> &rarr; <code>RenderingOptions.PaperSize = PdfPaperSize.A4</code></li>
-<li><strong>Orientation.</strong> <code>converter.Orientation = PageOrientation.Landscape</code> &rarr; <code>RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape</code></li>
-<li><strong>Margins.</strong> <code>request.MarginTop</code> etc. &rarr; <code>RenderingOptions.MarginTop</code> etc.</li>
+<li><strong>Paper size.</strong> <code>pdfParams.format = "A4"</code> &rarr; <code>RenderingOptions.PaperSize = PdfPaperSize.A4</code></li>
+<li><strong>Orientation.</strong> <code>pdfParams.landscape = true</code> &rarr; <code>RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape</code></li>
+<li><strong>Margins.</strong> <code>pdfParams.margin = { top: "20px", ... }</code> &rarr; <code>RenderingOptions.MarginTop</code> etc. (numeric millimetres, no unit string)</li>
+<li><strong>Custom page size.</strong> <code>pdfParams.width</code> / <code>height</code> (with unit) &rarr; <code>RenderingOptions.SetCustomPaperSizeInInches(...)</code> or <code>SetCustomPaperSizeInMillimeters(...)</code></li>
+<li><strong>Print backgrounds.</strong> <code>pdfParams.printBackground = true</code> &rarr; <code>RenderingOptions.PrintHtmlBackgrounds = true</code></li>
 <li><strong>Page count.</strong> n/a on the request side &rarr; <code>pdf.PageCount</code></li>
 </ul>
 
 <h3>Headers, footers, and placeholders</h3>
 
+<p>This is the area with the largest behavioural shift. pdforge inherits Chromium's HTML-template format: header and footer are HTML fragments containing <code>&lt;span class="pageNumber"&gt;&lt;/span&gt;</code> / <code>&lt;span class="totalPages"&gt;&lt;/span&gt;</code> elements that the engine substitutes at render time, and they only render when <code>pdfParams.displayHeaderFooter</code> is <code>true</code>. IronPDF uses bracketed placeholders inside either a <code>TextHeaderFooter.CenterText</code> or an <code>HtmlHeaderFooter.HtmlFragment</code>, and visibility is implicit when the property is set.</p>
+
+<p>The substitution mapping:</p>
+
 <ul>
-<li><strong>Plain text header / footer.</strong> <code>request.Header = "..."</code> / <code>Footer = "..."</code> &rarr; <code>RenderingOptions.TextHeader</code> / <code>TextFooter</code> as <code>TextHeaderFooter</code> with <code>CenterText</code>.</li>
-<li><strong>HTML header / footer.</strong> <code>request.HeaderHtml</code> / <code>FooterHtml</code> &rarr; <code>RenderingOptions.HtmlHeader</code> / <code>HtmlFooter</code> as <code>HtmlHeaderFooter</code> with <code>HtmlFragment</code>.</li>
-<li><strong>Total-pages placeholder.</strong> <code>{totalPages}</code> &rarr; <code>{total-pages}</code> (note the hyphen). <code>{page}</code>, <code>{date}</code>, <code>{time}</code>, <code>{url}</code> are unchanged; <code>{title}</code> becomes <code>{html-title}</code>.</li>
+<li><code>&lt;span class="pageNumber"&gt;&lt;/span&gt;</code> &rarr; <code>{page}</code></li>
+<li><code>&lt;span class="totalPages"&gt;&lt;/span&gt;</code> &rarr; <code>{total-pages}</code> (note the hyphen)</li>
+<li><code>&lt;span class="date"&gt;&lt;/span&gt;</code> &rarr; <code>{date}</code></li>
+<li>(no built-in time class) &rarr; <code>{time}</code></li>
+<li><code>&lt;span class="title"&gt;&lt;/span&gt;</code> &rarr; <code>{html-title}</code></li>
+<li><code>&lt;span class="url"&gt;&lt;/span&gt;</code> &rarr; <code>{url}</code></li>
 </ul>
 
 <h3>Merge/split operations</h3>
@@ -398,10 +451,10 @@ pdf.SaveAs("secure.pdf");
 
 <h3>Sync vs async</h3>
 
-<p>pdforge's <code>PdfClient.GenerateAsync</code> is async because every call is an HTTP request. IronPDF runs locally and is sync by default; wrap in <code>Task.Run</code> or use the <code>Async</code> variants only when you genuinely need to free a request thread:</p>
+<p>Every pdforge call is async because every call is HTTP. IronPDF runs locally and is sync by default; wrap in <code>Task.Run</code> or use the <code>Async</code> variants only when you genuinely need to free a request thread:</p>
 
-<pre><code>// pdforge: always async
-byte[] pdfBytes = await client.GenerateAsync(request);
+<pre><code>// pdforge: always async (HTTP POST + signed-URL fetch)
+var resp = await http.PostAsync("https://api.pdfnoodle.com/v1/html-to-pdf/sync", json);
 
 // IronPDF: sync by default
 var pdf = renderer.RenderHtmlAsPdf(html);
@@ -412,7 +465,7 @@ var pdf = await renderer.RenderHtmlAsPdfAsync(html);
 
 <h3>Output model</h3>
 
-<p>pdforge returns <code>byte[]</code>. IronPDF returns <code>PdfDocument</code>:</p>
+<p>pdforge returns a JSON envelope; you parse out <code>signedUrl</code> and download the PDF bytes from it. IronPDF returns <code>PdfDocument</code> directly:</p>
 
 <pre><code>// IronPDF PdfDocument to byte[]:
 var pdf = renderer.RenderHtmlAsPdf(html);
@@ -427,7 +480,7 @@ byte[] alsoBytes = ms.ToArray();
 
 <h3>Error handling</h3>
 
-<p>pdforge surfaces network and quota errors (<code>RateLimitException</code>, <code>ApiTimeoutException</code>, <code>ApiAuthenticationException</code>). After migration, those are gone &mdash; replace them with IronPDF's local exception types:</p>
+<p>pdforge errors arrive as HTTP status codes &mdash; <code>401 Unauthorized</code> for a bad Bearer token, <code>429 Too Many Requests</code> for rate-limit hits, and <code>HttpRequestException</code> / <code>TaskCanceledException</code> for transport problems. After migration, those are gone &mdash; replace them with IronPDF's local exception types:</p>
 
 <pre><code>try
 {
@@ -461,28 +514,28 @@ foreach (var html in documentQueue)
 
 <h3>What .NET versions does IronPDF support?</h3>
 
-<p>IronPDF targets .NET 6 and above. If your project is on .NET 6+, you are ready to go. Verify pdforge's .NET 8/9 client compatibility as you plan runtime upgrades.</p>
+<p>IronPDF targets .NET 6 and above. If your project is on .NET 6+, you are ready to go. pdforge integration is just <code>System.Net.Http</code> and <code>System.Text.Json</code>, so the runtime is whatever your project already targets &mdash; there is no SDK version to coordinate.</p>
 
 <h3>How do I handle transitive dependencies after removing pdforge?</h3>
 
-<p>If pdforge pulled in HTTP-client or serialization packages, check whether any are still needed after migration. Run <code>dotnet restore</code> and commit the updated <code>packages.lock.json</code> if you are using locked restores. Also update any <code>PackageReference</code> version constraints in <code>.csproj</code> files rather than just removing the package.</p>
+<p>Because there was never a NuGet package, the cleanup is mostly about your own code: delete the <code>HttpClient</code> call sites, the JSON request models, and any <code>System.Text.Json</code> wrappers you wrote around them. Run <code>dotnet restore</code> and commit the updated <code>packages.lock.json</code> if you are using locked restores.</p>
 
 <h3>Can IronPDF replace secondary libraries I added to supplement pdforge?</h3>
 
-<p>Yes. If you have added PdfSharp, iTextSharp, or other libraries to fill gaps in pdforge &mdash; merging, watermarking, signing, form-fill &mdash; IronPDF consolidates those capabilities. The merge example above shows how a PdfSharp-based merge pattern collapses into a single IronPDF call. Identify all secondary libraries during pre-migration and remove them if they were only supplementing pdforge.</p>
+<p>Yes. If you have added PdfSharp, iTextSharp, qpdf, or others to fill gaps in pdforge &mdash; merging, watermarking, signing, password-protecting downloaded files &mdash; IronPDF consolidates those capabilities. The merge example above shows how a PdfSharp-based merge pattern collapses into a single IronPDF call. Identify all secondary libraries during pre-migration and remove them if they were only supplementing pdforge.</p>
 
 <h3>Is there a like-for-like async migration path?</h3>
 
-<p>Mostly yes. <code>RenderHtmlAsPdfAsync</code> and <code>RenderUrlAsPdfAsync</code> mirror pdforge's <code>GenerateAsync</code>, so controllers that <code>await</code> the call do not need restructuring. The behavioural difference is that the async-ness is no longer hiding a network request &mdash; it is freeing the calling thread during a local render.</p>
+<p>Mostly yes. <code>RenderHtmlAsPdfAsync</code> and <code>RenderUrlAsPdfAsync</code> mirror the shape of an awaited <code>HttpClient.PostAsync</code>, so controllers that <code>await</code> the call do not need restructuring. The behavioural difference is that the async-ness is no longer hiding a network request &mdash; it is freeing the calling thread during a local render.</p>
 
 <h3>How does data privacy actually change after migration?</h3>
 
-<p>Every <code>ConvertHtmlString</code> or <code>ConvertUrl</code> on pdforge sends payload to the vendor's servers. After migrating to IronPDF, the same call runs in your process and the bytes never leave. For regulated workloads (PII, PHI, financial records) that is the headline change &mdash; the rest of this guide is mechanics.</p>
+<p>Every POST to <code>api.pdfnoodle.com</code> sends your payload to the vendor's servers, and the resulting PDF is held on their storage long enough for you to fetch it from a signed URL. After migrating to IronPDF, the same call runs in your process and the bytes never leave. For regulated workloads (PII, PHI, financial records) that is the headline change &mdash; the rest of this guide is mechanics.</p>
 
 <h2>Conclusion</h2>
 
-<p>The compliance-driven migration has an underappreciated upside: while you are pulling pdforge out, you usually find PdfSharp or iTextSharp sitting next to it covering merges, watermarks, or signing. Those can come out too. The dependency tree gets shorter, the network round-trip on every call disappears, and the audit conversation gets a lot simpler.</p>
+<p>The compliance-driven migration has an underappreciated upside: while you are pulling the pdforge HttpClient code out, you usually find PdfSharp or iTextSharp sitting next to it covering merges, watermarks, or post-download encryption. Those can come out too. The dependency tree gets shorter, the network round-trip on every call disappears, and the audit conversation gets a lot simpler.</p>
 
-<p>I have walked through the migration path from pdforge to IronPDF &mdash; removing the cloud client, configuring a local license, and replacing every <code>ConvertHtmlString</code> / <code>ConvertUrl</code> call site with the in-process equivalent, plus the manipulation features (merge, watermark, password, signing) that pdforge does not cover natively. The effort table shows that most features are low-effort migrations, with headers/footers and digital signatures sitting at medium effort.</p>
+<p>I have walked through the migration path from pdforge to IronPDF &mdash; deleting the Bearer-token plumbing, replacing every <code>POST /v1/html-to-pdf/sync</code> + signed-URL fetch with the in-process equivalent, and picking up the manipulation features (merge, watermark, password, signing) that the REST API does not cover. The effort table shows that most features are low-effort migrations, with headers/footers and digital signatures sitting at medium effort.</p>
 
 <p>If the analysis points to migration, the code samples and mapping reference above give you everything you need to start. If pdforge is still the right fit for your volume and compliance posture, stay there &mdash; do not migrate when staying is the right call.</p>

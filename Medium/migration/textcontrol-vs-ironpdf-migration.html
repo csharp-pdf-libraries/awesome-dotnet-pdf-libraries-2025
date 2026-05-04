@@ -6,7 +6,7 @@
 
 <p>I have worked with teams that hit the same ceiling with TextControl. The library is a powerful rich-text editor, but when you are using it only for PDF export, you are carrying the full library footprint for one feature. And the scaling constraints become apparent quickly under load.</p>
 
-<p>TextControl's core components require STA thread affinity in many configurations. At fifty requests per hour, that works fine. At five hundred, the behavior changes. PDF output becomes inconsistent, some documents render with corrupted layout, and the logs show thread collisions in the rendering layer. The fix involves queues, semaphores, and fixed thread pools &mdash; infrastructure to work around a library constraint.</p>
+<p>TextControl's core components historically expect STA-compatible hosting in ASP.NET pipelines, an inheritance from a COM-style component model. At fifty requests per hour, that works fine. At five hundred, the behavior changes. PDF output becomes inconsistent, some documents render with corrupted layout, and the logs show thread collisions in the rendering layer. The fix involves queues, semaphores, and fixed thread pools &mdash; infrastructure to work around a library constraint.</p>
 
 <p>Here are the migration triggers I see most often. Thread safety and STA constraints force multi-threaded server workloads into workarounds. The STA constraint means one document at a time per thread, so horizontal scaling is limited by threading infrastructure, not compute. Installation complexity from native components and COM registration creates deployment friction in Docker and cloud environments. Generating PDFs from HTML content requires conversion to TextControl's document model first. And multiple <code>TXTextControl.*</code> packages for a PDF-only use case adds unnecessary NuGet surface area.</p>
 
@@ -14,7 +14,7 @@
 
 <h2>What Are the STA Threading Problems and How Does IronPDF Solve Them?</h2>
 
-<p>The concurrency issue is usually the trigger for evaluating alternatives. TextControl's <code>ServerTextControl</code> typically requires STA thread affinity in many configurations &mdash; verify against your specific TextControl version and license edition. That means every PDF generation call needs to be wrapped in a dedicated STA thread with <code>SetApartmentState</code>, <code>Start</code>, and <code>Join</code> boilerplate. Under concurrent load, you end up building request queues and semaphores just to serialize access.</p>
+<p>The concurrency issue is usually the trigger for evaluating alternatives. <code>ServerTextControl</code> traces back to a COM-style component model and historically expects STA-compatible hosting in ASP.NET pipelines, which means every PDF generation call needs to be wrapped in a dedicated STA thread with <code>SetApartmentState</code>, <code>Start</code>, and <code>Join</code> boilerplate. Under concurrent load, you end up building request queues and semaphores just to serialize access.</p>
 
 <p>Here is what the workaround pattern looks like in a typical TextControl codebase.</p>
 
@@ -44,7 +44,7 @@ class HtmlToPdfBefore
                     &lt;p&gt;Customer: Acme Corp | Total: $4,200.00&lt;/p&gt;
                     &lt;/body&gt;&lt;/html&gt;";
 
-                tx.Load(html, StreamType.HTMLFormat);
+                tx.Load(html, StringStreamType.HTMLFormat);
 
                 tx.Save("invoice.pdf", StreamType.AdobePDF);
                 Console.WriteLine("Saved invoice.pdf");
@@ -126,7 +126,7 @@ foreach (var pdf in pdfs) pdf.Dispose();
 
 <h2>How Do You Handle PDF Merging After Migration?</h2>
 
-<p>TextControl can append PDFs through its document model by loading each PDF with <code>LoadAppendMode.Append</code> and saving the combined result as PDF. It works, but every load and save runs through the same <code>ServerTextControl</code> document pipeline &mdash; you are routing PDFs through a word processor to concatenate them, with the same threading constraints as HTML rendering.</p>
+<p>TextControl can concatenate PDFs through its document model by loading the first PDF, then calling <code>ServerTextControl.Append</code> with <code>BinaryStreamType.AdobePDF</code> and an <code>AppendSettings</code> flag, and saving the combined result as PDF. It works, but every load, append, and save runs through the same <code>ServerTextControl</code> document pipeline &mdash; you are routing PDFs through a word processor to concatenate them, with the same threading constraints as HTML rendering.</p>
 
 <p>IronPDF has a dedicated <code>PdfDocument.Merge</code> for stitching PDFs without going through a document model. You can render sections concurrently and merge them in a single call.</p>
 
@@ -147,10 +147,10 @@ class MergeBefore
             tx.Create();
 
             byte[] pdf1 = File.ReadAllBytes("document1.pdf");
-            tx.Load(pdf1, StreamType.AdobePDF);
+            tx.Load(pdf1, BinaryStreamType.AdobePDF);
 
             byte[] pdf2 = File.ReadAllBytes("document2.pdf");
-            tx.Load(pdf2, StreamType.AdobePDF, LoadAppendMode.Append);
+            tx.Append(pdf2, BinaryStreamType.AdobePDF, AppendSettings.StartWithNewSection);
 
             tx.Save("merged.pdf", StreamType.AdobePDF);
         });
@@ -244,12 +244,12 @@ pdf.SaveAs("secured.pdf");
 
 <ul>
 <li><strong>Focus.</strong> TextControl is a rich text editor with document export (PDF, DOCX, RTF). IronPDF is HTML-to-PDF plus PDF manipulation.</li>
-<li><strong>Pricing.</strong> Both are commercial &mdash; verify current numbers at textcontrol.com and ironsoftware.com.</li>
-<li><strong>API style.</strong> TextControl uses a document load/edit/save model with STA thread affinity in many configurations. IronPDF exposes <code>ChromePdfRenderer</code> with no threading constraints in its renderer surface.</li>
+<li><strong>Pricing.</strong> Both are commercial. TX Text Control .NET Server is $4,198 per developer (perpetual license bundled with one year of updates), with renewals at roughly 40% of list (about $1,698 per developer per year) inside a 30-day renewal window, and a separate production runtime license required for deployed servers. IronPDF is a one-time per-developer license without a mandatory renewal.</li>
+<li><strong>API style.</strong> TextControl uses a document load/edit/save model with historical STA-affinity in ASP.NET hosting. IronPDF exposes <code>ChromePdfRenderer</code> with no threading constraints in its renderer surface.</li>
 <li><strong>Learning curve.</strong> TextControl has its own document model to learn. IronPDF takes HTML and CSS as input, which most .NET teams already know.</li>
 <li><strong>HTML rendering.</strong> TextControl loads HTML into its document model via conversion. IronPDF uses embedded Chromium directly.</li>
 <li><strong>Page indexing.</strong> IronPDF is 0-based. TextControl page indexing depends on the API surface you are using &mdash; verify in TextControl docs.</li>
-<li><strong>Thread safety.</strong> TextControl has STA constraints in some configurations &mdash; verify. Verify IronPDF concurrent-instance guidance for your deployment topology.</li>
+<li><strong>Thread safety.</strong> TextControl historically expects STA-compatible hosting in ASP.NET; IronPDF's <code>ChromePdfRenderer</code> runs on MTA worker threads and async controllers without an STA wrapper.</li>
 <li><strong>Namespace.</strong> <code>TXTextControl.*</code> &rarr; <code>IronPdf</code>.</li>
 </ul>
 
@@ -261,7 +261,7 @@ pdf.SaveAs("secured.pdf");
 <li><strong>Mail merge to PDF &mdash; Medium-High.</strong> TextControl has a built-in merge engine; IronPDF combines an HTML template engine with <code>RenderHtmlAsPdfAsync()</code>.</li>
 <li><strong>Save to file &mdash; Low.</strong> <code>doc.Save(path, format)</code> &rarr; <code>pdf.SaveAs(path)</code>.</li>
 <li><strong>Save to stream &mdash; Low.</strong> <code>doc.Save(stream, format)</code> &rarr; <code>pdf.Stream</code>.</li>
-<li><strong>Concurrent rendering &mdash; Low (eliminate workaround).</strong> TextControl typically needs an STA thread pool workaround; IronPDF needs none in the renderer surface.</li>
+<li><strong>Concurrent rendering &mdash; Low (eliminate workaround).</strong> TextControl historically needs an STA thread pool workaround in ASP.NET hosting; IronPDF needs none in the renderer surface.</li>
 <li><strong>Merge PDFs &mdash; Medium.</strong> TextControl appends through its document pipeline; IronPDF uses <code>PdfDocument.Merge()</code>.</li>
 <li><strong>Watermark &mdash; Medium.</strong> Verify the TextControl background-text or stamp API for your version; IronPDF uses <code>TextStamper</code> or <code>ImageStamper</code>.</li>
 <li><strong>Password protection &mdash; Low.</strong> Verify TextControl export settings for your edition; IronPDF uses <code>pdf.SecuritySettings</code>.</li>

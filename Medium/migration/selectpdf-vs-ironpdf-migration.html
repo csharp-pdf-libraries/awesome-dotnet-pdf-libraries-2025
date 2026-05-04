@@ -11,11 +11,11 @@
 <p>Here is what teams evaluating SelectPdf alternatives commonly encounter:</p>
 
 <ul>
-<li>Missing manipulation features: merge, split, text extraction, watermark, digital signatures. Availability varies by edition (Community vs paid).</li>
-<li>Community edition limits: the free tier caps page count and stamps output PDFs once you exceed the cap.</li>
-<li>CSS rendering fidelity: SelectPdf's older WebKit-derived renderer struggles with modern CSS (flex, grid, custom properties).</li>
-<li>Linux/Docker compatibility: SelectPdf is Windows-only, which blocks Linux containers, Azure Functions, and AWS Lambda.</li>
-<li>.NET version support: SelectPdf covers .NET Framework 4.6.2+ through .NET 8; verify .NET 9 status, and .NET 10 is not supported as of writing.</li>
+<li>Manipulation features (digital signatures, full PDF/A compliance, form filling) are limited or absent, and watermarks and text extraction support is partial.</li>
+<li>Community Edition limits: a hard cap of 5 pages per PDF, plus a watermark applied to every page until a license key is installed.</li>
+<li>CSS rendering fidelity: the default engine is an internal WebKit that struggles with modern CSS (grid, flexbox gap, custom properties). SelectPdf does ship an optional Blink engine (Chromium 124.0.6367.201, April 2024), but it is opt-in.</li>
+<li>Linux/Docker compatibility: SelectPdf's own documentation states it "currently require[s] Windows; [does] not run on Linux, macOS or Xamarin," which blocks Linux containers, Azure Functions, and AWS Lambda.</li>
+<li>.NET version support: SelectPdf covers .NET Framework 4.6.1 through .NET 10 (the latter via .NET Standard 2.0), but only on Windows.</li>
 <li>Synchronous API: SelectPdf's conversion methods are synchronous, making integration with async .NET code awkward.</li>
 <li>Secondary library accumulation: teams often add PDFSharp, iTextSharp, or similar alongside SelectPdf for missing features, increasing complexity.</li>
 </ul>
@@ -28,10 +28,10 @@
 
 <ul>
 <li><strong>Focus.</strong> SelectPdf is HTML-to-PDF generation; IronPDF is HTML-to-PDF plus PDF manipulation in one library.</li>
-<li><strong>Pricing.</strong> SelectPdf has a Community edition (free with page-count and watermark limits) and paid tiers; IronPDF is a commercial license.</li>
+<li><strong>Pricing.</strong> SelectPdf offers a Community Edition (free, 5-page cap with per-page watermark) and perpetual paid tiers from $499 to $1,599 with one year of maintenance included; IronPDF is a commercial license with a generous trial.</li>
 <li><strong>API style.</strong> SelectPdf centers on an <code>HtmlToPdf</code> converter object; IronPDF uses <code>ChromePdfRenderer</code> plus <code>PdfDocument</code>.</li>
 <li><strong>Learning curve.</strong> Low in both; the patterns map cleanly for .NET developers.</li>
-<li><strong>HTML rendering.</strong> SelectPdf uses an internal WebKit-derived engine; IronPDF embeds modern Chromium.</li>
+<li><strong>HTML rendering.</strong> SelectPdf's default is an internal WebKit engine; an optional Blink engine ships with Chromium 124. IronPDF embeds an up-to-date Chromium build by default.</li>
 <li><strong>Page indexing.</strong> Both libraries are 0-based, so existing index math carries over.</li>
 <li><strong>Thread safety.</strong> Verify SelectPdf's guidance for your edition and IronPDF's concurrent-instance guidance before sharing instances across threads.</li>
 <li><strong>Namespace.</strong> <code>SelectPdf</code> becomes <code>IronPdf</code>.</li>
@@ -148,9 +148,9 @@ Console.WriteLine($"Saved order-confirmation.pdf ({pdf.PageCount} page(s))");
 
 <h2>Problem 2: How Do I Handle Merging PDFs Without a Secondary Library?</h2>
 
-<p>This is one of the biggest pain points I hear about from teams leaving SelectPdf. Merging support in SelectPdf depends on edition. The Community edition may not include it at all, which forces teams to bring in PDFSharp or iTextSharp as a secondary dependency. With <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">IronPDF's merge API</a>, you can drop that extra library entirely.</p>
+<p>SelectPdf does include merge functionality, but in the Community Edition it inherits the 5-page cap and per-page watermark, which makes it unusable for production output without a license. With <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">IronPDF's merge API</a>, that constraint goes away and the merge call sits in the same library as your renderer.</p>
 
-<h3>Before (SelectPdf with Secondary Library)</h3>
+<h3>Before (SelectPdf)</h3>
 
 <pre><code>using SelectPdf;
 using System;
@@ -161,29 +161,28 @@ class MergeBefore
 {
     static void Main()
     {
-        // VERIFY: SelectPdf merge capability in your edition
-        // Community edition may not include merge
-
         var htmlSections = new[]
         {
             "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice Header&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
             "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice Line Items&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
         };
 
-        var pdfBytes = new List&lt;byte[]&gt;();
+        var docs = new List&lt;PdfDocument&gt;();
+        var converter = new HtmlToPdf();
 
         foreach (var html in htmlSections)
         {
-            var converter = new HtmlToPdf();
-            var doc = converter.ConvertHtmlString(html);
-            using var ms = new MemoryStream();
-            doc.Save(ms);
-            pdfBytes.Add(ms.ToArray());
+            docs.Add(converter.ConvertHtmlString(html));
         }
 
-        // If SelectPdf edition doesn't support merge:
-        // var merged = SomePdfLib.Merge(pdfBytes); // secondary library
-        Console.WriteLine("Verify SelectPdf merge in your edition");
+        var merged = docs[0];
+        for (int i = 1; i &lt; docs.Count; i++)
+        {
+            merged.AppendDocument(docs[i]);
+        }
+
+        merged.Save("full-invoice.pdf");
+        merged.Close();
     }
 }
 </code></pre>
@@ -211,31 +210,30 @@ Console.WriteLine($"Merged: {merged.PageCount} pages");
 
 <h2>Problem 3: How Do I Add Watermarks and Password Protection Without Extra Dependencies?</h2>
 
-<p>Watermarking and password protection are two more features where SelectPdf edition limits frequently force teams toward secondary libraries. In IronPDF, both are built in.</p>
+<p>Watermarking in SelectPdf is manual — you compose it as HTML and stamp it through a template, or you draw it onto every page yourself. PDF security is supported but limited to basic user/owner password fields. IronPDF rolls both into first-class APIs.</p>
 
 <h3>Watermark Before (SelectPdf)</h3>
 
 <pre><code>using SelectPdf;
 using System;
-using System.IO;
 
 class WatermarkBefore
 {
     static void Main()
     {
-        // VERIFY: SelectPdf watermark support in your edition
         var converter = new HtmlToPdf();
+
+        // SelectPdf watermarking is typically done by overlaying HTML
+        // on every page via a template / header section.
+        var watermarkHtml = "&lt;div style='position:fixed; top:40%; left:30%; " +
+                            "font-size:72px; color:#cccccc; transform:rotate(-30deg);'&gt;DRAFT&lt;/div&gt;";
+
+        converter.Options.PdfPageCustomSize = new System.Drawing.SizeF(595, 842);
+        converter.Header.Add(new PdfHtmlSection(watermarkHtml));
+
         var doc = converter.ConvertHtmlString("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
-
-        // If SelectPdf supports watermark (verify API):
-        // doc.ApplyWatermark(...); // verify method name
-
-        // If not supported:
-        using var ms = new MemoryStream();
-        doc.Save(ms);
-        // var watermarked = SomePdfLib.AddTextWatermark(ms.ToArray(), "DRAFT");
-
-        Console.WriteLine("Verify SelectPdf watermark API");
+        doc.Save("watermarked-report.pdf");
+        doc.Close();
     }
 }
 </code></pre>
@@ -265,7 +263,7 @@ pdf.ApplyStamp(watermark);
 pdf.SaveAs("watermarked-report.pdf");
 </code></pre>
 
-<p>Password protection follows the same pattern: something that may require edition verification or a secondary library in SelectPdf is a few lines in IronPDF.</p>
+<p>Password protection follows the same pattern: a few lines in IronPDF, with no separate security namespace to navigate.</p>
 
 <h3>Password Protection Before (SelectPdf)</h3>
 
@@ -279,12 +277,11 @@ class PasswordBefore
         var converter = new HtmlToPdf();
         var doc = converter.ConvertHtmlString("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Secured&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
 
-        // VERIFY: SelectPdf security API — property names depend on edition
-        // doc.Security.UserPassword = "open123";
-        // doc.Security.OwnerPassword = "admin456";
+        doc.Security.UserPassword = "open123";
+        doc.Security.OwnerPassword = "admin456";
 
         doc.Save("secured.pdf");
-        Console.WriteLine("Verify SelectPdf security API names before using");
+        doc.Close();
     }
 }
 </code></pre>
@@ -318,11 +315,11 @@ pdf.SaveAs("secured.pdf");
 <li><strong>Custom page size — Low.</strong> <code>HtmlToPdfOptions.PdfPageSize</code> becomes <code>RenderingOptions.PaperSize</code>.</li>
 <li><strong>Custom margins — Low.</strong> <code>HtmlToPdfOptions.MarginTop</code> and siblings become <code>RenderingOptions.Margin*</code>.</li>
 <li><strong>Headers/footers — Medium.</strong> <code>HtmlToPdfOptions.PdfHtmlHeader/Footer</code> becomes <code>RenderingOptions.HtmlHeader/Footer</code>; placeholder syntax also changes (<code>{page_number}</code> → <code>{page}</code>, <code>{total_pages}</code> → <code>{total-pages}</code>).</li>
-<li><strong>Merge PDFs — Medium.</strong> Verify SelectPdf edition support (Community may exclude it); IronPDF uses <code>PdfDocument.Merge()</code>.</li>
-<li><strong>Watermark — Medium.</strong> Verify SelectPdf edition support; IronPDF uses <code>TextStamper</code> or <code>ImageStamper</code>.</li>
-<li><strong>Password protection — Medium.</strong> Verify SelectPdf edition support; IronPDF uses <code>pdf.SecuritySettings</code>.</li>
-<li><strong>Text extraction — Medium.</strong> Verify SelectPdf edition support; IronPDF uses <code>pdf.ExtractAllText()</code>.</li>
-<li><strong>Digital signatures — Medium-High.</strong> Verify SelectPdf edition support; IronPDF uses <code>pdf.Sign()</code>.</li>
+<li><strong>Merge PDFs — Medium.</strong> SelectPdf <code>PdfDocument.AppendDocument()</code> becomes IronPDF <code>PdfDocument.Merge()</code>.</li>
+<li><strong>Watermark — Medium.</strong> SelectPdf's manual HTML-overlay approach becomes a single <code>TextStamper</code> or <code>ImageStamper</code> call in IronPDF.</li>
+<li><strong>Password protection — Medium.</strong> SelectPdf <code>doc.Security.UserPassword</code> / <code>OwnerPassword</code> becomes <code>pdf.SecuritySettings.UserPassword</code> / <code>OwnerPassword</code> in IronPDF.</li>
+<li><strong>Text extraction — Medium.</strong> SelectPdf has limited extraction; IronPDF uses <code>pdf.ExtractAllText()</code> across the whole document.</li>
+<li><strong>Digital signatures — Medium-High.</strong> SelectPdf does not ship native PAdES signing; IronPDF exposes <code>pdf.Sign()</code> with PFX/PKCS#12 certificates.</li>
 </ul>
 
 <p>And here is the API mapping for the core classes and methods you will touch during migration.</p>
@@ -349,7 +346,7 @@ pdf.SaveAs("secured.pdf");
 
 <h3>What happens to the Community edition watermark after migration?</h3>
 
-<p>If you are using the SelectPdf Community edition, it adds a footer or watermark to output PDFs once you exceed its page limit. After migrating to IronPDF with a valid <a href="https://ironpdf.com/how-to/license-keys/">license key</a>, verify that test PDFs no longer carry this watermark. It is a useful migration validation step.</p>
+<p>SelectPdf's Community Edition applies a watermark to every page of every PDF until a license key is installed, and it caps output at 5 pages per document. Both restrictions are lifted only by purchasing a license. After migrating to IronPDF with a valid <a href="https://ironpdf.com/how-to/license-keys/">license key</a>, verify that test PDFs no longer carry the watermark and that page counts beyond 5 render fully. It is a useful migration validation step.</p>
 
 <h3>Can I reuse a single ChromePdfRenderer instance for batch generation?</h3>
 
@@ -360,14 +357,14 @@ pdf.SaveAs("secured.pdf");
 <p>Run these commands to locate every file that references SelectPdf APIs.</p>
 
 <pre><code># Find SelectPdf usage
-rg -l "SelectPdf\|HtmlToPdf\|ConvertHtmlString\|ConvertUrl" --type cs
-rg "SelectPdf\|HtmlToPdf\b" --type cs -n
+rg -l "SelectPdf|HtmlToPdf|ConvertHtmlString|ConvertUrl" --type cs
+rg "SelectPdf|HtmlToPdf\b" --type cs -n
 
 # Find project references
 grep -r "SelectPdf" *.csproj **/*.csproj 2&gt;/dev/null
 
 # Count usage density to estimate migration scope
-rg "HtmlToPdf\.\|ConvertHtmlString\|ConvertUrl\b" --type cs | wc -l
+rg "HtmlToPdf\.|ConvertHtmlString|ConvertUrl\b" --type cs | wc -l
 </code></pre>
 
 <p>This gives you a clear picture of how many files need changes and whether you are dealing with simple conversion calls or more complex edition-specific features like merge and security.</p>
@@ -377,10 +374,11 @@ rg "HtmlToPdf\.\|ConvertHtmlString\|ConvertUrl\b" --type cs | wc -l
 <p>The decision depends on your current situation. Here is the decision matrix I use when advising teams.</p>
 
 <ul>
-<li>If you are running into Community edition page limits or output watermarks, switch — IronPDF does not impose page-count limits or output watermarks by tier.</li>
-<li>If you need merge, text extraction, and security in one library, switch — IronPDF covers all of them; SelectPdf may require secondary libraries.</li>
-<li>If your HTML templates use modern CSS (flex, grid, custom properties), switch — IronPDF's embedded Chromium renders them where SelectPdf's older WebKit-derived engine often does not.</li>
-<li>If you are doing basic HTML-to-PDF that already works and you have no manipulation needs, evaluate the cost of switching — SelectPdf may be sufficient.</li>
+<li>If you are hitting the Community Edition's 5-page cap or its per-page watermark, switch — a paid IronPDF license has no page-count cap and no output watermark.</li>
+<li>If you need digital signatures, full text extraction, or PDF/A compliance, switch — IronPDF covers all of them; SelectPdf does not.</li>
+<li>If your HTML templates use modern CSS (grid, flexbox gap, custom properties), switch — IronPDF's embedded Chromium renders them where SelectPdf's default internal WebKit engine often does not. The optional Blink engine in SelectPdf narrows the gap but is opt-in.</li>
+<li>If you must deploy to Linux, Docker, Azure Functions, or AWS Lambda, switch — SelectPdf is Windows-only by design.</li>
+<li>If you are doing basic Windows-only HTML-to-PDF that already works and you have no manipulation needs, evaluate the cost of switching — SelectPdf may be sufficient.</li>
 </ul>
 
 <p>If you are hitting Community edition limits, accumulating secondary libraries for missing features, or struggling with CSS rendering fidelity, the migration is straightforward and the payoff is consolidation. The API similarity between SelectPdf and IronPDF means the main work is resolving feature gaps, not learning a fundamentally different approach.</p>

@@ -10,7 +10,7 @@
 
 <p><strong>Native binary management.</strong> Platform-specific binaries must be bundled correctly for each target OS and architecture. Docker multi-arch builds become significantly more complex.</p>
 
-<p><strong>Community-maintained .NET wrappers.</strong> The .NET surface lives in third-party packages like <code>MuPDFCore</code> and <code>MuPDF.NET</code>. Wrapper quality varies, and you may be depending on a package with one maintainer and no SLA.</p>
+<p><strong>Two parallel .NET wrappers.</strong> The .NET surface is split across <code>MuPDFCore</code> (community, by arklumpus, AGPL-3.0) and <code>MuPDF.NET</code> (Artifex's official C# bindings that mirror PyMuPDF). The two have different APIs, different feature scopes, and different release cadences, so picking one is a long-lived decision.</p>
 
 <p><strong>AGPL licensing constraints.</strong> MuPDF's open-source license is AGPL. Applications that use it must also be AGPL, unless a commercial license is purchased from Artifex.</p>
 
@@ -20,7 +20,7 @@
 
 <p><strong>ARM64 deployment.</strong> ARM64 native binaries for MuPDF must be sourced and managed separately.</p>
 
-<p><strong>Manipulation gaps.</strong> MuPDF is excellent at rendering, viewing, and text extraction, but watermarks, headers/footers, password protection, and digital signatures require additional code or libraries.</p>
+<p><strong>HTML-driven manipulation gaps.</strong> MuPDF.NET can merge, redact, sign, encrypt, and stamp images as watermarks, but it has no HTML/CSS engine, so HTML-templated headers/footers and HTML-fragment watermarks are not available. Teams used to Chromium-style template tokens like <code>{page}</code> / <code>{total-pages}</code> end up emitting text per page manually.</p>
 
 <p><strong>CI/CD binary distribution.</strong> Native binaries in CI/CD pipelines create supply chain and caching complexity.</p>
 
@@ -38,7 +38,7 @@
 <li><strong>HTML rendering.</strong> MuPDF has none &mdash; you bring a second tool. IronPDF embeds Chromium.</li>
 <li><strong>Page indexing.</strong> Both are 0-based, so no off-by-one to worry about.</li>
 <li><strong>Thread safety.</strong> Verify your MuPDF wrapper's threading guarantees; IronPDF supports renderer instance reuse &mdash; see the async docs.</li>
-<li><strong>Namespace.</strong> The .cs samples in this repo use <code>MuPDFCore</code>; IronPDF uses <code>IronPdf</code>.</li>
+<li><strong>Namespace.</strong> <code>MuPDF.NET</code> or <code>MuPDFCore</code> on the source side; <code>IronPdf</code> on the target side.</li>
 </ul>
 
 <h2>How Much Effort Does Each Feature Migration Take?</h2>
@@ -50,10 +50,10 @@
 <li><strong>Parse/extract PDF text &mdash; Medium.</strong> MuPDF text extraction is mature; verify IronPDF's <code>ExtractAllText()</code> output against your representative PDF corpus before committing.</li>
 <li><strong>HTML string to PDF &mdash; Low.</strong> Native in IronPDF; MuPDF requires a second tool.</li>
 <li><strong>URL to PDF &mdash; Low.</strong> Native in IronPDF; MuPDF requires a second tool.</li>
-<li><strong>Merge PDFs &mdash; Low.</strong> MuPDFCore supports it via <code>MuPDFDocument.Create()</code> and <code>CopyPage</code>; IronPDF reduces it to a one-liner with <code>PdfDocument.Merge</code>.</li>
+<li><strong>Merge PDFs &mdash; Low.</strong> MuPDF.NET supports it via <code>Document.InsertPdf()</code>; IronPDF reduces it to a one-liner with <code>PdfDocument.Merge</code>.</li>
 <li><strong>Split PDF &mdash; Low.</strong> Page-copy pattern in MuPDF; <code>pdf.CopyPages(start, end)</code> in IronPDF.</li>
-<li><strong>Watermark &mdash; Low.</strong> Not in MuPDF natively (teams add iTextSharp or PDFsharp); native in IronPDF via <code>ApplyStamp</code> / <code>ApplyWatermark</code>.</li>
-<li><strong>Password protection &mdash; Low.</strong> MuPDF can read encrypted PDFs but not write them; IronPDF uses <code>SecuritySettings</code>.</li>
+<li><strong>Watermark &mdash; Low.</strong> MuPDF.NET stamps images or text on each page via <code>page.InsertImage</code>, but has no HTML/CSS watermark API; IronPDF takes an HTML fragment via <code>ApplyWatermark</code>.</li>
+<li><strong>Password protection &mdash; Low.</strong> MuPDF.NET writes encrypted PDFs by passing encryption flags and owner/user passwords to <code>Save(...)</code>; IronPDF exposes a document-level <code>SecuritySettings</code> object.</li>
 <li><strong>Page count / metadata &mdash; Low.</strong> <code>document.Pages.Count</code> in MuPDF; <code>pdf.PageCount</code> in IronPDF.</li>
 <li><strong>Native binary management &mdash; eliminated.</strong> IronPDF ships everything via NuGet.</li>
 <li><strong>Cross-platform deployment &mdash; simplified.</strong> No per-architecture native binary sourcing.</li>
@@ -75,7 +75,7 @@
 <h3>HTML to PDF &mdash; Before (MuPDF Cannot Do It)</h3>
 
 <pre><code>// NuGet: Install-Package MuPDF.NET
-using MuPDFCore;
+using MuPDF.NET;
 using System;
 
 class Program
@@ -109,27 +109,22 @@ pdf.SaveAs(&quot;output.pdf&quot;);
 // Guide: https://ironpdf.com/how-to/html-string-to-pdf/
 </code></pre>
 
-<h3>Merge PDFs &mdash; Before (MuPDFCore)</h3>
+<h3>Merge PDFs &mdash; Before (MuPDF.NET)</h3>
 
 <pre><code>// NuGet: Install-Package MuPDF.NET
-using MuPDFCore;
+using MuPDF.NET;
 
 class Program
 {
     static void Main()
     {
-        using (MuPDFDocument doc1 = new MuPDFDocument(&quot;file1.pdf&quot;))
-        using (MuPDFDocument doc2 = new MuPDFDocument(&quot;file2.pdf&quot;))
-        using (MuPDFDocument mergedDoc = MuPDFDocument.Create())
-        {
-            for (int i = 0; i &lt; doc1.Pages.Count; i++)
-                mergedDoc.CopyPage(doc1, i);
+        Document doc1 = new Document(&quot;file1.pdf&quot;);
+        Document doc2 = new Document(&quot;file2.pdf&quot;);
 
-            for (int i = 0; i &lt; doc2.Pages.Count; i++)
-                mergedDoc.CopyPage(doc2, i);
+        // Append every page of doc2 to the end of doc1
+        doc1.InsertPdf(doc2);
 
-            mergedDoc.Save(&quot;merged.pdf&quot;);
-        }
+        doc1.Save(&quot;merged.pdf&quot;);
     }
 }
 </code></pre>
@@ -194,22 +189,24 @@ pdf.RasterizeToImageFiles(
 // Guide: https://ironpdf.com/how-to/rasterize-pdf-to-image/
 </code></pre>
 
-<h3>Password Protection &mdash; Before (MuPDF Cannot Write Encryption)</h3>
+<h3>Password Protection &mdash; Before (MuPDF.NET)</h3>
 
 <pre><code>// NuGet: Install-Package MuPDF.NET
-using MuPDFCore;
-using System;
+using MuPDF.NET;
 
 class Program
 {
     static void Main()
     {
-        // MuPDF can read password-protected PDFs but cannot add protection.
-        // Teams that need to write encrypted PDFs alongside MuPDF typically
-        // bolt on iTextSharp or PDFsharp for this step.
+        Document doc = new Document(&quot;input.pdf&quot;);
 
-        throw new NotSupportedException(
-            &quot;MuPDF cannot add password protection&quot;);
+        // Encryption / permission flag values come from MuPDF constants.
+        doc.Save(
+            &quot;secured.pdf&quot;,
+            encryption: 4,        // PDF_ENCRYPT_AES_256
+            ownerPW: &quot;admincontrol&quot;,
+            userPW: &quot;viewonly&quot;,
+            permissions: 0);      // strip all user permissions
     }
 }
 </code></pre>
@@ -232,13 +229,13 @@ pdf.SaveAs(&quot;secured.pdf&quot;);
 
 <h2>What Does the Full API Mapping Look Like?</h2>
 
-<p>Below are the namespace, class, document loading, page operation, and merge/split mappings. These give you the line-by-line translation from <code>MuPDFCore</code> code to <a href="https://ironpdf.com/">IronPDF</a> equivalents.</p>
+<p>Below are the namespace, class, document loading, page operation, and merge/split mappings. These give you the line-by-line translation from <code>MuPDF.NET</code> code to <a href="https://ironpdf.com/">IronPDF</a> equivalents.</p>
 
 <p><strong>Namespace mapping:</strong></p>
 
 <ul>
-<li><code>using MuPDFCore;</code> &rarr; <code>using IronPdf;</code> &mdash; core namespace</li>
-<li><code>using MuPDF.NET;</code> (alternative wrapper) &rarr; <code>using IronPdf;</code> &mdash; same target</li>
+<li><code>using MuPDF.NET;</code> &rarr; <code>using IronPdf;</code> &mdash; core namespace</li>
+<li><code>using MuPDFCore;</code> (community wrapper) &rarr; <code>using IronPdf;</code> &mdash; same target</li>
 <li><em>(no equivalent)</em> &rarr; <code>using IronPdf.Rendering;</code> &mdash; render options and enums</li>
 <li><em>(no equivalent)</em> &rarr; <code>using IronPdf.Editing;</code> &mdash; stamp, annotate, manipulate</li>
 </ul>
@@ -258,7 +255,7 @@ pdf.SaveAs(&quot;secured.pdf&quot;);
 <ul>
 <li>Open existing PDF: <code>new MuPDFDocument(path)</code> &rarr; <code>PdfDocument.FromFile(path)</code></li>
 <li>Open from stream: <code>new MuPDFDocument(stream)</code> &rarr; <code>PdfDocument.FromStream(stream)</code></li>
-<li>Open from bytes: <code>new MuPDFDocument(bytes)</code> &rarr; <code>new PdfDocument(bytes)</code></li>
+<li>Open from bytes: <code>new MuPDFDocument(bytes)</code> &rarr; <code>PdfDocument.FromBinaryData(bytes)</code></li>
 <li>HTML to PDF: <em>not supported in MuPDF</em> &rarr; <code>renderer.RenderHtmlAsPdf(html)</code></li>
 <li>URL to PDF: <em>not supported in MuPDF</em> &rarr; <code>renderer.RenderUrlAsPdf(url)</code></li>
 </ul>
@@ -276,7 +273,7 @@ pdf.SaveAs(&quot;secured.pdf&quot;);
 <p><strong>Merge/split operations:</strong></p>
 
 <ul>
-<li>Merge: <code>MuPDFDocument.Create()</code> + <code>CopyPage</code> loop &rarr; <code>PdfDocument.Merge(pdf1, pdf2)</code></li>
+<li>Merge: <code>Document.InsertPdf(doc2)</code> (MuPDF.NET) &rarr; <code>PdfDocument.Merge(pdf1, pdf2)</code></li>
 <li>Split: page-copy pattern in MuPDFCore &rarr; <code>pdf.CopyPages(startIndex, endIndex)</code></li>
 </ul>
 
@@ -286,7 +283,7 @@ pdf.SaveAs(&quot;secured.pdf&quot;);
 
 <p><strong>Native binary cleanup.</strong> When migrating away from MuPDF, audit your deployment artifacts. Remove <code>libmupdf</code> binaries from your Docker images, CI/CD pipelines, and <code>runtimes/</code> folders. IronPDF ships everything via NuGet, so manual binary management is eliminated.</p>
 
-<p><strong>Page indexing.</strong> MuPDFCore and IronPDF are both 0-based, so iteration logic translates directly. Older or alternative MuPDF wrappers may surface 1-based APIs &mdash; spot-check your specific wrapper before migrating page-specific code.</p>
+<p><strong>Page indexing.</strong> MuPDF.NET and IronPDF are both 0-based, so iteration logic translates directly. Older or alternative MuPDF wrappers may surface 1-based APIs &mdash; spot-check your specific wrapper before migrating page-specific code.</p>
 
 <pre><code>// IronPDF: 0-based throughout
 var firstPage = pdf.Pages[0];

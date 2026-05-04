@@ -6,7 +6,7 @@
 
 <p>Playwright is an excellent browser automation and E2E testing tool. But if your team adopted it specifically for PDF generation, you may have noticed friction that compounds over time. This guide is scoped to that use case only — if you rely on Playwright for browser automation or testing, keep using it for that work.</p>
 
-<p>Teams using Playwright only for PDF generation frequently reassess when browser binary management in CI becomes a burden. Running <code>playwright install chromium</code> in every CI run or Docker build adds 300MB+ download and caching complexity. Startup latency from launching a full browser instance per PDF generation request adds measurable overhead, especially on cold starts.</p>
+<p>Teams using Playwright only for PDF generation frequently reassess when browser binary management in CI becomes a burden. The .NET workflow requires running the build-emitted bootstrap script (<code>pwsh bin/Debug/netX/playwright.ps1 install</code>) in every CI run or Docker build, which adds a 300MB+ download and caching complexity. Startup latency from launching a full browser instance per PDF generation request adds measurable overhead, especially on cold starts.</p>
 
 <p>The API surface mismatch is the deeper issue. Playwright's PDF API is minimal — <code>Page.PdfAsync()</code> — and it does not expose merge, split, watermark, security, or text extraction. Those require additional libraries. Managing <code>IBrowser</code>, <code>IPage</code>, <code>IBrowserContext</code> objects, launch options, and proper disposal is overhead for what is ultimately a PDF generation task.</p>
 
@@ -35,21 +35,21 @@
 <ul>
 <li>If <strong>PDF generation is the only reason Playwright is in your project</strong>, switch. IronPDF is purpose-built and eliminates the browser-lifecycle overhead.</li>
 <li>If you have <strong>a mix of E2E testing and PDF generation</strong> in the same project, keep Playwright for testing and add IronPDF for generation. There is no need to force a single library across two distinct workloads.</li>
-<li>If <strong>CI/CD Docker image size is a real constraint</strong>, switch. Removing the <code>playwright install</code> step is a meaningful win.</li>
+<li>If <strong>CI/CD Docker image size is a real constraint</strong>, switch. Removing the <code>playwright.ps1 install</code> bootstrap step is a meaningful win.</li>
 <li>If your PDF source <strong>requires JavaScript-heavy SPA rendering with complex auth flows</strong>, Playwright may still be better suited. IronPDF can render URLs with JS, but the full browser-automation surface is sometimes the right tool.</li>
 </ul>
 
 <p>Here is the comparison between the two libraries to help frame your evaluation. The two are aimed at different jobs: Playwright is a browser-automation and E2E-testing toolkit where PDF is secondary, while IronPDF is focused on PDF generation and manipulation. That difference shows up everywhere — Playwright's API style is async browser-lifecycle management, IronPDF's is PDF-focused C# objects with no browser lifecycle to manage. Learning curve follows the same shape: high for a PDF-only Playwright user dealing with the full browser API surface, low for a .NET developer using IronPDF's focused PDF API.</p>
 
-<p>On rendering, both ship Chromium — Playwright as a full browser, IronPDF embedded. Page indexing is not applicable to Playwright (it does not manipulate PDFs); IronPDF is 0-based. For thread safety, Playwright requires browser-context isolation; for IronPDF, verify the current concurrent-instance guidance in the docs before scaling out (the per-request renderer pattern in the parallel example below is a safe default). Namespaces are <code>Microsoft.Playwright</code> versus <code>IronPdf</code>.</p>
+<p>On rendering, both ship Chromium — Playwright as a full browser, IronPDF embedded. One important constraint: Playwright's <code>Page.PdfAsync()</code> only works against headless Chromium. Calling it on a Firefox or WebKit page throws a runtime error, so cross-browser PDF generation is not an option. Page indexing is not applicable to Playwright (it does not manipulate PDFs); IronPDF is 0-based. For thread safety, Playwright requires browser-context isolation; for IronPDF, check the current concurrent-instance guidance in the docs before scaling out (the per-request renderer pattern in the parallel example below is a safe default). Namespaces are <code>Microsoft.Playwright</code> versus <code>IronPdf</code>.</p>
 
-<p>On licensing, Playwright ships under a permissive open-source license — confirm the exact license against your current package version before relying on it for production. IronPDF is commercial; check current terms at ironsoftware.com.</p>
+<p>On licensing, <code>Microsoft.Playwright</code> ships under a permissive open-source license. IronPDF is commercial; check current terms at ironsoftware.com.</p>
 
 <h2>What Does the Actual Migration Code Look Like?</h2>
 
-<p>The migration has three mechanical steps — license configuration, namespace swap, and API conversion. I will walk through each with the Playwright "before" and <a href="https://ironpdf.com">IronPDF</a> "after" side by side.</p>
+<p>The migration has three mechanical pieces — license configuration, namespace swap, and API conversion. I will walk through each with the Playwright "before" and <a href="https://ironpdf.com">IronPDF</a> "after" side by side.</p>
 
-<h3>Step 1 — License Configuration</h3>
+<h3>License Configuration</h3>
 
 <pre><code>using IronPdf;
 
@@ -59,7 +59,7 @@ IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE
     ?? throw new InvalidOperationException("IRONPDF_LICENSE_KEY not set");
 </code></pre>
 
-<h3>Step 2 — Namespace Swap</h3>
+<h3>Namespace Swap</h3>
 
 <p>Before:</p>
 
@@ -73,7 +73,7 @@ using System.Threading.Tasks;
 using System;
 </code></pre>
 
-<h3>Step 3 — HTML String to PDF (Basic Conversion)</h3>
+<h3>HTML String to PDF (Basic Conversion)</h3>
 
 <p>Before (Playwright):</p>
 
@@ -360,7 +360,7 @@ Console.WriteLine("Saved protected.pdf");
 
 <h2>How Does This Affect Docker Image Size and Performance?</h2>
 
-<p>With Playwright, your Dockerfile included a <code>playwright install chromium</code> step adding ~300MB. With IronPDF, the Chromium binary is bundled in the NuGet package — no separate install step needed. The net effect on Docker image size depends on your base image and layer caching strategy.</p>
+<p>With Playwright, your Dockerfile included a <code>pwsh bin/Debug/netX/playwright.ps1 install</code> step adding ~300MB. With IronPDF, the Chromium binary is bundled in the NuGet package — no separate install step needed. The net effect on Docker image size depends on your base image and layer caching strategy.</p>
 
 <p>Playwright starts a full browser instance per logical operation context. IronPDF initializes Chromium internally and reuses it across renders. For high-throughput scenarios, this is a meaningful difference. Warm up the renderer at application startup if you want the first production request to avoid initialization delay:</p>
 

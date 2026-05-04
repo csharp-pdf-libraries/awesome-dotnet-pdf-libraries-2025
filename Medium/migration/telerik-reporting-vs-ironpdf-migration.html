@@ -12,7 +12,7 @@
 
 <p>Second, designer dependency. Report templates live in <code>.trdx</code> files that require the Telerik Report Designer to modify. Developers who work in code find this a friction point.</p>
 
-<p>Third, Telerik subscription scope. Reporting is bundled with Telerik UI; organizations that only need PDF generation pay for a larger product set.</p>
+<p>Third, license and feed friction. Telerik Reporting is sold standalone or as part of the DevCraft Complete bundle, but in either case the runtime assemblies come from a private NuGet feed (<code>nuget.telerik.com/v3/index.json</code>) that requires a license key to restore &mdash; an extra step in CI that public-feed packages don't impose.</p>
 
 <p>Fourth, version coupling. Telerik Reporting version is coupled to other Telerik packages in the same solution, creating upgrade coordination overhead.</p>
 
@@ -30,12 +30,13 @@
 
 <ul>
 <li><strong>Focus.</strong> Telerik Reporting is a full reporting platform (design, view, export); IronPDF is HTML-to-PDF plus PDF manipulation.</li>
-<li><strong>Pricing.</strong> Telerik subscription &mdash; verify at telerik.com. IronPDF commercial license &mdash; verify at ironsoftware.com.</li>
+<li><strong>Pricing.</strong> Telerik Reporting standalone starts at roughly $685 per developer; the DevCraft Complete bundle starts at roughly $1,763. Both ship as perpetual + maintenance or annual subscription. IronPDF is sold per-developer with optional support.</li>
+<li><strong>Distribution.</strong> Telerik Reporting NuGet packages ship from the private Telerik feed at <code>nuget.telerik.com/v3/index.json</code> and require a license key to restore; IronPDF is on public nuget.org.</li>
 <li><strong>API style.</strong> Telerik uses <code>ReportProcessor</code> with report source objects; IronPDF uses <code>ChromePdfRenderer</code> with HTML input.</li>
 <li><strong>Learning curve.</strong> Telerik is medium-high (visual designer plus API); IronPDF is low for .NET devs since HTML/CSS is the input.</li>
 <li><strong>HTML rendering.</strong> Telerik's report engine is not browser-based; IronPDF uses embedded Chromium.</li>
 <li><strong>Page indexing.</strong> Telerik report design is 1-based; IronPDF is 0-based.</li>
-<li><strong>Thread safety.</strong> <code>ReportProcessor</code> is thread-safe. Verify IronPDF concurrent instance guidance.</li>
+<li><strong>Thread safety.</strong> <code>ReportProcessor</code> is documented as thread-safe; for IronPDF, prefer one <code>ChromePdfRenderer</code> per concurrent job rather than sharing a single instance across threads.</li>
 <li><strong>Namespace.</strong> <code>Telerik.Reporting.*</code> &rarr; <code>IronPdf</code>.</li>
 </ul>
 
@@ -50,7 +51,7 @@
 <li><strong>Sub-reports &mdash; High.</strong> <code>SubReport</code> items become inline HTML composition or merged PDFs via <code>PdfDocument.Merge()</code>.</li>
 <li><strong>Charts &mdash; High.</strong> Telerik chart items become Chart.js (or similar) rendered via Chromium.</li>
 <li><strong>Headers/footers &mdash; Medium.</strong> Report Header/Footer sections map to <code>RenderingOptions.HtmlHeader</code> / <code>HtmlFooter</code>.</li>
-<li><strong>Page numbering &mdash; Medium.</strong> Built-in page fields become <code>HtmlHeaderFooter</code> tokens (<code>{page}</code>, <code>{total-pages}</code>).</li>
+<li><strong>Page numbering &mdash; Medium.</strong> Telerik's expression-based <code>= PageNumber + " of " + PageCount</code> in a Page Header/Footer section becomes <code>HtmlHeaderFooter</code> tokens (<code>{page}</code>, <code>{total-pages}</code>) on <code>RenderingOptions</code>.</li>
 <li><strong>Save to file &mdash; Low.</strong> Writing bytes from render result becomes <code>pdf.SaveAs(path)</code>.</li>
 <li><strong>Save to stream &mdash; Low.</strong> Writing to <code>MemoryStream</code> becomes <code>pdf.Stream</code>.</li>
 </ul>
@@ -89,12 +90,12 @@ rg &quot;AddTelerikReporting\|UseTelerikReporting\|ReportServiceConfiguration&qu
 
 <h3>Uninstall Telerik, Install IronPDF</h3>
 
-<pre><code># Remove Telerik Reporting packages (verify exact names)
+<pre><code># Remove Telerik Reporting packages (private Telerik feed)
 dotnet remove package Telerik.Reporting
-dotnet remove package Telerik.Reporting.Services.WebApi   # if used
-dotnet remove package Telerik.Reporting.OpenXmlRendering  # if used
+dotnet remove package Telerik.Reporting.Services.AspNetCore   # if hosting the REST viewer service
+dotnet remove package Telerik.ReportViewer.Mvc                # if using the MVC viewer
 
-# Install IronPDF
+# Install IronPDF (public nuget.org)
 dotnet add package IronPdf
 
 dotnet restore
@@ -125,7 +126,7 @@ using IronPdf.Rendering;
 
 <h2>How Do I Convert Core Report Operations?</h2>
 
-<p>I'll walk through the four most common operations the md emphasizes: TRDX-to-HTML template export, parameter binding, sub-reports, and chart rewrites. Each has a Telerik before and IronPDF after.</p>
+<p>The four operations that drive most Telerik Reporting migrations are: TRDX-to-HTML template export, parameter binding, sub-reports, and chart rewrites. Each has a Telerik before and IronPDF after.</p>
 
 <h3>Report to PDF &mdash; Telerik Before</h3>
 
@@ -341,16 +342,15 @@ class SubReportBefore
         var mainReport = new Report();
 
         // SubReport item bound to a child report definition
-        var subReport = new SubReport
+        var detailSource = new TypeReportSource
         {
-            ReportSource = new TypeReportSource
-            {
-                TypeName = typeof(InvoiceLineDetailReport).AssemblyQualifiedName
-            }
+            TypeName = typeof(InvoiceLineDetailReport).AssemblyQualifiedName
         };
 
-        // Pass parent context to the sub-report via expression binding
-        subReport.Parameters.Add(new Parameter(&quot;ParentInvoiceId&quot;, &quot;= Fields.InvoiceId&quot;));
+        // Pass parent context to the sub-report via expression binding on the report source
+        detailSource.Parameters.Add(new Parameter(&quot;ParentInvoiceId&quot;, &quot;= Fields.InvoiceId&quot;));
+
+        var subReport = new SubReport { ReportSource = detailSource };
         mainReport.Items.Add(subReport);
 
         var processor = new ReportProcessor();
@@ -572,7 +572,8 @@ var pdf = await renderer.RenderHtmlAsPdfAsync(html);
 
 <h3>Page Number Tokens</h3>
 
-<pre><code>// Telerik: PageCount / PageNumber built-in fields in designer
+<pre><code>// Telerik: expression syntax in a TextBox inside Page Header/Footer:
+//     = 'Page ' + PageNumber + ' of ' + PageCount
 // IronPDF equivalent:
 // https://ironpdf.com/how-to/headers-and-footers/
 renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter

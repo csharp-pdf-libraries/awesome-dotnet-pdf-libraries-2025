@@ -10,7 +10,7 @@
 
 <p>Both Aspose.PDF and IronPDF are serious libraries with active maintenance. This isn't about one being broken — it's about the specific friction teams run into depending on their use case and deployment context. Here are the neutral migration triggers teams commonly cite:</p>
 
-<p><strong>HTML rendering fidelity.</strong> Aspose.PDF uses a proprietary HTML renderer, not a browser engine. Teams running complex CSS (Flexbox, Grid, custom fonts, <code>@page</code> rules) often encounter layout drift that requires workarounds. IronPDF uses an embedded Chromium renderer.</p>
+<p><strong>HTML rendering fidelity.</strong> Aspose.PDF uses an in-house HTML/CSS rendering engine rather than a browser engine. Teams working with complex CSS (Flexbox, Grid, custom fonts, <code>@page</code> rules) sometimes report layout drift on the Aspose support forum that requires templates to be reworked. IronPDF uses an embedded Chromium build, so HTML and CSS render the way they do in Chrome.</p>
 
 <p><strong>Linux/container deployment complexity.</strong> Aspose.PDF on Linux requires additional configuration. IronPDF also requires native dependencies on Linux; neither is zero-effort, but the dependency surface differs.</p>
 
@@ -20,7 +20,7 @@
 
 <p><strong>Namespace sprawl.</strong> Aspose.PDF has many sub-namespaces. Teams with large codebases find <code>using</code> statements accumulate quickly.</p>
 
-<p><strong>async/await surface.</strong> Async PDF generation in Aspose requires some care around how operations are structured. Verify current async support in Aspose docs.</p>
+<p><strong>async/await surface.</strong> Async PDF generation in Aspose requires some care around how operations are structured. IronPDF exposes <code>RenderHtmlAsPdfAsync</code> directly on the renderer, which fits cleanly into ASP.NET Core controller methods.</p>
 
 <p><strong>NuGet package size.</strong> Aspose.PDF is a large package. In size-constrained environments (Lambda, small containers) this matters.</p>
 
@@ -37,9 +37,9 @@
 <li><strong>Pricing.</strong> Aspose.PDF is per-developer or site license; IronPDF offers per-developer or royalty-free options.</li>
 <li><strong>API style.</strong> Aspose exposes an explicit document object model; IronPDF pairs a high-level renderer with a document model.</li>
 <li><strong>Learning curve.</strong> Aspose is steep for HTML and gradual for programmatic document construction; IronPDF is gradual for HTML and steeper for low-level operations.</li>
-<li><strong>HTML rendering.</strong> Aspose uses a proprietary renderer; IronPDF uses an embedded Chromium engine.</li>
+<li><strong>HTML rendering.</strong> Aspose uses an in-house HTML/CSS engine; IronPDF uses an embedded Chromium build.</li>
 <li><strong>Page indexing.</strong> Aspose.PDF is 1-based (<code>doc.Pages[1]</code> is the first page); IronPDF is 0-based (<code>pdf.Pages[0]</code>).</li>
-<li><strong>Thread safety.</strong> Aspose is per-document-instance — verify concurrent use patterns. IronPDF's renderer is reusable; verify thread safety docs.</li>
+<li><strong>Thread safety.</strong> Aspose is per-document-instance — concurrent use needs careful structuring. IronPDF's <code>ChromePdfRenderer</code> is designed to be reused across calls, with parallel rendering documented in the IronPDF examples.</li>
 <li><strong>Namespace.</strong> <code>Aspose.Pdf</code> versus <code>IronPdf</code>.</li>
 </ul>
 
@@ -51,11 +51,11 @@
 <li><strong>Merge PDFs — Low.</strong> Both have single-call merge.</li>
 <li><strong>Split PDFs — Medium.</strong> Page selection API differs.</li>
 <li><strong>Watermark (text) — Medium.</strong> Stamping model differs.</li>
-<li><strong>Watermark (image) — Medium.</strong> Coordinate system needs verification.</li>
+<li><strong>Watermark (image) — Medium.</strong> Coordinate systems differ — Aspose uses points and absolute indents, IronPDF positions via HTML/CSS.</li>
 <li><strong>Password protection — Low.</strong> Both support owner/user passwords.</li>
-<li><strong>Form field manipulation — High.</strong> Aspose's forms API is richer; verify IronPDF coverage for your specific field types.</li>
+<li><strong>Form field manipulation — High.</strong> Aspose's forms API is broader across field types; check IronPDF coverage against the field types in your specific PDFs before committing.</li>
 <li><strong>PDF/A compliance — Medium-High.</strong> Test output against your validator.</li>
-<li><strong>Digital signatures — High.</strong> Verify current IronPDF signing API against your PAdES requirements.</li>
+<li><strong>Digital signatures — High.</strong> If your workflow requires PAdES profiles or specific signature levels, check the current IronPDF signing API against those requirements before migrating.</li>
 <li><strong>Text extraction — Medium.</strong> Both support it; output formatting may differ.</li>
 </ul>
 
@@ -145,7 +145,7 @@ using Aspose.Pdf.Facades;
 
 <h2>How Do I Convert HTML to PDF After Migrating?</h2>
 
-<p>This is the most common operation and the easiest to migrate. Aspose uses <code>HtmlLoadOptions</code> with a proprietary renderer; IronPDF uses <code>ChromePdfRenderer</code> backed by Chromium — so CSS, Flexbox, custom fonts all work as they do in a browser.</p>
+<p>This is the most common operation and the easiest to migrate. Aspose uses <code>HtmlLoadOptions</code> with an in-house HTML/CSS engine; IronPDF uses <code>ChromePdfRenderer</code> backed by Chromium — so CSS, Flexbox, and custom fonts behave the way they do in a browser.</p>
 
 <h3>Basic HTML to PDF — Before (Aspose)</h3>
 
@@ -231,8 +231,7 @@ class Program
         var license = new License();
         license.SetLicense("Aspose.PDF.lic");
 
-        // Aspose uses HtmlLoadOptions to control rendering
-        // Note: proprietary renderer — complex CSS may not match browser output
+        // Aspose uses HtmlLoadOptions to control rendering via its in-house HTML/CSS engine
         var options = new HtmlLoadOptions
         {
             // BasePath needed if HTML references external assets
@@ -415,7 +414,6 @@ class Program
 
 <pre><code>using System;
 using Aspose.Pdf;
-using Aspose.Pdf.Facades;
 
 class Program
 {
@@ -424,17 +422,16 @@ class Program
         var license = new License();
         license.SetLicense("Aspose.PDF.lic");
 
-        // PdfFileSecurity handles encryption in Aspose.Pdf.Facades
-        var security = new PdfFileSecurity();
-        security.BindPdf("input.pdf");
+        using var doc = new Document("input.pdf");
 
         // DocumentPrivilege controls permissions
-        var privilege = DocumentPrivilege.AllowAll;
-        privilege.Printing = PrintingPermissions.PrintingQuality;
+        var privileges = DocumentPrivilege.ForbidAll;
+        privileges.AllowPrint = true;
+        privileges.AllowCopy = false;
 
-        // EncryptFile: userPassword, ownerPassword, privileges, keySize
-        security.EncryptFile("user123", "owner456", privilege, KeySize.x128);
-        security.Save("protected.pdf");
+        // Encrypt: userPassword, ownerPassword, privileges, algorithm
+        doc.Encrypt("user123", "owner456", privileges, CryptoAlgorithm.AESx256);
+        doc.Save("protected.pdf");
         Console.WriteLine("Encrypted to protected.pdf");
     }
 }
@@ -542,7 +539,7 @@ var pdf = PdfDocument.FromFile("input.pdf");
 
 <h3>Will my CSS render the same way in IronPDF as it does in a browser?</h3>
 
-<p>Yes. IronPDF uses an embedded Chromium engine, so your HTML and CSS render exactly as they would in Google Chrome. This is one of the primary reasons teams migrate from Aspose.PDF, which uses a proprietary HTML parser that doesn't support modern CSS features like Flexbox and Grid reliably.</p>
+<p>IronPDF uses an embedded Chromium engine, so your HTML and CSS render the way they do in Chrome. This is one of the migration triggers teams cite when they hit layout drift on Flexbox or Grid in Aspose's in-house HTML/CSS engine; verify against your own templates before drawing conclusions.</p>
 
 <h3>What's the most common bug teams hit during this migration?</h3>
 

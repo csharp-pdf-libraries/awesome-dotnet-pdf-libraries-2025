@@ -2,43 +2,43 @@
 
 <p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
 
-<p>The pull request sat open for three weeks. Someone had added a seven-line method to merge two PDFs using <code>PdfBoxDotNet</code>, the community .NET port of Apache PDFBox. It compiled. It even ran. But on the third invoice the team tried, <code>PDFMergerUtility.MergeDocuments()</code> threw a <code>NotImplementedException</code> on a code path the upstream Java library handles fine. The port was years behind. Nobody on the team owned it. And the original reason it was chosen -- "PDFBox is free" -- was about the Java library, not the half-finished bindings the .NET app was actually calling.</p>
+<p>The pull request sat open for three weeks. Someone had added a seven-line method to merge two PDFs using <code>Pdfbox-IKVM</code>, one of the community .NET ports of Apache PDFBox. It compiled. It even ran. But on the third invoice the team tried, <code>PDFMergerUtility.mergeDocuments()</code> failed on a code path the upstream Java library handles fine. The port was years behind — its last NuGet release shipped in 2017 — and nobody on the team owned it. The original reason it was chosen — "PDFBox is free" — was about the Java library, not the abandoned bindings the .NET app was actually calling.</p>
 
-<p>If that sounds familiar -- or if you are running an Apache PDFBox community port that drops methods between releases, ships without async support, and offers no commercial backing when something breaks -- this guide is for you.</p>
+<p>If that sounds familiar — or if you are running an Apache PDFBox community port that has not seen a release in years, ships without async support, and offers no commercial backing when something breaks — this guide is for you.</p>
 
-<p>Apache PDFBox itself is a solid open-source Java library. The migration question is not about the upstream project. It is about whether an unofficial, incomplete .NET port costs more than it saves once your application grows past the trivial cases. This guide covers the shift to <a href="https://ironpdf.com">IronPDF</a>, but eighty percent of the framework -- dependency auditing, API mapping, testing patterns -- applies to any .NET-native PDF library.</p>
+<p>Apache PDFBox itself is a solid open-source Java library (current line: PDFBox 3.0.7, Apache License 2.0). The migration question is not about the upstream project. It is about whether an unofficial .NET port — IKVM-bundled, JCOBridge-wrapped, or hand-translated — costs more than it saves once your application grows past the trivial cases. This guide covers the shift to <a href="https://ironpdf.com">IronPDF</a>, but eighty percent of the framework — dependency auditing, API mapping, testing patterns — applies to any .NET-native PDF library.</p>
 
 <h2>Why Should I Migrate from Apache PDFBox to IronPDF?</h2>
 
 <p>Upstream Apache PDFBox is one of the most widely deployed PDF libraries in the world. Here is why .NET teams specifically move away from its community .NET ports:</p>
 
-<p><strong>Unofficial, incomplete community port.</strong> Apache does not publish a .NET build. Packages like <code>PdfBoxDotNet</code> are community ports of the Java source. They lag the upstream releases, skip features the maintainers have not gotten to yet, and ship with methods that compile but throw at runtime.</p>
+<p><strong>No official .NET build; the community options are uneven.</strong> Apache only publishes Java artifacts. The available .NET ports are <code>Pdfbox</code> 1.1.1 (2013, abandoned), <code>Pdfbox-IKVM</code> 1.8.9 (2017, abandoned, IKVM-bundled JVM reimplementation), <code>PdfBox_DotNet_Version</code> 2.0.15 (2019), and <code>MASES.NetPDF</code> 3.0.10 (March 2026, active — a JCOBridge wrapper that requires a real JVM at runtime). Three of the four have not shipped in years.</p>
 
-<p><strong>No HTML-to-PDF.</strong> PDFBox does not convert HTML, and the .NET ports inherit that gap. If you need HTML rendering, you are pairing the port with a second library -- the .cs samples in this repo flag this explicitly.</p>
+<p><strong>No HTML-to-PDF.</strong> PDFBox does not convert HTML, and every .NET port inherits that gap. If you need HTML rendering, you are pairing the port with a second library or shelling out to an external renderer.</p>
 
-<p><strong>API surface gaps between releases.</strong> Because the port is reverse-engineered from Java, classes and method signatures shift between versions. Code that worked against last year's NuGet package may not compile against this year's, and the diff is not always documented.</p>
+<p><strong>JVM baggage either way.</strong> The IKVM-based ports bundle a .NET reimplementation of the JVM. <code>MASES.NetPDF</code> calls into a real JVM via JCOBridge. Either path drags Java runtime concerns into a .NET deployment that idiomatic .NET libraries avoid.</p>
 
-<p><strong>No commercial support.</strong> When the port misbehaves, there is no vendor to file a ticket with. Issues sit on a community GitHub for months. For a library that sits underneath an invoicing or compliance pipeline, that is a hard risk to carry.</p>
+<p><strong>No commercial support.</strong> When a port misbehaves, there is no vendor to file a ticket with. Issues sit on community GitHubs for months — and for the abandoned ports, indefinitely. For a library that sits underneath an invoicing or compliance pipeline, that is a hard risk to carry.</p>
 
-<p><strong>API verbosity for common operations.</strong> PDFBox's API mirrors the PDF specification, which makes it powerful but verbose. Merging two PDFs requires loading both documents, creating a <code>PDFMergerUtility</code>, adding sources, and calling <code>MergeDocuments()</code>.</p>
+<p><strong>API verbosity for common operations.</strong> PDFBox's API mirrors the PDF specification, which makes it powerful but verbose. Merging two PDFs requires loading both documents, creating a <code>PDFMergerUtility</code>, adding sources, and calling <code>mergeDocuments()</code>.</p>
 
-<p><strong>Manual resource management.</strong> <code>PDDocument</code> in the port follows the Java <code>close()</code> contract. It implements <code>IDisposable</code>, but the API still exposes Java-style lifecycle calls, and forgetting them leaks file handles.</p>
+<p><strong>Manual resource management.</strong> <code>PDDocument</code> in the port follows the Java <code>close()</code> contract directly — IKVM and JCOBridge preserve method casing, so you call <code>document.close()</code>, not <code>Dispose()</code>. Forgetting it leaks file handles.</p>
 
-<p><strong>Text extraction ordering.</strong> PDFBox extracts text in the order it appears in the PDF content stream, which is not necessarily visual order. Sorting requires explicit configuration -- a common source of bugs for teams unfamiliar with PDF internals.</p>
+<p><strong>Text extraction ordering.</strong> PDFBox extracts text in the order it appears in the PDF content stream, which is not necessarily visual order. Sorting requires explicit configuration — a common source of bugs for teams unfamiliar with PDF internals.</p>
 
 <p><strong>No async support.</strong> The ported API is synchronous. In an async .NET pipeline, blocking on it ties up thread pool threads.</p>
 
-<p><strong>Font handling across platforms.</strong> The port relies on whatever font discovery the underlying JDK-style code did. Font availability and rendering can differ between your dev machine and your production Linux container.</p>
+<p><strong>Font handling across platforms.</strong> The port relies on whatever font discovery the underlying JDK-style code does. Font availability and rendering can differ between your dev machine and your production Linux container.</p>
 
-<p><strong>Java-flavored API in a C# project.</strong> Even after the port translates packages to namespaces, the surface still feels Java: <code>PDDocument</code>, <code>PDFTextStripper</code>, <code>setSortByPosition</code>-style helpers. New .NET hires read it as foreign code.</p>
+<p><strong>Java-flavored API in a C# project.</strong> Because IKVM and JCOBridge preserve Java's lowercase method names, the surface still reads as Java: <code>PDDocument.load()</code>, <code>stripper.getText()</code>, <code>merger.addSource()</code>. New .NET hires read it as foreign code.</p>
 
 <h2>How Do Apache PDFBox and IronPDF Compare?</h2>
 
-<p>The community .NET port of PDFBox focuses on PDF manipulation, text extraction, and form filling. Its API mirrors the PDF specification with classes like <code>PDDocument</code> and <code>PDPage</code> exposed through the <code>PdfBoxDotNet.Pdmodel</code>, <code>PdfBoxDotNet.Text</code>, and <code>PdfBoxDotNet.Multipdf</code> namespaces -- powerful, but it assumes you know PDF internals, and the port itself is incomplete relative to upstream Apache PDFBox. It is free under Apache License v2.0 and has no HTML rendering capability.</p>
+<p>The community .NET ports of PDFBox focus on PDF manipulation, text extraction, and form filling. Their API mirrors the PDF specification with classes like <code>PDDocument</code> and <code>PDPage</code> exposed under <code>org.apache.pdfbox.*</code> (IKVM ports preserve Java's lowercase package form) or <code>Org.Apache.Pdfbox.*</code> (MASES.NetPDF title-cases for C#) — powerful, but it assumes you know PDF internals. The library is free under Apache License v2.0 and has no HTML rendering capability in either the upstream Java project or any of the .NET ports.</p>
 
 <p>IronPDF takes the opposite approach: HTML-first PDF generation plus manipulation, exposed through a property-based C# API in the <code>IronPdf</code> namespace. The learning curve is low for any developer who already knows HTML and CSS, since rendering goes through a built-in Chrome engine. Licensing is per-developer with perpetual options available.</p>
 
-<p>A few specifics worth noting up front: both libraries use 0-based page indexing, so index values stay the same when you migrate. <code>PDDocument</code> in the PDFBox port is not safe to share across threads, while IronPDF's <code>ChromePdfRenderer</code> is stateless and safe to share.</p>
+<p>A few specifics worth noting up front: both libraries use 0-based page indexing, so index values stay the same when you migrate. <code>PDDocument</code> in the PDFBox ports is not safe to share across threads, while IronPDF's <code>ChromePdfRenderer</code> is stateless and safe to share.</p>
 
 <h2>How Much Effort Does Each Feature Require to Migrate?</h2>
 
@@ -62,13 +62,19 @@
 
 <h3>Step 1: License Configuration</h3>
 
-<p>PDFBox is Apache-licensed, so the community .NET port has no license key. But you do inherit whatever the port maintainers have implemented (and not implemented) in the current NuGet package. IronPDF requires a single license key line and ships as a fully supported .NET library.</p>
+<p>PDFBox is Apache-licensed, so none of the .NET ports require a license key. What you inherit instead is whatever the port maintainers have shipped — and three of the four available ports are abandoned. IronPDF requires a single license key line and ships as a fully supported .NET library.</p>
 
-<h3>PDFBox-dotnet Setup (C#)</h3>
+<h3>Apache PDFBox Setup via .NET Port (C#)</h3>
 
-<pre><code>// Apache PDFBox has no official .NET port; this is a community port.
-// NuGet: Install-Package PdfBoxDotNet (community-maintained, incomplete)
-using PdfBoxDotNet.Pdmodel;
+<pre><code>// Apache PDFBox has no official .NET build. Community options on nuget.org:
+//   Pdfbox          1.1.1 (2013, abandoned)
+//   Pdfbox-IKVM     1.8.9 (2017, abandoned, IKVM JVM reimplementation)
+//   PdfBox_DotNet_Version 2.0.15 (2019)
+//   MASES.NetPDF    3.0.10 (March 2026, active, JCOBridge — needs a real JVM)
+//
+// Example using the IKVM-style port (Pdfbox-IKVM / Pdfbox NuGet):
+using org.apache.pdfbox.pdmodel;
+using java.io;
 using System;
 
 class Program
@@ -76,10 +82,15 @@ class Program
     static void Main()
     {
         // No license key, but no commercial support either.
-        // API coverage varies version to version.
-        using (var document = new PDDocument())
+        // Java-style camelCase methods come through unchanged via IKVM.
+        PDDocument document = new PDDocument();
+        try
         {
-            Console.WriteLine("PDFBox-dotnet ready. Pages: " + document.GetNumberOfPages());
+            Console.WriteLine("PDFBox port ready. Pages: " + document.getNumberOfPages());
+        }
+        finally
+        {
+            document.close();
         }
     }
 }</code></pre>
@@ -102,11 +113,18 @@ class Program
 
 <h3>Step 2: Namespace Imports</h3>
 
-<h3>PDFBox-dotnet Imports (C#)</h3>
+<h3>Apache PDFBox Port Imports (C#)</h3>
 
-<pre><code>using PdfBoxDotNet.Pdmodel;
-using PdfBoxDotNet.Text;
-using PdfBoxDotNet.Multipdf;</code></pre>
+<pre><code>// IKVM-style ports keep Java's lowercase package form:
+using org.apache.pdfbox.pdmodel;
+using org.apache.pdfbox.text;
+using org.apache.pdfbox.multipdf;
+using java.io;
+
+// MASES.NetPDF title-cases the same hierarchy:
+// using Org.Apache.Pdfbox.Pdmodel;
+// using Org.Apache.Pdfbox.Text;
+// using Org.Apache.Pdfbox.Multipdf;</code></pre>
 
 <h3>IronPDF Imports (C#)</h3>
 
@@ -116,33 +134,38 @@ using IronPdf.Rendering;  // render options</code></pre>
 
 <h3>Step 3: Basic PDF Creation</h3>
 
-<h3>PDFBox-dotnet PDF Creation (C#, ~20 lines)</h3>
+<h3>Apache PDFBox Port PDF Creation (C#, ~20 lines)</h3>
 
-<pre><code>using PdfBoxDotNet.Pdmodel;
-using PdfBoxDotNet.Pdmodel.Common;
-using PdfBoxDotNet.Pdmodel.Font;
+<pre><code>using org.apache.pdfbox.pdmodel;
+using org.apache.pdfbox.pdmodel.common;
+using org.apache.pdfbox.pdmodel.font;
 using System;
 
 class CreatePdf
 {
     static void Main()
     {
-        using (var document = new PDDocument())
+        PDDocument document = new PDDocument();
+        try
         {
-            var page = new PDPage(PDRectangle.LETTER);
-            document.AddPage(page);
+            PDPage page = new PDPage(PDRectangle.LETTER);
+            document.addPage(page);
 
-            var content = new PDPageContentStream(document, page);
-            content.BeginText();
-            content.SetFont(PDType1Font.HELVETICA, 24);
-            content.NewLineAtOffset(50, 700); // x, y from bottom-left
-            content.ShowText("Monthly Report");
-            content.EndText();
-            content.Close();
+            PDPageContentStream content = new PDPageContentStream(document, page);
+            content.beginText();
+            content.setFont(PDType1Font.HELVETICA, 24);
+            content.newLineAtOffset(50, 700); // x, y from bottom-left
+            content.showText("Monthly Report");
+            content.endText();
+            content.close();
 
-            document.Save("report_pdfbox.pdf");
+            document.save("report_pdfbox.pdf");
         }
-        Console.WriteLine("Saved with PDFBox-dotnet.");
+        finally
+        {
+            document.close();
+        }
+        Console.WriteLine("Saved with the PDFBox .NET port.");
     }
 }</code></pre>
 
@@ -171,16 +194,17 @@ class Program
 
 <h2>How Do I Convert HTML to PDF After Migrating?</h2>
 
-<p>The PDFBox-dotnet port inherits PDFBox's lack of HTML-to-PDF support -- the .cs samples in this repo flag it explicitly: "Community ports like PDFBox-dotnet are incomplete and do not support HTML to PDF conversion natively." The workaround is shelling out to an external tool like wkhtmltopdf, or pairing the port with a separate HTML renderer. With IronPDF, HTML rendering is built in.</p>
+<p>The PDFBox .NET ports inherit PDFBox's lack of HTML-to-PDF support. Neither the Java original nor any of the .NET ports (Pdfbox-IKVM, PdfBox_DotNet_Version, MASES.NetPDF) ships an HTML/CSS renderer. The workaround is shelling out to an external tool like wkhtmltopdf, or pairing the port with a separate HTML renderer. With IronPDF, HTML rendering is built in.</p>
 
-<h3>PDFBox-dotnet HTML-to-PDF Workaround (C#)</h3>
+<h3>Apache PDFBox HTML-to-PDF Workaround (C#)</h3>
 
-<pre><code>// Apache PDFBox does not have an official .NET port.
-// Community ports like PDFBox-dotnet are incomplete and
-// do not support HTML to PDF conversion natively.
-// The usual workaround: shell out to an external renderer.
+<pre><code>// PDFBox is a low-level PDF manipulation library — there is no API that
+// takes "<h1>Hello</h1>" and produces a styled PDF. The usual workaround
+// is to shell out to an external renderer.
 using System;
 using System.Diagnostics;
+using org.apache.pdfbox.pdmodel;
+using java.io;
 
 class HtmlToPdfPdfbox
 {
@@ -203,13 +227,12 @@ class HtmlToPdfPdfbox
             }
         }
 
-        // Option B: Then post-process with PDFBox-dotnet if needed
-        // using (var doc = PDDocument.Load("report.pdf")) {
-        //     // ... manipulate ...
-        //     doc.Save("report_final.pdf");
-        // }
+        // Option B: Then post-process with the PDFBox port if needed
+        // PDDocument doc = PDDocument.load(new File("report.pdf"));
+        // try { /* ... manipulate ... */ doc.save("report_final.pdf"); }
+        // finally { doc.close(); }
 
-        Console.WriteLine("Generated with wkhtmltopdf + PDFBox-dotnet.");
+        Console.WriteLine("Generated with wkhtmltopdf + PDFBox port.");
     }
 }</code></pre>
 
@@ -255,29 +278,30 @@ class HtmlToPdfIronPdf
 
 <h2>How Do I Merge PDFs After Migrating?</h2>
 
-<p>PDFBox-dotnet merging requires creating a <code>PDFMergerUtility</code>, adding sources, and calling <code>MergeDocuments()</code> -- and on the port specifically, that call has been a known sore spot when API coverage drifts. IronPDF reduces this to a single static method.</p>
+<p>PDFBox merging requires creating a <code>PDFMergerUtility</code>, adding sources, and calling <code>mergeDocuments()</code> with a <code>MemoryUsageSetting</code> — and on the abandoned ports specifically, the call site has been a known sore spot when bugs go unfixed. IronPDF reduces this to a single static method.</p>
 
-<h3>PDFBox-dotnet Merge (C#)</h3>
+<h3>Apache PDFBox Port Merge (C#)</h3>
 
-<pre><code>// Apache PDFBox .NET port attempt (incomplete support)
-using PdfBoxDotNet.Pdmodel;
-using PdfBoxDotNet.Multipdf;
+<pre><code>// IKVM-style .NET port (e.g. Pdfbox-IKVM on nuget.org). Method names
+// stay Java-style (camelCase) because IKVM exposes the Java API directly.
+using org.apache.pdfbox.multipdf;
+using org.apache.pdfbox.io;
 using System;
 
 class MergePdfbox
 {
     static void Main()
     {
-        // PDFBox-dotnet ports have incomplete API coverage
-        var merger = new PDFMergerUtility();
+        PDFMergerUtility merger = new PDFMergerUtility();
 
-        merger.AddSource("part1.pdf");
-        merger.AddSource("part2.pdf");
-        merger.SetDestinationFileName("merged_pdfbox.pdf");
+        merger.addSource("part1.pdf");
+        merger.addSource("part2.pdf");
+        merger.setDestinationFileName("merged_pdfbox.pdf");
 
-        merger.MergeDocuments();
+        // MemoryUsageSetting governs heap vs temp-file buffering
+        merger.mergeDocuments(MemoryUsageSetting.setupMainMemoryOnly());
 
-        Console.WriteLine("Merged with PDFBox-dotnet.");
+        Console.WriteLine("Merged with the PDFBox .NET port.");
     }
 }</code></pre>
 
@@ -304,45 +328,51 @@ class MergeIronPdf
 
 <h2>How Do I Apply Watermarks After Migrating?</h2>
 
-<p>Watermarking through PDFBox-dotnet requires content stream operations, matrix transforms, and per-page loops -- assuming the port has implemented every helper you reach for. IronPDF replaces all of that with a single HTML string.</p>
+<p>Watermarking through the PDFBox port requires content stream operations, matrix transforms, and per-page loops — and on the abandoned ports, you are at the mercy of whatever helpers the maintainers shipped before walking away. IronPDF replaces all of that with a single HTML string.</p>
 
-<h3>PDFBox-dotnet Watermark (C#, content stream drawing)</h3>
+<h3>Apache PDFBox Port Watermark (C#, content stream drawing)</h3>
 
-<pre><code>using PdfBoxDotNet.Pdmodel;
-using PdfBoxDotNet.Pdmodel.Font;
-using PdfBoxDotNet.Util;
+<pre><code>using org.apache.pdfbox.pdmodel;
+using org.apache.pdfbox.pdmodel.font;
+using org.apache.pdfbox.util;
+using java.io;
 using System;
 
 class WatermarkPdfbox
 {
     static void Main()
     {
-        using (var doc = PDDocument.Load("input.pdf"))
+        PDDocument doc = PDDocument.load(new File("input.pdf"));
+        try
         {
-            foreach (var page in doc.GetPages())
+            foreach (PDPage page in doc.getPages())
             {
-                var cs = new PDPageContentStream(
+                PDPageContentStream cs = new PDPageContentStream(
                     doc, page, PDPageContentStream.AppendMode.APPEND, true, true);
 
-                cs.SetFont(PDType1Font.HELVETICA, 48);
-                cs.SetNonStrokingColor(200, 200, 200); // light gray
+                cs.setFont(PDType1Font.HELVETICA, 48);
+                cs.setNonStrokingColor(200, 200, 200); // light gray
 
                 // Rotate 45 degrees around page center
-                float cx = page.GetMediaBox().GetWidth() / 2;
-                float cy = page.GetMediaBox().GetHeight() / 2;
-                cs.Transform(Matrix.GetRotateInstance(
+                float cx = page.getMediaBox().getWidth() / 2;
+                float cy = page.getMediaBox().getHeight() / 2;
+                cs.transform(Matrix.getRotateInstance(
                     Math.PI / 4, cx, cy));
 
-                cs.BeginText();
-                cs.NewLineAtOffset(cx - 100, cy); // approximate centering
-                cs.ShowText("CONFIDENTIAL");
-                cs.EndText();
-                cs.Close();
+                cs.beginText();
+                cs.newLineAtOffset(cx - 100, cy); // approximate centering
+                cs.showText("CONFIDENTIAL");
+                cs.endText();
+                cs.close();
             }
 
-            doc.Save("watermarked_pdfbox.pdf");
+            doc.save("watermarked_pdfbox.pdf");
         }
-        Console.WriteLine("Watermarked with PDFBox-dotnet.");
+        finally
+        {
+            doc.close();
+        }
+        Console.WriteLine("Watermarked with the PDFBox .NET port.");
     }
 }</code></pre>
 
@@ -370,36 +400,42 @@ class WatermarkIronPdf
 
 <h2>How Do I Add Password Protection After Migrating?</h2>
 
-<p>Encryption through PDFBox-dotnet requires creating <code>AccessPermission</code> and <code>StandardProtectionPolicy</code> objects -- and verifying that the encryption code path is actually wired up in the version of the port you're on. IronPDF exposes the same controls through a single <code>SecuritySettings</code> property.</p>
+<p>Encryption through the PDFBox port requires creating <code>AccessPermission</code> and <code>StandardProtectionPolicy</code> objects — and on abandoned ports, verifying that the encryption code path is actually wired up in the version you are on. IronPDF exposes the same controls through a single <code>SecuritySettings</code> property.</p>
 
-<h3>PDFBox-dotnet Password Protection (C#)</h3>
+<h3>Apache PDFBox Port Password Protection (C#)</h3>
 
-<pre><code>using PdfBoxDotNet.Pdmodel;
-using PdfBoxDotNet.Pdmodel.Encryption;
+<pre><code>using org.apache.pdfbox.pdmodel;
+using org.apache.pdfbox.pdmodel.encryption;
+using java.io;
 using System;
 
 class PasswordPdfbox
 {
     static void Main()
     {
-        using (var doc = PDDocument.Load("input.pdf"))
+        PDDocument doc = PDDocument.load(new File("input.pdf"));
+        try
         {
-            var perms = new AccessPermission();
-            perms.SetCanPrint(false);
-            perms.SetCanModify(false);
-            perms.SetCanExtractContent(false);
+            AccessPermission perms = new AccessPermission();
+            perms.setCanPrint(false);
+            perms.setCanModify(false);
+            perms.setCanExtractContent(false);
 
-            var policy = new StandardProtectionPolicy(
+            StandardProtectionPolicy policy = new StandardProtectionPolicy(
                 "owner123",  // owner password
                 "user456",   // user password
                 perms
             );
-            policy.SetEncryptionKeyLength(128);
+            policy.setEncryptionKeyLength(128);
 
-            doc.Protect(policy);
-            doc.Save("protected_pdfbox.pdf");
+            doc.protect(policy);
+            doc.save("protected_pdfbox.pdf");
         }
-        Console.WriteLine("Protected with PDFBox-dotnet.");
+        finally
+        {
+            doc.close();
+        }
+        Console.WriteLine("Protected with the PDFBox .NET port.");
     }
 }</code></pre>
 
@@ -428,17 +464,18 @@ class PasswordIronPdf
 
 <p>No <code>AccessPermission</code> + <code>StandardProtectionPolicy</code> ceremony. See <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">IronPDF security documentation</a>.</p>
 
-<h2>What Are the Complete API Mappings Between PDFBox-dotnet and IronPDF?</h2>
+<h2>What Are the Complete API Mappings Between Apache PDFBox and IronPDF?</h2>
 
-<p>These map the PdfBoxDotNet community-port API to IronPDF. Both sides are C#, so the change is API-shape and idiom rather than language.</p>
+<p>These map the PDFBox .NET port API to IronPDF. Both sides are C#, so the change is API-shape and idiom rather than language. The IKVM ports preserve Java's lowercase package names (<code>org.apache.pdfbox.*</code>); MASES.NetPDF title-cases them (<code>Org.Apache.Pdfbox.*</code>). Method names stay lowercase on both because the underlying Java API is exposed directly.</p>
 
 <h3>Namespace Mapping</h3>
 
 <ul>
-<li><code>PdfBoxDotNet.Pdmodel</code> → <code>IronPdf</code> — core document model</li>
-<li><code>PdfBoxDotNet.Pdmodel.Font</code> → CSS <code>font-family</code> in HTML — font handling</li>
-<li><code>PdfBoxDotNet.Multipdf</code> → <code>IronPdf</code> — merge/split utilities</li>
-<li><code>PdfBoxDotNet.Text</code> → <code>IronPdf</code> — text extraction</li>
+<li><code>org.apache.pdfbox.pdmodel</code> → <code>IronPdf</code> — core document model</li>
+<li><code>org.apache.pdfbox.pdmodel.font</code> → CSS <code>font-family</code> in HTML — font handling</li>
+<li><code>org.apache.pdfbox.multipdf</code> → <code>IronPdf</code> — merge/split utilities</li>
+<li><code>org.apache.pdfbox.text</code> → <code>IronPdf</code> — text extraction</li>
+<li><code>org.apache.pdfbox.pdmodel.encryption</code> → <code>IronPdf.Security</code> — security/encryption</li>
 </ul>
 
 <h3>Core Class Mapping</h3>
@@ -454,49 +491,49 @@ class PasswordIronPdf
 <h3>Document Loading Methods</h3>
 
 <ul>
-<li><strong>Open from file:</strong> <code>PDDocument.Load("f.pdf")</code> → <code>PdfDocument.FromFile("f.pdf")</code></li>
-<li><strong>Open with password:</strong> <code>PDDocument.Load("f.pdf", "pass")</code> → <code>PdfDocument.FromFile("f.pdf", "pass")</code></li>
+<li><strong>Open from file:</strong> <code>PDDocument.load(new File("f.pdf"))</code> → <code>PdfDocument.FromFile("f.pdf")</code></li>
+<li><strong>Open with password:</strong> <code>PDDocument.load(new File("f.pdf"), "pass")</code> → <code>PdfDocument.FromFile("f.pdf", "pass")</code></li>
 <li><strong>Create new:</strong> <code>new PDDocument()</code> → <code>renderer.RenderHtmlAsPdf(html)</code></li>
-<li><strong>Save:</strong> <code>document.Save("out.pdf")</code> → <code>pdf.SaveAs("out.pdf")</code></li>
+<li><strong>Save:</strong> <code>document.save("out.pdf")</code> → <code>pdf.SaveAs("out.pdf")</code></li>
+<li><strong>Close:</strong> <code>document.close()</code> → <code>using</code> statement / <code>Dispose()</code></li>
 </ul>
 
 <h3>Page Operations</h3>
 
 <ul>
-<li><strong>Get page count:</strong> <code>document.GetNumberOfPages()</code> → <code>pdf.PageCount</code></li>
-<li><strong>Get page:</strong> <code>document.GetPage(index)</code> → <code>pdf.Pages[index]</code> — both 0-based</li>
-<li><strong>Add page:</strong> <code>document.AddPage(new PDPage())</code> → render HTML, pages are auto-created</li>
-<li><strong>Remove page:</strong> <code>document.RemovePage(index)</code> → <code>pdf.RemovePages(index)</code></li>
+<li><strong>Get page count:</strong> <code>document.getNumberOfPages()</code> → <code>pdf.PageCount</code></li>
+<li><strong>Get page:</strong> <code>document.getPage(index)</code> → <code>pdf.Pages[index]</code> — both 0-based</li>
+<li><strong>Add page:</strong> <code>document.addPage(new PDPage())</code> → render HTML, pages are auto-created</li>
+<li><strong>Remove page:</strong> <code>document.removePage(index)</code> → <code>pdf.RemovePages(index)</code></li>
 </ul>
 
 <h3>Merge / Split Operations</h3>
 
 <ul>
-<li><strong>Merge:</strong> <code>PDFMergerUtility</code> → <code>AddSource()</code> → <code>MergeDocuments()</code> becomes <code>PdfDocument.Merge(pdf1, pdf2)</code></li>
-<li><strong>Extract pages:</strong> <code>document.GetPage()</code> + new doc + import page becomes <code>pdf.CopyPages(start, end)</code></li>
+<li><strong>Merge:</strong> <code>PDFMergerUtility</code> → <code>addSource()</code> → <code>mergeDocuments()</code> becomes <code>PdfDocument.Merge(pdf1, pdf2)</code></li>
+<li><strong>Extract pages:</strong> <code>document.getPage()</code> + new doc + import page becomes <code>pdf.CopyPages(start, end)</code></li>
 </ul>
 
 <h2>What Should I Watch Out for During Migration?</h2>
 
-<p><strong>API surface gaps in the port.</strong> Unlike migrating between two well-supported .NET libraries, you are leaving a community port whose published API does not always match what is actually implemented. Plan for some <code>NotImplementedException</code> traces during code archeology, especially around encryption, signatures, and AcroForm operations.</p>
+<p><strong>Abandoned ports.</strong> Three of the four .NET ports — <code>Pdfbox</code> (2013), <code>Pdfbox-IKVM</code> (2017), <code>PdfBox_DotNet_Version</code> (2019) — have not shipped a release in years. The active option, <code>MASES.NetPDF</code>, requires a real JVM at runtime via JCOBridge. Plan for some archeology when you encounter Java exceptions surfacing through IKVM stack traces.</p>
 
 <p><strong>Page indexing.</strong> Both PDFBox and IronPDF use 0-based page indexing. This is the one thing that does not change.</p>
 
-<p><strong>Text extraction ordering.</strong> PDFBox's <code>PDFTextStripper</code> extracts text in content stream order by default, which can produce scrambled output. You must set <code>SortByPosition = true</code> (or call the equivalent setter the port exposes) for visual reading order. IronPDF's text extraction may handle ordering differently -- test with your specific documents.</p>
+<p><strong>Text extraction ordering.</strong> PDFBox's <code>PDFTextStripper</code> extracts text in content stream order by default, which can produce scrambled output. You must call <code>stripper.setSortByPosition(true)</code> for visual reading order. IronPDF's text extraction may handle ordering differently — verify against your specific documents.</p>
 
-<p><strong>Resource management.</strong> PDFBox-dotnet's <code>PDDocument</code> still follows the Java <code>close()</code> contract -- the .cs samples in this repo wrap it in a <code>using</code> block. IronPDF's <code>PdfDocument</code> also implements <code>IDisposable</code>. The pattern maps naturally; the verbosity drops.</p>
+<p><strong>Resource management.</strong> The PDFBox port's <code>PDDocument</code> follows the Java <code>close()</code> contract — you call <code>document.close()</code> explicitly inside a try/finally. IronPDF's <code>PdfDocument</code> implements <code>IDisposable</code>, so the natural pattern is a <code>using</code> block. The verbosity drops noticeably.</p>
 
-<p><strong>Encryption parity.</strong> PDFBox uses Bouncy Castle for encryption upstream. The .NET port wires through whatever its current build supports, which has historically been a moving target. IronPDF handles encryption internally and consistently across releases.</p>
+<p><strong>Encryption parity.</strong> PDFBox uses Bouncy Castle for encryption upstream. The IKVM ports embed it; MASES.NetPDF calls into the real Java implementation. IronPDF handles encryption internally and consistently across releases.</p>
 
-<p><strong>Eliminating the unsupported dependency.</strong> Replacing PDFBox-dotnet with IronPDF removes a community-maintained NuGet package from your dependency tree:</p>
+<p><strong>Eliminating the JVM dependency.</strong> Replacing the PDFBox port with IronPDF removes either an IKVM-bundled JVM reimplementation or a JCOBridge dependency on a real JVM from your deployment:</p>
 
-<pre><code>// Before: PdfBoxDotNet community port (incomplete API coverage)
-using (var doc = PDDocument.Load("input.pdf"))
-{
-    // ... operations may or may not be implemented in your version
-}
+<pre><code>// Before: PDFBox via IKVM port, with java.io.File and Java exceptions
+PDDocument doc = PDDocument.load(new File("input.pdf"));
+try { /* ... */ }
+finally { doc.close(); }
 
-// After: IronPDF, fully supported
+// After: IronPDF, native .NET
 using var pdf = PdfDocument.FromFile("input.pdf");
 var merged = PdfDocument.Merge(pdf, otherPdf);</code></pre>
 
@@ -521,25 +558,25 @@ pdf.SaveAs("output.pdf");</code></pre>
 
 <h3>Is Apache PDFBox free and IronPDF paid?</h3>
 
-<p>Yes. Apache PDFBox is free under the Apache License v2.0, and the community .NET port inherits that. IronPDF uses per-developer perpetual licenses. The cost trade-off is not just the license fee -- it is the time spent working around an incomplete port, debugging methods that throw <code>NotImplementedException</code>, and tracking community-driven release cadence.</p>
+<p>Yes. Apache PDFBox is free under the Apache License v2.0, and the community .NET ports inherit that. IronPDF uses per-developer perpetual licenses. The cost trade-off is not just the license fee — it is the time spent working around abandoned ports, debugging Java exceptions surfacing through IKVM, and managing a JVM dependency in a .NET deployment.</p>
 
 <p>Many teams find the engineering hours saved on a fully supported library outweigh the license cost. A <a href="https://ironpdf.com/get-started/license-keys/">trial key</a> lets you evaluate before committing.</p>
 
 <h3>Can I migrate incrementally or do I have to replace everything at once?</h3>
 
-<p>You can migrate incrementally. Start with the highest-value operation -- typically HTML-to-PDF, since the PDFBox port cannot do this at all. Leave lower-priority operations (like text extraction) running through the port while you validate IronPDF's output.</p>
+<p>You can migrate incrementally. Start with the highest-value operation — typically HTML-to-PDF, since none of the PDFBox ports support that at all. Leave lower-priority operations (like text extraction) running through the port while you validate IronPDF's output.</p>
 
-<p>Each operation you migrate removes one dependency on the community port. You do not need to remove the PDFBox-dotnet NuGet package until every operation has been ported.</p>
+<p>Each operation you migrate removes one dependency on the community port. You do not need to remove the PDFBox NuGet package until every operation has been ported.</p>
 
 <h3>What happens to my PDFBox Preflight (PDF/A validation) workflows?</h3>
 
-<p>Upstream PDFBox has a Preflight module for PDF/A validation. The .NET ports typically do not include it, so if you were already using Preflight you were probably calling it through some out-of-process bridge. IronPDF supports PDF/A export but may not validate existing documents -- if validation is critical, consider veraPDF or keep an external validator.</p>
+<p>Upstream PDFBox has a Preflight module for PDF/A validation. The .NET ports do not consistently expose it, so if you were already using Preflight you were probably calling it through some out-of-process bridge. IronPDF supports PDF/A export but may not validate existing documents — verify against your validation requirements; if validation is critical, consider veraPDF or keep an external validator.</p>
 
 <p>This is one area where the migration is not a clean one-to-one swap. Audit your PDF/A workflows before migrating.</p>
 
 <h3>How do I handle text extraction differences between PDFBox and IronPDF?</h3>
 
-<p>PDFBox's <code>PDFTextStripper</code> extracts text in content stream order by default, which is not necessarily visual order. You must explicitly enable position-based sorting for reading-order output. IronPDF may handle ordering differently.</p>
+<p>PDFBox's <code>PDFTextStripper</code> extracts text in content stream order by default, which is not necessarily visual order. You must explicitly call <code>setSortByPosition(true)</code> for reading-order output. IronPDF may handle ordering differently.</p>
 
 <p>Test with at least 10 diverse documents from your production corpus. Compare output line by line. For extraction-heavy workloads, PdfPig is a .NET-native alternative worth evaluating alongside IronPDF.</p>
 
@@ -547,18 +584,18 @@ pdf.SaveAs("output.pdf");</code></pre>
 
 <p>No. Both PDFBox and IronPDF use 0-based page indexing. This is one of the few areas where the migration requires zero changes beyond the API surface swap.</p>
 
-<p>The method names change -- <code>document.GetPage(index)</code> becomes <code>pdf.Pages[index]</code> -- but the index values stay the same.</p>
+<p>The method names change — <code>document.getPage(index)</code> becomes <code>pdf.Pages[index]</code> — but the index values stay the same.</p>
 
 <h3>What is the recommended migration scenario for my team?</h3>
 
-<p>It depends on your current integration pattern. If you are running PDFBox-dotnet for any non-trivial PDF work, migrate -- the port's incomplete coverage is a long-term liability. If your full .NET stack needs HTML-to-PDF plus manipulation, migrate -- IronPDF covers both in one NuGet package.</p>
+<p>It depends on your current integration pattern. If you are running one of the abandoned ports (<code>Pdfbox</code>, <code>Pdfbox-IKVM</code>, <code>PdfBox_DotNet_Version</code>) for any non-trivial PDF work, migrate — the lack of maintenance is a long-term liability. If you are on <code>MASES.NetPDF</code> and want to drop the JVM dependency, migrate. If your .NET stack needs HTML-to-PDF plus manipulation, migrate — IronPDF covers both in one NuGet package.</p>
 
 <p>If the port is used only for text extraction, evaluate carefully. IronPDF extracts text, but you might also consider lighter .NET-native alternatives like PdfPig. If you depend on PDFBox Preflight for PDF/A validation, keep an external validator like veraPDF.</p>
 
 <h2>Conclusion</h2>
 
-<p>The real migration here is not language-to-language. Both sides are C#. It is moving from an unofficial, incomplete community port to a fully supported .NET library. The code translation is mostly idiom: <code>PDDocument.Load</code> becomes <code>PdfDocument.FromFile</code>, content-stream drawing becomes HTML, and the Java-shaped API gives way to a property-based C# surface.</p>
+<p>The real migration here is not language-to-language. Both sides are C#. It is moving from an unofficial .NET port — IKVM-bundled or JCOBridge-wrapped — to a fully supported native .NET library. The code translation is mostly idiom: <code>PDDocument.load(new File(...))</code> becomes <code>PdfDocument.FromFile</code>, content-stream drawing becomes HTML, and the Java-shaped surface gives way to property-based C#.</p>
 
-<p>If you stay on the PDFBox-dotnet port, plan for the same friction the .cs samples in this repo flag explicitly: incomplete API coverage, no HTML-to-PDF, no commercial backing. If you stay in .NET but want a free option for the narrow case of text extraction, PdfPig handles that in pure C# under Apache 2.0, though it does not do HTML-to-PDF either.</p>
+<p>If you stay on a PDFBox port, plan for the same friction across the board: no HTML-to-PDF, abandoned NuGet packages, and a JVM dependency one way or another. If you stay in .NET but want a free option for the narrow case of text extraction, PdfPig handles that in pure C# under Apache 2.0, though it does not do HTML-to-PDF either.</p>
 
 <p>For teams that need HTML rendering, merging, watermarking, and encryption in one package with vendor support, <a href="https://ironpdf.com">IronPDF</a> consolidates everything into a single NuGet install. Start with a <a href="https://ironpdf.com/get-started/license-keys/">trial key</a> and migrate one operation at a time.</p>

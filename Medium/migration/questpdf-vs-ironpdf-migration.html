@@ -8,7 +8,7 @@
 
 <p>I've walked through this migration with enough teams to know the patterns. Here are the conditions that most commonly push teams toward an alternative:</p>
 
-<p><strong>SkiaSharp native library issues in containers</strong> &mdash; <code>libfontconfig</code>, <code>libfreetype</code>, or <code>libskia</code> not present in minimal Docker base images like alpine or distroless. <strong>Font provider configuration</strong> &mdash; QuestPDF requires a font provider setup, and on CI runners without system fonts, this needs explicit configuration. <strong>No HTML rendering path</strong> &mdash; web developers maintaining templates in HTML can't directly use QuestPDF without rewriting everything to the fluent DSL. <strong>Limited PDF manipulation</strong> &mdash; QuestPDF is a generation library; merge, split, watermark, security, and text extraction all need additional libraries.</p>
+<p><strong>SkiaSharp native library issues in containers</strong> &mdash; <code>libfontconfig</code>, <code>libfreetype</code>, or <code>libskia</code> not present in minimal Docker base images like alpine or distroless. <strong>Font provider configuration</strong> &mdash; QuestPDF requires a font provider setup, and on CI runners without system fonts, this needs explicit configuration. <strong>No HTML rendering path</strong> &mdash; web developers maintaining templates in HTML can't directly use QuestPDF without rewriting everything to the fluent DSL. <strong>Limited PDF manipulation</strong> &mdash; QuestPDF is primarily a generation library. Before version 2024.12.0, merge, watermark, security, and text extraction all needed additional libraries. Version 2024.12.0+ added a DocumentOperation API covering merge, page extraction, encryption, overlay/underlay, and attachments &mdash; but not text extraction or digital signatures.</p>
 
 <p>If any of those sound familiar, this article covers the complete migration path with before/after code for every standard operation.</p>
 
@@ -137,7 +137,7 @@ Console.WriteLine($"Saved invoice.pdf ({pdf.PageCount} page(s))");
 
 <h2>Problem 3: Merge, Watermark, and Security Require Secondary Libraries</h2>
 
-<p>QuestPDF is a generation library. If you need to merge documents, apply watermarks, or add password protection, you need a second (or third) library. With IronPDF, those operations are built in.</p>
+<p>QuestPDF is primarily a generation library. QuestPDF 2024.12.0+ added a DocumentOperation API for merge, encryption, and page extraction, but watermarks and text extraction still require a secondary library. With IronPDF, all of those operations are built in.</p>
 
 <h3>Merging PDFs &mdash; QuestPDF (Before)</h3>
 
@@ -153,9 +153,9 @@ class MergeBefore
     {
         QuestPDF.Settings.License = LicenseType.Community;
 
-        // QuestPDF doesn't support merging separate documents.
-        // Teams typically generate each section as a separate file
-        // then use a secondary library to combine them.
+        // Pre-2024.12.0 approach: generate sections separately, then merge with
+        // a secondary library (PDFsharp, etc.). On 2024.12.0+, merging is
+        // available natively via DocumentOperation.MergeFile().
 
         var sections = new[]
         {
@@ -175,8 +175,10 @@ class MergeBefore
             }).GeneratePdf(filename);
         }
 
-        // Now merge sec1.pdf + sec2.pdf using secondary library (e.g., PDFsharp)
-        Console.WriteLine("Merge requires secondary library — not built into QuestPDF");
+        // Merge sec1.pdf + sec2.pdf via DocumentOperation.MergeFile() on
+        // 2024.12.0+, or via a secondary library (e.g., PDFsharp) on earlier
+        // versions.
+        Console.WriteLine("Merge: DocumentOperation.MergeFile() on 2024.12.0+, or a secondary library on earlier versions");
     }
 }
 </code></pre>
@@ -292,7 +294,7 @@ class PasswordBefore
     {
         QuestPDF.Settings.License = LicenseType.Community;
 
-        // Step 1: Generate PDF with QuestPDF
+        // Generate the PDF with QuestPDF
         var pdfBytes = Document.Create(container =&gt;
         {
             container.Page(page =&gt;
@@ -302,13 +304,13 @@ class PasswordBefore
             });
         }).GeneratePdf();
 
-        // Step 2: Apply password with a secondary library (required)
-        // QuestPDF has no security/password API
-        // Pseudo-code:
+        // Apply password via DocumentOperation.Encrypt() on 2024.12.0+
+        // (40/128/256-bit; no digital signing). On earlier versions, a
+        // secondary library was required.
         // var secured = SomePdfLib.SetPassword(pdfBytes, "open123", "admin456");
         // File.WriteAllBytes("secured.pdf", secured);
 
-        Console.WriteLine("Password protection requires a secondary library with QuestPDF");
+        Console.WriteLine("Password protection uses DocumentOperation.Encrypt() (2024.12.0+) or a secondary library on earlier versions");
     }
 }
 </code></pre>
@@ -335,12 +337,12 @@ pdf.SaveAs("secured.pdf");
 
 <ul>
 <li><strong>Focus.</strong> QuestPDF is programmatic PDF generation via a fluent DSL. IronPDF combines HTML-to-PDF rendering with PDF manipulation in one library.</li>
-<li><strong>Pricing.</strong> QuestPDF is MIT-licensed and free for individuals and companies under $1M annual gross revenue; above that, a commercial license is required. IronPDF is a paid commercial license per developer with no revenue threshold.</li>
+<li><strong>Pricing.</strong> QuestPDF is MIT-licensed and free for individuals and companies under $1M annual gross revenue; above that, a Professional license is $999 (perpetual, up to 10 developers) and Enterprise is $2,999 (perpetual, organization-wide). IronPDF is a paid commercial license per developer with no revenue threshold.</li>
 <li><strong>API style.</strong> QuestPDF uses a fluent document model and layout DSL. IronPDF uses an HTML renderer plus PDF manipulation objects.</li>
 <li><strong>Learning curve.</strong> QuestPDF requires learning DSL concepts like containers, columns, and rows. IronPDF is low-friction for web developers because HTML and CSS are the input.</li>
 <li><strong>HTML rendering.</strong> QuestPDF does not support HTML — DSL only. IronPDF uses an embedded Chromium engine.</li>
 <li><strong>Page indexing.</strong> QuestPDF is generation-only, so indexing does not apply. IronPDF page indexes are 0-based.</li>
-<li><strong>Thread safety.</strong> Verify in QuestPDF docs and verify IronPDF's concurrent-instance guidance — both libraries have moved on this and current docs are the source of truth.</li>
+<li><strong>Thread safety.</strong> Both libraries have evolved their concurrency guidance; consult each vendor's current docs before sharing renderer or document instances across threads.</li>
 <li><strong>Namespace.</strong> <code>QuestPDF.Fluent</code> and <code>QuestPDF.Infrastructure</code> become <code>IronPdf</code>.</li>
 </ul>
 
@@ -352,9 +354,9 @@ pdf.SaveAs("secured.pdf");
 <li><strong>Headers and footers — Medium.</strong> <code>.Header()</code> and <code>.Footer()</code> components become <code>RenderingOptions.HtmlHeader</code> and <code>HtmlFooter</code>.</li>
 <li><strong>Page numbers — Medium.</strong> Footer-component page numbers become a <code>{page}</code> token in header/footer fragments.</li>
 <li><strong>Multi-section document — Medium.</strong> Page-model composition becomes multiple HTML sections.</li>
-<li><strong>Merge PDFs — Medium.</strong> Not native to QuestPDF. Use <code>PdfDocument.Merge()</code> in IronPDF.</li>
+<li><strong>Merge PDFs — Medium.</strong> QuestPDF 2024.12.0+ added <code>DocumentOperation.MergeFile()</code>; earlier versions needed a secondary library. IronPDF uses <code>PdfDocument.Merge()</code>.</li>
 <li><strong>Watermark — Medium.</strong> QuestPDF needs a custom component. IronPDF provides <code>TextStamper</code> and <code>ImageStamper</code>.</li>
-<li><strong>Password protection — Medium.</strong> Not native to QuestPDF. Use <code>pdf.SecuritySettings</code> in IronPDF.</li>
+<li><strong>Password protection — Medium.</strong> QuestPDF 2024.12.0+ added <code>DocumentOperation.Encrypt()</code> (no digital signing); earlier versions needed a secondary library. IronPDF uses <code>pdf.SecuritySettings</code>.</li>
 <li><strong>Dynamic data binding — Medium.</strong> C# lambda expressions in the DSL become HTML template strings or Razor templates.</li>
 <li><strong>SkiaSharp native deps — Low (remove).</strong> Required by QuestPDF; not required by IronPDF, which uses Chromium.</li>
 </ul>
@@ -367,7 +369,7 @@ pdf.SaveAs("secured.pdf");
 <li><strong>Page count.</strong> QuestPDF exposes this via page callbacks → <code>pdf.PageCount</code>.</li>
 <li><strong>Remove page.</strong> N/A in QuestPDF (generation only) → <code>pdf.RemovePages(index)</code>.</li>
 <li><strong>Extract text.</strong> N/A in QuestPDF → <code>pdf.ExtractAllText()</code>.</li>
-<li><strong>Merge.</strong> Not native to QuestPDF → <code>PdfDocument.Merge(doc1, doc2)</code>.</li>
+<li><strong>Merge.</strong> QuestPDF 2024.12.0+ added <code>DocumentOperation.MergeFile()</code>; IronPDF uses <code>PdfDocument.Merge(doc1, doc2)</code>.</li>
 </ul>
 
 <h2>Frequently Asked Questions</h2>

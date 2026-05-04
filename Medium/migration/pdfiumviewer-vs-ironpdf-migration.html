@@ -10,7 +10,7 @@
 
 <p><strong>Windows-only by design.</strong> PdfiumViewer targets Windows Forms and ships native Windows Pdfium DLLs. Linux, macOS, and container environments can't load those binaries.</p>
 
-<p><strong>Repository unmaintained.</strong> The original PdfiumViewer repository has effectively stopped seeing releases. You may be relying on community forks for any patches.</p>
+<p><strong>Repository archived.</strong> The upstream <code>pvginkel/PdfiumViewer</code> repository was archived on August 2, 2019, and the last NuGet release (2.13.0) shipped on November 6, 2017. No further fixes, .NET 6+ updates, or CVE patches are coming from upstream — any patches you pick up will be from community forks.</p>
 
 <p><strong>.NET Framework heritage.</strong> The library was written for the .NET Framework / WinForms era. .NET 6+ and modern <code>System.Drawing</code> portability constraints are not first-class.</p>
 
@@ -74,7 +74,7 @@ grep -r -i "pdfiumviewer" **/*.csproj *.csproj 2&gt;/dev/null</code></pre>
 <pre><code># Remove PdfiumViewer and its native binary packages
 dotnet remove package PdfiumViewer
 dotnet remove package PdfiumViewer.Native.x86.v8-xfa
-dotnet remove package PdfiumViewer.Native.x64.v8-xfa
+dotnet remove package PdfiumViewer.Native.x86_64.v8-xfa
 
 # Install IronPDF
 dotnet add package IronPdf
@@ -218,25 +218,27 @@ void GetPageInfo(string pdfPath)
 
 <p>Note the shape change: PdfiumViewer exposes page sizes through a separate <code>PageSizes</code> indexer, while IronPDF gives you a <code>Pages</code> collection of objects with <code>Width</code> and <code>Height</code> properties on each.</p>
 
-<h2>How Do I Migrate Text Extraction (or Add It Where PdfiumViewer Couldn't)?</h2>
+<h2>How Do I Migrate Text Extraction?</h2>
 
-<p>PdfiumViewer does not extract text — it's a rasterizer. Teams that needed text from a PDF either ran OCR over the rasterized images or pulled in a second library like PDFSharp or iTextSharp. Migrating to IronPDF lets you delete that scaffolding.</p>
+<p>PdfiumViewer does expose page-level text extraction through <code>PdfDocument.GetPdfText(int page)</code>, which returns the raw text for a single page. What it does not give you is layout reconstruction, per-word coordinates, or OCR for image-only pages — and you have to loop the pages and concatenate yourself. IronPDF collapses that to a single call.</p>
 
-<h3>Text Extraction — Before (PdfiumViewer rasterize-then-OCR)</h3>
+<h3>Text Extraction — Before (PdfiumViewer)</h3>
 
 <pre><code>using PdfiumViewer;
 using System;
+using System.Text;
 
-// PdfiumViewer has no text extraction. Common workaround:
-// render each page to an image, then run OCR (Tesseract or similar)
-// over the bitmaps. The library itself only renders.
 using var document = PdfDocument.Load("document.pdf");
+
+var sb = new StringBuilder();
 for (int i = 0; i &lt; document.PageCount; i++)
 {
-    using var pageImage = document.Render(i, 96, 96, false);
-    // ... hand pageImage to an OCR engine ...
-    Console.WriteLine($"Rendered page {i + 1} for OCR pass");
-}</code></pre>
+    // GetPdfText returns raw page text — no layout, no per-word
+    // coordinates, no OCR for image-only PDFs.
+    sb.AppendLine($"--- Page {i + 1} ---");
+    sb.AppendLine(document.GetPdfText(i));
+}
+Console.WriteLine(sb.ToString());</code></pre>
 
 <h3>Text Extraction — After (IronPDF)</h3>
 
@@ -255,7 +257,7 @@ Console.WriteLine(allText);
 string firstPageText = pdf.ExtractTextFromPage(0);
 Console.WriteLine(firstPageText);</code></pre>
 
-<p>This is the kind of swap where the line count drops by an order of magnitude. The caveat: <code>ExtractAllText</code> reads the embedded text layer; it is not OCR. For scanned PDFs that have no text layer, you still want IronOCR or a dedicated OCR engine — verify against your specific document set.</p>
+<p>The IronPDF version is a one-liner for the common case and drops the StringBuilder loop. The caveat applies to both libraries: these APIs read the embedded text layer; neither is OCR. For scanned PDFs that have no text layer, you still want IronOCR or a dedicated OCR engine.</p>
 
 <h2>How Do I Fix IronPDF Failures in Docker on Linux?</h2>
 
@@ -342,10 +344,17 @@ RUN apt-get install -y fonts-liberation fonts-dejavu fontconfig \
   <li><strong>Access a page object.</strong> No equivalent in PdfiumViewer (it is render-focused) → <code>pdf.Pages[n]</code> in IronPDF.</li>
 </ul>
 
+<h3>Text Extraction</h3>
+
+<ul>
+  <li><strong>Whole-document text.</strong> Loop <code>doc.GetPdfText(i)</code> in PdfiumViewer → <code>pdf.ExtractAllText()</code> in IronPDF.</li>
+  <li><strong>Single-page text.</strong> <code>doc.GetPdfText(pageIndex)</code> → <code>pdf.ExtractTextFromPage(pageIndex)</code>.</li>
+  <li><strong>Layout / per-word coordinates.</strong> Not exposed by PdfiumViewer's <code>GetPdfText</code>; available through IronPDF's text APIs.</li>
+</ul>
+
 <h3>Features PdfiumViewer Doesn't Have</h3>
 
 <ul>
-  <li><strong>Text extraction.</strong> Not in PdfiumViewer; <code>pdf.ExtractAllText()</code> or <code>pdf.ExtractTextFromPage(i)</code> in IronPDF.</li>
   <li><strong>Merge.</strong> Not in PdfiumViewer; <code>PdfDocument.Merge(pdf1, pdf2)</code> in IronPDF.</li>
   <li><strong>Split.</strong> Not in PdfiumViewer; <code>pdf.CopyPages(startIndex, endIndex)</code> in IronPDF.</li>
   <li><strong>Watermark / stamp.</strong> Not in PdfiumViewer; <code>pdf.ApplyStamp(...)</code> / <code>pdf.ApplyWatermark(...)</code> in IronPDF.</li>
@@ -361,7 +370,7 @@ RUN apt-get install -y fonts-liberation fonts-dejavu fontconfig \
   <li><strong>Open / read existing PDF — Low.</strong> <code>PdfDocument.Load</code> → <code>PdfDocument.FromFile</code>.</li>
   <li><strong>Page count / metadata — Low.</strong> <code>doc.PageCount</code> stays as <code>pdf.PageCount</code>.</li>
   <li><strong>Print PDF — Low.</strong> <code>doc.CreatePrintDocument()</code> → <code>pdf.Print(printerName)</code>.</li>
-  <li><strong>Text extraction — Low (new capability).</strong> Wasn't possible before; <code>pdf.ExtractAllText()</code> is a one-liner in IronPDF.</li>
+  <li><strong>Text extraction — Low.</strong> Page-loop with <code>doc.GetPdfText(i)</code> collapses to <code>pdf.ExtractAllText()</code>.</li>
   <li><strong>HTML / URL to PDF — Low (new capability).</strong> If you were running wkhtmltopdf or another tool alongside PdfiumViewer, you can delete that subprocess.</li>
   <li><strong>Merge / watermark / password — Low (new capability).</strong> Native in IronPDF; you can drop PDFSharp or iTextSharp.</li>
   <li><strong>Linux / Docker deployment — Resolved.</strong> The whole point of the migration.</li>
@@ -381,7 +390,7 @@ RUN apt-get install -y fonts-liberation fonts-dejavu fontconfig \
 
 <h3>Do I Need to Change Page Indexing in My Code?</h3>
 
-<p>No. Both PdfiumViewer and IronPDF use 0-based page indexing. This is one less thing to worry about during migration. However, verify your specific PdfiumViewer wrapper's convention if you're using a third-party wrapper.</p>
+<p>No. Both PdfiumViewer and IronPDF use 0-based page indexing, so the loop bounds and indices in your existing code carry over unchanged.</p>
 
 <h3>What Should I Do About System.Drawing Dependencies?</h3>
 

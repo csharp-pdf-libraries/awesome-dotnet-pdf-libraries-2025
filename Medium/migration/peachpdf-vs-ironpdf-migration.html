@@ -6,31 +6,32 @@
 
 <p>The .NET upgrade was supposed to be the boring part. Update the TFM, fix a few deprecated APIs, run the tests — done. But somewhere in that process, the PDF library started throwing exceptions it didn't throw before, or you discovered it doesn't have a NuGet package targeting the new framework version you need.</p>
 
-<p>PeachPDF is a capable HTML-to-PDF library, but .NET version compatibility becomes a constraint when you're moving from .NET Framework or early .NET Core to the modern unified platform. I've seen teams hit this wall repeatedly, and the reasons for migrating tend to cluster around the same set of conditions:</p>
+<p>PeachPDF is a newer, single-maintainer C#-native HTML-to-PDF library (BSD-3-Clause, currently at 0.7.26 as of October 2025). It targets <code>net8.0</code> only, and its rendering layer is built on PeachPDF.PdfSharpCore — a managed layout engine, not a browser. The reasons for migrating tend to cluster around the same set of conditions:</p>
 
-<p><strong>.NET version incompatibility</strong> — the library doesn't publish a package for .NET 6/7/8/9, or the package exists but has runtime issues under the new TFM. <strong>Rendering engine age</strong> — non-Chromium HTML renderers often lag modern CSS capabilities. <strong>CSS fidelity gaps</strong> — flex layouts, CSS Grid, custom properties, or <code>@media print</code> rules don't render correctly.</p>
+<p><strong>.NET version incompatibility</strong> — PeachPDF publishes only a <code>net8.0</code> target, so .NET Framework, .NET 6, and .NET 7 projects either upgrade or pick a different library. <strong>Rendering engine age</strong> — a managed HTML/CSS layout engine does not match Chromium's coverage of modern CSS. <strong>CSS fidelity gaps</strong> — flex layouts, CSS Grid, custom properties, and <code>@media print</code> rules render to a subset and may not match what the same markup looks like in Chrome.</p>
 
-<p><strong>Maintenance uncertainty</strong> — infrequent NuGet updates suggest the project is not actively tracking .NET releases. <strong>Cross-platform limitations</strong> — if the library has Windows-only native dependencies, Linux/Docker deployments are blocked. <strong>Missing manipulation features</strong> — no native merge, split, watermark, or security APIs in the library.</p>
+<p><strong>Maturity</strong> — PeachPDF is pre-1.0 with a single GitHub maintainer (<code>jhaygood86</code>); IronPDF has been in production for years with 40M+ downloads. <strong>Missing manipulation features</strong> — PeachPDF is HTML-to-PDF only. There is no API to load an existing PDF, merge, split, watermark, sign, or password-protect; teams that need any of those today reach for a secondary library like PdfSharpCore alongside PeachPDF.</p>
 
-<p><strong>Async API support</strong> — older libraries often expose only synchronous APIs, which creates friction in async .NET code. <strong>Community support</strong> — smaller libraries have fewer Stack Overflow answers and GitHub issues for troubleshooting. <strong>Thread safety concerns</strong> — rendering under concurrent load may not be well-documented or tested.</p>
+<p><strong>No JavaScript engine</strong> — scripts and SPA-style content do not execute, so dashboards, charts rendered client-side, and any HTML that depends on scripts will not render. <strong>Enterprise support</strong> — there is no commercial SLA or paid support channel for PeachPDF. <strong>Documentation depth</strong> — the project's documentation is essentially the README and the source.</p>
 
 <h2>What Does a .NET Version Incompatibility Look Like in Practice?</h2>
 
-<p>This is the most common trigger I see. Your team upgrades to .NET 8 or 9, and PeachPDF either doesn't have a compatible package or throws runtime exceptions under the new TFM. The build fails, and PeachPDF becomes the blocker for your entire upgrade.</p>
+<p>This is the most common trigger I see. Your team upgrades to .NET 9 (or you have a .NET 6/7 project that needs to stay on its TFM), and PeachPDF only ships <code>net8.0</code>. Either the package doesn't restore, or it restores but you cannot stay on the older TFM you intended.</p>
 
 <p>The first step is finding every PeachPDF reference in your codebase.</p>
 
 <h3>Searching for PeachPDF API Usage</h3>
 
-<pre><code># Search for PeachPDF API usage — namespace is `PeachPDF`, main class is `HtmlToPdfConverter`
+<pre><code># Search for PeachPDF API usage — root namespace is `PeachPDF`,
+# entry points are `PdfGenerator` and `PdfGenerateConfig`
 rg -l "PeachPDF" --type cs
-rg "HtmlToPdfConverter|\.Convert\(|\.ConvertUrl\(" --type cs -n
+rg "PdfGenerator|PdfGenerateConfig|GeneratePdf\(" --type cs -n
 
 # Check project files
-grep -r "PeachPDF" *.csproj **/*.csproj 2&gt;/dev/null
+rg "PeachPDF" -g "*.csproj"
 
-# Find any header/footer string assignments — PeachPDF exposes these as plain string properties
-rg "\.Header\s*=|\.Footer\s*=" --type cs -n
+# Find network-adapter usage (URL-to-PDF wiring)
+rg "HttpClientNetworkAdapter|MimeKitNetworkAdapter|NetworkAdapter\s*=" --type cs -n
 </code></pre>
 
 <p>Once you know the scope, swap the packages.</p>
@@ -63,6 +64,7 @@ IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE
 <h3>Namespace Swap — Before</h3>
 
 <pre><code>using PeachPDF;
+using PeachPDF.PdfSharpCore;
 </code></pre>
 
 <h3>Namespace Swap — After</h3>
@@ -74,16 +76,27 @@ using IronPdf.Rendering;
 <h3>Basic Conversion — Before</h3>
 
 <pre><code>using PeachPDF;
+using PeachPDF.PdfSharpCore;
 using System.IO;
+using System.Threading.Tasks;
 
 class PeachPdfBefore
 {
-    static void Main()
+    static async Task Main()
     {
-        var converter = new HtmlToPdfConverter();
         var html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
-        var pdf = converter.Convert(html);
-        File.WriteAllBytes("output.pdf", pdf);
+
+        var config = new PdfGenerateConfig
+        {
+            PageSize = PageSize.Letter,
+            PageOrientation = PageOrientation.Portrait
+        };
+
+        var generator = new PdfGenerator();
+        var document = await generator.GeneratePdf(html, config);
+
+        using var stream = File.Create("output.pdf");
+        document.Save(stream);
     }
 }
 </code></pre>
@@ -113,10 +126,10 @@ Console.WriteLine($"Saved output.pdf ({pdf.PageCount} page(s))");
 
 <h3>Debugging CSS Rendering Differences</h3>
 
-<pre><code>// Step 1: Test your HTML directly in Chrome DevTools print preview
-// IronPDF's Chromium renders CSS as Chrome does with @media print rules
+<pre><code>// Test your HTML in Chrome DevTools print preview first —
+// IronPDF's Chromium renders CSS the same way Chrome does, including @media print
 
-// Step 2: Add explicit @media print styles for predictable output
+// Add explicit @media print styles for predictable output
 var html = @"
     &lt;html&gt;
     &lt;head&gt;
@@ -135,7 +148,7 @@ var html = @"
     &lt;body&gt;...&lt;/body&gt;
     &lt;/html&gt;";
 
-// Step 3: Adjust rendering options to match desired output
+// Adjust rendering options to match desired output
 var renderer = new ChromePdfRenderer();
 renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
 // See: https://ironpdf.com/how-to/rendering-options/
@@ -186,19 +199,22 @@ pdf.SaveAs("output.pdf");
 
 <pre><code>using System;
 
-// PeachPDF is HTML-to-PDF only — there is no public merge API on
-// HtmlToPdfConverter. Teams that need merge typically add a secondary
-// library (PDFsharp, PdfPig, etc.) alongside PeachPDF.
+// PeachPDF is HTML-to-PDF only. PdfGenerator only emits a freshly generated
+// document; there is no API to load existing PDFs and combine them. Teams
+// that need merge typically drop down to PdfSharpCore directly or add a
+// secondary library (PdfPig, etc.) alongside PeachPDF.
 
 class MergeBefore
 {
     static void Main()
     {
         // Typical workaround pattern with a secondary library:
-        // var pdf1Bytes = File.ReadAllBytes("part1.pdf");
-        // var pdf2Bytes = File.ReadAllBytes("part2.pdf");
-        // var merged = SomeOtherPdfLib.Merge(pdf1Bytes, pdf2Bytes);
-        // File.WriteAllBytes("combined.pdf", merged);
+        // var pdf1 = PdfReader.Open("part1.pdf", PdfDocumentOpenMode.Import);
+        // var pdf2 = PdfReader.Open("part2.pdf", PdfDocumentOpenMode.Import);
+        // var output = new PdfDocument();
+        // foreach (var p in pdf1.Pages) output.AddPage(p);
+        // foreach (var p in pdf2.Pages) output.AddPage(p);
+        // output.Save("combined.pdf");
 
         Console.WriteLine("PeachPDF does not expose a native merge API");
     }
@@ -227,15 +243,17 @@ pdf1.Dispose(); pdf2.Dispose(); pdf3.Dispose();
 <h3>Watermark — Before (CSS-Based Workaround)</h3>
 
 <pre><code>using PeachPDF;
+using PeachPDF.PdfSharpCore;
 using System.IO;
+using System.Threading.Tasks;
 
 // PeachPDF has no programmatic watermark/stamp API. The standard
 // workaround is a CSS-positioned element baked into the source HTML
-// before calling Convert(...).
+// before generating the PDF.
 
 class WatermarkBefore
 {
-    static void Main()
+    static async Task Main()
     {
         var html = @"
             &lt;html&gt;
@@ -260,9 +278,11 @@ class WatermarkBefore
             &lt;/body&gt;
             &lt;/html&gt;";
 
-        var converter = new HtmlToPdfConverter();
-        var pdf = converter.Convert(html);
-        File.WriteAllBytes("watermarked.pdf", pdf);
+        var generator = new PdfGenerator();
+        var document = await generator.GeneratePdf(html, new PdfGenerateConfig { PageSize = PageSize.Letter });
+
+        using var stream = File.Create("watermarked.pdf");
+        document.Save(stream);
     }
 }
 </code></pre>
@@ -299,17 +319,19 @@ pdf.SaveAs("internal-document.pdf");
 
 <pre><code>using System;
 
-// PeachPDF does not expose a password / encryption API on
-// HtmlToPdfConverter. Adding owner/user passwords requires a secondary
-// library that re-encrypts the bytes after Convert(...) returns.
+// PeachPDF does not expose a password or encryption API. Adding owner/user
+// passwords requires a secondary library that re-encrypts the document after
+// PdfGenerator.GeneratePdf(...).Save(...) writes the bytes.
 
 class PasswordBefore
 {
     static void Main()
     {
-        // var unprotectedBytes = new HtmlToPdfConverter().Convert(html);
+        // using var ms = new MemoryStream();
+        // var document = await new PdfGenerator().GeneratePdf(html, new PdfGenerateConfig());
+        // document.Save(ms);
         // var protectedBytes = AnotherPdfLib.AddPassword(
-        //     unprotectedBytes, userPassword: "open123", ownerPassword: "admin456");
+        //     ms.ToArray(), userPassword: "open123", ownerPassword: "admin456");
         // File.WriteAllBytes("restricted.pdf", protectedBytes);
 
         Console.WriteLine("PeachPDF has no native security/encryption API");
@@ -341,30 +363,31 @@ pdf.SaveAs("restricted.pdf");
 <p>I find a side-by-side table is the fastest way to assess the scope of your migration. Here is how the two libraries compare across key dimensions.</p>
 
 <ul>
-<li><strong>Focus.</strong> PeachPDF is HTML-to-PDF only. IronPDF covers HTML-to-PDF plus full PDF manipulation (merge, split, stamp, sign, secure, edit).</li>
-<li><strong>Pricing.</strong> PeachPDF is open source — verify the license terms on its repo before commercial use. IronPDF is a commercial license; pricing is at ironsoftware.com.</li>
-<li><strong>API style.</strong> PeachPDF centers on a single <code>HtmlToPdfConverter</code> class that returns <code>byte[]</code>. IronPDF uses a fluent <code>ChromePdfRenderer</code> + <code>PdfDocument</code> object model.</li>
-<li><strong>Learning curve.</strong> PeachPDF's surface is tiny — <code>Convert</code>/<code>ConvertUrl</code> and a few properties. IronPDF is broader but maps cleanly to .NET conventions.</li>
-<li><strong>HTML rendering.</strong> PeachPDF uses a managed C# HTML/CSS engine that does not match Chromium's coverage. IronPDF embeds Chromium.</li>
-<li><strong>Page indexing.</strong> Page indexing in PeachPDF is not exposed — it returns finished bytes only. IronPDF is 0-based for all <code>PdfDocument</code> page operations.</li>
-<li><strong>Async.</strong> PeachPDF's <code>Convert</code> / <code>ConvertUrl</code> are synchronous. IronPDF exposes <code>RenderHtmlAsPdfAsync</code> / <code>RenderUrlAsPdfAsync</code> as first-class async methods.</li>
+<li><strong>Focus.</strong> PeachPDF is HTML-to-PDF only. IronPDF covers HTML-to-PDF plus full PDF manipulation (load, merge, split, stamp, sign, secure, edit).</li>
+<li><strong>Licensing.</strong> PeachPDF is BSD-3-Clause open source. IronPDF is commercial; pricing is at ironsoftware.com.</li>
+<li><strong>API style.</strong> PeachPDF splits an engine (<code>PdfGenerator</code>) from settings (<code>PdfGenerateConfig</code>) and emits a document whose <code>Save</code> takes a <code>Stream</code>. IronPDF uses a fluent <code>ChromePdfRenderer</code> + <code>PdfDocument</code> object model where <code>SaveAs</code> takes a path.</li>
+<li><strong>Learning curve.</strong> PeachPDF's surface is tiny — <code>PdfGenerator.GeneratePdf</code> plus a handful of <code>PdfGenerateConfig</code> properties. IronPDF is broader but maps cleanly to .NET conventions.</li>
+<li><strong>HTML rendering.</strong> PeachPDF runs a managed C#/PdfSharpCore HTML/CSS layout engine that does not match Chromium's coverage. IronPDF embeds Chromium.</li>
+<li><strong>JavaScript.</strong> PeachPDF does not execute scripts. IronPDF runs full Chromium and exposes wait hooks for SPA-style content.</li>
+<li><strong>Async.</strong> PeachPDF's <code>GeneratePdf</code> is async-only. IronPDF exposes both <code>RenderHtmlAsPdf</code>/<code>RenderUrlAsPdf</code> and async <code>RenderHtmlAsPdfAsync</code>/<code>RenderUrlAsPdfAsync</code>.</li>
+<li><strong>Target framework.</strong> PeachPDF ships <code>net8.0</code> only. IronPDF supports .NET Framework 4.6.2+, .NET Core, .NET 5, and current .NET 6/7/8/9.</li>
 <li><strong>Namespace.</strong> <code>PeachPDF</code> → <code>IronPdf</code>.</li>
 </ul>
 
 <p>And here is the feature-by-feature migration complexity breakdown.</p>
 
 <ul>
-<li><strong>HTML string to PDF — Low.</strong> PeachPDF's <code>HtmlToPdfConverter.Convert(html)</code> maps directly to <code>ChromePdfRenderer.RenderHtmlAsPdfAsync(html)</code>.</li>
-<li><strong>URL to PDF — Low.</strong> <code>converter.ConvertUrl(url)</code> maps to <code>renderer.RenderUrlAsPdfAsync(url)</code>.</li>
-<li><strong>Save to file — Low.</strong> <code>File.WriteAllBytes(path, bytes)</code> after <code>Convert</code> becomes <code>pdf.SaveAs(path)</code>.</li>
-<li><strong>Save to bytes / stream — Low.</strong> PeachPDF returns <code>byte[]</code> from <code>Convert</code>; IronPDF exposes <code>pdf.BinaryData</code> and <code>pdf.Stream</code> on <code>PdfDocument</code>.</li>
-<li><strong>Custom page size and margins — Low.</strong> PeachPDF exposes a small set of options on the converter; IronPDF uses <code>renderer.RenderingOptions.PaperSize</code> and the <code>Margin*</code> properties.</li>
-<li><strong>Headers / footers — Medium.</strong> PeachPDF's plain-string <code>Header</code> / <code>Footer</code> properties become <code>RenderingOptions.HtmlHeader</code> / <code>HtmlFooter</code> with <code>HtmlHeaderFooter</code> objects.</li>
-<li><strong>JavaScript rendering — Medium.</strong> PeachPDF's managed engine does not execute scripts the way a browser does; IronPDF runs full Chromium with <code>RenderingOptions.WaitFor</code> hooks for SPAs.</li>
-<li><strong>Merge — Medium.</strong> PeachPDF has no native merge; this typically lives in a secondary library today, and consolidates onto <code>PdfDocument.Merge(...)</code>.</li>
+<li><strong>HTML string to PDF — Low.</strong> <code>await new PdfGenerator().GeneratePdf(html, config)</code> maps directly to <code>renderer.RenderHtmlAsPdfAsync(html)</code>.</li>
+<li><strong>URL to PDF — Low.</strong> The <code>HttpClientNetworkAdapter</code> + <code>GeneratePdf(null, config)</code> pattern collapses into <code>renderer.RenderUrlAsPdfAsync(url)</code>.</li>
+<li><strong>Save to file — Low.</strong> <code>document.Save(stream)</code> against a <code>FileStream</code> becomes <code>pdf.SaveAs(path)</code>.</li>
+<li><strong>Save to bytes / stream — Low.</strong> PeachPDF requires saving into a <code>MemoryStream</code> and calling <code>ToArray()</code>; IronPDF exposes <code>pdf.BinaryData</code> and <code>pdf.Stream</code> directly on <code>PdfDocument</code>.</li>
+<li><strong>Custom page size and margins — Low.</strong> PeachPDF's <code>PdfGenerateConfig.PageSize</code> / <code>PageOrientation</code> map to <code>renderer.RenderingOptions.PaperSize</code> / <code>PaperOrientation</code>; IronPDF adds explicit <code>MarginTop</code> / <code>MarginBottom</code> / <code>MarginLeft</code> / <code>MarginRight</code>.</li>
+<li><strong>Headers / footers — Medium.</strong> PeachPDF v0.7.x has no header/footer API at all; the markup is embedded in the source HTML with CSS positioning. IronPDF replaces that with first-class <code>RenderingOptions.HtmlHeader</code> / <code>HtmlFooter</code> using <code>HtmlHeaderFooter</code> objects and <code>{page}</code> / <code>{total-pages}</code> tokens.</li>
+<li><strong>JavaScript rendering — Medium.</strong> PeachPDF's layout engine does not execute scripts. IronPDF runs Chromium and exposes <code>RenderingOptions.WaitFor</code> hooks for SPAs.</li>
+<li><strong>Load existing PDF — High (no equivalent).</strong> PeachPDF cannot open existing PDFs; teams using it for reading or round-tripping are using PdfSharpCore directly. IronPDF exposes <code>PdfDocument.FromFile</code> / <code>FromBinaryData</code>.</li>
+<li><strong>Merge — Medium.</strong> PeachPDF has no native merge; this typically lives in a PdfSharpCore call today and consolidates onto <code>PdfDocument.Merge(...)</code>.</li>
 <li><strong>Watermark — Medium.</strong> PeachPDF requires a CSS-positioned element in the source HTML; IronPDF uses programmatic <code>TextStamper</code> / <code>ImageStamper</code>.</li>
 <li><strong>Password protection — Medium.</strong> PeachPDF has no native security API; IronPDF exposes <code>pdf.SecuritySettings</code>.</li>
-<li><strong>Async rendering — Low–Medium.</strong> PeachPDF is synchronous; IronPDF's <code>RenderHtmlAsPdfAsync</code> / <code>RenderUrlAsPdfAsync</code> drop in directly.</li>
 </ul>
 
 <h2>What Are the Most Common Questions During a PeachPDF to IronPDF Migration?</h2>
@@ -467,7 +490,7 @@ public class PdfService
 
 IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");
 
-// Cloud-safe initialization pattern (verify recommended settings in current docs):
+// Cloud-safe initialization pattern — see Azure docs linked above for current recommendations
 var renderer = new ChromePdfRenderer();
 var pdf = await renderer.RenderHtmlAsPdfAsync(html);
 pdf.SaveAs("output.pdf");
@@ -517,4 +540,4 @@ public class PdfWarmupService : IHostedService
 
 <p>The main work after the swap is verifying that the rendering output is equivalent. One practical note: if your .NET upgrade also includes moving from .NET Framework to a modern TFM, test <a href="https://ironpdf.com/">IronPDF</a> on Linux as early as possible — it's faster to catch platform issues in a local Docker container than in a CI pipeline.</p>
 
-<p>IronPDF uses 0-based page indexing. PeachPDF does not expose per-page operations, so any page manipulation code in your codebase came from a secondary library — audit those index references when you consolidate. And don't forget to check for the secondary libraries you added to fill PeachPDF's gaps — after migrating to <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF</a>, those packages for merge, watermark, or security can typically be removed.</p>
+<p>IronPDF uses 0-based page indexing. PeachPDF does not expose per-page operations on existing PDFs at all, so any page manipulation in your codebase came from a secondary library — audit those index references when you consolidate. And don't forget to check for the secondary libraries you added to fill PeachPDF's gaps — after migrating to <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF</a>, those packages for merge, watermark, or security can typically be removed.</p>
