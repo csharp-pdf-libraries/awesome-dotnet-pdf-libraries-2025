@@ -1,372 +1,847 @@
-<h1>Migrating from PDFBolt to IronPDF: Solving Common Migration Pain Points</h1>
+<h2>Why I Stopped Routing Every PDF Through PDFBolt's Servers</h2>
 
-<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+<p>The call came at 2 a.m.: invoices had stopped generating. The root cause was a PDFBolt API outage — nothing on our side had changed, but every document was stalled behind a network dependency we had treated as invisible infrastructure. By morning we were migrating to a local library. This guide is the playbook I wish I'd had.</p>
 
 <h2>Why Migrate from PDFBolt to IronPDF?</h2>
 
-<p>You opened the PDFBolt documentation looking for PDF/A compliance export and it is not there. Your legal team needs archival-format output for a document retention workflow, and the SaaS service you have been using for HTML-to-PDF generation simply does not support the standard. Adding a second library to post-process the output is one option, or you evaluate whether the primary tool should be replaced.</p>
+<p>PDFBolt is a cloud-only SaaS service. Every document your application generates travels to an external server for conversion and then returns as a PDF. That model is fine for quick prototypes, but it creates real problems in production.</p>
 
-<p>I have seen this scenario play out across teams adopting cloud-based PDF generators. Here are nine neutral triggers that typically push this migration forward:</p>
+<p>PDFBolt has no self-hosted option. Sensitive documents — contracts, medical records, financial statements — leave your network on every request. The free tier caps at 100 documents per month, and pay-per-document pricing scales badly for high-volume workflows. GDPR, HIPAA, and SOC 2 audits become complicated the moment an auditor asks where your documents are processed. And as my 2 a.m. wake-up demonstrated, any internet outage or PDFBolt downtime stops your PDF generation entirely.</p>
 
-<p>1. <strong>Missing PDF/A compliance</strong> — archival document standards (PDF/A-1b, PDF/A-3b) require specific conformance. PDFBolt does not advertise it, so a second library or migration is necessary.</p>
+<p>IronPDF runs inside your process. There are no external servers, no API keys that can be leaked and billed against, no rate limits, and no network round-trips. The Chromium-based renderer produces pixel-accurate output from HTML and CSS in 100–300 ms for a simple page — faster than a typical PDFBolt round-trip even on a good connection.</p>
 
-<p>2. <strong>Cloud-only processing</strong> — every PDF generation routes through PDFBolt servers. Latency, monthly quotas, and network availability all affect your render pipeline.</p>
-
-<p>3. <strong>Data residency</strong> — HTML content sent to PDFBolt leaves your infrastructure. Some compliance frameworks (HIPAA, GDPR, SOC2) make that hard to defend for sensitive documents.</p>
-
-<p>4. <strong>Quota at scale</strong> — the free tier caps at 100 documents per month, and per-document billing climbs from there. High-volume rendering exceeds the cheap tiers quickly.</p>
-
-<p>5. <strong>Offline / air-gapped environments</strong> — you cannot call a cloud service from an isolated environment.</p>
-
-<p>6. <strong>Feature gaps</strong> — merge, split, watermark, digital signature, form filling, and text extraction are not in PDFBolt's feature set.</p>
-
-<p>7. <strong>API key management</strong> — cloud keys in CI/CD pipelines and container environments add secrets management overhead, and a leaked key bills against your account.</p>
-
-<p>8. <strong>Cost structure</strong> — per-document billing vs. per-developer licensing reads differently on a spreadsheet. Verify both against your numbers.</p>
-
-<p>9. <strong>Vendor dependency</strong> — API contract changes, endpoint deprecations, or service outages affect your rendering pipeline when you are not in control.</p>
-
-<h2>Problem 1: Cloud Dependency and Network Latency</h2>
-
-<p>The most significant architectural change in this migration is the shift from a cloud dependency to an in-process renderer. The PDFBolt SDK wraps a hosted service, so every PDF generation routes through PDFBolt's servers behind the scenes. That introduces latency, potential failure modes, and the need for retry logic, timeouts, and quota awareness.</p>
-
-<p>With <a href="https://ironpdf.com">IronPDF</a>, rendering happens locally inside your process. No network hop, no monthly cap, no outbound firewall rules to maintain.</p>
-
-<h3>Before: PDFBolt SDK Pattern</h3>
-
-<pre><code>using PDFBolt;
-using System.IO;
-
-class HtmlToPdfExample
-{
-    static void Main()
-    {
-        var converter = new HtmlToPdfConverter();
-        converter.PageSize = PageSize.A4;
-        converter.MarginTop = 10;
-
-        var html = &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #1234&lt;/h1&gt;&lt;p&gt;Amount: $500&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;;
-        var pdf = converter.ConvertHtmlString(html);
-        File.WriteAllBytes(&quot;invoice.pdf&quot;, pdf);
-    }
-}
-</code></pre>
-
-<h3>After: IronPDF Local Rendering</h3>
-
-<pre><code>using IronPdf;
-
-IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
-
-var renderer = new ChromePdfRenderer();
-renderer.RenderingOptions.PaperSize  = IronPdf.Rendering.PdfPaperSize.A4;
-renderer.RenderingOptions.MarginTop  = 10;
-
-var pdf = renderer.RenderHtmlAsPdf(
-    &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #1234&lt;/h1&gt;&lt;p&gt;Amount: $500&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;
-);
-pdf.SaveAs(&quot;invoice.pdf&quot;);
-</code></pre>
-
-<p>The shapes look similar — converter vs. renderer, one method call to produce bytes — but underneath PDFBolt is round-tripping your HTML to its servers, while IronPDF runs Chromium in-process. The IronPDF call returns a <code>PdfDocument</code> you can manipulate further, where PDFBolt hands back a raw byte array. For web applications, an async overload is also available:</p>
-
-<h3>Async Rendering with IronPDF</h3>
-
-<pre><code>var renderer = new ChromePdfRenderer();
-var pdf = await renderer.RenderHtmlAsPdfAsync(html);
-</code></pre>
-
-<p>You should also remove any retry, timeout, and quota-handling logic that was protecting against PDFBolt service failures or rate limits. Replace with standard exception handling for render errors.</p>
-
-<h2>Problem 2: Missing PDF Manipulation Features (Merge, Watermark, Security)</h2>
-
-<p>When PDFBolt does not support merge, watermark, or password protection natively, teams end up pulling in secondary libraries like PdfSharp or iTextSharp just to handle post-processing. That means multiple dependencies, multiple APIs, and multiple points of maintenance. IronPDF handles all of these in a single library.</p>
-
-<h3>Merge PDFs — Before: Secondary Library Pattern</h3>
-
-<pre><code>using PdfSharp.Pdf;
-using PdfSharp.Pdf.IO;
-using System;
-
-class MergePdfsExample
-{
-    static void Main()
-    {
-        using var output = new PdfDocument();
-
-        foreach (string path in new[] { &quot;part1.pdf&quot;, &quot;part2.pdf&quot; })
-        {
-            using var input = PdfReader.Open(path, PdfDocumentOpenMode.Import);
-            foreach (PdfPage page in input.Pages)
-                output.AddPage(page);
-        }
-
-        output.Save(&quot;merged.pdf&quot;);
-    }
-}
-</code></pre>
-
-<h3>Merge PDFs — After: IronPDF Native</h3>
-
-<pre><code>using IronPdf;
-
-IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
-
-var merged = PdfDocument.Merge(
-    PdfDocument.FromFile(&quot;part1.pdf&quot;),
-    PdfDocument.FromFile(&quot;part2.pdf&quot;)
-);
-merged.SaveAs(&quot;merged.pdf&quot;);
-</code></pre>
-
-<h3>Watermark — Before: iTextSharp Secondary Library</h3>
-
-<pre><code>using iTextSharp.text;
-using iTextSharp.text.pdf;
-using System.IO;
-using System;
-
-class WatermarkExample
-{
-    static void Main()
-    {
-        using var reader  = new PdfReader(&quot;generated.pdf&quot;);
-        using var fs      = new FileStream(&quot;watermarked.pdf&quot;, FileMode.Create);
-        using var stamper = new PdfStamper(reader, fs);
-
-        var font = BaseFont.CreateFont(BaseFont.HELVETICA_BOLD, BaseFont.CP1252, false);
-        for (int i = 1; i &lt;= reader.NumberOfPages; i++)
-        {
-            var cb = stamper.GetOverContent(i);
-            cb.SaveState();
-            cb.SetGState(new PdfGState { FillOpacity = 0.3f });
-            cb.BeginText();
-            cb.SetFontAndSize(font, 60);
-            cb.SetColorFill(BaseColor.GRAY);
-            cb.ShowTextAligned(Element.ALIGN_CENTER, &quot;DRAFT&quot;, 300, 420, 45);
-            cb.EndText();
-            cb.RestoreState();
-        }
-    }
-}
-</code></pre>
-
-<h3>Watermark — After: IronPDF Native</h3>
-
-<pre><code>using IronPdf;
-using IronPdf.Editing;
-
-IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
-
-var pdf = PdfDocument.FromFile(&quot;generated.pdf&quot;);
-var stamper = new TextStamper
-{
-    Text = &quot;DRAFT&quot;,
-    FontColor = IronSoftware.Drawing.Color.Gray,
-    FontSize = 60,
-    Opacity = 30,
-    Rotation = 45,
-    VerticalAlignment = VerticalAlignment.Middle,
-    HorizontalAlignment = HorizontalAlignment.Center
-};
-pdf.ApplyStamp(stamper);
-pdf.SaveAs(&quot;watermarked.pdf&quot;);
-</code></pre>
-
-<h3>Password Protection — Before: iTextSharp Secondary Library</h3>
-
-<pre><code>using iTextSharp.text.pdf;
-using System.IO;
-using System.Text;
-
-class SecurityExample
-{
-    static void Main()
-    {
-        byte[] userPass  = Encoding.ASCII.GetBytes(&quot;readpass&quot;);
-        byte[] ownerPass = Encoding.ASCII.GetBytes(&quot;adminpass&quot;);
-
-        using var reader  = new PdfReader(&quot;generated.pdf&quot;);
-        using var fs      = new FileStream(&quot;secured.pdf&quot;, FileMode.Create);
-        using var stamper = new PdfStamper(reader, fs, &#39;\0&#39;, false);
-        stamper.SetEncryption(
-            userPass, ownerPass,
-            PdfWriter.ALLOW_PRINTING,
-            PdfWriter.ENCRYPTION_AES_128
-        );
-    }
-}
-</code></pre>
-
-<h3>Password Protection — After: IronPDF Native</h3>
-
-<pre><code>using IronPdf;
-using IronPdf.Security;
-
-IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
-
-var pdf = PdfDocument.FromFile(&quot;generated.pdf&quot;);
-pdf.SecuritySettings.UserPassword  = &quot;readpass&quot;;
-pdf.SecuritySettings.OwnerPassword = &quot;adminpass&quot;;
-pdf.SecuritySettings.AllowUserPrinting = PdfPrintSecurity.FullPrintRights;
-pdf.SecuritySettings.AllowUserCopyPasteContent = false;
-pdf.SaveAs(&quot;secured.pdf&quot;);
-</code></pre>
-
-<h2>Problem 3: No PDF/A Compliance for Archival Requirements</h2>
-
-<p>This is often the feature gap that opens the migration conversation in the first place. PDF/A compliance is a hard requirement for legal, financial, and government document retention workflows. PDFBolt is unlikely to support it. With <a href="https://ironpdf.com/how-to/pdfa/">IronPDF</a>, PDF/A export is built in.</p>
-
-<h3>PDF/A Export with IronPDF</h3>
-
-<pre><code>using IronPdf;
-
-IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
-
-var renderer = new ChromePdfRenderer();
-var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;h1&gt;Archived Document&lt;/h1&gt;&quot;);
-
-pdf.SaveAsPdfA(&quot;archived.pdf&quot;, IronPdf.PdfAVersions.PdfA3b);
-</code></pre>
-
-<p>That single method call — <code>SaveAsPdfA</code> — replaces what would otherwise require a separate post-processing library or a manual conformance pipeline. I recommend validating the output with free tools like PAC or veraPDF to confirm compliance.</p>
-
-<h2>How Do the Two Libraries Compare Feature by Feature?</h2>
+<h2>IronPDF Advantages at a Glance</h2>
 
 <ul>
-  <li><strong>Focus.</strong> PDFBolt is a cloud HTML-to-PDF service; IronPDF is HTML-to-PDF plus full PDF manipulation in one library.</li>
-  <li><strong>Pricing.</strong> PDFBolt bills per document on top of a free tier (verify current rates at pdfbolt.com); IronPDF is commercial per-developer licensing (verify at ironsoftware.com).</li>
-  <li><strong>API style.</strong> PDFBolt's SDK wraps a hosted service; IronPDF runs as an in-process .NET library.</li>
-  <li><strong>Learning curve.</strong> PDFBolt's surface is small and quick to pick up; IronPDF's surface is broader because it covers more.</li>
-  <li><strong>HTML rendering.</strong> PDFBolt uses a server-side renderer you do not control; IronPDF embeds Chromium locally.</li>
-  <li><strong>Page indexing.</strong> PDFBolt does not expose page-level operations to verify against; IronPDF is 0-based.</li>
-  <li><strong>Thread safety.</strong> PDFBolt concurrency is bounded by your API tier; IronPDF is bounded by your CPU and memory, with renderer-instance reuse recommended.</li>
-  <li><strong>Namespace.</strong> PDFBolt uses <code>PDFBolt</code>; IronPDF uses <code>IronPdf</code>.</li>
+  <li><strong>Data location.</strong> PDFBolt processes documents on external servers; IronPDF processes them on your servers only.</li>
+  <li><strong>Usage limits.</strong> PDFBolt free tier is capped at 100 documents per month; IronPDF has no processing limits.</li>
+  <li><strong>Internet requirement.</strong> PDFBolt requires internet access at all times; IronPDF works fully offline.</li>
+  <li><strong>Latency.</strong> PDFBolt adds a network round-trip of 2–15 seconds; IronPDF local rendering takes milliseconds.</li>
+  <li><strong>Compliance.</strong> PDFBolt external processing complicates GDPR/HIPAA audits; IronPDF local processing keeps data inside your boundary.</li>
+  <li><strong>Cost model.</strong> PDFBolt charges per document; IronPDF is a one-time or annual license with no per-document charge.</li>
+  <li><strong>Offline operation.</strong> PDFBolt cannot work offline; IronPDF supports air-gapped and offline deployments.</li>
+  <li><strong>API key risk.</strong> A leaked PDFBolt API key means unauthorized charges; IronPDF license keys carry no billing risk.</li>
 </ul>
 
-<ul>
-  <li><strong>HTML string to PDF — Low.</strong> Direct one-line swap from <code>ConvertHtmlString</code> to <code>RenderHtmlAsPdf</code>.</li>
-  <li><strong>URL to PDF — Low.</strong> <code>ConvertUrl</code> maps to <code>RenderUrlAsPdf</code>.</li>
-  <li><strong>Merge PDFs — Low.</strong> Not in PDFBolt; native <code>PdfDocument.Merge</code> in IronPDF.</li>
-  <li><strong>Watermark — Low.</strong> Not in PDFBolt; native <code>ApplyStamp</code>/<code>ApplyWatermark</code> in IronPDF.</li>
-  <li><strong>Password protection — Low.</strong> Not in PDFBolt; <code>SecuritySettings</code> properties in IronPDF.</li>
-  <li><strong>PDF/A compliance — Low in IronPDF.</strong> Not in PDFBolt; <code>SaveAsPdfA</code> in IronPDF.</li>
-  <li><strong>Digital signatures — Medium.</strong> Not in PDFBolt; IronPDF supports certificate signing through <code>PdfSignature</code>.</li>
-  <li><strong>Custom headers/footers — Medium.</strong> PDFBolt supports text headers; IronPDF uses HTML headers/footers, so existing strings need re-templating.</li>
-  <li><strong>Async/batch generation — Medium.</strong> PDFBolt is naturally async with tier queuing; IronPDF is sync with optional async overloads, and you control concurrency.</li>
-  <li><strong>Offline rendering — Resolved.</strong> Not possible with PDFBolt; IronPDF runs in-process.</li>
-  <li><strong>Data residency — Resolved.</strong> PDFBolt routes content through external servers; IronPDF keeps it local.</li>
-</ul>
+<h2>NuGet Package Changes</h2>
 
-<ul>
-  <li><strong>HTML string.</strong> <code>converter.ConvertHtmlString(html)</code> → <code>renderer.RenderHtmlAsPdf(html)</code>.</li>
-  <li><strong>URL.</strong> <code>converter.ConvertUrl(url)</code> → <code>renderer.RenderUrlAsPdf(url)</code>.</li>
-  <li><strong>HTML file.</strong> Read the file and pass the string in PDFBolt → <code>renderer.RenderHtmlFileAsPdf(path)</code>.</li>
-  <li><strong>Existing PDF.</strong> Not exposed by PDFBolt → <code>PdfDocument.FromFile(path)</code>.</li>
-  <li><strong>Paper size.</strong> <code>converter.PageSize</code> → <code>renderer.RenderingOptions.PaperSize</code>.</li>
-  <li><strong>Margins.</strong> <code>converter.MarginTop</code> and siblings → <code>renderer.RenderingOptions.MarginTop</code>/<code>MarginBottom</code>/<code>MarginLeft</code>/<code>MarginRight</code>.</li>
-  <li><strong>Orientation.</strong> <code>converter.Orientation</code> → <code>renderer.RenderingOptions.PaperOrientation</code>.</li>
-  <li><strong>Page count.</strong> Not exposed by PDFBolt → <code>pdf.PageCount</code>.</li>
-  <li><strong>Merge.</strong> Not in PDFBolt → <code>PdfDocument.Merge(pdf1, pdf2)</code>.</li>
-  <li><strong>Split.</strong> Not in PDFBolt → <code>pdf.CopyPages(startIndex, endIndex)</code>.</li>
-</ul>
+<p>PDFBolt has no NuGet package — it is a REST API only. Remove any HTTP client wrappers you assembled for PDFBolt and install IronPDF:</p>
 
-<h2>Frequently Asked Questions</h2>
-
-<h3>How do I find all PDFBolt references in my codebase before migrating?</h3>
-
-<p>Run a search across your C# files to locate every PDFBolt dependency. This catches using directives, converter instantiation, API key references, and NuGet package entries.</p>
-
-<pre><code># Find all PDFBolt usage
-rg -l &quot;PdfBolt\|PDFBolt\|pdfbolt&quot; --type cs -i
-
-# Find converter / client calls
-rg &quot;HtmlToPdfConverter\|ConvertHtmlString\|ConvertUrl\|new Client&quot; --type cs -n
-
-# Find using directives
-rg &quot;using PdfBolt\|using PDFBolt&quot; --type cs -n
-
-# Find API key references
-rg &quot;PdfBoltKey\|PDFBOLT_KEY\|pdfbolt.*key&quot; . -n -i
-
-# Find NuGet package references
-grep -r -i &quot;pdfbolt&quot; **/*.csproj *.csproj 2&gt;/dev/null
-</code></pre>
-
-<p>Once you have the full list, remove the PDFBolt package and install IronPDF:</p>
-
-<pre><code>dotnet remove package PDFBolt
+<pre><code># Install IronPDF
 dotnet add package IronPdf
-dotnet restore
 </code></pre>
 
-<h3>What changes are needed for license and namespace setup?</h3>
+<h2>Namespace Changes</h2>
 
-<p>PDFBolt uses an API key passed when constructing its client. IronPDF uses a license key set once at application startup. The namespace imports also change.</p>
+<pre><code>// PDFBolt — no SDK namespace; all calls go through HttpClient
+// using System.Net.Http;
+// using System.Net.Http.Headers;
 
-<pre><code>// Replace PDFBolt namespaces:
-// using PDFBolt;
-// using PDFBolt.Models;
+// IronPDF
+using IronPdf;
+using IronPdf.Editing;
+using IronPdf.Rendering;
+</code></pre>
 
-// With IronPDF namespaces:
+<h2>Core Class Mappings</h2>
+
+<ul>
+  <li><code>new HttpClient()</code> + <code>API-KEY</code> header → <code>new ChromePdfRenderer()</code> — no API key, no HTTP client needed</li>
+  <li>Base64-encoded HTML body in JSON POST → <code>renderer.RenderHtmlAsPdf(html)</code> — pass HTML directly</li>
+  <li>JSON response body decoded to bytes → <code>pdf.BinaryData</code> — property access, no decoding</li>
+  <li><code>https://api.pdfbolt.com/v1/direct</code> endpoint → local in-process call — no network</li>
+</ul>
+
+<h2>Conversion Methods</h2>
+
+<ul>
+  <li><code>POST /v1/direct</code> with base64 HTML → <code>renderer.RenderHtmlAsPdf(html)</code></li>
+  <li><code>POST /v1/direct</code> with URL parameter → <code>renderer.RenderUrlAsPdf(url)</code></li>
+  <li>HTML file: read, base64-encode, POST → <code>renderer.RenderHtmlFileAsPdf(path)</code></li>
+</ul>
+
+<h2>Output Methods</h2>
+
+<ul>
+  <li>Decode base64 response → <code>pdf.BinaryData</code> — byte array property</li>
+  <li><code>File.WriteAllBytes(path, bytes)</code> after decode → <code>pdf.SaveAs(path)</code></li>
+  <li>Stream from decoded bytes → <code>pdf.Stream</code></li>
+</ul>
+
+<h2>Page Configuration</h2>
+
+<ul>
+  <li><code>"pageSize": "A4"</code> in JSON body → <code>renderer.RenderingOptions.PaperSize = PdfPaperSize.A4</code></li>
+  <li><code>"orientation": "landscape"</code> → <code>renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Landscape</code></li>
+  <li><code>"marginTop": 20</code> → <code>renderer.RenderingOptions.MarginTop = 20</code> — both in millimeters</li>
+  <li><code>"printBackground": true</code> → <code>renderer.RenderingOptions.PrintHtmlBackgrounds = true</code></li>
+</ul>
+
+<h2>Headers and Footers — Placeholder Syntax</h2>
+
+<p>PDFBolt header/footer templates use HTML with special CSS classes:</p>
+
+<pre><code>&lt;span class="pageNumber"&gt;&lt;/span&gt;   → IronPDF: {page}
+&lt;span class="totalPages"&gt;&lt;/span&gt;   → IronPDF: {total-pages}
+&lt;span class="date"&gt;&lt;/span&gt;         → IronPDF: {date}
+&lt;span class="title"&gt;&lt;/span&gt;        → IronPDF: {html-title}
+</code></pre>
+
+<h2>PDF Manipulation (NEW in IronPDF)</h2>
+
+<ul>
+  <li><em>(not available in PDFBolt)</em> → <code>PdfDocument.Merge(pdf1, pdf2)</code> — merge PDFs locally</li>
+  <li><em>(not available in PDFBolt)</em> → <code>pdf.CopyPages(start, end)</code> — extract page ranges</li>
+  <li><em>(not available in PDFBolt)</em> → <code>pdf.RemovePages(indices)</code> — delete pages</li>
+  <li><em>(not available in PDFBolt)</em> → <code>pdf.ApplyWatermark(html)</code> — add watermarks</li>
+  <li><em>(not available in PDFBolt)</em> → <code>pdf.ExtractAllText()</code> — extract text</li>
+  <li><em>(not available in PDFBolt)</em> → <code>pdf.SecuritySettings</code> — password protection and permissions</li>
+</ul>
+
+<h2>Code Migration Examples</h2>
+
+<p>For complete migration workflows including offline deployment strategies, consult the <a href="https://ironpdf.com/blog/migration-guides/migrate-from-pdfbolt-to-ironpdf/">full migration documentation</a>.</p>
+
+<h3>Example 1: Basic HTML to PDF</h3>
+
+<p><strong>Before (PDFBolt — REST API via HttpClient):</strong></p>
+
+<pre><code>using System;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.IO;
+using System.Threading.Tasks;
+
+class Program
+{
+    static async Task Main()
+    {
+        var apiKey = "YOUR-PDFBOLT-API-KEY";
+        var html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello World&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
+
+        // PDFBolt requires base64-encoded HTML in the request body
+        var base64Html = Convert.ToBase64String(Encoding.UTF8.GetBytes(html));
+
+        using var client = new HttpClient();
+        client.DefaultRequestHeaders.Add("API-KEY", apiKey);
+
+        var payload = JsonSerializer.Serialize(new { html = base64Html });
+        var content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+        var response = await client.PostAsync("https://api.pdfbolt.com/v1/direct", content);
+        response.EnsureSuccessStatusCode();
+
+        var pdfBytes = await response.Content.ReadAsByteArrayAsync();
+        File.WriteAllBytes("output.pdf", pdfBytes);
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello World&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
+}
+</code></pre>
+
+<h3>Example 2: URL to PDF</h3>
+
+<p><strong>Before (PDFBolt — REST API via HttpClient):</strong></p>
+
+<pre><code>using System;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.IO;
+using System.Threading.Tasks;
+
+class Program
+{
+    static async Task Main()
+    {
+        var apiKey = "YOUR-PDFBOLT-API-KEY";
+
+        using var client = new HttpClient();
+        client.DefaultRequestHeaders.Add("API-KEY", apiKey);
+
+        var payload = JsonSerializer.Serialize(new { url = "https://www.example.com" });
+        var content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+        var response = await client.PostAsync("https://api.pdfbolt.com/v1/direct", content);
+        response.EnsureSuccessStatusCode();
+
+        var pdfBytes = await response.Content.ReadAsByteArrayAsync();
+        File.WriteAllBytes("webpage.pdf", pdfBytes);
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        var pdf = renderer.RenderUrlAsPdf("https://www.example.com");
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+</code></pre>
+
+<h3>Example 3: HTML File with Custom Page Settings</h3>
+
+<p><strong>Before (PDFBolt — REST API via HttpClient):</strong></p>
+
+<pre><code>using System;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.IO;
+using System.Threading.Tasks;
+
+class Program
+{
+    static async Task Main()
+    {
+        var apiKey = "YOUR-PDFBOLT-API-KEY";
+        var htmlContent = File.ReadAllText("input.html");
+
+        // HTML must be base64-encoded before sending
+        var base64Html = Convert.ToBase64String(Encoding.UTF8.GetBytes(htmlContent));
+
+        using var client = new HttpClient();
+        client.DefaultRequestHeaders.Add("API-KEY", apiKey);
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            html = base64Html,
+            pageSize = "A4",
+            marginTop = 20,
+            marginBottom = 20
+        });
+        var content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+        var response = await client.PostAsync("https://api.pdfbolt.com/v1/direct", content);
+        response.EnsureSuccessStatusCode();
+
+        var pdfBytes = await response.Content.ReadAsByteArrayAsync();
+        File.WriteAllBytes("output.pdf", pdfBytes);
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>// NuGet: Install-Package IronPdf
 using IronPdf;
 using IronPdf.Rendering;
-using IronPdf.Editing;
-using IronPdf.Security;
+using System.IO;
 
-// Set license once at startup:
-IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
-</code></pre>
-
-<h3>How do I handle concurrent PDF rendering after migrating?</h3>
-
-<p>PDFBolt's hosted service is naturally async, with tier limits controlling concurrency on its side. With IronPDF, you control concurrency directly. Create a renderer per task to avoid shared state issues.</p>
-
-<pre><code>await Task.WhenAll(htmlBatch.Select(async html =&gt;
+class Program
 {
-    var renderer = new ChromePdfRenderer();
-    using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
-    await pdf.SaveAsAsync($&quot;{Guid.NewGuid()}.pdf&quot;);
-}));
-</code></pre>
-
-<p>For batch work where concurrency is not needed, reuse a single renderer to amortize Chromium initialization:</p>
-
-<pre><code>var renderer = new ChromePdfRenderer();
-renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
-
-foreach (var html in templateBatch)
-{
-    using var pdf = renderer.RenderHtmlAsPdf(html);
-    pdf.SaveAs($&quot;output_{Guid.NewGuid()}.pdf&quot;);
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        renderer.RenderingOptions.MarginTop = 20;
+        renderer.RenderingOptions.MarginBottom = 20;
+        var html = File.ReadAllText("input.html");
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
+    }
 }
 </code></pre>
 
-<h3>What are the edge cases to watch for during migration?</h3>
+<h3>Example 4: Remove API Key Pattern</h3>
 
-<p>A few things catch teams off guard. First, IronPDF uses 0-based page indexing. PDFBolt does not expose page-level operations, so any new page manipulation code starts from zero:</p>
+<p><strong>Before (PDFBolt):</strong></p>
 
-<pre><code>var firstPage = pdf.Pages[0]; // 0-based
-var lastPage  = pdf.Pages[pdf.PageCount - 1];
+<pre><code>using System;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
+
+public class PdfService
+{
+    private readonly string _apiKey;
+    private readonly HttpClient _client;
+
+    public PdfService(IConfiguration config)
+    {
+        // API key from config — security risk if leaked
+        _apiKey = config["PDFBolt:ApiKey"];
+        _client = new HttpClient();
+        _client.DefaultRequestHeaders.Add("API-KEY", _apiKey);
+    }
+
+    public async Task&lt;byte[]&gt; GeneratePdfAsync(string html)
+    {
+        var base64Html = Convert.ToBase64String(Encoding.UTF8.GetBytes(html));
+        var payload = JsonSerializer.Serialize(new { html = base64Html });
+        var content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+        var response = await _client.PostAsync("https://api.pdfbolt.com/v1/direct", content);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            throw new Exception("PDFBolt monthly limit exceeded");
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            throw new Exception("API key invalid or revoked");
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsByteArrayAsync();
+    }
+}
 </code></pre>
 
-<p>Second, the local Chromium renderer has initialization overhead on the first render. Pre-warm it in latency-sensitive services. Third, the Chromium-based renderer has a higher baseline memory footprint than a thin HTTP client. Profile under load. Fourth, header and footer placeholder syntax differs — PDFBolt uses <code>{pageNumber}</code> and <code>{totalPages}</code>, while IronPDF uses <code>{page}</code> and <code>{total-pages}</code>. Finally, remove any quota-handling middleware you added to manage PDFBolt monthly limits; it no longer applies.</p>
+<p><strong>After (IronPDF):</strong></p>
 
-<h3>What should I do after migrating to verify everything works?</h3>
+<pre><code>using IronPdf;
 
-<p>Run a structured testing pass. Render each HTML template through <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF</a> and visually compare output against your PDFBolt baseline. Test PDF/A output with a validator like PAC or veraPDF. Test merge operations with representative document sets. Test watermark on multi-page documents. Test password protection with both correct and incorrect credentials.</p>
+public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer;
 
-<p>After testing, clean up the old infrastructure: remove the PDFBolt API key from config and secrets management, remove any outbound firewall rules to PDFBolt's endpoints, remove retry and quota-handling code, and monitor your memory baseline since the Chromium footprint differs from a thin HTTP client.</p>
+    public PdfService()
+    {
+        // License key set once at startup (not per-request)
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        _renderer = new ChromePdfRenderer();
+    }
 
-<h2>When Should You Actually Migrate?</h2>
+    public byte[] GeneratePdf(string html)
+    {
+        // No rate limits, no API key validation
+        // No network required, no external processing
+        var pdf = _renderer.RenderHtmlAsPdf(html);
+        return pdf.BinaryData;
+    }
+}
+</code></pre>
+
+<h3>Example 5: Headers and Footers with Page Numbers</h3>
+
+<p><strong>Before (PDFBolt):</strong></p>
+
+<pre><code>using System;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
+
+public async Task&lt;byte[]&gt; CaptureWebpageAsync(string url)
+{
+    using var client = new HttpClient();
+    client.DefaultRequestHeaders.Add("API-KEY", "YOUR-PDFBOLT-API-KEY");
+
+    // PDFBolt placeholder syntax uses HTML CSS classes, not {curly} tokens
+    var headerHtml = $"&lt;div&gt;Captured from: {url}&lt;/div&gt;";
+    var footerHtml = "&lt;div&gt;Page &lt;span class=\"pageNumber\"&gt;&lt;/span&gt; of &lt;span class=\"totalPages\"&gt;&lt;/span&gt;&lt;/div&gt;";
+
+    var payload = JsonSerializer.Serialize(new
+    {
+        url = url,
+        displayHeaderFooter = true,
+        headerTemplate = Convert.ToBase64String(Encoding.UTF8.GetBytes(headerHtml)),
+        footerTemplate = Convert.ToBase64String(Encoding.UTF8.GetBytes(footerHtml)),
+        printBackground = true
+    });
+    var content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+    var response = await client.PostAsync("https://api.pdfbolt.com/v1/direct", content);
+    response.EnsureSuccessStatusCode();
+    return await response.Content.ReadAsByteArrayAsync();
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+public byte[] CaptureWebpage(string url)
+{
+    var renderer = new ChromePdfRenderer();
+    renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+    renderer.RenderingOptions.PrintHtmlBackgrounds = true;
+    renderer.RenderingOptions.WaitFor.NetworkIdle();
+
+    // HTML-based headers with full CSS support
+    renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+    {
+        HtmlFragment = $"&lt;div style='font-size:10px; color:#666;'&gt;Captured from: {url}&lt;/div&gt;",
+        MaxHeight = 20
+    };
+
+    // IronPDF uses {page} and {total-pages} — not CSS class spans
+    renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+    {
+        HtmlFragment = "&lt;div style='font-size:10px; text-align:center;'&gt;Page {page} of {total-pages}&lt;/div&gt;",
+        MaxHeight = 20
+    };
+
+    var pdf = renderer.RenderUrlAsPdf(url);
+    return pdf.BinaryData;
+}
+</code></pre>
+
+<h3>Example 6: Batch Processing Without Rate Limits</h3>
+
+<p><strong>Before (PDFBolt):</strong></p>
+
+<pre><code>using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
+
+public async Task GenerateMonthlyReports(List&lt;Report&gt; reports)
+{
+    using var client = new HttpClient();
+    client.DefaultRequestHeaders.Add("API-KEY", "YOUR-PDFBOLT-API-KEY");
+
+    int processed = 0;
+
+    foreach (var report in reports)
+    {
+        // PDFBolt free tier caps at 100 documents per month
+        if (processed &gt;= 100)
+            throw new Exception("PDFBolt monthly limit reached!");
+
+        var html = RenderReport(report);
+        var base64Html = Convert.ToBase64String(Encoding.UTF8.GetBytes(html));
+        var payload = JsonSerializer.Serialize(new { html = base64Html });
+        var content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+        var response = await client.PostAsync("https://api.pdfbolt.com/v1/direct", content);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            throw new Exception($"Rate limited after {processed} reports");
+
+        response.EnsureSuccessStatusCode();
+        var pdfBytes = await response.Content.ReadAsByteArrayAsync();
+        await System.IO.File.WriteAllBytesAsync($"report-{report.Id}.pdf", pdfBytes);
+        processed++;
+
+        // Add delay to avoid hitting rate limits
+        await Task.Delay(1000);
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+public void GenerateMonthlyReports(List&lt;Report&gt; reports)
+{
+    var renderer = new ChromePdfRenderer();
+
+    // No rate limits, no monthly caps, no delays needed
+    foreach (var report in reports)
+    {
+        var html = RenderReport(report);
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs($"report-{report.Id}.pdf");
+    }
+
+    // Or process in parallel for speed:
+    Parallel.ForEach(reports, report =&gt;
+    {
+        var localRenderer = new ChromePdfRenderer();
+        var html = RenderReport(report);
+        var pdf = localRenderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs($"report-{report.Id}.pdf");
+    });
+}
+</code></pre>
+
+<h3>Example 7: PDF Merging (NEW Feature)</h3>
+
+<p><strong>Before (PDFBolt):</strong></p>
+
+<pre><code>// PDFBolt doesn't support PDF merging
+// You would need a separate library or service
+throw new NotSupportedException("PDFBolt cannot merge PDFs");
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System.Collections.Generic;
+using System.Linq;
+
+public byte[] MergeInvoices(List&lt;string&gt; invoiceHtmls)
+{
+    var renderer = new ChromePdfRenderer();
+
+    // Generate individual PDFs
+    var pdfs = invoiceHtmls.Select(html =&gt; renderer.RenderHtmlAsPdf(html)).ToList();
+
+    // Merge all into one document
+    var merged = PdfDocument.Merge(pdfs);
+
+    // Add page numbers to merged document
+    merged.AddHtmlFooters(new HtmlHeaderFooter
+    {
+        HtmlFragment = "&lt;div style='text-align:center'&gt;Page {page} of {total-pages}&lt;/div&gt;",
+        MaxHeight = 20
+    });
+
+    return merged.BinaryData;
+}
+</code></pre>
+
+<h3>Example 8: Watermarks (NEW Feature)</h3>
+
+<p><strong>Before (PDFBolt):</strong></p>
+
+<pre><code>// PDFBolt doesn't support watermarks
+throw new NotSupportedException("PDFBolt cannot add watermarks");
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+public byte[] GenerateConfidentialDocument(string html)
+{
+    var renderer = new ChromePdfRenderer();
+    var pdf = renderer.RenderHtmlAsPdf(html);
+
+    pdf.ApplyWatermark(
+        "&lt;div style='color:red; font-size:72px; opacity:0.3; transform:rotate(-45deg);'&gt;CONFIDENTIAL&lt;/div&gt;",
+        45,
+        VerticalAlignment.Middle,
+        HorizontalAlignment.Center);
+
+    return pdf.BinaryData;
+}
+</code></pre>
+
+<h3>Example 9: Security Settings (NEW Feature)</h3>
+
+<p><strong>Before (PDFBolt):</strong></p>
+
+<pre><code>// PDFBolt doesn't support PDF security
+throw new NotSupportedException("PDFBolt cannot encrypt PDFs");
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+public byte[] GenerateSecureDocument(string html)
+{
+    var renderer = new ChromePdfRenderer();
+    var pdf = renderer.RenderHtmlAsPdf(html);
+
+    pdf.SecuritySettings.OwnerPassword = "admin123";
+    pdf.SecuritySettings.UserPassword = "user456";
+    pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+    pdf.SecuritySettings.AllowUserPrinting = IronPdf.Security.PdfPrintSecurity.NoPrint;
+    pdf.SecuritySettings.AllowUserEdits = IronPdf.Security.PdfEditSecurity.NoEdit;
+
+    return pdf.BinaryData;
+}
+</code></pre>
+
+<h3>Example 10: Offline/Air-Gapped Operation</h3>
+
+<p><strong>Before (PDFBolt):</strong></p>
+
+<pre><code>// PDFBolt cannot work offline — requires internet
+public async Task&lt;byte[]&gt; GeneratePdfOffline(string html)
+{
+    if (!await IsInternetAvailable())
+        throw new InvalidOperationException("PDFBolt requires internet connection");
+
+    using var client = new HttpClient();
+    client.DefaultRequestHeaders.Add("API-KEY", "YOUR-PDFBOLT-API-KEY");
+    var base64Html = Convert.ToBase64String(Encoding.UTF8.GetBytes(html));
+    var payload = JsonSerializer.Serialize(new { html = base64Html });
+    var content = new StringContent(payload, Encoding.UTF8, "application/json");
+    var response = await client.PostAsync("https://api.pdfbolt.com/v1/direct", content);
+    response.EnsureSuccessStatusCode();
+    return await response.Content.ReadAsByteArrayAsync();
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+public byte[] GeneratePdfOffline(string html)
+{
+    // Works completely offline — no internet required
+    var renderer = new ChromePdfRenderer();
+    return renderer.RenderHtmlAsPdf(html).BinaryData;
+}
+</code></pre>
+
+<h2>Placeholder Mapping</h2>
 
 <ul>
-  <li>If <strong>PDF/A compliance is required</strong>, PDFBolt does not advertise it; IronPDF has it natively via <code>SaveAsPdfA</code>.</li>
-  <li>If you have a <strong>data residency constraint</strong>, the cloud round-trip is incompatible; a local renderer is required.</li>
-  <li>If you do <strong>high-volume concurrent rendering</strong>, weigh PDFBolt's per-document billing and tier limits against in-process CPU and memory cost; benchmark both.</li>
-  <li>If your workload is <strong>simple HTML-to-PDF with no compliance needs and stays under the free tier</strong>, PDFBolt may suffice; evaluate migration ROI.</li>
+  <li><code>&lt;span class="pageNumber"&gt;&lt;/span&gt;</code> → <code>{page}</code> — current page number</li>
+  <li><code>&lt;span class="totalPages"&gt;&lt;/span&gt;</code> → <code>{total-pages}</code> — total page count</li>
+  <li><code>&lt;span class="date"&gt;&lt;/span&gt;</code> → <code>{date}</code> — current date</li>
+  <li><code>&lt;span class="time"&gt;&lt;/span&gt;</code> → <code>{time}</code> — current time</li>
+  <li><code>&lt;span class="title"&gt;&lt;/span&gt;</code> → <code>{html-title}</code> — document title</li>
+  <li><em>(not available in PDFBolt)</em> → <code>{url}</code> — source URL</li>
 </ul>
 
-<p>The most significant architectural change in this migration is the shift from a cloud dependency to an in-process renderer. That change is structural — it affects your error handling, your async patterns, your secrets management, and your container configuration. The HTML-to-PDF API surface is a smaller concern by comparison.</p>
+<h2>Configuration Migration</h2>
 
-<p>If your trigger is PDF/A compliance, data residency, or you need merge/watermark/security without secondary libraries, <a href="https://ironpdf.com">IronPDF</a> consolidates your PDF pipeline into a single in-process dependency. Start with the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML-to-PDF guide</a> and work through the API mapping above to plan your migration.</p>
+<h3>From Environment Variables</h3>
+
+<p><strong>Before (PDFBolt):</strong></p>
+
+<pre><code>// Must secure API key in environment
+var apiKey = Environment.GetEnvironmentVariable("PDFBOLT_API_KEY");
+// Used in every HttpClient request:
+client.DefaultRequestHeaders.Add("API-KEY", apiKey);
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>// License key — set once at startup, no per-request credential
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+</code></pre>
+
+<h3>From appsettings.json</h3>
+
+<p><strong>Before (PDFBolt):</strong></p>
+
+<pre><code>{
+  "PDFBolt": {
+    "ApiKey": "pk_live_xxxxx",
+    "Timeout": 30000,
+    "RetryCount": 3
+  }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>{
+  "IronPdf": {
+    "LicenseKey": "YOUR-LICENSE-KEY"
+  }
+}
+</code></pre>
+
+<h2>Dependency Injection Migration</h2>
+
+<p><strong>Before (PDFBolt):</strong></p>
+
+<pre><code>public void ConfigureServices(IServiceCollection services)
+{
+    var apiKey = Configuration["PDFBolt:ApiKey"];
+    services.AddSingleton&lt;HttpClient&gt;(sp =&gt;
+    {
+        var client = new HttpClient();
+        client.DefaultRequestHeaders.Add("API-KEY", apiKey);
+        return client;
+    });
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>public void ConfigureServices(IServiceCollection services)
+{
+    IronPdf.License.LicenseKey = Configuration["IronPdf:LicenseKey"];
+    services.AddTransient&lt;ChromePdfRenderer&gt;();
+}
+</code></pre>
+
+<h2>Common Migration Gotchas</h2>
+
+<h3>1. Async to Sync Pattern</h3>
+
+<p>PDFBolt requires async for network calls. IronPDF is sync by default:</p>
+
+<pre><code>// PDFBolt: await required (network round-trip)
+var response = await client.PostAsync("https://api.pdfbolt.com/v1/direct", content);
+var pdfBytes = await response.Content.ReadAsByteArrayAsync();
+
+// IronPDF: no await needed
+var pdf = renderer.RenderHtmlAsPdf(html);
+var bytes = pdf.BinaryData;
+</code></pre>
+
+<h3>2. Base64 Encoding Removed</h3>
+
+<p>PDFBolt requires the HTML body to be base64-encoded before sending. IronPDF receives the string directly:</p>
+
+<pre><code>// PDFBolt: encode before sending
+var base64Html = Convert.ToBase64String(Encoding.UTF8.GetBytes(html));
+var payload = JsonSerializer.Serialize(new { html = base64Html });
+
+// IronPDF: pass HTML directly
+var pdf = renderer.RenderHtmlAsPdf(html);
+</code></pre>
+
+<h3>3. API-KEY Header Removed</h3>
+
+<p>Delete all header injection code. IronPDF has no per-request authentication:</p>
+
+<pre><code>// PDFBolt: must add header to every request
+client.DefaultRequestHeaders.Add("API-KEY", apiKey);
+
+// IronPDF: remove this entirely — license key set once at startup
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+</code></pre>
+
+<h3>4. Placeholder Syntax Change</h3>
+
+<p>PDFBolt uses HTML CSS classes; IronPDF uses curly-brace tokens:</p>
+
+<pre><code>// PDFBolt header/footer HTML
+"Page &lt;span class=\"pageNumber\"&gt;&lt;/span&gt; of &lt;span class=\"totalPages\"&gt;&lt;/span&gt;"
+
+// IronPDF header/footer HTML
+"Page {page} of {total-pages}"
+</code></pre>
+
+<h3>5. Remove Rate Limit Handling</h3>
+
+<p>Delete all rate limit and 429-response handling — IronPDF has no limits:</p>
+
+<pre><code>// PDFBolt: 429 Too Many Requests means monthly cap hit
+if (response.StatusCode == HttpStatusCode.TooManyRequests)
+    throw new Exception("Monthly limit exceeded");
+
+// IronPDF: delete this entirely
+</code></pre>
+
+<h3>6. Remove Network Error Handling</h3>
+
+<p>Local processing means no network errors:</p>
+
+<pre><code>// PDFBolt: network error handling
+catch (HttpRequestException ex) { ... }
+catch (TaskCanceledException) { ... }
+catch (TimeoutException) { ... }
+
+// IronPDF: remove network-specific catches
+</code></pre>
+
+<h2>Pre-Migration Checklist</h2>
+
+<ul>
+  <li>Inventory all PDFBolt <code>HttpClient</code> calls in codebase</li>
+  <li>Document current API key management and secret rotation</li>
+  <li>List all async methods that need sync conversion</li>
+  <li>Identify base64-encoding helpers to remove</li>
+  <li>Identify rate limit and 429-response handling code to remove</li>
+  <li>Map placeholder syntax from CSS classes to curly-brace tokens</li>
+  <li>Identify features PDFBolt couldn't provide (merge, watermark, security)</li>
+  <li>Plan license key deployment</li>
+</ul>
+
+<h2>Post-Migration Checklist</h2>
+
+<ul>
+  <li>Remove PDFBolt HttpClient wrapper code</li>
+  <li>Delete API key from configuration files and secret managers</li>
+  <li>Convert async PDF methods to sync</li>
+  <li>Remove base64-encoding of HTML</li>
+  <li>Remove rate limit and network error handling</li>
+  <li>Test all PDF generation paths</li>
+  <li>Verify placeholder syntax in headers/footers</li>
+  <li>Add new features (watermarks, security, merge) as needed</li>
+  <li>Update documentation</li>
+</ul>
+
+<h2>Performance Comparison</h2>
+
+<ul>
+  <li><strong>Simple HTML (1 page).</strong> PDFBolt: 2–5 seconds (network round-trip). IronPDF: 100–300 ms (local).</li>
+  <li><strong>Complex HTML (10 pages).</strong> PDFBolt: 5–15 seconds. IronPDF: 500 ms–2 s.</li>
+  <li><strong>Batch (100 documents).</strong> PDFBolt: rate-limited at 100/month on free tier. IronPDF: no limits.</li>
+  <li><strong>Offline operation.</strong> PDFBolt: impossible. IronPDF: fully supported.</li>
+  <li><strong>First request.</strong> PDFBolt: 3–8 seconds (cold start plus network). IronPDF: ~500 ms (Chromium engine init).</li>
+</ul>
+
+<h2>Feature Comparison Summary</h2>
+
+<ul>
+  <li><strong>HTML to PDF.</strong> PDFBolt: yes (REST API). IronPDF: yes (local).</li>
+  <li><strong>URL to PDF.</strong> PDFBolt: yes. IronPDF: yes.</li>
+  <li><strong>Headers/Footers.</strong> PDFBolt: HTML with CSS class placeholders. IronPDF: full HTML with curly-brace placeholders.</li>
+  <li><strong>Custom page sizes.</strong> PDFBolt: yes (JSON params). IronPDF: yes (RenderingOptions).</li>
+  <li><strong>PDF merging.</strong> PDFBolt: no. IronPDF: yes.</li>
+  <li><strong>Watermarks.</strong> PDFBolt: no. IronPDF: yes.</li>
+  <li><strong>Password protection.</strong> PDFBolt: no. IronPDF: yes.</li>
+  <li><strong>Text extraction.</strong> PDFBolt: no. IronPDF: yes.</li>
+  <li><strong>PDF to images.</strong> PDFBolt: no. IronPDF: yes.</li>
+  <li><strong>Digital signatures.</strong> PDFBolt: no. IronPDF: yes.</li>
+  <li><strong>Offline operation.</strong> PDFBolt: no. IronPDF: yes.</li>
+  <li><strong>Unlimited processing.</strong> PDFBolt: no (100/month free, then per-document). IronPDF: yes.</li>
+  <li><strong>Data privacy.</strong> PDFBolt: no (external cloud). IronPDF: yes (local only).</li>
+</ul>
+
+<h2>Troubleshooting</h2>
+
+<h3>"License key required for production"</h3>
+
+<pre><code>// Set license key before any PDF operations
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+// Free for development, license required for production
+</code></pre>
+
+<h3>"First PDF generation is slow"</h3>
+
+<p>The Chromium engine initializes on first use. Pre-warm during application startup if latency matters:</p>
+
+<pre><code>var renderer = new ChromePdfRenderer();
+renderer.RenderHtmlAsPdf("&lt;html&gt;&lt;body&gt;&lt;/body&gt;&lt;/html&gt;");
+</code></pre>
+
+<h3>"Async methods no longer compile after removing await"</h3>
+
+<p>IronPDF methods are synchronous. Remove <code>await</code> keywords and change return types from <code>Task&lt;byte[]&gt;</code> to <code>byte[]</code>:</p>
+
+<pre><code>// Old: var pdfBytes = await response.Content.ReadAsByteArrayAsync();
+// New: var pdf = renderer.RenderHtmlAsPdf(html); return pdf.BinaryData;
+</code></pre>
+
+<h3>"Rate limit code throws compile errors after migration"</h3>
+
+<p>Delete all PDFBolt-specific 429 and HttpStatusCode.TooManyRequests handling — IronPDF has no rate limits.</p>
+
+<h2>Finding PDFBolt References</h2>
+
+<pre><code># Find all PDFBolt API key references
+grep -r "PDFBOLT\|pdfbolt\|API-KEY\|api.pdfbolt.com" --include="*.cs" --include="*.json" --include="*.config" .
+
+# Find base64 encoding of HTML (PDFBolt pattern)
+grep -r "Convert.ToBase64String.*GetBytes\|base64Html\|base64html" --include="*.cs" .
+
+# Find async patterns to convert
+grep -r "await.*PostAsync.*pdfbolt\|ReadAsByteArrayAsync" --include="*.cs" .
+</code></pre>
+
+<p>— <em>Jacob Mellor, IronPDF Engineering</em></p>

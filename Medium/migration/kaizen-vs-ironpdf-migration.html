@@ -1,250 +1,101 @@
-<h1>Migrating from Kaizen to IronPDF in C#: The Complete Guide</h1>
+<h2>I Replaced Our Kaizen.io HTML-to-PDF Integration with IronPDF — Here's the Honest Breakdown</h2>
 
-<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+<p>By Jacob Mellor · IronPDF Engineering</p>
 
-<p>The version pin in your <code>.csproj</code> has been sitting at <code>2.x</code> for eight months. A security advisory came through, the fix landed in <code>3.x</code>, and the upgrade path involves breaking API changes you haven't had time to assess. Meanwhile the rest of the stack has moved to .NET 8 and the old package doesn't play cleanly with the new runtime.</p>
+<p>A client's staging environment had no outbound internet access. Their PDF generation — wired to the Kaizen.IO NuGet SDK — stopped dead. The converter threw a connection exception before it could produce a single byte. That was the moment the team decided to move to something that runs entirely in-process.</p>
 
-<p>You're not looking for a migration out of enthusiasm &mdash; you're looking for a path forward. I wrote this guide to map the code changes needed to move from Kaizen.io HTML-to-PDF to <a href="https://ironpdf.com/">IronPDF</a>. Kaizen.io HTML-to-PDF is a remote service with a thin .NET wrapper; IronPDF is an in-process Chromium-based renderer. The mapping tables and checklist are useful reference material regardless of which library you end up choosing.</p>
+<p>This article covers what that migration actually looks like: the API differences, the code changes, and the things worth knowing before you start.</p>
 
-<h2>Why Should I Migrate from Kaizen.io to IronPDF?</h2>
+<hr>
 
-<p>Version pinning and upgrade friction are common triggers, but the bigger story with Kaizen.io is the cloud-API model itself. Here are the reasons teams move off it:</p>
+<h2>Why Teams Move Away from Kaizen.io</h2>
 
-<p><strong>Cloud dependency</strong> &mdash; every PDF requires a network round-trip to Kaizen.io's servers. Outages, DNS issues, or firewall changes break PDF generation.</p>
-
-<p><strong>Data privacy</strong> &mdash; HTML and any embedded data leaves your network on every request. For regulated workloads (healthcare, finance, internal-only documents) that is a hard blocker.</p>
-
-<p><strong>Latency</strong> &mdash; in-process rendering avoids the 100&ndash;500&nbsp;ms network round-trip that hits every Kaizen.io call.</p>
-
-<p><strong>Per-request pricing</strong> &mdash; SaaS costs scale linearly with volume; an in-process license has a fixed ceiling.</p>
-
-<p><strong>Rate limiting</strong> &mdash; Kaizen.io throttles during traffic spikes. IronPDF is bounded only by hardware.</p>
-
-<p><strong>Offline / air-gapped environments</strong> &mdash; on-prem or restricted networks cannot reach a remote API at all.</p>
-
-<p><strong>Vendor lock-in</strong> &mdash; if Kaizen.io changes pricing, deprecates the API, or shuts down, every PDF endpoint stops working at once.</p>
-
-<p><strong>Customization ceiling</strong> &mdash; you only get the rendering options the API exposes. IronPDF gives you full Chromium control (JavaScript wait conditions, custom paper sizes, headers/footers, BaseUrl, etc.).</p>
-
-<p><strong>Commercial support requirements</strong> &mdash; teams needing SLA-backed support may need a library with an enterprise support tier.</p>
-
-<h2>How Do Kaizen.io and IronPDF Compare Feature by Feature?</h2>
+<p>Kaizen.IO HTML-to-PDF is a .NET SDK that wraps an external service call. It works well in connected environments. But teams hit friction when those assumptions break:</p>
 
 <ul>
-<li><strong>Focus.</strong> Kaizen.io is a remote HTML-to-PDF service consumed via a thin .NET wrapper. IronPDF is HTML-to-PDF plus full in-process PDF manipulation (merge, split, stamp, encrypt, sign).</li>
-<li><strong>Deployment model.</strong> Kaizen.io runs on Kaizen's servers; every conversion is a network call. IronPDF runs entirely in your process.</li>
-<li><strong>Pricing.</strong> Kaizen.io is per-request / subscription &mdash; check kaizen.io for current tiers. IronPDF is a commercial per-developer or per-deployment license &mdash; see ironsoftware.com.</li>
-<li><strong>HTML rendering.</strong> Kaizen.io uses a server-side renderer behind the API (engine not exposed to the caller). IronPDF embeds Chromium directly, so what renders in Chrome renders in your PDF.</li>
-<li><strong>JavaScript / SPA support.</strong> Kaizen.io supports a <code>WaitForComplete</code>/delay flag at the API level. IronPDF gives you full Chromium control including <code>RenderDelay</code>, <code>WaitFor.JavaScript(...)</code>, and network-idle waits.</li>
-<li><strong>Page indexing.</strong> Kaizen.io's API is page-output rather than page-manipulation, so indexing is mostly N/A. IronPDF is 0-based for any post-render page operations you add.</li>
-<li><strong>Namespace.</strong> The .NET wrapper for Kaizen.io exposes <code>Kaizen.IO</code>; IronPDF lives under <code>IronPdf</code>.</li>
-<li><strong>Offline use.</strong> Kaizen.io cannot run without network access. IronPDF works in air-gapped environments.</li>
+  <li><strong>Network dependency.</strong> Every PDF generation requires a successful outbound call. Airgapped environments, VPNs with egress restrictions, and staging environments without internet access all become blockers.</li>
+  <li><strong>Data leaves your infrastructure.</strong> HTML content — including any sensitive data embedded in it — is transmitted externally. Healthcare, finance, and legal teams often cannot accept that.</li>
+  <li><strong>Per-request cost model.</strong> Volume spikes translate directly to invoice spikes. A $50 one-time license sounds appealing until your batch job generates 50,000 PDFs in a night.</li>
+  <li><strong>API key management.</strong> Every call must carry an API key. Rotation, revocation, and secret management add operational surface area.</li>
+  <li><strong>Rate limits and retry logic.</strong> Cloud services throttle. Teams end up maintaining exponential backoff, retry queues, and 429 handlers that have nothing to do with PDF generation.</li>
 </ul>
 
-<h2>How Hard Is Each Feature to Migrate?</h2>
+<p>IronPDF runs in-process via Chromium. No outbound call, no key per request, no rate limits. The trade-off is a heavier NuGet dependency and a Chromium warm-up cost on first render.</p>
 
-<ul>
-<li><strong>HTML string to PDF &mdash; Low.</strong> <code>converter.Convert(html)</code> maps directly to <code>renderer.RenderHtmlAsPdf(html)</code>.</li>
-<li><strong>URL to PDF &mdash; Low.</strong> <code>converter.ConvertUrl(url, options)</code> maps to <code>renderer.RenderUrlAsPdf(url)</code>.</li>
-<li><strong>HTML file to PDF &mdash; Low.</strong> Read the file and call <code>RenderHtmlAsPdf</code>, or use <code>RenderHtmlFileAsPdf(path)</code>.</li>
-<li><strong>Custom margins and page size &mdash; Low.</strong> Move from <code>ConversionOptions.MarginTop</code> etc. to <code>renderer.RenderingOptions.MarginTop</code>. <code>PageSize</code> becomes <code>PdfPaperSize</code>.</li>
-<li><strong>Headers / footers &mdash; Medium.</strong> Kaizen.io uses <code>HeaderOptions.HtmlContent</code>; IronPDF uses <code>HtmlHeaderFooter.HtmlFragment</code>. The <code>{total}</code> placeholder becomes <code>{total-pages}</code>.</li>
-<li><strong>Async rendering &mdash; Medium.</strong> <code>ConvertAsync</code> maps to <code>RenderHtmlAsPdfAsync</code>; the call shape is identical.</li>
-<li><strong>JavaScript / SPA pages &mdash; Medium.</strong> Replace Kaizen's <code>JavaScriptDelay</code> with <code>RenderingOptions.RenderDelay</code> or <code>WaitFor.JavaScript(...)</code> for explicit wait conditions.</li>
-<li><strong>Merge / split &mdash; New capability.</strong> Not part of Kaizen.io's HTML-to-PDF API. If you were combining Kaizen.io with PdfSharp or similar for merge, IronPDF's <code>PdfDocument.Merge</code> consolidates that.</li>
-<li><strong>Watermark, encryption, digital signatures &mdash; New capability.</strong> Not in Kaizen.io's surface area. IronPDF covers all three in-process; teams that bolted on iTextSharp for these can drop the secondary dependency.</li>
-<li><strong>Removing rate-limit / retry / network-error code &mdash; Low.</strong> All of it deletes once you're in-process. Verify your error handling still covers <code>IronPdfException</code> instead.</li>
-</ul>
+<hr>
 
-<h2>When Does It Make Sense to Migrate?</h2>
+<h2>Installation</h2>
 
-<ul>
-<li><strong>If you need offline / air-gapped PDF generation</strong>, Kaizen.io is a non-starter and IronPDF is the obvious move.</li>
-<li><strong>If data privacy or compliance prohibits sending HTML payloads to a third party</strong>, in-process rendering is the only correct answer &mdash; IronPDF or another local renderer.</li>
-<li><strong>If your volume has outgrown per-request pricing</strong>, a fixed-cost license usually wins; do a back-of-envelope on monthly Kaizen.io spend versus IronPDF's tiers before committing.</li>
-<li><strong>If your only requirement is open source</strong>, IronPDF is commercial &mdash; evaluate PuppeteerSharp or a wkhtmltopdf wrapper instead.</li>
-<li><strong>If your use case is plain HTML-to-PDF and Kaizen.io's fidelity is fine</strong>, the migration buys you privacy, latency, and cost predictability rather than feature breadth.</li>
-<li><strong>If you need merge, watermark, or encryption alongside HTML-to-PDF</strong>, IronPDF consolidates these into one library and removes a secondary dependency.</li>
-</ul>
-
-<h2>How Do I Set Up My Codebase for Migration?</h2>
-
-<p>Before writing any migration code, take a full inventory of Kaizen.io call sites. You will need .NET 6+ target framework and NuGet access or an offline package cache.</p>
-
-<h3>Find Kaizen.io references in your codebase</h3>
-
-<pre><code># Find all files referencing Kaizen
-rg -l "Kaizen" --type cs
-
-# Find using statements (Kaizen.IO is the .NET wrapper namespace)
-rg "using Kaizen" --type cs -n
-
-# Find the converter and options classes
-rg "HtmlToPdfConverter|ConversionOptions|ConvertUrl|ConvertAsync" --type cs -n
-
-# Find NuGet package references in project files
-rg -i "kaizen" -g "*.csproj"</code></pre>
-
-<h3>Remove Kaizen.io, install IronPDF</h3>
-
-<pre><code># Remove Kaizen package &mdash; the exact package id varies; check your .csproj
-dotnet remove package Kaizen.HtmlToPdf
+<pre><code># Remove Kaizen.io
+dotnet remove package Kaizen.IO.HtmlToPdf
 
 # Install IronPDF
 dotnet add package IronPdf
+</code></pre>
 
-# Restore
-dotnet restore</code></pre>
+<p>Set the IronPDF license key once at application startup — Program.cs or Startup.cs:</p>
 
-<p>On Windows PowerShell via Package Manager Console: <code>Install-Package IronPdf</code> and <code>Uninstall-Package Kaizen.HtmlToPdf</code>.</p>
+<pre><code>IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+</code></pre>
 
-<h2>How Do I Migrate License Configuration and Namespaces?</h2>
+<p>Without a key, IronPDF renders with a watermark (free evaluation mode). Kaizen.io used an API key passed per-request to the constructor; that entire pattern is gone.</p>
 
-<h3>Before (Kaizen.io)</h3>
+<hr>
 
-<pre><code>using Kaizen.IO;
+<h2>Basic HTML to PDF</h2>
 
-// Kaizen.io is keyed per request: the API key is passed to the converter constructor.
-// Some integrations also wrap the SaaS endpoint themselves &mdash; if your code does that,
-// the API key lives wherever you store HttpClient credentials.
-var converter = new HtmlToPdfConverter("YOUR-KAIZEN-API-KEY");</code></pre>
+<p>The minimal migration. Kaizen.IO takes an HTML string and returns <code>byte[]</code>. IronPDF returns a <code>PdfDocument</code>; call <code>.BinaryData</code> or <code>.SaveAs()</code> to get bytes or write to disk.</p>
 
-<h3>After (IronPDF)</h3>
-
-<pre><code>using IronPdf;
-
-// Set once at application startup
-IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
-// License guide: https://ironpdf.com/how-to/license-keys/</code></pre>
-
-<p>IronPDF uses a single static property for license configuration. Set <code>IronPdf.License.LicenseKey</code> once at application startup, and you are done. No per-request key, no separate license class.</p>
-
-<p>For namespace imports, replace Kaizen.io namespaces with the IronPDF equivalents:</p>
-
-<h3>Before (Kaizen.io namespaces)</h3>
-
-<pre><code>using Kaizen.IO; // HtmlToPdfConverter, ConversionOptions, HeaderOptions, FooterOptions, PageSize, Orientation</code></pre>
-
-<h3>After (IronPDF namespaces)</h3>
-
-<pre><code>using IronPdf;
-using IronPdf.Rendering;  // for ChromePdfRenderOptions, PdfPaperSize, PdfPaperOrientation
-using IronPdf.Editing;    // for stamping/watermark (new capability)
-using IronPdf.Security;   // for passwords (new capability)</code></pre>
-
-<h2>How Do I Migrate Basic HTML-to-PDF Conversion?</h2>
-
-<h3>Before (Kaizen.io)</h3>
+<p><strong>Before (Kaizen.IO):</strong></p>
 
 <pre><code>using Kaizen.IO;
 using System.IO;
 
-class HtmlToPdfExample
+class Program
 {
     static void Main()
     {
         var converter = new HtmlToPdfConverter();
-        var options = new ConversionOptions
-        {
-            PageSize = PageSize.A4,
-            Orientation = Orientation.Portrait,
-            MarginTop = 10,
-            MarginBottom = 10
-        };
-
-        byte[] pdfBytes = converter.Convert(
-            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
-            options
-        );
-        File.WriteAllBytes("invoice.pdf", pdfBytes);
+        var html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello World&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
+        var pdfBytes = converter.Convert(html);
+        File.WriteAllBytes("output.pdf", pdfBytes);
     }
-}</code></pre>
+}
+</code></pre>
 
-<h3>After (IronPDF)</h3>
+<p><strong>After (IronPDF):</strong></p>
 
-<pre><code>using IronPdf;
-
-IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
-
-var renderer = new ChromePdfRenderer();
-renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
-renderer.RenderingOptions.MarginTop = 10;
-renderer.RenderingOptions.MarginBottom = 10;
-
-var pdf = renderer.RenderHtmlAsPdf(
-    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #1234&lt;/h1&gt;&lt;p&gt;Amount: $500&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
-);
-pdf.SaveAs("invoice.pdf");
-// Full guide: https://ironpdf.com/how-to/html-string-to-pdf/</code></pre>
-
-<p>The shape of the call survives the migration: instantiate a renderer, configure options, hand it HTML. The differences are that <code>HtmlToPdfConverter</code> becomes <code>ChromePdfRenderer</code>, <code>ConversionOptions</code> moves onto the renderer as <code>RenderingOptions</code>, and the call returns a <code>PdfDocument</code> instead of <code>byte[]</code>. If your downstream code passes the bytes around, use <code>pdf.BinaryData</code>.</p>
-
-<p>The bigger change is what's no longer happening: the <code>Convert</code> call is no longer hitting Kaizen.io's servers. There's no network request, no API key in the call, no rate limit to worry about, and the HTML never leaves your process.</p>
-
-<h2>How Do I Migrate URL-to-PDF with Headers and Footers?</h2>
-
-<h3>Before (Kaizen.io)</h3>
-
-<pre><code>using Kaizen.IO;
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
 using System.IO;
 
-class UrlToPdfExample
+class Program
 {
     static void Main()
     {
-        var converter = new HtmlToPdfConverter();
-        var options = new ConversionOptions
-        {
-            Header = new HeaderOptions
-            {
-                HtmlContent = "&lt;div style='text-align:center'&gt;Company Header&lt;/div&gt;"
-            },
-            Footer = new FooterOptions
-            {
-                HtmlContent = "&lt;div style='text-align:center'&gt;Page {page} of {total}&lt;/div&gt;"
-            },
-            MarginTop = 20,
-            MarginBottom = 20
-        };
-        var pdfBytes = converter.ConvertUrl("https://example.com", options);
-        File.WriteAllBytes("webpage.pdf", pdfBytes);
+        var renderer = new ChromePdfRenderer();
+        var html = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello World&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
+        var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("output.pdf");
     }
-}</code></pre>
+}
+</code></pre>
 
-<h3>After (IronPDF)</h3>
+<p>The structural change: <code>HtmlToPdfConverter</code> → <code>ChromePdfRenderer</code>, <code>converter.Convert(html)</code> → <code>renderer.RenderHtmlAsPdf(html)</code>. No API key argument to the constructor.</p>
 
-<pre><code>using IronPdf;
+<hr>
 
-IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+<h2>HTML File to PDF with Page Options</h2>
 
-var renderer = new ChromePdfRenderer();
-renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
-{
-    HtmlFragment = "&lt;div style='text-align:center'&gt;Company Header&lt;/div&gt;",
-    MaxHeight = 25
-};
-renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
-{
-    HtmlFragment = "&lt;div style='text-align:center'&gt;Page {page} of {total-pages}&lt;/div&gt;",
-    MaxHeight = 25
-};
-renderer.RenderingOptions.MarginTop = 20;
-renderer.RenderingOptions.MarginBottom = 20;
+<p>When converting an HTML file from disk, Kaizen.IO accepts a <code>ConversionOptions</code> object. IronPDF exposes equivalent settings on <code>renderer.RenderingOptions</code> before calling <code>RenderHtmlFileAsPdf()</code>.</p>
 
-var pdf = renderer.RenderUrlAsPdf("https://example.com");
-pdf.SaveAs("webpage.pdf");
-// Guide: https://ironpdf.com/how-to/headers-and-footers/</code></pre>
-
-<p>Three things shift here. <code>HeaderOptions.HtmlContent</code> becomes <code>HtmlHeaderFooter.HtmlFragment</code>. The page-count placeholder <code>{total}</code> becomes <code>{total-pages}</code>. And <code>MaxHeight</code> on the IronPDF header/footer reserves space at the top and bottom of the page that your margins won't cover &mdash; size it to fit your tallest header content. <code>ConvertUrl(url)</code> maps cleanly to <code>RenderUrlAsPdf(url)</code>, and the call still flows out to a saved file.</p>
-
-<h2>How Do I Migrate HTML File Conversion?</h2>
-
-<h3>Before (Kaizen.io)</h3>
+<p><strong>Before (Kaizen.IO):</strong></p>
 
 <pre><code>using Kaizen.IO;
+using System;
 using System.IO;
 
-class HtmlFileExample
+class Program
 {
     static void Main()
     {
@@ -258,216 +109,276 @@ class HtmlFileExample
         var pdfBytes = converter.Convert(htmlContent, options);
         File.WriteAllBytes("document.pdf", pdfBytes);
     }
-}</code></pre>
+}
+</code></pre>
 
-<h3>After (IronPDF)</h3>
+<p><strong>After (IronPDF):</strong></p>
 
-<pre><code>using IronPdf;
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.IO;
 
-IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        renderer.RenderingOptions.PaperOrientation = PdfPaperOrientation.Portrait;
+        var pdf = renderer.RenderHtmlFileAsPdf("input.html");
+        pdf.SaveAs("document.pdf");
+    }
+}
+</code></pre>
 
-var renderer = new ChromePdfRenderer();
-renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
-renderer.RenderingOptions.PaperOrientation = IronPdf.Rendering.PdfPaperOrientation.Portrait;
+<p>Use <code>RenderHtmlFileAsPdf(path)</code> rather than reading the file into a string first — it lets IronPDF resolve relative asset paths (images, CSS) correctly using the file's directory as the base URL.</p>
 
-// Option 1: read the file yourself, render the string
-var html = File.ReadAllText("input.html");
-var pdf = renderer.RenderHtmlAsPdf(html);
+<hr>
 
-// Option 2: let IronPDF read the file and resolve relative resources
-// var pdf = renderer.RenderHtmlFileAsPdf("input.html");
+<h2>URL to PDF with Headers and Footers</h2>
 
-pdf.SaveAs("document.pdf");
-// Guide: https://ironpdf.com/how-to/html-file-to-pdf/</code></pre>
+<p>Kaizen.IO supports HTML-based header and footer content via <code>HeaderOptions</code> and <code>FooterOptions</code>. IronPDF's equivalent is <code>TextHeader</code> and <code>TextFooter</code> on <code>RenderingOptions</code> for simple text, or <code>HtmlHeader</code> / <code>HtmlFooter</code> for full HTML fragments. The placeholder for total pages differs: Kaizen uses <code>{total}</code>; IronPDF uses <code>{total-pages}</code>.</p>
 
-<p>If your HTML file references local images, CSS, or fonts via relative paths, prefer <code>RenderHtmlFileAsPdf</code> &mdash; it resolves relative resources against the file's directory. <code>RenderHtmlAsPdf(string)</code> on raw HTML has no implicit base path, so you'd need to set <code>RenderingOptions.BaseUrl</code> for the same effect.</p>
+<p><strong>Before (Kaizen.IO):</strong></p>
 
-<h2>What New Capabilities Become Available After Migration?</h2>
+<pre><code>using Kaizen.IO;
+using System;
+using System.IO;
 
-<p>Kaizen.io's API surface is HTML&ndash;in, PDF&ndash;out. Once you're in-process with IronPDF, three operations that previously required a second library (PdfSharp, iTextSharp, etc.) are part of the same package:</p>
+class Program
+{
+    static void Main()
+    {
+        var converter = new HtmlToPdfConverter();
+        var options = new ConversionOptions
+        {
+            Header = new HeaderOptions { HtmlContent = "&lt;div style='text-align:center'&gt;Company Header&lt;/div&gt;" },
+            Footer = new FooterOptions { HtmlContent = "&lt;div style='text-align:center'&gt;Page {page} of {total}&lt;/div&gt;" },
+            MarginTop = 20,
+            MarginBottom = 20
+        };
+        var pdfBytes = converter.ConvertUrl("https://example.com", options);
+        File.WriteAllBytes("webpage.pdf", pdfBytes);
+    }
+}
+</code></pre>
 
-<p><strong>Merge</strong> &mdash; load PDFs with <code>PdfDocument.FromFile</code> and combine them with <code>PdfDocument.Merge(pdf1, pdf2, ...)</code>. <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Guide</a>.</p>
+<p><strong>After (IronPDF):</strong></p>
 
-<p><strong>Watermark / stamp</strong> &mdash; configure a <code>TextStamper</code> (text, font color, font size, opacity 0&ndash;100, rotation, alignment) and call <code>pdf.ApplyStamp(stamper)</code>. <a href="https://ironpdf.com/how-to/custom-watermark/">Guide</a>.</p>
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.IO;
 
-<p><strong>Password protection</strong> &mdash; set <code>pdf.SecuritySettings.UserPassword</code>, <code>OwnerPassword</code>, and per-permission flags like <code>AllowUserPrinting</code>, then save. <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">Guide</a>.</p>
+class Program
+{
+    static void Main()
+    {
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.TextHeader.CenterText = "Company Header";
+        renderer.RenderingOptions.TextFooter.CenterText = "Page {page} of {total-pages}";
+        renderer.RenderingOptions.MarginTop = 20;
+        renderer.RenderingOptions.MarginBottom = 20;
+        var pdf = renderer.RenderUrlAsPdf("https://example.com");
+        pdf.SaveAs("webpage.pdf");
+    }
+}
+</code></pre>
 
-<p>If your application currently glues Kaizen.io to a second PDF library to get any of these, the migration also collapses that dependency.</p>
+<p>Note the placeholder change: <code>{total}</code> becomes <code>{total-pages}</code>. Also note that <code>TextHeader.CenterText</code> is plain text; if you need full HTML in headers, switch to <code>HtmlHeader = new HtmlHeaderFooter { HtmlFragment = "..." }</code>.</p>
 
-<h2>What Are the Key API Mappings I Need to Know?</h2>
+<hr>
 
-<h3>Namespace Mapping</h3>
+<h2>API Mapping Reference</h2>
 
-<ul>
-<li><code>Kaizen.IO</code> &rarr; <code>IronPdf</code> &mdash; core namespace</li>
-<li>Options live on the same namespace in Kaizen &rarr; <code>IronPdf.Rendering</code> &mdash; render configuration (paper size, orientation, margins)</li>
-<li>N/A &rarr; <code>IronPdf.Editing</code> &mdash; new capability: stamping and watermarking</li>
-<li>N/A &rarr; <code>IronPdf.Security</code> &mdash; new capability: passwords and permissions</li>
-</ul>
-
-<h3>Core Class Mapping</h3>
-
-<ul>
-<li><code>HtmlToPdfConverter</code> &rarr; <code>ChromePdfRenderer</code> &mdash; PDF generation entry point</li>
-<li><code>ConversionOptions</code> &rarr; <code>ChromePdfRenderOptions</code> (accessed via <code>renderer.RenderingOptions</code>)</li>
-<li><code>HeaderOptions</code> / <code>FooterOptions</code> &rarr; <code>HtmlHeaderFooter</code> (assigned to <code>HtmlHeader</code> / <code>HtmlFooter</code>)</li>
-<li><code>PageSize</code> enum &rarr; <code>PdfPaperSize</code> enum</li>
-<li><code>Orientation</code> enum &rarr; <code>PdfPaperOrientation</code> enum</li>
-<li>byte[] return &rarr; <code>PdfDocument</code> &mdash; use <code>pdf.BinaryData</code> when raw bytes are needed</li>
-</ul>
-
-<h3>Document Loading Methods</h3>
-
-<ul>
-<li><code>converter.Convert(html)</code> &rarr; <code>renderer.RenderHtmlAsPdf(html)</code></li>
-<li><code>converter.Convert(html, options)</code> &rarr; configure <code>RenderingOptions</code>, then <code>RenderHtmlAsPdf(html)</code></li>
-<li><code>converter.ConvertUrl(url)</code> &rarr; <code>renderer.RenderUrlAsPdf(url)</code></li>
-<li><code>converter.ConvertFile(path)</code> &rarr; <code>renderer.RenderHtmlFileAsPdf(path)</code></li>
-<li><code>converter.ConvertAsync(...)</code> &rarr; <code>renderer.RenderHtmlAsPdfAsync(...)</code></li>
-<li>N/A &rarr; <code>PdfDocument.FromFile(path)</code> &mdash; load an existing PDF for manipulation</li>
-</ul>
-
-<h3>Page Operations</h3>
-
-<ul>
-<li><code>options.PageSize</code> &rarr; <code>RenderingOptions.PaperSize</code></li>
-<li><code>options.Orientation</code> &rarr; <code>RenderingOptions.PaperOrientation</code></li>
-<li><code>options.MarginTop/Bottom/Left/Right</code> &rarr; <code>RenderingOptions.MarginTop/Bottom/Left/Right</code> (millimetres in both)</li>
-<li><code>options.PageWidth</code>/<code>PageHeight</code> &rarr; <code>RenderingOptions.SetCustomPaperSizeInMillimeters(width, height)</code></li>
-<li>N/A on the converter &rarr; <code>pdf.PageCount</code> on the resulting <code>PdfDocument</code></li>
-</ul>
-
-<h3>Header / Footer Placeholder Mapping</h3>
-
-<ul>
-<li><code>{page}</code> &rarr; <code>{page}</code></li>
-<li><code>{total}</code> &rarr; <code>{total-pages}</code></li>
-<li><code>{date}</code> &rarr; <code>{date}</code></li>
-<li><code>{time}</code> &rarr; <code>{time}</code></li>
-<li><code>{title}</code> &rarr; <code>{html-title}</code></li>
-<li><code>{url}</code> &rarr; <code>{url}</code></li>
-</ul>
-
-<h3>Merge/Split Operations (new in IronPDF)</h3>
+<h3>Class and Constructor Mappings</h3>
 
 <ul>
-<li>Not in Kaizen.io &rarr; <code>PdfDocument.Merge(pdf1, pdf2, ...)</code></li>
-<li>Not in Kaizen.io &rarr; <code>pdf.CopyPages(startIndex, endIndex)</code> &mdash; split into a sub-document</li>
+  <li><code>HtmlToPdfConverter()</code> — no constructor arg needed → <code>new ChromePdfRenderer()</code></li>
+  <li><code>HtmlToPdfConverter(apiKey)</code> → set <code>IronPdf.License.LicenseKey</code> once at startup instead</li>
+  <li><code>ConversionOptions</code> → configure <code>renderer.RenderingOptions</code> properties directly</li>
+  <li><code>HeaderOptions { HtmlContent = ... }</code> → <code>renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter { HtmlFragment = ... }</code></li>
+  <li><code>FooterOptions { HtmlContent = ... }</code> → <code>renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter { HtmlFragment = ... }</code></li>
 </ul>
 
-<h2>What Critical Migration Notes Should I Watch For?</h2>
+<h3>Method Mappings</h3>
 
-<h3>Output model difference</h3>
+<ul>
+  <li><code>converter.Convert(html)</code> → <code>renderer.RenderHtmlAsPdf(html)</code></li>
+  <li><code>converter.Convert(htmlString, options)</code> → set <code>RenderingOptions</code> then <code>renderer.RenderHtmlAsPdf(html)</code></li>
+  <li><code>converter.ConvertUrl(url, options)</code> → set <code>RenderingOptions</code> then <code>renderer.RenderUrlAsPdf(url)</code></li>
+  <li><code>converter.ConvertFile(path)</code> → <code>renderer.RenderHtmlFileAsPdf(path)</code></li>
+  <li><code>converter.ConvertAsync(...)</code> → <code>renderer.RenderHtmlAsPdfAsync(...)</code></li>
+  <li>Return value is <code>PdfDocument</code>, not <code>byte[]</code> — use <code>pdf.BinaryData</code> or <code>pdf.SaveAs(path)</code></li>
+</ul>
 
-<p>Kaizen.io's <code>Convert</code> returns <code>byte[]</code>. IronPDF's <code>RenderHtmlAsPdf</code> returns a <code>PdfDocument</code> object. Update call sites that expect raw bytes:</p>
+<h3>ConversionOptions Property Mappings</h3>
 
-<pre><code>// Kaizen.io pattern:
-// byte[] pdfBytes = converter.Convert(html);
+<ul>
+  <li><code>PageSize = PageSize.A4</code> → <code>RenderingOptions.PaperSize = PdfPaperSize.A4</code></li>
+  <li><code>Orientation = Orientation.Portrait</code> → <code>RenderingOptions.PaperOrientation = PdfPaperOrientation.Portrait</code></li>
+  <li><code>MarginTop</code> / <code>MarginBottom</code> / <code>MarginLeft</code> / <code>MarginRight</code> → same names on <code>RenderingOptions</code>, in millimeters</li>
+  <li><code>Header.HtmlContent</code> → <code>RenderingOptions.HtmlHeader.HtmlFragment</code></li>
+  <li><code>Footer.HtmlContent</code> → <code>RenderingOptions.HtmlFooter.HtmlFragment</code></li>
+  <li><code>BaseUrl</code> → <code>RenderingOptions.BaseUrl</code></li>
+  <li><code>EnableJavaScript</code> → <code>RenderingOptions.EnableJavaScript</code> (default <code>true</code>)</li>
+  <li><code>JavaScriptDelay = 3000</code> → <code>RenderingOptions.RenderDelay = 3000</code></li>
+  <li><code>PrintBackground</code> → <code>RenderingOptions.PrintHtmlBackgrounds</code></li>
+  <li><code>Scale</code> → <code>RenderingOptions.Zoom</code></li>
+  <li><code>Timeout</code> → <code>RenderingOptions.Timeout</code></li>
+</ul>
 
-// IronPDF returns PdfDocument &mdash; save or stream as needed:
-var pdf = renderer.RenderHtmlAsPdf(html);
-pdf.SaveAs("output.pdf");
+<h3>Placeholder Mappings</h3>
 
-// Or get raw bytes when downstream code expects them:
+<ul>
+  <li><code>{page}</code> → <code>{page}</code> — unchanged</li>
+  <li><code>{total}</code> → <code>{total-pages}</code></li>
+  <li><code>{date}</code> → <code>{date}</code></li>
+  <li><code>{time}</code> → <code>{time}</code></li>
+  <li><code>{title}</code> → <code>{html-title}</code></li>
+  <li><code>{url}</code> → <code>{url}</code></li>
+</ul>
+
+<hr>
+
+<h2>Async Operations</h2>
+
+<p>IronPDF mirrors Kaizen.IO's async pattern. The call site change is minimal:</p>
+
+<pre><code>// Before (Kaizen.IO)
+var pdfBytes = await converter.ConvertAsync(html, options);
+
+// After (IronPDF)
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
 byte[] pdfBytes = pdf.BinaryData;
+</code></pre>
 
-// Or to MemoryStream:
-// https://ironpdf.com/how-to/pdf-memory-stream/
-using var ms = new MemoryStream();
-pdf.Stream.CopyTo(ms);</code></pre>
+<hr>
 
-<h3>Placeholder syntax</h3>
+<h2>Error Handling Changes</h2>
 
-<p>Kaizen.io's footer template <code>"Page {page} of {total}"</code> needs <code>{total}</code> rewritten to <code>{total-pages}</code> for IronPDF. <code>{title}</code> becomes <code>{html-title}</code>. The other common placeholders (<code>{page}</code>, <code>{date}</code>, <code>{time}</code>, <code>{url}</code>) carry over unchanged. Grep your codebase for the old placeholders before going live &mdash; this is the most common visible regression after migration.</p>
+<p>Kaizen.IO code typically catches <code>ApiException</code>, <code>HttpRequestException</code>, and 429 rate-limit responses. All of that goes away with IronPDF — there is no outbound network call to fail.</p>
 
-<h3>Page indexing (only if you start using IronPDF's manipulation APIs)</h3>
-
-<p>Kaizen.io is HTML-in/PDF-out, so it has no notion of page indexing exposed to you. The moment you start using IronPDF's post-render features (split, page deletion, stamping a specific page) you're in 0-based territory:</p>
-
-<pre><code>// IronPDF: 0-based
-var firstPage = pdf.Pages[0]; // first page
-var lastPage  = pdf.Pages[pdf.PageCount - 1]; // last page</code></pre>
-
-<h3>Error handling</h3>
-
-<p>Kaizen.io's failure modes are HTTP-shaped: 401 on bad keys, 429 on rate limits, <code>HttpRequestException</code> on network errors. IronPDF's failures are local: render exceptions and licensing exceptions. Most of the catch blocks you wrote for the network model can simply be deleted:</p>
-
-<pre><code>try
+<pre><code>// Before (Kaizen.IO)
+try
 {
-    var pdf = renderer.RenderHtmlAsPdf(html);
-    pdf.SaveAs("output.pdf");
+    return await converter.ConvertAsync(html, options);
 }
-catch (IronPdf.Exceptions.IronPdfException ex)
+catch (ApiException ex) when (ex.StatusCode == 429)
 {
-    // Log render failure (malformed HTML, missing fonts, etc.)
-    Console.Error.WriteLine($"Render failed: {ex.Message}");
+    await Task.Delay(1000);
+    return await converter.ConvertAsync(html, options);  // Retry
 }
-// No 429 retry, no HttpRequestException, no rate-limit backoff.</code></pre>
-
-<h2>How Should I Handle Performance After Migration?</h2>
-
-<h3>Renderer reuse</h3>
-
-<pre><code>// Instantiate once, reuse for batch work
-var renderer = new ChromePdfRenderer();
-renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
-
-foreach (var html in templates)
+catch (HttpRequestException ex)
 {
-    using var pdf = renderer.RenderHtmlAsPdf(html);
-    pdf.SaveAs($"output_{Guid.NewGuid()}.pdf");
-}</code></pre>
+    throw new Exception("Network error: " + ex.Message);
+}
 
-<h3>Concurrent rendering</h3>
-
-<pre><code>// Separate renderer per thread &mdash; don't share across concurrent operations
-Parallel.ForEach(htmlBatch, html =&gt;
+// After (IronPDF)
+try
 {
-    var renderer = new ChromePdfRenderer();
-    using var pdf = renderer.RenderHtmlAsPdf(html);
-    pdf.SaveAs($"{Guid.NewGuid()}.pdf");
-});
-// Parallel examples: https://ironpdf.com/examples/parallel/</code></pre>
+    var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+    return pdf.BinaryData;
+}
+catch (IronPdf.Exceptions.IronPdfLicensingException ex)
+{
+    throw new Exception("License error: " + ex.Message);
+}
+// No network errors, no rate limits, no 429 handling needed.
+</code></pre>
 
-<h3>Disposal</h3>
+<p>Delete all retry logic, backoff timers, and API-availability checks. The only IronPDF-specific exception class worth catching at startup is <code>IronPdfLicensingException</code> if the key is invalid.</p>
 
-<pre><code>// PdfDocument implements IDisposable
-using var pdf = renderer.RenderHtmlAsPdf(html);
-pdf.SaveAs("output.pdf");
-// Auto-disposed at end of block</code></pre>
+<hr>
 
-<p>Chromium-based renderers have a startup cost. In serverless or per-request scaling scenarios, the first render will be slower &mdash; pre-warm if latency is critical. System fonts must be present on the render server, so verify font availability in Docker images. Profile under production-representative load before sizing containers.</p>
+<h2>Performance Considerations</h2>
 
-<h2>Frequently Asked Questions</h2>
+<p>The one genuine caveat: IronPDF spins up a Chromium instance on first use. That first render is slower than Kaizen.IO's (which returns a cloud-rendered result). Subsequent renders are fast. Warm up at startup:</p>
 
-<h3>Can I run IronPDF and Kaizen.io side by side during migration?</h3>
+<pre><code>// In Program.cs or Startup.cs — before serving requests
+new ChromePdfRenderer().RenderHtmlAsPdf("&lt;html&gt;&lt;/html&gt;");
+</code></pre>
 
-<p>Yes, and I recommend it. Install IronPDF via NuGet alongside your existing Kaizen.io references, run both generating the same PDF, and compare outputs visually before removing Kaizen.io. Cutting over one endpoint at a time catches rendering differences early.</p>
+<p>After warm-up, local Chromium rendering is competitive with a cloud round-trip for complex pages — and faster for simple ones because there is no network latency.</p>
 
-<h3>What is the minimum .NET version required for IronPDF?</h3>
+<p>Reuse the <code>ChromePdfRenderer</code> instance across requests rather than constructing it per call. Parallel rendering works without throttling: IronPDF has no rate limits, so <code>Task.WhenAll()</code> across concurrent renders is safe.</p>
 
-<p>IronPDF requires .NET 6+ target framework. If your project is still on .NET Framework or early .NET Core, you will need to upgrade your target framework before migrating. Check the IronPDF docs for current target framework compatibility (it widens over time).</p>
+<hr>
 
-<h3>Does IronPDF handle merge, watermark, and encryption without secondary libraries?</h3>
+<h2>Licensing</h2>
 
-<p>Yes. IronPDF consolidates merge, watermark, and encryption into a single library. If you were using secondary libraries like PdfSharp for merging or iTextSharp for watermarking alongside Kaizen.io, you can remove those dependencies after migration.</p>
+<p>Kaizen.io sold a $50 one-time license; the free tier watermarks output. IronPDF uses a similar model — free evaluation with a watermark, one-time or annual commercial license for watermark-free production use. The key is set in code rather than passed to a Docker container via environment variable.</p>
 
-<h3>How do I handle the byte[] to PdfDocument output model change?</h3>
+<pre><code>// Set once — before any rendering call
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+</code></pre>
 
-<p>If your code passes raw bytes to downstream systems, use <code>pdf.BinaryData</code> or copy <code>pdf.Stream</code> to a <code>MemoryStream</code>. Update all call sites that previously consumed <code>byte[]</code> from <code>converter.Convert</code>. This is the most common migration oversight.</p>
+<hr>
 
-<h3>What about my retry-and-backoff code for 429s?</h3>
+<h2>Migration Checklist</h2>
 
-<p>Delete it. IronPDF runs in-process and has no rate limit, so HTTP-shaped error handling (rate-limit retries, 401 detection, network-error fallbacks) becomes dead code. Keep the catch around <code>IronPdfException</code> and <code>IronPdfLicensingException</code>, drop the rest.</p>
+<h3>Pre-Migration</h3>
 
-<h3>How should I structure testing after migration?</h3>
+<ul>
+  <li>Find all <code>using Kaizen.IO</code> references across the codebase — those files need updates.</li>
+  <li>List every <code>ConversionOptions</code> configuration in use — margins, page size, orientation, headers, footers, JS delay — so you can verify equivalents.</li>
+  <li>Note header/footer template strings. Update <code>{total}</code> → <code>{total-pages}</code> and <code>{title}</code> → <code>{html-title}</code>.</li>
+  <li>Obtain an IronPDF license key for production.</li>
+</ul>
 
-<p>Render each HTML template with both libraries and visually diff the output. Verify page counts match for multi-page documents. Verify <code>{total-pages}</code> renders correctly in headers and footers. Test async and concurrent rendering at expected peak load. Regression-test every PDF-generating endpoint.</p>
+<h3>Package Changes</h3>
 
-<h2>What Is the Bottom Line on This Migration?</h2>
+<ul>
+  <li>Remove <code>Kaizen.IO.HtmlToPdf</code> (or equivalent package name) from every project that references it.</li>
+  <li>Add <code>IronPdf</code> NuGet package.</li>
+  <li>Replace <code>using Kaizen.IO;</code> with <code>using IronPdf;</code>.</li>
+</ul>
 
-<p>Migrating from Kaizen.io to IronPDF is mostly a shape-preserving substitution: <code>HtmlToPdfConverter</code> &rarr; <code>ChromePdfRenderer</code>, <code>ConversionOptions</code> &rarr; <code>RenderingOptions</code>, <code>byte[]</code> &rarr; <code>PdfDocument</code>. The harder work is around the edges &mdash; deleting retry/backoff/network-error code, updating header/footer placeholders, and confirming font availability on whatever box runs the render.</p>
+<h3>Code Changes</h3>
 
-<p>What you gain is qualitative: PDFs no longer leave your network, no rate limits, no per-request bill, and a wider surface area (merge, stamp, encrypt) inside a single dependency. Single-concern codebases that only do HTML-to-PDF migrate in a few hours.</p>
+<ul>
+  <li>Add <code>IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";</code> at application startup.</li>
+  <li>Replace <code>new HtmlToPdfConverter()</code> with <code>new ChromePdfRenderer()</code>.</li>
+  <li>Move <code>ConversionOptions</code> properties to <code>renderer.RenderingOptions.*</code>.</li>
+  <li>Replace <code>converter.Convert(html)</code> with <code>renderer.RenderHtmlAsPdf(html)</code>.</li>
+  <li>Replace <code>converter.ConvertUrl(url)</code> with <code>renderer.RenderUrlAsPdf(url)</code>.</li>
+  <li>Replace <code>converter.ConvertFile(path)</code> with <code>renderer.RenderHtmlFileAsPdf(path)</code>.</li>
+  <li>Replace <code>File.WriteAllBytes(path, pdfBytes)</code> with <code>pdf.SaveAs(path)</code>, or read <code>pdf.BinaryData</code> where a byte array is required downstream.</li>
+  <li>Update placeholder strings: <code>{total}</code> → <code>{total-pages}</code>, <code>{title}</code> → <code>{html-title}</code>.</li>
+  <li>Delete all 429 retry logic, <code>HttpRequestException</code> handlers, and rate-limit tracking.</li>
+  <li>Remove API key from configuration, secrets manager, and DI setup.</li>
+</ul>
 
-<p>Start with the codebase search commands above to inventory your Kaizen.io usage, run IronPDF in parallel for visual comparison, and cut over one endpoint at a time. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF getting started guide</a> is the fastest way to validate the basic conversion path before committing to a full migration.</p>
+<h3>Testing</h3>
+
+<ul>
+  <li>Verify all HTML-to-PDF paths produce correct output.</li>
+  <li>Confirm header and footer text renders with correct page numbers.</li>
+  <li>Validate margins and page size match the original output.</li>
+  <li>Test async paths under concurrent load — no throttling expected.</li>
+  <li>Run in an environment without internet access to confirm offline operation.</li>
+</ul>
+
+<h3>Post-Migration</h3>
+
+<ul>
+  <li>Remove the Kaizen.io API key from environment variables and secrets stores.</li>
+  <li>Remove any monitoring or alerting tied to Kaizen.io API error rates or latency.</li>
+  <li>Update runbook error-handling documentation to remove 429 and network-error scenarios.</li>
+</ul>
+
+<hr>
+
+<h2>Additional Resources</h2>
+
+<ul>
+  <li><a href="https://ironpdf.com/docs/">IronPDF Documentation</a></li>
+  <li><a href="https://ironpdf.com/tutorials/">IronPDF Tutorials</a></li>
+  <li><a href="https://ironpdf.com/how-to/html-file-to-pdf/">HTML to PDF Guide</a></li>
+  <li><a href="https://ironpdf.com/blog/migration-guides/migrate-from-kaizen-io-to-ironpdf/">Detailed migration guide with architectural patterns</a></li>
+</ul>
+
+<hr>
+
+<p>Jacob Mellor is a .NET engineer who has walked teams through PDF library migrations. Views are his own.</p>
