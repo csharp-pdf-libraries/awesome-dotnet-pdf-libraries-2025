@@ -1,0 +1,538 @@
+<h1>Migrating from TuesPechkin to IronPDF: The Decision Guide for .NET Teams</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Consider Migrating from TuesPechkin?</h2>
+
+<p>I have watched this conversation play out many times. Someone checks the NuGet page and the realization hits: TuesPechkin's last release was 2.1.1 in January 2015, and the wkhtmltopdf binary it wraps had its upstream repository archived on January 2, 2023, with the packaging repository archived on August 28, 2023. The conversation shifts from "someday" to "this sprint."</p>
+
+<p>TuesPechkin ships under a Creative Commons Attribution 3.0 license and has had no activity since 2015. .NET 6+ compatibility is not officially maintained, and the wkhtmltopdf maintainers have stated the project will not receive further security fixes. CVE-2022-35583 (CVSS 9.8 SSRF) is unpatched and will remain so. If you are building on a modern stack, that is a real concern.</p>
+
+<p>The bundled wkhtmltopdf binary is platform-specific, with separate Win32, Win64, Linux, and macOS deployments wired through TuesPechkin's <code>IDeployment</code> chain. Docker on Linux works only with the matching native build, and cross-platform deployment requires careful binary management. If your team is moving toward containerized deployments, this is a real friction point.</p>
+
+<p>The rendering engine is Qt WebKit 4.8, which predates modern Chrome. Flexbox, CSS Grid, and custom properties do not render correctly. Your browser preview and your PDF output will not match.</p>
+
+<p>Concurrency is a recurring pain point. The standard TuesPechkin pattern wires <code>StandardConverter</code> through <code>RemotingToolset&lt;PdfToolset&gt;</code> so the native wkhtmltopdf binary runs in an isolated AppDomain. That isolation is what keeps the process alive, but it makes the converter awkward to share across threads, and most production setups end up with a singleton converter funneling requests through one render pipeline.</p>
+
+<p>TuesPechkin has no native PDF manipulation. Merge, watermark, security, and text extraction all require additional libraries alongside TuesPechkin. That means more dependencies, more maintenance, and more surface area for breaks.</p>
+
+<p>The wkhtmltopdf binary adds roughly 14MB to your Docker image or deployment artifact. Cookies, session tokens, and authenticated page rendering are complex with wkhtmltopdf. And while wkhtmltopdf executes JavaScript, the older engine means complex JS-rendered content may not render correctly.</p>
+
+<h2>What Does the Migration Effort Actually Look Like?</h2>
+
+<p>I want to give you a realistic picture of the effort involved. Here is a feature-by-feature breakdown so you can scope the work before writing any code.</p>
+
+<h3>Effort by Feature</h3>
+
+<ul>
+<li><strong>HTML string to PDF — Low.</strong> <code>IConverter.Convert(doc)</code> in TuesPechkin becomes <code>ChromePdfRenderer.RenderHtmlAsPdf()</code>.</li>
+<li><strong>URL to PDF — Low.</strong> <code>ObjectSettings.PageUrl = url</code> becomes <code>renderer.RenderUrlAsPdf(url)</code>.</li>
+<li><strong>HTML file to PDF — Low.</strong> <code>ObjectSettings.PageUrl = "file:///..."</code> becomes <code>renderer.RenderHtmlFileAsPdf(path)</code>.</li>
+<li><strong>Save to bytes — Low.</strong> <code>Convert()</code> returns <code>byte[]</code>; IronPDF exposes the same via <code>pdf.BinaryData</code>.</li>
+<li><strong>Save to file — Low.</strong> <code>File.WriteAllBytes(path, bytes)</code> becomes <code>pdf.SaveAs(path)</code>.</li>
+<li><strong>Page size — Low.</strong> <code>GlobalSettings.PaperSize</code> becomes <code>RenderingOptions.PaperSize</code>.</li>
+<li><strong>Margins — Low.</strong> <code>GlobalSettings.Margins.*</code> becomes <code>RenderingOptions.MarginTop/Bottom/Left/Right</code>.</li>
+<li><strong>Headers/footers — Medium.</strong> <code>HeaderSettings</code>/<code>FooterSettings</code> becomes <code>RenderingOptions.HtmlHeader</code>/<code>HtmlFooter</code>, with token syntax changing from <code>[page]</code> to <code>{page}</code>.</li>
+<li><strong>Merge PDFs — Medium.</strong> Not native in TuesPechkin; IronPDF provides <code>PdfDocument.Merge()</code>.</li>
+<li><strong>Watermark — Medium.</strong> Not native in TuesPechkin; IronPDF provides <code>TextStamper</code> and <code>ImageStamper</code>.</li>
+<li><strong>Password protection — Medium.</strong> Not native in TuesPechkin; IronPDF provides <code>pdf.SecuritySettings</code>.</li>
+<li><strong>Text extraction — Medium.</strong> Not native in TuesPechkin; IronPDF provides <code>pdf.ExtractAllText()</code>.</li>
+</ul>
+
+<h2>How Do You Decide Whether to Migrate?</h2>
+
+<p>Not every team should migrate on the same timeline. Here is a decision matrix I use when advising teams.</p>
+
+<ul>
+<li>If .NET 6+ compatibility is the primary concern, switch &mdash; TuesPechkin has no official .NET 6+ support.</li>
+<li>If Docker or Linux deployment is needed, switch &mdash; wkhtmltopdf requires a platform-specific native binary and the Windows-embedded build will not run there.</li>
+<li>If modern CSS (flex, grid, custom properties) is required, switch &mdash; Chromium handles all of it; Qt WebKit 4.8 does not.</li>
+<li>If you need basic HTML-to-PDF on Windows only and wkhtmltopdf is working well, evaluate migration cost. The upstream-abandonment caveat still applies, but your timeline is more flexible.</li>
+</ul>
+
+<h3>Finding TuesPechkin References in Your Codebase</h3>
+
+<p>Before touching any code, run these commands and document the results. The output determines your scope and risk.</p>
+
+<pre><code># Find all TuesPechkin API usage files
+rg -l "TuesPechkin|IConverter|HtmlToPdfDocument|ObjectSettings|GlobalSettings" --type cs
+
+# Show line-level usage for review
+rg "TuesPechkin|IConverter|HtmlToPdfDocument" --type cs -n
+
+# Find the converter factory / singleton pattern
+rg "StandardConverter|ThreadSafeConverter|MultiplexingConverter" --type cs -n
+
+# Find the deployment chain that loads the native wkhtmltopdf binary
+rg "RemotingToolset|Win64EmbeddedDeployment|Win32EmbeddedDeployment|TempFolderDeployment" --type cs -n
+
+# Find URL rendering vs HTML string rendering
+rg "ObjectSettings.*PageUrl\s*=|HtmlText\s*=" --type cs -n
+
+# Count usage density
+rg "IConverter|HtmlToPdfDocument|ObjectSettings" --type cs | wc -l
+</code></pre>
+
+<h3>Removing TuesPechkin and Installing IronPDF</h3>
+
+<pre><code># Remove TuesPechkin packages
+dotnet remove package TuesPechkin
+dotnet remove package TuesPechkin.Wkhtmltox.Win64
+dotnet remove package TuesPechkin.Wkhtmltox.Win32
+
+# Install IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+
+# Verify packages
+dotnet list package | grep -i "tuespechkin\|wkhtmltox\|ironpdf"
+</code></pre>
+
+<p>If you manually copied <code>wkhtmltopdf.exe</code> into your project or Docker image, remove those references too. IronPDF ships its own Chromium binaries. The <a href="https://ironpdf.com/how-to/license-keys/">IronPDF license configuration guide</a> covers the install pattern.</p>
+
+<h3>License Configuration</h3>
+
+<p><strong>Before (TuesPechkin):</strong></p>
+
+<pre><code>using TuesPechkin;
+
+// TuesPechkin has no license key, but requires a converter wired through
+// a deployment chain so the native wkhtmltopdf binary can be located.
+var converter = new StandardConverter(
+    new RemotingToolset&lt;PdfToolset&gt;(
+        new Win64EmbeddedDeployment(
+            new TempFolderDeployment())));
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+// https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+// No converter, toolset, or deployment chain needed.
+</code></pre>
+
+<h3>Namespace Imports</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>using TuesPechkin;
+using System.IO;
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+</code></pre>
+
+<h3>Basic HTML-to-PDF Conversion</h3>
+
+<p><strong>Before (TuesPechkin):</strong></p>
+
+<pre><code>using TuesPechkin;
+using System;
+using System.Drawing.Printing;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        var converter = new StandardConverter(
+            new RemotingToolset&lt;PdfToolset&gt;(
+                new Win64EmbeddedDeployment(
+                    new TempFolderDeployment())));
+
+        var doc = new HtmlToPdfDocument
+        {
+            GlobalSettings = { PaperSize = PaperKind.A4 },
+            Objects =
+            {
+                new ObjectSettings
+                {
+                    HtmlText = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
+                    WebSettings = { DefaultEncoding = "utf-8" },
+                }
+            }
+        };
+
+        byte[] pdfBytes = converter.Convert(doc);
+        File.WriteAllBytes("output.pdf", pdfBytes);
+        Console.WriteLine("Saved output.pdf");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+
+var pdf = renderer.RenderHtmlAsPdf("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+pdf.SaveAs("output.pdf");
+
+Console.WriteLine($"Saved output.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h2>What Does Each Before/After Migration Look Like in Practice?</h2>
+
+<p>Let me walk through four complete migration examples so you can see exactly what changes in real code.</p>
+
+<h3>HTML String to PDF with Full Options</h3>
+
+<p><strong>Before (TuesPechkin):</strong></p>
+
+<pre><code>using TuesPechkin;
+using System;
+using System.Drawing.Printing;
+using System.IO;
+
+class HtmlToPdfBefore
+{
+    static void Main()
+    {
+        var converter = new StandardConverter(
+            new RemotingToolset&lt;PdfToolset&gt;(
+                new Win64EmbeddedDeployment(new TempFolderDeployment())));
+
+        var doc = new HtmlToPdfDocument
+        {
+            GlobalSettings =
+            {
+                PaperSize = PaperKind.A4,
+                Margins = new MarginSettings
+                {
+                    Unit = Unit.Millimeters,
+                    Top = 20, Bottom = 20, Left = 25, Right = 25,
+                },
+            },
+            Objects =
+            {
+                new ObjectSettings
+                {
+                    HtmlText = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #9901&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
+                    WebSettings = { DefaultEncoding = "utf-8" },
+                }
+            }
+        };
+
+        byte[] pdfBytes = converter.Convert(doc);
+        File.WriteAllBytes("invoice.pdf", pdfBytes);
+        Console.WriteLine($"Saved invoice.pdf ({pdfBytes.Length:N0} bytes)");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 20;
+renderer.RenderingOptions.MarginBottom = 20;
+renderer.RenderingOptions.MarginLeft = 25;
+renderer.RenderingOptions.MarginRight = 25;
+
+var pdf = renderer.RenderHtmlAsPdf("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #9901&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+pdf.SaveAs("invoice.pdf");
+Console.WriteLine($"Saved invoice.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h3>Merge PDFs</h3>
+
+<p><strong>Before (TuesPechkin &mdash; not native; secondary library required):</strong></p>
+
+<pre><code>using TuesPechkin;
+using System;
+using System.Collections.Generic;
+using System.IO;
+
+class MergeBefore
+{
+    static void Main()
+    {
+        var converter = new StandardConverter(
+            new RemotingToolset&lt;PdfToolset&gt;(
+                new Win64EmbeddedDeployment(new TempFolderDeployment())));
+
+        var htmlSections = new[] {
+            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section A&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
+            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section B&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
+        };
+        var pdfFiles = new List&lt;string&gt;();
+
+        for (int i = 0; i &lt; htmlSections.Length; i++)
+        {
+            var doc = new HtmlToPdfDocument
+            {
+                Objects = { new ObjectSettings { HtmlText = htmlSections[i] } }
+            };
+            byte[] bytes = converter.Convert(doc);
+
+            var outPath = $"section{i + 1}.pdf";
+            File.WriteAllBytes(outPath, bytes);
+            pdfFiles.Add(outPath);
+        }
+
+        // Merge requires a secondary library &mdash; TuesPechkin has no merge.
+        Console.WriteLine("Merge requires secondary library");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+
+var sectionA = renderer.RenderHtmlAsPdf("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section A&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+var sectionB = renderer.RenderHtmlAsPdf("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section B&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+
+// https://ironpdf.com/how-to/merge-or-split-pdfs/
+var merged = PdfDocument.Merge(sectionA, sectionB);
+merged.SaveAs("merged.pdf");
+Console.WriteLine($"Merged: {merged.PageCount} pages");
+</code></pre>
+
+<h3>Watermark</h3>
+
+<p><strong>Before (TuesPechkin &mdash; not native; secondary library required):</strong></p>
+
+<pre><code>using TuesPechkin;
+using System;
+using System.IO;
+
+class WatermarkBefore
+{
+    static void Main()
+    {
+        var converter = new StandardConverter(
+            new RemotingToolset&lt;PdfToolset&gt;(
+                new Win64EmbeddedDeployment(new TempFolderDeployment())));
+
+        var doc = new HtmlToPdfDocument
+        {
+            Objects = { new ObjectSettings
+                { HtmlText = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;" } }
+        };
+        byte[] pdfBytes = converter.Convert(doc);
+        File.WriteAllBytes("report.pdf", pdfBytes);
+
+        // Watermark requires a secondary library &mdash; TuesPechkin cannot do this.
+        Console.WriteLine("Watermark requires secondary library with TuesPechkin");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+
+// https://ironpdf.com/how-to/custom-watermark/
+var watermark = new TextStamper
+{
+    Text = "DRAFT",
+    FontFamily = "Arial",
+    FontSize = 48,
+    FontColor = IronSoftware.Drawing.Color.Gray,
+    Opacity = 30,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs("watermarked.pdf");
+</code></pre>
+
+<h3>Password Protection</h3>
+
+<p><strong>Before (TuesPechkin &mdash; not native):</strong></p>
+
+<pre><code>using TuesPechkin;
+using System;
+using System.IO;
+
+class PasswordBefore
+{
+    static void Main()
+    {
+        var converter = new StandardConverter(
+            new RemotingToolset&lt;PdfToolset&gt;(
+                new Win64EmbeddedDeployment(new TempFolderDeployment())));
+
+        var doc = new HtmlToPdfDocument
+        {
+            Objects = { new ObjectSettings
+                { HtmlText = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Protected Doc&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;" } }
+        };
+        byte[] pdfBytes = converter.Convert(doc);
+        File.WriteAllBytes("protected.pdf", pdfBytes);
+
+        // Password protection requires a secondary library &mdash; TuesPechkin does not support it.
+        Console.WriteLine("Password protection requires secondary library with TuesPechkin");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Protected Doc&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+
+// https://ironpdf.com/how-to/pdf-permissions-passwords/
+pdf.SecuritySettings.UserPassword = "open123";
+pdf.SecuritySettings.OwnerPassword = "admin456";
+
+pdf.SaveAs("secured.pdf");
+</code></pre>
+
+<h2>How Do the Two Libraries Compare Feature by Feature?</h2>
+
+<p>Here are the full mapping tables I use when planning a TuesPechkin migration. These cover the overall comparison, namespaces, core classes, document loading, page operations, and merge/split.</p>
+
+<h3>Overall Comparison</h3>
+
+<ul>
+<li><strong>Focus.</strong> TuesPechkin is an HTML-to-PDF wrapper around wkhtmltopdf; IronPDF covers HTML-to-PDF plus PDF manipulation in one library.</li>
+<li><strong>Pricing.</strong> TuesPechkin is licensed under Creative Commons Attribution 3.0 and the bundled wkhtmltopdf binary ships under LGPL; IronPDF is commercially licensed &mdash; check current pricing at ironsoftware.com.</li>
+<li><strong>API style.</strong> TuesPechkin uses <code>IConverter.Convert(document)</code> with <code>HtmlToPdfDocument</code> + settings objects; IronPDF uses <code>ChromePdfRenderer</code> with a single <code>RenderingOptions</code> bag.</li>
+<li><strong>Learning curve.</strong> TuesPechkin is low for basic use, but the deployment chain and remoting toolset add ceremony; IronPDF is low for any .NET developer with no native binary management to learn.</li>
+<li><strong>HTML rendering.</strong> TuesPechkin renders with Qt WebKit 4.8 (the pre-Chrome era); IronPDF renders with embedded Chromium.</li>
+<li><strong>Page indexing.</strong> wkhtmltopdf token syntax is 1-based in headers/footers; IronPDF page APIs are 0-based.</li>
+<li><strong>Concurrency.</strong> The <code>RemotingToolset&lt;PdfToolset&gt;</code> + <code>StandardConverter</code> pattern is typically run as a singleton funneling renders through one AppDomain. IronPDF supports concurrent <code>ChromePdfRenderer</code> usage; verify guidance for your target version.</li>
+<li><strong>Namespace.</strong> <code>TuesPechkin</code> versus <code>IronPdf</code>.</li>
+</ul>
+
+<h3>Namespace Mapping</h3>
+
+<ul>
+<li><code>TuesPechkin</code> &rarr; <code>IronPdf</code> &mdash; core namespace</li>
+<li>No equivalent &rarr; <code>IronPdf.Rendering</code> &mdash; rendering configuration types</li>
+<li>No equivalent &rarr; <code>IronPdf.Editing</code> &mdash; watermark and stamp types</li>
+</ul>
+
+<h3>Core Class Mapping</h3>
+
+<ul>
+<li><code>IConverter</code> / <code>StandardConverter</code> / <code>ThreadSafeConverter</code> &rarr; <code>ChromePdfRenderer</code> &mdash; primary rendering class</li>
+<li><code>HtmlToPdfDocument</code> &rarr; no equivalent &mdash; the HTML string itself is the input</li>
+<li><code>GlobalSettings</code> &rarr; <code>ChromePdfRenderOptions</code> &mdash; page size, margins, global settings</li>
+<li><code>ObjectSettings</code> &rarr; <code>ChromePdfRenderOptions</code> plus the HTML input parameter &mdash; per-document settings</li>
+<li><code>RemotingToolset&lt;PdfToolset&gt;</code> / <code>Win64EmbeddedDeployment</code> / <code>TempFolderDeployment</code> &rarr; no equivalent &mdash; IronPDF ships its own Chromium and needs no native deployment chain</li>
+</ul>
+
+<h3>Document Loading Methods</h3>
+
+<ul>
+<li><strong>HTML string.</strong> <code>ObjectSettings.HtmlText = html</code> in TuesPechkin; <code>renderer.RenderHtmlAsPdf(html)</code> in IronPDF.</li>
+<li><strong>URL.</strong> <code>ObjectSettings.PageUrl = url</code> in TuesPechkin; <code>renderer.RenderUrlAsPdf(url)</code> in IronPDF.</li>
+<li><strong>HTML file.</strong> <code>ObjectSettings.PageUrl = "file:///path"</code> in TuesPechkin; <code>renderer.RenderHtmlFileAsPdf(path)</code> in IronPDF.</li>
+<li><strong>Get bytes.</strong> <code>converter.Convert(doc)</code> returns <code>byte[]</code> in TuesPechkin; <code>pdf.BinaryData</code> in IronPDF.</li>
+</ul>
+
+<h3>Page Operations</h3>
+
+<ul>
+<li><strong>Page count.</strong> Not returned from TuesPechkin's <code>Convert()</code>; IronPDF exposes <code>pdf.PageCount</code>.</li>
+<li><strong>Remove page.</strong> Not applicable in TuesPechkin (no PDF manipulation); IronPDF uses <code>pdf.RemovePages(index)</code>.</li>
+<li><strong>Extract text.</strong> Not applicable in TuesPechkin; IronPDF uses <code>pdf.ExtractAllText()</code>.</li>
+<li><strong>Rotate.</strong> wkhtmltopdf relies on CSS <code>@page</code> or its own orientation setting; IronPDF exposes page rotation via the <code>RenderingOptions.PaperOrientation</code> setting and per-page rotation APIs &mdash; verify the exact entry point against current IronPDF docs.</li>
+</ul>
+
+<h3>Merge/Split Operations</h3>
+
+<ul>
+<li><strong>Merge.</strong> Not native in TuesPechkin (a secondary library is required); IronPDF uses <code>PdfDocument.Merge(doc1, doc2)</code>.</li>
+<li><strong>Split.</strong> Not native in TuesPechkin; IronPDF supports it via <code>CopyPages</code> &mdash; see the <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge/split guide</a>.</li>
+</ul>
+
+<h2>What Are the Frequently Asked Questions?</h2>
+
+<p>I get these four questions on almost every TuesPechkin migration I advise on. Here they are with direct answers.</p>
+
+<h3>Will My PDFs Look Exactly the Same After Migration?</h3>
+
+<p>TuesPechkin uses Qt WebKit 4.8 via wkhtmltopdf. IronPDF uses Chromium. For most templates this produces visually similar output, but not identical. Modern CSS features like flex and grid will actually render better with IronPDF since Qt WebKit did not support them correctly.</p>
+
+<p>IronPDF uses 0-based page indexing while wkhtmltopdf uses 1-based indexing in some contexts. If you are feeding output into other tools, verify the consumer side too. Run a visual comparison across all your HTML templates before cutting over.</p>
+
+<h3>How Do I Handle the Converter and Deployment Boilerplate Removal?</h3>
+
+<p>Count your converter and deployment wrappers before starting. Each one is a migration site. Every <code>StandardConverter</code>, every <code>ThreadSafeConverter</code>, every <code>RemotingToolset</code>, every <code>Win64EmbeddedDeployment</code> / <code>Win32EmbeddedDeployment</code>, and any singleton or <code>ThreadLocal</code> wrapper around the converter gets removed entirely. IronPDF does not require any of this infrastructure.</p>
+
+<pre><code># TuesPechkin: count these and remove all of them
+rg "StandardConverter|ThreadSafeConverter|MultiplexingConverter" --type cs -n
+rg "RemotingToolset|Win64EmbeddedDeployment|Win32EmbeddedDeployment|TempFolderDeployment" --type cs -n
+rg "ThreadLocal&lt;IConverter&gt;|SetApartmentState" --type cs -n
+</code></pre>
+
+<h3>What About Header and Footer Token Migration?</h3>
+
+<p>wkhtmltopdf and TuesPechkin use <code>[page]</code> and <code>[topage]</code> as header/footer tokens. IronPDF uses <code>{page}</code> and <code>{total-pages}</code>. Any header or footer HTML that referenced the old tokens needs updating. This is a find-and-replace operation, but easy to miss if you do not audit systematically.</p>
+
+<pre><code>// wkhtmltopdf/TuesPechkin footer tokens:
+// "Page [page] of [topage]"
+
+// IronPDF footer tokens:
+// https://ironpdf.com/how-to/headers-and-footers/
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    HtmlFragment = "&lt;div style='font-size:9px; text-align:right; padding: 0 20px'&gt;Page {page} of {total-pages}&lt;/div&gt;",
+};
+</code></pre>
+
+<h3>Can I Remove Secondary PDF Libraries After Migration?</h3>
+
+<p>TuesPechkin commonly accumulates secondary libraries for missing features like merge, watermark, and security. After IronPDF covers those natively, you can remove them. Run <code>dotnet list package | grep -i "pdfsharp\|itextsharp\|pdfdocument\|dinkto"</code> to find candidates. Verify each library was only used to supplement TuesPechkin before removing it.</p>
+
+<h2>What Is the Decision Framework for Your Team?</h2>
+
+<p>Here is the migration framework I recommend. Work through it in order: pre-migration assessment, code migration, testing, and post-migration cleanup.</p>
+
+<h3>Pre-Migration</h3>
+
+<p>Find all TuesPechkin usages with <code>rg -l "TuesPechkin" --type cs</code>. Count the converter and deployment-chain wrappers (<code>StandardConverter</code>, <code>ThreadSafeConverter</code>, <code>RemotingToolset</code>, <code>Win64EmbeddedDeployment</code>) to understand scope. Check whether your secondary PDF libraries (PdfSharp, iTextSharp) are only there to supplement TuesPechkin and can be removed. Inventory all HTML templates for render comparison testing. Verify <a href="https://ironpdf.com/how-to/license-keys/">IronPDF target framework compatibility</a>. Note all <code>GlobalSettings</code> and <code>ObjectSettings</code> properties currently in use.</p>
+
+<h3>Code Migration</h3>
+
+<p>Remove the <code>TuesPechkin</code>, <code>TuesPechkin.Wkhtmltox.Win64</code>, and <code>TuesPechkin.Wkhtmltox.Win32</code> NuGet packages. Remove wkhtmltopdf binaries from Docker images and deployment scripts. Install the <code>IronPdf</code> NuGet package. Replace <code>using TuesPechkin</code> with <code>using IronPdf</code>. Remove the entire converter, toolset, and deployment chain (<code>StandardConverter</code> / <code>ThreadSafeConverter</code> + <code>RemotingToolset&lt;PdfToolset&gt;</code> + <code>Win64EmbeddedDeployment</code> + <code>TempFolderDeployment</code>). Replace <code>HtmlToPdfDocument</code> + <code>GlobalSettings</code> + <code>ObjectSettings</code> with <code>ChromePdfRenderOptions</code>. Replace <code>converter.Convert(doc)</code> with <code>renderer.RenderHtmlAsPdf(html)</code>. Replace <code>File.WriteAllBytes(path, pdfBytes)</code> with <code>pdf.SaveAs(path)</code>. Update header/footer tokens from <code>[page]</code>/<code>[topage]</code> to <code>{page}</code>/<code>{total-pages}</code>. Remove secondary merge/watermark/encrypt libraries. Add your IronPDF license key to CI/CD secrets.</p>
+
+<h3>Testing</h3>
+
+<p>Render each HTML template and visually compare TuesPechkin vs IronPDF output. Check that modern CSS (flex, grid) now renders correctly. Verify page size and margins match reference. Test headers and footers, paying attention to the page number token format difference. Run concurrent rendering tests at 10/50/100 simultaneous requests so you can confirm IronPDF handles the load that previously had to funnel through one TuesPechkin singleton. Test merge output for correct page order. Test watermark for opacity, position, and text. Test password protection with correct and incorrect credentials. Test in Docker on Linux. Verify Docker image builds without the wkhtmltopdf binary.</p>
+
+<h3>Post-Migration</h3>
+
+<p>Remove <code>TuesPechkin</code> NuGet package and all related packages. Remove the converter, toolset, and deployment-chain singleton infrastructure. Remove wkhtmltopdf binary from Docker image copy steps. Remove secondary PDF libraries now replaced by IronPDF. Update Dockerfile with IronPDF Linux system dependencies. Verify deployment artifact size reduced. Archive wkhtmltopdf-specific header/footer HTML files for reference. Monitor memory usage in the first production week.</p>
+
+<p>The immediate wins after migration &mdash; Linux/Docker support without managing native binaries, modern CSS rendering, and concurrent rendering without funneling through one converter &mdash; are measurable from day one.</p>

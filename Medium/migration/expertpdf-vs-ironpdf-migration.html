@@ -1,0 +1,333 @@
+<h1>Migrating from ExpertPdf to IronPDF: Solving Common Migration Pain Points</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Migrate from ExpertPdf to IronPDF?</h2>
+
+<p>Performance regressions are usually what surfaces ExpertPdf as a migration candidate. Teams running batch document generation at scale start noticing memory pressure, render-time variance, or output fidelity issues on complex templates. The question isn't whether ExpertPdf can produce a PDF -- it can -- but whether it can hold up under your specific workload profile.</p>
+
+<p>I built IronPDF on Chromium's rendering engine specifically to address the pain points that older HTML engines create. Here are the key reasons teams migrate:</p>
+
+<p><strong>CSS rendering fidelity</strong> -- ExpertPdf historically ships a Trident (Internet Explorer) engine plus a WebKit2 engine added in v12.2. Modern CSS (Grid, Flexbox, CSS variables, custom fonts via @font-face) renders best on the WebKit2 path and can vary on the Trident path. IronPDF runs full CSS3 through a current Chromium build.</p>
+
+<p><strong>JavaScript execution</strong> -- The Trident and WebKit2 engines lag current Chromium, so newer ES features and JS-generated DOM may not render the way they do in a current browser.</p>
+
+<p><strong>Linux deployment</strong> -- Container environments may need non-obvious packages for ExpertPdf's native dependencies.</p>
+
+<p><strong>Performance at scale</strong> -- Under concurrent load, rendering throughput and memory behavior are worth profiling.</p>
+
+<p><strong>Fragmented product suite</strong> -- ExpertPdf splits HTML-to-PDF, merging, security, splitting, and PDF-to-image across separate packages (<code>ExpertPdfHtmlToPdf</code> / <code>ExpertPdf.HtmlToPdf.NetCore</code>, <code>ExpertPdf.MergePdf</code>, <code>ExpertPdf.PdfSecurity</code>, <code>ExpertPdf.SplitPdf</code>, <code>ExpertPdf.PdfToImage</code>, <code>ExpertPdf.PdfCreator</code>), each licensed separately. IronPDF ships everything in one NuGet.</p>
+
+<p><strong>Async rendering</strong> -- ExpertPdf's public surface is primarily synchronous, which is awkward inside async ASP.NET pipelines. IronPDF exposes <code>RenderHtmlAsPdfAsync</code> and friends across the board.</p>
+
+<p><strong>Thread safety under concurrency</strong> -- ExpertPdf's docs do not document <code>PdfConverter</code> as thread-safe, so a converter-per-request pattern is the safe default. In IronPDF, <code>ChromePdfRenderer</code> is reusable across threads.</p>
+
+<p><strong>Debug experience</strong> -- Older-engine rendering failures can be opaque. A current Chromium engine tends to produce more actionable output.</p>
+
+<h2>What Does a Side-by-Side Comparison Look Like?</h2>
+
+<ul>
+<li><strong>Vendor.</strong> ExpertPdf is published by Outside Software Inc.; IronPDF is published by Iron Software.</li>
+<li><strong>Focus.</strong> Both libraries center on HTML and URL to PDF. ExpertPdf uses Trident plus a WebKit2 engine; IronPDF uses a current Chromium build.</li>
+<li><strong>Pricing.</strong> Both are commercial. ExpertPdf's order page is currently behind a vendor contact form, and the suite is sold per-component across several NuGet packages. IronPDF licenses the full feature set as one package -- check ironpdf.com/pricing for current rates.</li>
+<li><strong>API style.</strong> ExpertPdf exposes a <code>PdfConverter</code> with a <code>PdfDocumentOptions</code> settings object; IronPDF exposes a <code>ChromePdfRenderer</code> with a <code>RenderingOptions</code> object.</li>
+<li><strong>Learning curve.</strong> Low on both sides for basic HTML-to-PDF flows.</li>
+<li><strong>HTML rendering.</strong> ExpertPdf relies on Trident or WebKit2; IronPDF runs full CSS3 and JavaScript through current Chromium.</li>
+<li><strong>Target frameworks.</strong> The <code>.NetCore</code> ExpertPdf package targets .NET Standard 2.0 / .NET Framework 4.6.1, so it runs on .NET 5-9 without native multi-target builds. IronPDF ships native multi-targeted builds for modern .NET.</li>
+<li><strong>Page indexing.</strong> Both libraries are 0-based, so loop logic transfers without an off-by-one shift.</li>
+<li><strong>Thread safety.</strong> ExpertPdf does not document <code>PdfConverter</code> as thread-safe; the safe pattern is one converter per request. <code>ChromePdfRenderer</code> is reusable across threads.</li>
+<li><strong>Namespace.</strong> <code>ExpertPdf.HtmlToPdf</code> (plus <code>ExpertPdf.MergePdf</code>, <code>ExpertPdf.PdfSecurity</code>, <code>ExpertPdf.SplitPdf</code>, <code>ExpertPdf.PdfToImage</code>, <code>ExpertPdf.PdfCreator</code>) collapses to a single <code>IronPdf</code> namespace.</li>
+</ul>
+
+<h2>Problem 1: How Do I Map ExpertPdf Classes and Methods to IronPDF?</h2>
+
+<p>The class mapping is straightforward. ExpertPdf's converter pattern maps directly to IronPDF's renderer pattern. Core class equivalences:</p>
+
+<ul>
+<li><code>PdfConverter</code> &rarr; <code>ChromePdfRenderer</code> -- main rendering class</li>
+<li><code>PdfDocumentOptions</code> &rarr; <code>ChromePdfRenderOptions</code> (accessed via <code>renderer.RenderingOptions</code>) -- per-render settings</li>
+<li>ExpertPdf's converter output (<code>byte[]</code>) &rarr; <code>IronPdf.PdfDocument</code> -- the post-render document object</li>
+<li><code>PdfPageSize</code> &rarr; <code>IronPdf.Rendering.PdfPaperSize</code> -- page size enum</li>
+<li><code>PdfPageOrientation</code> &rarr; <code>PdfPaperOrientation</code> -- orientation enum</li>
+<li><code>PdfHeaderOptions</code> / <code>PdfFooterOptions</code> &rarr; <code>HtmlHeaderFooter</code> or <code>TextHeaderFooter</code> -- header/footer configuration</li>
+<li><code>MergePdf</code> (separate <code>ExpertPdf.MergePdf</code> package) &rarr; <code>PdfDocument.Merge(...)</code> -- merging built into the core IronPDF NuGet</li>
+<li><code>PdfSecurityOptions</code> (separate <code>ExpertPdf.PdfSecurity</code> package) &rarr; <code>pdf.SecuritySettings</code> on the rendered <code>PdfDocument</code></li>
+</ul>
+
+<p>And here is how the core operations map:</p>
+
+<ul>
+<li><strong>Render HTML string.</strong> <code>pdfConverter.GetPdfBytesFromHtmlString(html)</code> &rarr; <code>renderer.RenderHtmlAsPdf(html)</code>.</li>
+<li><strong>Render URL.</strong> <code>pdfConverter.GetPdfBytesFromUrl(url)</code> &rarr; <code>renderer.RenderUrlAsPdf(url)</code>.</li>
+<li><strong>Render HTML file.</strong> <code>pdfConverter.GetPdfBytesFromHtmlFile(path)</code> &rarr; <code>renderer.RenderHtmlFileAsPdf(path)</code>.</li>
+<li><strong>Save directly to file.</strong> <code>pdfConverter.SavePdfFromUrlToFile(url, path)</code> &rarr; <code>renderer.RenderUrlAsPdf(url).SaveAs(path)</code> (two-step in IronPDF).</li>
+<li><strong>Merge PDFs.</strong> <code>mergePdf.AppendPDFFile(...)</code> + <code>SaveMergedPDFToFile(...)</code> &rarr; <code>PdfDocument.Merge(a, b)</code>.</li>
+<li><strong>Split / extract pages.</strong> Use <code>pdf.CopyPages(start, end)</code>.</li>
+<li><strong>Page count.</strong> <code>pdf.PageCount</code>.</li>
+<li><strong>Remove pages.</strong> <code>pdf.RemovePages(index)</code>.</li>
+</ul>
+
+<p>One critical difference: ExpertPdf's converter typically returns <code>byte[]</code> directly. IronPDF returns a <code>PdfDocument</code> object from which you can get <code>BinaryData</code> (bytes), save to file, or return as a stream. Update callers that expect raw bytes:</p>
+
+<h3>Updating Callers That Expect byte[]</h3>
+
+<pre><code>// Old pattern -- byte[] from ExpertPdf
+// byte[] pdf = converter.GetPdfBytesFromHtmlString(html);
+// return File(pdf, "application/pdf");
+
+// New pattern -- extract BinaryData from PdfDocument
+using var pdf = renderer.RenderHtmlAsPdf(html);
+return File(pdf.BinaryData, "application/pdf", "document.pdf");
+// PdfDocument is disposed after BinaryData is copied
+</code></pre>
+
+<h2>Problem 2: How Do I Migrate HTML-to-PDF Rendering with Margins and Page Settings?</h2>
+
+<p>This is the most common migration path. The namespace swap is simple, and the rendering options map closely between the two libraries. Here is the complete before/after.</p>
+
+<h3>Step 1: Swap License and Namespace</h3>
+
+<pre><code>// Before
+using ExpertPdf.HtmlToPdf;
+
+// After
+using IronPdf;
+
+// Before (ExpertPdf -- license set per-converter instance)
+// pdfConverter.LicenseKey = "YOUR-LICENSE-KEY";
+
+// After (IronPDF -- set globally once at startup)
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+</code></pre>
+
+<h3>Step 2: Replace the Converter with a Renderer</h3>
+
+<pre><code>// Before (ExpertPdf)
+// PdfConverter pdfConverter = new PdfConverter();
+// pdfConverter.PdfDocumentOptions.PdfPageSize = PdfPageSize.A4;
+// byte[] result = pdfConverter.GetPdfBytesFromHtmlString("&lt;h1&gt;Hello&lt;/h1&gt;");
+// File.WriteAllBytes("output.pdf", result);
+
+// After (IronPDF)
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+var renderer = new ChromePdfRenderer();
+using var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Hello&lt;/h1&gt;");
+pdf.SaveAs("output.pdf");
+</code></pre>
+
+<h3>Full HTML-to-PDF Migration with Styling and Margins</h3>
+
+<pre><code>using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        string html = @"
+            &lt;html&gt;
+            &lt;head&gt;
+                &lt;style&gt;
+                    body { font-family: Arial, sans-serif; }
+                    .report-header { background: #0077cc; color: white; padding: 20px; }
+                    table { width: 100%; border-collapse: collapse; }
+                    td, th { border: 1px solid #ccc; padding: 8px; }
+                &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+                &lt;div class='report-header'&gt;&lt;h1&gt;Sales Report&lt;/h1&gt;&lt;/div&gt;
+                &lt;table&gt;
+                    &lt;tr&gt;&lt;th&gt;Product&lt;/th&gt;&lt;th&gt;Units&lt;/th&gt;&lt;th&gt;Revenue&lt;/th&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;Widget A&lt;/td&gt;&lt;td&gt;1,200&lt;/td&gt;&lt;td&gt;$24,000&lt;/td&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;Widget B&lt;/td&gt;&lt;td&gt;800&lt;/td&gt;&lt;td&gt;$32,000&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+        renderer.RenderingOptions.MarginTop = 15;
+        renderer.RenderingOptions.MarginBottom = 15;
+
+        using var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("sales_report.pdf");
+    }
+}
+</code></pre>
+
+<h2>Problem 3: How Do I Migrate Watermarks, Merge, and Password Protection?</h2>
+
+<p>These are the operations where ExpertPdf and IronPDF diverge the most in API design. Each one in turn.</p>
+
+<h3>Merging PDFs</h3>
+
+<p>ExpertPdf ships merging as a separate <code>ExpertPdf.MergePdf</code> NuGet, which exposes a <code>MergePdf</code> class with <code>AppendPDFFile</code> and <code>SaveMergedPDFToFile</code>. In IronPDF, merging is built into the core package and reduces to a single static call:</p>
+
+<pre><code>using IronPdf;
+
+class MergeSample
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        using var docA = PdfDocument.FromFile("doc_a.pdf");
+        using var docB = PdfDocument.FromFile("doc_b.pdf");
+
+        using var merged = PdfDocument.Merge(docA, docB);
+        merged.SaveAs("merged.pdf");
+    }
+}
+</code></pre>
+
+<h3>Watermarking with the Stamp API</h3>
+
+<p>ExpertPdf typically handles watermarks through header HTML overlays or background images. IronPDF has a dedicated <a href="https://ironpdf.com/how-to/stamp-text-image/">stamp API</a> that gives you precise control:</p>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+class WatermarkSample
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        using var pdf = PdfDocument.FromFile("input.pdf");
+
+        var stamper = new TextStamper
+        {
+            Text = "CONFIDENTIAL",
+            FontSize = 45,
+            Opacity = 30,
+            Rotation = 45,
+            VerticalAlignment = VerticalAlignment.Middle,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+
+        pdf.ApplyStamp(stamper); // all pages
+        pdf.SaveAs("watermarked.pdf");
+    }
+}
+</code></pre>
+
+<h3>Password Protection and Security</h3>
+
+<p>Both libraries support password protection. ExpertPdf exposes it through <code>PdfSecurityOptions</code> in the separate <code>ExpertPdf.PdfSecurity</code> NuGet (<code>UserPassword</code>, <code>OwnerPassword</code>, <code>CanPrint</code>, <code>CanCopyContent</code>, <code>CanEditContent</code>, <code>CanFillFormFields</code>). IronPDF surfaces it as <code>SecuritySettings</code> on the rendered <code>PdfDocument</code> with granular permission enums:</p>
+
+<pre><code>using IronPdf;
+using IronPdf.Security;
+
+class SecuritySample
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        using var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.SecuritySettings.UserPassword = "user123";
+        pdf.SecuritySettings.OwnerPassword = "owner456";
+        pdf.SecuritySettings.AllowUserPrinting = IronPdf.Security.PdfPrintSecurity.FullPrintRights;
+        pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+
+        pdf.SaveAs("secured.pdf");
+    }
+}
+</code></pre>
+
+<h2>How Does Migration Complexity Break Down by Feature?</h2>
+
+<ul>
+<li><strong>HTML string to PDF -- Low.</strong> Direct class swap from <code>PdfConverter</code> to <code>ChromePdfRenderer</code>.</li>
+<li><strong>URL to PDF -- Low.</strong> Both libraries support it; the API names differ.</li>
+<li><strong>HTML file to PDF -- Low.</strong> Path input, similar pattern.</li>
+<li><strong>Rendering options (margins, size) -- Low.</strong> The option objects differ in shape, but property names are mostly similar.</li>
+<li><strong>Text extraction -- Medium.</strong> Confirm the extraction API your ExpertPdf version exposes before mapping it to IronPDF's <code>ExtractAllText()</code>.</li>
+<li><strong>Merge PDFs -- Low.</strong> ExpertPdf needs the separate <code>ExpertPdf.MergePdf</code> package; IronPDF has it built in.</li>
+<li><strong>Split PDFs -- Low.</strong> ExpertPdf ships <code>ExpertPdf.SplitPdf</code> as a separate package; IronPDF uses <code>pdf.CopyPages</code>.</li>
+<li><strong>Watermark -- Medium.</strong> ExpertPdf typically uses HTML overlays; IronPDF has a dedicated stamp API.</li>
+<li><strong>Password / security -- Low.</strong> Both expose security settings; ExpertPdf needs its <code>ExpertPdf.PdfSecurity</code> package, IronPDF does not.</li>
+<li><strong>Headers / footers -- Medium.</strong> ExpertPdf uses <code>&amp;p;</code>/<code>&amp;P;</code> tokens; IronPDF uses <code>{page}</code>/<code>{total-pages}</code> placeholders inside <code>HtmlHeaderFooter</code> or <code>TextHeaderFooter</code>.</li>
+<li><strong>JavaScript rendering -- N/A to Low.</strong> Effectively a new capability in IronPDF for templates that depend on JS-generated DOM.</li>
+</ul>
+
+<h2>How Do I Optimize Performance After Migration?</h2>
+
+<p>The biggest performance win is reusing your <code>ChromePdfRenderer</code> instance. Don't create a new one per request. Here's the pattern I recommend for ASP.NET and worker services:</p>
+
+<h3>Singleton Renderer Pattern</h3>
+
+<pre><code>// One renderer per application -- not per request
+public class DocumentService
+{
+    private static readonly ChromePdfRenderer _renderer = new ChromePdfRenderer();
+
+    public async Task&lt;byte[]&gt; GenerateAsync(string html)
+    {
+        using var pdf = await _renderer.RenderHtmlAsPdfAsync(html);
+        return pdf.BinaryData;
+    }
+}
+</code></pre>
+
+<h3>Cold Start Warm-Up</h3>
+
+<pre><code>// Warm up in IHostedService or Startup
+public async Task StartAsync(CancellationToken _)
+{
+    IronPdf.License.LicenseKey = config["IronPdf:LicenseKey"];
+    using var warmup = await _renderer.RenderHtmlAsPdfAsync("&lt;p&gt;init&lt;/p&gt;");
+    _logger.LogInformation("IronPDF renderer warmed up");
+}
+</code></pre>
+
+<p>After migrating, profile memory for at least 24 hours under production load. Watch Gen 2 GC frequency (large objects from PDF bytes), working set trend (should be stable, not growing), and thread pool queue depth under burst load.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I run IronPDF in Linux containers?</h3>
+
+<p>Yes. IronPDF runs on Linux with Chromium dependencies. One of the reasons teams migrate from ExpertPdf is that container environments may need non-obvious packages for ExpertPdf's native dependencies. With <a href="https://ironpdf.com/">IronPDF</a>, the Chromium runtime is bundled, so Linux deployment is straightforward. Test your container base image to confirm all dependencies resolve.</p>
+
+<p>After deployment, update your Dockerfile if Linux dependencies changed from your ExpertPdf setup.</p>
+
+<h3>Do I need to change every caller that expects byte[] from ExpertPdf?</h3>
+
+<p>Yes, but the change is minimal. ExpertPdf's converter returns <code>byte[]</code> directly. IronPDF returns a <code>PdfDocument</code> object. Access the bytes through <code>pdf.BinaryData</code>. List all methods that return <code>byte[]</code> from ExpertPdf before migrating -- those callers need updating.</p>
+
+<p>The <code>PdfDocument</code> object is disposable, so wrap it in a <code>using</code> statement to ensure proper cleanup.</p>
+
+<h3>Will my CSS-heavy templates render differently after migration?</h3>
+
+<p>They will likely render better. ExpertPdf relies on Trident or WebKit2, both of which lag current browsers, so modern CSS (Grid, Flexbox, CSS variables, custom fonts) may render inconsistently. IronPDF uses a current Chromium with full CSS and JavaScript support. Capture visual screenshots of key templates before migration, then run a visual diff after migration to verify fidelity.</p>
+
+<p>Specifically test CSS Grid, Flexbox, <code>@font-face</code> custom fonts, and <code>@media print</code> rules -- these are the areas where current Chromium diverges most from older engines.</p>
+
+<h3>Is ChromePdfRenderer thread-safe for concurrent use?</h3>
+
+<p>Yes. <code>ChromePdfRenderer</code> is reusable across threads, which is why I recommend the singleton pattern above. ExpertPdf does not document <code>PdfConverter</code> as thread-safe, so the safe pattern there is one converter per request. In IronPDF, a single renderer instance handles <a href="https://ironpdf.com/how-to/async/">parallel rendering</a> safely.</p>
+
+<p>For batch generation, you can run parallel tasks against a single renderer instance without needing a renderer pool.</p>
+
+<h3>How do I benchmark ExpertPdf against IronPDF for my workload?</h3>
+
+<p>Choose templates that represent your actual workload distribution: simple HTML (baseline), CSS-heavy (rendering fidelity and timing), image-heavy (memory and throughput), long documents of 100+ pages (scaling behavior), and complex tables with 1000+ rows (streaming versus in-memory). Run these tests on your own hardware.</p>
+
+<p>Use BenchmarkDotNet for structured measurement. First-render latency with IronPDF will be higher due to Chromium startup, but sustained throughput and memory behavior under concurrent load are what matter for server workloads. Measure both, then decide. Check the <a href="https://ironpdf.com/how-to/rendering-options/">rendering options documentation</a> for tuning parameters.</p>
+
+<h2>When Should You Migrate?</h2>
+
+<p>The ExpertPdf migration is relatively mechanical -- both libraries are HTML-first converters, so the conceptual model transfers directly. Scenarios where I recommend migrating now versus waiting:</p>
+
+<ul>
+<li>If CSS Grid or Flexbox templates render incorrectly today, migrate -- a current Chromium engine will resolve those layout issues.</li>
+<li>If you have simple HTML templates with no CSS complexity, the urgency is lower; migrate when it fits the schedule.</li>
+<li>If you run batch PDF generation and the workload is performance-sensitive, benchmark both libraries on your hardware before deciding.</li>
+<li>If you deploy to Linux or containers and hit rendering issues, plan the migration -- IronPDF bundles a Chromium runtime that targets Linux directly.</li>
+</ul>
+
+<p>The trickiest parts are the options object property mapping and any callers expecting <code>byte[]</code> directly from the conversion call rather than a <code>PdfDocument</code> object. Read the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF HTML-to-PDF documentation</a> rather than guessing property names.</p>
+
+<p>The performance story is worth measuring rather than assuming. First-render latency with IronPDF will be higher due to Chromium startup, but sustained throughput and memory behavior under concurrent load are what matter for server workloads. Run the benchmarks before making claims.</p>

@@ -1,0 +1,558 @@
+<h1>Migrating from PDFreactor to IronPDF: The Decision Guide for .NET Teams</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Consider Migrating from PDFreactor?</h2>
+
+<p>The concurrency problem shows up at scale. The job queue is filling faster than the renderer can drain it, you spin up more application instances, and then you hit the licensing ceiling or discover that the renderer is not safe to share across threads without external coordination. You are now building a rate-limiting wrapper around a PDF library, which is not what you set out to do.</p>
+
+<p>Teams evaluating PDFreactor alternatives commonly encounter these conditions. Not all apply to every version, but I want to walk through them honestly.</p>
+
+<p>Every deployment needs a JRE because PDFreactor has a Java runtime dependency. That increases container base image size and adds a runtime to manage. PDFreactor typically runs as a separate process or service, requiring health checks, startup coordination, and inter-process error handling.</p>
+
+<p>Request queuing to the PDFreactor server introduces latency under load. Scaling requires multiple server instances. The licensing model at scale &mdash; whether concurrent connection or CPU-based &mdash; can become a bottleneck before infrastructure limits do.</p>
+
+<p>Docker and container complexity is real. Java plus PDFreactor server plus your .NET app in one container or a separate sidecar adds orchestration complexity. The .NET-to-PDFreactor HTTP call adds measurable latency per document, especially at high volume.</p>
+
+<p>PDFreactor's CSS Paged Media compliance is high-quality for print-exact typographic work, but that same specificity can require significant HTML and CSS preparation for web-derived content. Cold start time affects warm-up and auto-scaling behavior, and if the PDFreactor service goes down or becomes unresponsive, PDF generation for the entire application stops.</p>
+
+<h3>Comparison Table</h3>
+
+<ul>
+<li><strong>Focus.</strong> PDFreactor targets CSS Paged Media and print-quality HTML-to-PDF; IronPDF covers general HTML-to-PDF plus PDF manipulation across the document lifecycle.</li>
+<li><strong>Pricing.</strong> Both are commercial licenses &mdash; PDFreactor at realobjects.com, IronPDF at ironsoftware.com. Compare at your target volume.</li>
+<li><strong>API style.</strong> PDFreactor's .NET integration is a Web Service client (REST over HTTP) talking to a Java/Jetty service; IronPDF exposes native .NET objects with no external process.</li>
+<li><strong>Learning curve.</strong> PDFreactor is medium &mdash; CSS Paged Media concepts help. IronPDF is low for .NET developers.</li>
+<li><strong>HTML rendering.</strong> PDFreactor implements W3C CSS Paged Media; IronPDF is Chromium-based.</li>
+<li><strong>Page indexing.</strong> IronPDF is 0-based. Audit any page-number arithmetic on the way over.</li>
+<li><strong>Thread safety.</strong> PDFreactor handles concurrency server-side via HTTP requests. Confirm IronPDF's concurrent-instance guidance against the official docs at your concurrency target.</li>
+<li><strong>Namespace.</strong> <code>RealObjects.PDFreactor.Webservice.Client</code> on the way in, <code>IronPdf</code> on the way out.</li>
+</ul>
+
+<h2>What Does the Migration Effort Actually Look Like?</h2>
+
+<p>I want to give you a realistic picture of the effort involved. Here is a feature-by-feature breakdown so you can estimate the work before committing.</p>
+
+<h3>Effort by Feature</h3>
+
+<ul>
+<li><strong>HTML string to PDF &mdash; Low.</strong> <code>PDFreactor.Convert()</code> with <code>config.Document = html</code> maps to <code>ChromePdfRenderer.RenderHtmlAsPdf()</code>.</li>
+<li><strong>URL to PDF &mdash; Low.</strong> <code>config.Document = url</code> maps to <code>ChromePdfRenderer.RenderUrlAsPdf()</code>.</li>
+<li><strong>Save to bytes / file &mdash; Low.</strong> <code>result.Document</code> (byte array) maps to <code>pdf.SaveAs()</code> or <code>pdf.BinaryData</code>.</li>
+<li><strong>Custom page size &mdash; Low.</strong> CSS <code>@page</code> plus <code>config.PageFormat</code> moves to <code>RenderingOptions.PaperSize</code>.</li>
+<li><strong>Headers and footers &mdash; Medium.</strong> CSS Paged Media <code>@page</code> running elements move to <code>RenderingOptions.HtmlHeader</code> / <code>HtmlFooter</code> or <code>TextHeader</code> / <code>TextFooter</code>.</li>
+<li><strong>JavaScript rendering &mdash; Medium.</strong> <code>config.EnableJavaScript</code> maps to <code>RenderingOptions.EnableJavaScript</code>; PDFreactor's <code>JavaScriptSettings.Timeout</code> maps to IronPDF's <code>WaitFor</code> family (RenderDelay, NetworkIdle, JavaScript).</li>
+<li><strong>Merge PDFs &mdash; Medium.</strong> PDFreactor doesn't merge natively in the conversion SDK; IronPDF gives you <code>PdfDocument.Merge()</code> in-process.</li>
+<li><strong>Watermark &mdash; Medium.</strong> PDFreactor uses CSS background or running elements; IronPDF uses <code>TextStamper</code> / <code>ImageStamper</code> applied post-render.</li>
+<li><strong>Password protection &mdash; Medium.</strong> <code>config.Encryption</code> moves to <code>pdf.SecuritySettings</code>.</li>
+<li><strong>Async parallel &mdash; Medium-High.</strong> Parallel HTTP calls to the service become <code>Task.WhenAll</code> over async render methods, in-process.</li>
+<li><strong>CSS Paged Media features &mdash; High.</strong> PDFreactor supports the spec natively; IronPDF is limited to Chromium's CSS print subset.</li>
+<li><strong>Custom hyphenation and typographic spacing &mdash; High.</strong> PDFreactor handles these directly; IronPDF has no direct equivalent &mdash; verify whether your output truly needs these features before committing.</li>
+</ul>
+
+<h2>How Do You Decide Whether to Migrate?</h2>
+
+<p>Not every team should migrate. Here is a decision matrix to help you figure out where you fall.</p>
+
+<ul>
+<li>If you produce <strong>print-exact typographic output</strong> &mdash; books, legal documents with strict CSS Paged Media requirements &mdash; PDFreactor may be better suited; evaluate carefully before switching.</li>
+<li>If your workload is <strong>web-derived content, dashboard output, or reports from HTML templates</strong>, switch &mdash; Chromium fidelity is appropriate and deployment is simpler.</li>
+<li>If you run on <strong>Kubernetes or Docker with throughput requirements</strong>, switch &mdash; no Java sidecar and no inter-process latency.</li>
+<li>If you need <strong>concurrent high-volume rendering under tight licensing constraints</strong>, evaluate IronPDF's licensing model at your target volume before committing.</li>
+</ul>
+
+<h2>How Do You Set Up IronPDF and Replace PDFreactor?</h2>
+
+<p>I will walk you through the core migration. First, find your existing PDFreactor references, then swap the packages, and update your code.</p>
+
+<h3>Finding PDFreactor References in Your Codebase</h3>
+
+<pre><code># Search for PDFreactor API calls
+rg -l "PDFreactor\|RealObjects\|pdfreactor" --type cs
+rg "PDFreactor\|RealObjects" --type cs -n
+
+# Check project files
+grep -r "PDFreactor\|RealObjects" *.csproj **/*.csproj 2&gt;/dev/null
+
+# Find any PDFreactor server config files
+find . -name "pdfreactor*.xml" -o -name "pdfreactor*.json" 2&gt;/dev/null
+
+# Find CSS files that use @page or CSS Paged Media rules
+rg "@page\|prince-\|pdfreactor-" --type css
+</code></pre>
+
+<h3>Remove PDFreactor and Install IronPDF</h3>
+
+<p>PDFreactor is not distributed via NuGet. The .NET integration ships as <code>PDFreactor.dll</code> inside the PDFreactor installer (under <code>clients/netstandard2/bin/</code> or <code>clients/netframework40/bin/</code>), and it talks REST to a separate Java/Jetty PDFreactor Web Service (default port 9423). Removing PDFreactor means deleting the assembly reference from your project and decommissioning that service.</p>
+
+<pre><code># Remove the PDFreactor.dll &lt;Reference&gt; from your .csproj
+# Stop the PDFreactor Web Service (Java/Jetty, default port 9423)
+#   Windows: net stop PDFreactor
+#   Linux:   sudo systemctl stop pdfreactor
+#   Docker:  docker stop &lt;pdfreactor-container&gt;
+
+# Install IronPDF
+dotnet add package IronPdf
+dotnet restore
+</code></pre>
+
+<h3>License Configuration</h3>
+
+<pre><code>using IronPdf;
+
+// Set before any IronPDF call — https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+</code></pre>
+
+<h3>Namespace Swap</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>using RealObjects.PDFreactor.Webservice.Client;
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+</code></pre>
+
+<h3>Basic HTML-to-PDF</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>using RealObjects.PDFreactor.Webservice.Client;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        // Default service URL is http://localhost:9423/service/rest
+        PDFreactor pdfReactor = new PDFreactor();
+
+        Configuration config = new Configuration();
+        config.Document = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
+
+        Result result = pdfReactor.Convert(config);
+        File.WriteAllBytes("output.pdf", result.Document);
+    }
+}
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+// No external service required — renders locally
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+pdf.SaveAs("output.pdf");
+
+Console.WriteLine($"Saved output.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h2>What Does a Full HTML String to PDF Migration Look Like?</h2>
+
+<p>Let me show you the complete before and after for the most common operation teams need to migrate.</p>
+
+<h3>HTML String to PDF &mdash; Before</h3>
+
+<pre><code>using RealObjects.PDFreactor.Webservice.Client;
+using System.IO;
+
+class HtmlToPdfBefore
+{
+    static void Main()
+    {
+        PDFreactor pdfReactor = new PDFreactor();
+
+        Configuration config = new Configuration();
+        config.Document = @"
+            &lt;html&gt;
+            &lt;head&gt;&lt;style&gt;@page { size: A4; margin: 2cm; }&lt;/style&gt;&lt;/head&gt;
+            &lt;body&gt;&lt;h1&gt;Report Q4 2024&lt;/h1&gt;&lt;p&gt;Financial summary here.&lt;/p&gt;&lt;/body&gt;
+            &lt;/html&gt;";
+
+        Result result = pdfReactor.Convert(config);
+        File.WriteAllBytes("report.pdf", result.Document);
+    }
+}
+</code></pre>
+
+<h3>HTML String to PDF &mdash; After</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var html = @"
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        @page { size: A4; margin: 2cm; }
+        body { font-family: Arial, sans-serif; }
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;&lt;h1&gt;Report Q4 2024&lt;/h1&gt;&lt;p&gt;Financial summary here.&lt;/p&gt;&lt;/body&gt;
+    &lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// No service process — renders locally
+var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs("report.pdf");
+
+Console.WriteLine($"Saved report.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h2>How Do You Merge PDFs After Migrating?</h2>
+
+<p>PDFreactor's conversion SDK doesn't merge directly &mdash; you generate each section, then bring in a secondary PDF library to combine the byte arrays. IronPDF merges in-process.</p>
+
+<h3>Merge PDFs &mdash; Before</h3>
+
+<pre><code>using RealObjects.PDFreactor.Webservice.Client;
+using System.Collections.Generic;
+using System.IO;
+
+class MergeBefore
+{
+    static void Main()
+    {
+        PDFreactor pdfReactor = new PDFreactor();
+
+        // Generate each section separately
+        var sections = new[] {
+            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 1: Overview&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
+            "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 2: Detail&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
+        };
+
+        var pdfs = new List&lt;byte[]&gt;();
+        foreach (var html in sections)
+        {
+            var config = new Configuration();
+            config.Document = html;
+            pdfs.Add(pdfReactor.Convert(config).Document);
+        }
+
+        // Combine via a secondary library (iText, PdfSharp, etc.) — adds a dependency
+    }
+}
+</code></pre>
+
+<h3>Merge PDFs &mdash; After</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+
+// Render sections concurrently: https://ironpdf.com/how-to/async/
+var task1 = renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 1: Overview&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+var task2 = renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 2: Detail&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;");
+
+var results = await Task.WhenAll(task1, task2);
+
+// Merge locally: https://ironpdf.com/how-to/merge-or-split-pdfs/
+var merged = PdfDocument.Merge(results[0], results[1]);
+merged.SaveAs("combined-report.pdf");
+
+Console.WriteLine($"Merged: {merged.PageCount} total pages");
+</code></pre>
+
+<h2>How Do You Add Watermarks After Migrating?</h2>
+
+<p>PDFreactor handles watermarks through CSS Paged Media running elements. IronPDF provides a programmatic approach that is applied post-render.</p>
+
+<h3>Watermark &mdash; Before</h3>
+
+<pre><code>using RealObjects.PDFreactor.Webservice.Client;
+using System.Collections.Generic;
+using System.IO;
+
+class WatermarkBefore
+{
+    static void Main()
+    {
+        PDFreactor pdfReactor = new PDFreactor();
+
+        Configuration config = new Configuration();
+        config.Document = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Q4 Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
+
+        // PDFreactor uses CSS Paged Media or background-image for watermarks
+        config.UserStyleSheets = new List&lt;Resource&gt;
+        {
+            new Resource
+            {
+                Content = @"
+                    @page {
+                        background-image: url('draft-watermark.png');
+                        background-position: center;
+                        background-repeat: no-repeat;
+                        background-size: 50%;
+                    }
+                "
+            }
+        };
+
+        Result result = pdfReactor.Convert(config);
+        File.WriteAllBytes("draft-report.pdf", result.Document);
+    }
+}
+</code></pre>
+
+<h3>Watermark &mdash; After</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Q4 Report&lt;/h1&gt;&lt;p&gt;Content...&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// Programmatic watermark applied post-render
+// https://ironpdf.com/how-to/custom-watermark/
+var watermark = new TextStamper
+{
+    Text = "DRAFT",
+    FontColor = IronSoftware.Drawing.Color.Gray,
+    Opacity = 15,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs("draft-report.pdf");
+Console.WriteLine("Watermark applied");
+</code></pre>
+
+<h2>How Do You Add Password Protection After Migrating?</h2>
+
+<p>PDFreactor sets encryption through the <code>Configuration.Encryption</code> object before conversion. IronPDF applies it post-render through the <code>SecuritySettings</code> object on the resulting <code>PdfDocument</code>.</p>
+
+<h3>Password Protection &mdash; Before</h3>
+
+<pre><code>using RealObjects.PDFreactor.Webservice.Client;
+using System.IO;
+
+class PasswordBefore
+{
+    static void Main()
+    {
+        PDFreactor pdfReactor = new PDFreactor();
+
+        Configuration config = new Configuration();
+        config.Document = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Confidential Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
+
+        config.Encryption = new Encryption
+        {
+            UserPassword = "open123",
+            OwnerPassword = "admin456",
+            AllowPrint = true,
+            AllowCopy = false,
+        };
+
+        Result result = pdfReactor.Convert(config);
+        File.WriteAllBytes("secured-report.pdf", result.Document);
+    }
+}
+</code></pre>
+
+<h3>Password Protection &mdash; After</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Confidential Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// https://ironpdf.com/how-to/pdf-permissions-passwords/
+pdf.SecuritySettings.UserPassword = "open123";
+pdf.SecuritySettings.OwnerPassword = "admin456";
+
+pdf.SaveAs("secured-report.pdf");
+Console.WriteLine("Password-protected PDF saved");
+</code></pre>
+
+<h2>What Are the Key Feature Differences Between PDFreactor and IronPDF?</h2>
+
+<p>Here are the full API mapping tables so you can plan your migration systematically.</p>
+
+<h3>Namespace Mapping</h3>
+
+<ul>
+<li><code>RealObjects.PDFreactor.Webservice.Client</code> &rarr; <code>IronPdf</code> &mdash; core namespace.</li>
+<li><code>PDFreactor</code> (Web Service client class) &rarr; <code>ChromePdfRenderer</code> &mdash; no external service required.</li>
+<li><code>Configuration</code> class &rarr; <code>ChromePdfRenderOptions</code> &mdash; rendering options object.</li>
+</ul>
+
+<h3>Core Class Mapping</h3>
+
+<ul>
+<li><code>PDFreactor</code> (service client) &rarr; <code>ChromePdfRenderer</code> &mdash; renders HTML or URL to PDF.</li>
+<li><code>Configuration</code> &rarr; <code>ChromePdfRenderOptions</code> &mdash; page size, margins, JavaScript settings.</li>
+<li><code>Result</code> &rarr; <code>PdfDocument</code> &mdash; the PDF object with manipulation methods.</li>
+<li>No first-class merge in the conversion SDK &rarr; <code>PdfDocument.Merge()</code> &mdash; local in-process merge.</li>
+</ul>
+
+<h3>Document Loading Methods</h3>
+
+<ul>
+<li><strong>HTML string.</strong> <code>config.Document = html</code> &rarr; <code>renderer.RenderHtmlAsPdf(html)</code> (or the async variant).</li>
+<li><strong>URL.</strong> <code>config.Document = url</code> &rarr; <code>renderer.RenderUrlAsPdf(url)</code>.</li>
+<li><strong>HTML file.</strong> Read the file and pass through <code>config.Document</code> with <code>BaseURL</code> &rarr; <code>renderer.RenderHtmlFileAsPdf(path)</code>.</li>
+<li><strong>Existing PDF.</strong> Not a PDFreactor concept &mdash; it's a converter, not a manipulation library. IronPDF: <code>PdfDocument.FromFile(path)</code>.</li>
+</ul>
+
+<h3>Page Operations</h3>
+
+<p>PDFreactor is a converter, not a PDF-manipulation library, so post-render page operations have no native equivalent and typically involve a secondary library. In IronPDF, these live on the <code>PdfDocument</code> directly:</p>
+
+<ul>
+<li><strong>Page count.</strong> <code>pdf.PageCount</code>.</li>
+<li><strong>Remove page.</strong> <code>pdf.RemovePages(index)</code>.</li>
+<li><strong>Extract page range.</strong> <code>pdf.CopyPages(startIndex, endIndex)</code>.</li>
+<li><strong>Rotate.</strong> Per-page rotation via <code>pdf.RotateAllPages(...)</code>; for partial rotation, see the IronPDF <a href="https://ironpdf.com/how-to/rotate-page/">rotate page guide</a>.</li>
+</ul>
+
+<h3>Merge / Split Operations</h3>
+
+<ul>
+<li><strong>Merge.</strong> PDFreactor's conversion SDK doesn't expose merge directly &mdash; it's typically handled by combining byte arrays with a secondary PDF library. In IronPDF, <code>PdfDocument.Merge(doc1, doc2)</code>.</li>
+<li><strong>Split.</strong> Same story &mdash; not in PDFreactor's converter remit. See the IronPDF <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge or split guide</a>.</li>
+</ul>
+
+<h2>What Are the Critical Migration Notes You Should Know?</h2>
+
+<p>PDFreactor has deep CSS Paged Media support &mdash; running headers and footers via <code>@page</code> running elements, complex footnotes, table header repetition. These features work because PDFreactor implements the W3C CSS Paged Media spec closely.</p>
+
+<p>IronPDF's Chromium renderer supports a subset of CSS print properties &mdash; <code>@page</code> size and margins, <code>page-break-*</code>, <code>orphans</code>/<code>widows</code>. It does not implement the full CSS Paged Media spec. If your templates use CSS features like <code>running()</code>, <code>string()</code>, <code>@footnote</code>, or named page flows, audit those templates carefully before migration. You may need to migrate those header and footer patterns to IronPDF's <code>RenderingOptions.HtmlHeader</code> / <code>HtmlFooter</code> API instead.</p>
+
+<h3>CSS Paged Media Header Migration Example</h3>
+
+<pre><code>// PDFreactor CSS running header: @page { @top-center { content: element(header); } }
+// IronPDF equivalent: HtmlHeader/Footer via RenderingOptions
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    HtmlFragment = "&lt;div style='text-align:center; font-size:10px;'&gt;{page} of {total-pages}&lt;/div&gt;",
+    BaseUrl = new Uri(System.IO.Path.GetFullPath("."))
+};
+// https://ironpdf.com/how-to/rendering-options/
+</code></pre>
+
+<p>IronPDF uses 0-based page indexing. PDFreactor's CSS <code>counter(page)</code> is 1-based for display, so audit all page-number arithmetic in your migration before declaring it complete.</p>
+
+<p>After migration is validated, decommission the PDFreactor server process from Docker images, CI pipelines, and startup scripts. This is where the deployment simplification is realized &mdash; removing the Java runtime dependency from container images can significantly reduce image size.</p>
+
+<h3>Async Pattern Alignment</h3>
+
+<p>PDFreactor's .NET SDK <code>Convert()</code> call is synchronous and blocks until the server returns. Replace with IronPDF's native async methods to free your request thread during rendering.</p>
+
+<pre><code>// Instead of blocking:
+// Result result = pdfReactor.Convert(config); // synchronous
+
+// Use:
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+// See: https://ironpdf.com/how-to/async/
+</code></pre>
+
+<h2>How Does Performance Compare After Migrating?</h2>
+
+<p>The first IronPDF render in a process incurs Chromium startup time. For long-running services, warm up the renderer at startup.</p>
+
+<h3>Renderer Warm-Up</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+// Warm up during application startup
+var renderer = new ChromePdfRenderer();
+await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;warmup&lt;/body&gt;&lt;/html&gt;");
+
+// Now renderer is warm for production traffic
+// Assign to DI container, static, or similar pattern
+</code></pre>
+
+<h3>Disposal and Memory</h3>
+
+<pre><code>using IronPdf;
+using System.IO;
+
+var renderer = new ChromePdfRenderer();
+
+// Always dispose PdfDocument — especially important under high volume
+using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+
+// For MemoryStream use: https://ironpdf.com/how-to/pdf-memory-stream/
+using var ms = new MemoryStream();
+pdf.Stream.CopyTo(ms);
+return ms.ToArray();
+</code></pre>
+
+<h3>Comparing Against PDFreactor Baseline</h3>
+
+<pre><code>// PDFreactor: render time = (HTTP call to service) + (Java render time)
+// IronPDF:    render time = (local Chromium render time)
+
+// Depending on service location and load:
+// - Local PDFreactor service: IronPDF may be comparable or faster
+// - Remote PDFreactor service: IronPDF will typically be faster (no network)
+// - Cold-start comparison: PDFreactor server amortizes startup; IronPDF has per-process warmup
+
+// Measure both under your realistic load pattern
+// https://ironpdf.com/examples/parallel/
+</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Do I need to keep the Java runtime after migrating?</h3>
+
+<p>No. Java runtime removal is optional during migration, but you should decommission it after migration is validated. The deployment simplification from removing the Java sidecar or service dependency is the most concrete operational win. Removing the Java runtime dependency from container images can significantly reduce image size.</p>
+
+<p>That said, keep it around until you have verified every template renders correctly in IronPDF.</p>
+
+<h3>What happens to my CSS Paged Media templates?</h3>
+
+<p>This is the most important pre-migration step. If your templates use basic <code>@page</code> sizing and <code>page-break-*</code>, migration is low-risk. If they use running elements, footnotes, or named page flows, those require rewriting before the migration produces comparable output.</p>
+
+<p>IronPDF's Chromium renderer supports <code>@page</code> size and margins, <code>page-break-*</code>, <code>orphans</code>/<code>widows</code>, but does not implement the full CSS Paged Media spec. Audit your templates for features like <code>running()</code>, <code>string()</code>, and <code>@footnote</code> before committing to the migration.</p>
+
+<h3>How do I handle concurrent rendering differently?</h3>
+
+<p>With PDFreactor, concurrent rendering means parallel HTTP calls to the service. With <a href="https://ironpdf.com/how-to/async/">IronPDF's async methods</a>, you use <code>Task.WhenAll</code> with async render methods directly. There is no inter-process HTTP hop, which eliminates network latency from the equation. Confirm IronPDF's concurrent-instance guidance for your target concurrency level against the <a href="https://ironpdf.com/docs/">official documentation</a>.</p>
+
+<h3>What is the recommended approach for high-volume benchmarking?</h3>
+
+<p>When benchmarking, account for the eliminated network hop. PDFreactor render time includes the HTTP call to the service plus Java render time. IronPDF render time is the local Chromium render time only. Run your benchmarks against your actual HTML templates, not synthetic examples. Hardware, template complexity, JavaScript usage, and image count all significantly affect render times.</p>
+
+<p>Warm up the renderer before benchmarking to exclude Chromium initialization overhead from your measurements.</p>
+
+<h2>What Is the Decision Framework for This Migration?</h2>
+
+<p>The most important pre-migration step is the CSS Paged Media audit. If your templates use basic <code>@page</code> sizing and <code>page-break-*</code>, migration is low-risk. If they use running elements, footnotes, or named page flows, those require rewriting before the migration is comparable output.</p>
+
+<p>The deployment simplification &mdash; removing the Java sidecar or service dependency &mdash; is the most concrete operational win and is verifiable before writing any migration code by checking your Docker image size and startup sequence.</p>
+
+<p>For teams doing web-derived content, dashboard output, and reports from HTML templates, the switch is straightforward. For teams relying on print-exact typographic output with strict CSS Paged Media requirements, PDFreactor may remain the better fit. Evaluate honestly and test with your actual templates before committing.</p>

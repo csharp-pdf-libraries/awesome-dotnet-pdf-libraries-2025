@@ -1,0 +1,848 @@
+<h1>Migrating from SSRS to IronPDF: Three Steps and You're Done</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Consider Migrating Away from SSRS?</h2>
+
+<p>The SSRS instance hasn't had a meaningful update in three years. Report subscriptions fail silently, the mobile layout never worked properly, and getting a new report deployed still requires DBA involvement for dataset configuration and a Reporting Services Manager session on a Windows Server that nobody wants to touch. SSRS is infrastructure masquerading as a development tool, and the maintenance overhead is real &mdash; not because the reports are broken, but because keeping the reporting infrastructure running in modern environments takes effort that scales poorly.</p>
+
+<p>If you are looking at whether SSRS reports can be replaced with something that deploys with your application code, this article covers the migration path to <a href="https://ironpdf.com/">IronPDF</a>. You will have working before/after code for RDLC template rewrite, parameter binding, sub-reports, and charts/cross-tab reporting by the end.</p>
+
+<p>Here are the migration triggers I see teams encounter most often:</p>
+
+<p><strong>Infrastructure overhead</strong> &mdash; SSRS requires a Windows Server, SQL Server licensing, IIS configuration, and dedicated maintenance.</p>
+
+<p><strong>Deployment gap</strong> &mdash; getting a new <code>.rdl</code> report into production requires server access and DBA coordination; code-based reports deploy with the application.</p>
+
+<p><strong>.NET Core/Linux incompatibility</strong> &mdash; SSRS server runs on Windows only; Microsoft's <code>Microsoft.ReportingServices.ReportViewerControl.WebForms</code> / <code>.Winforms</code> packages target .NET Framework 4.0&ndash;4.8.1 only. .NET Core / .NET 5+ users rely on the community port <code>ReportViewerCore.NETCore</code>, which has its own limitations (no subreports in some versions, rendering differences).</p>
+
+<p><strong>End of the SSRS line</strong> &mdash; SSRS 2022 is the final version. SQL Server 2025 ships without SSRS, with on-premises reporting consolidated into Power BI Report Server. SSRS 2022 receives security updates through January 11, 2033, but no new SSRS releases will ship.</p>
+
+<p><strong>Modern CSS/HTML</strong> &mdash; SSRS's HTML renderer is outdated; it does not support modern web layouts. SSRS's PDF output comes from its own renderer, not a browser engine.</p>
+
+<p><strong>Designer tooling</strong> &mdash; <code>.rdl</code> files require Report Builder or Visual Studio RDLC designer; non-trivial onboarding for developers who work in code.</p>
+
+<p><strong>Subscription complexity</strong> &mdash; email subscriptions, data-driven subscriptions, and schedule management are SSRS server configuration, not application code.</p>
+
+<p><strong>Version control</strong> &mdash; <code>.rdl</code> XML files diff reasonably, but the workflow for testing changes still requires a report server.</p>
+
+<p><strong>Mobile/responsive output</strong> &mdash; SSRS's Mobile Report Publisher is a separate tool with a different model; web-responsive PDF from HTML is simpler.</p>
+
+<p><strong>Docker/cloud</strong> &mdash; SSRS server does not containerize easily; code-based PDF generation can run anywhere .NET runs.</p>
+
+<p><strong>Testing</strong> &mdash; unit testing SSRS reports is difficult; HTML templates can be tested and previewed in any browser.</p>
+
+<h2>How Do SSRS and IronPDF Compare at a Glance?</h2>
+
+<ul>
+<li><strong>Focus.</strong> SSRS is a server-based enterprise reporting platform; IronPDF is an HTML-to-PDF and PDF manipulation library.</li>
+<li><strong>Pricing.</strong> SSRS rides on SQL Server plus Windows Server licensing &mdash; verify the current edition matrix at Microsoft. IronPDF is a commercial library license &mdash; verify at ironsoftware.com.</li>
+<li><strong>API style.</strong> SSRS exposes a SOAP/REST API to the report server, or an in-process ReportViewer; IronPDF is a plain .NET library with no external server.</li>
+<li><strong>Learning curve.</strong> SSRS is high &mdash; server infrastructure, RDL designer, and data source configuration. IronPDF is low for .NET devs working in HTML/CSS templates.</li>
+<li><strong>HTML rendering.</strong> SSRS's renderer is not browser-based; IronPDF uses embedded Chromium.</li>
+<li><strong>Page indexing.</strong> SSRS rendering APIs are 1-based; IronPDF is 0-based.</li>
+<li><strong>Thread safety.</strong> The SSRS server handles concurrency for you; verify IronPDF concurrent-instance guidance for your renderer pool.</li>
+<li><strong>Namespace.</strong> <code>Microsoft.Reporting.WebForms</code> / <code>Microsoft.Reporting.WinForms</code> (legacy ReportViewer, shipped by the <code>Microsoft.ReportingServices.ReportViewerControl.*</code> packages) or <code>ReportViewerCore.NETCore</code> (community .NET Core port) or the SOAP proxy &rarr; <code>IronPdf</code>.</li>
+</ul>
+
+<h2>What Does the Migration Effort Actually Look Like?</h2>
+
+<p>I want to give you a realistic picture of the effort involved. Here is a feature-by-feature breakdown.</p>
+
+<h3>Effort by Feature</h3>
+
+<ul>
+<li><strong>Basic report to PDF &mdash; High.</strong> SSRS uses subscriptions, URL rendering, or ReportViewer; IronPDF uses <code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code>. The RDL &rarr; HTML conversion is the bulk of the effort.</li>
+<li><strong>Data binding &mdash; High.</strong> RDL datasets and data sources become C# string interpolation or a template engine like Scriban or Fluid.</li>
+<li><strong>Tables / lists &mdash; Medium.</strong> The SSRS tablix data region maps to HTML <code>&lt;table&gt;</code> with iteration in C#.</li>
+<li><strong>Charts &mdash; High.</strong> The SSRS chart data region is replaced by Chart.js or a similar JS library inside the HTML template.</li>
+<li><strong>Sub-reports &mdash; High.</strong> The <code>.rdl</code> sub-report control becomes HTML composition or merged PDFs.</li>
+<li><strong>Scheduled delivery &mdash; High.</strong> The SSRS subscription manager has no equivalent; you build a background service plus email API.</li>
+<li><strong>Export to file &mdash; Low.</strong> URL rendering or <code>LocalReport.Render()</code> becomes <code>pdf.SaveAs(path)</code>.</li>
+<li><strong>Export to stream &mdash; Low.</strong> <code>LocalReport.Render()</code> bytes become <code>pdf.Stream</code>.</li>
+<li><strong>Merge PDFs &mdash; Medium.</strong> Not native in SSRS; IronPDF has <code>PdfDocument.Merge()</code>.</li>
+<li><strong>Password protection &mdash; Low.</strong> Not native in standard SSRS; IronPDF exposes <code>pdf.SecuritySettings</code>.</li>
+<li><strong>Headers/footers &mdash; Medium.</strong> SSRS report header/footer sections become <code>RenderingOptions.HtmlHeader/Footer</code>.</li>
+</ul>
+
+<h3>Decision Matrix</h3>
+
+<ul>
+<li>If your reports are simple tabular layouts with no charts or subscriptions, switch &mdash; HTML table templates are straightforward.</li>
+<li>If you have complex multi-dataset charts and sub-reports, evaluate the migration cost carefully; rewrite scope is high.</li>
+<li>If you need reports to deploy without server infrastructure, switch &mdash; this eliminates the SSRS server dependency.</li>
+<li>If scheduled email delivery is the primary feature, SSRS handles this well; the code replacement needs a background service plus email API.</li>
+</ul>
+
+<h2>How Do You Set Up IronPDF and Replace SSRS?</h2>
+
+<p>I will walk you through the core migration. First, find your existing SSRS and ReportViewer references, then swap the packages, and finally update your code: license configuration, namespace swap, and renderer swap.</p>
+
+<h3>Finding SSRS and ReportViewer References in Your Codebase</h3>
+
+<pre><code># Find ReportViewer / LocalReport usage
+rg -l "LocalReport\|ReportViewer\|ReportDataSource\|ReportParameter\|Microsoft\.Reporting" --type cs
+rg "LocalReport\|ReportViewer\|\.Render\b" --type cs -n
+
+# Find .rdl and .rdlc files
+find . -name "*.rdl" -o -name "*.rdlc" | sort
+find . -name "*.rdl" | wc -l  # scope of template migration
+
+# Find SSRS SOAP proxy usage
+rg "ReportService2010\|ReportingService\|SoapHttpClientProtocol" --type cs -n
+
+# Find NuGet references
+grep -r "Microsoft\.Reporting\|ReportViewer" *.csproj **/*.csproj 2&gt;/dev/null
+</code></pre>
+
+<h3>Removing SSRS Packages and Installing IronPDF</h3>
+
+<pre><code># Remove ReportViewer packages — Microsoft ships these as .NET Framework-only,
+# latest version 150.1652.0 (June 2024). Note the casing: Winforms, not WinForms.
+dotnet remove package Microsoft.ReportingServices.ReportViewerControl.WebForms
+dotnet remove package Microsoft.ReportingServices.ReportViewerControl.Winforms
+
+# If your project used the community .NET Core port:
+dotnet remove package ReportViewerCore.NETCore
+
+# Install IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+</code></pre>
+
+<h3>License Configuration</h3>
+
+<pre><code>using IronPdf;
+
+// https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+</code></pre>
+
+<h3>Namespace Swap</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>using Microsoft.Reporting.WebForms;  // legacy ReportViewer (WebForms)
+using Microsoft.Reporting.WinForms;  // legacy ReportViewer (WinForms)
+// or the community .NET Core port (ReportViewerCore.NETCore)
+// or SSRS SOAP proxy namespace for server path
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+</code></pre>
+
+<h3>Basic Report Generation</h3>
+
+<p><strong>Before (SSRS in-process via ReportViewer / LocalReport):</strong></p>
+
+<pre><code>using Microsoft.Reporting.WebForms;
+using System;
+using System.IO;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main()
+    {
+        var reportViewer = new ReportViewer();
+        reportViewer.ProcessingMode = ProcessingMode.Local;
+        reportViewer.LocalReport.ReportPath = "Reports/SalesReport.rdlc";
+
+        // Bind data source
+        var data = GetSalesData(); // IEnumerable&lt;SalesRow&gt;
+        reportViewer.LocalReport.DataSources.Add(new ReportDataSource("DataSet1", data));
+
+        // Set parameters
+        reportViewer.LocalReport.SetParameters(new[] {
+            new ReportParameter("ReportTitle", "Q3 2024 Sales"),
+            new ReportParameter("DateRange", "Jul–Sep 2024"),
+        });
+
+        // Render to PDF
+        string mimeType, encoding, fileNameExtension;
+        string[] streams;
+        Warning[] warnings;
+        var result = reportViewer.LocalReport.Render(
+            "PDF", null,
+            out mimeType, out encoding, out fileNameExtension,
+            out streams, out warnings);
+        File.WriteAllBytes("sales-report.pdf", result);
+        Console.WriteLine("Saved sales-report.pdf");
+    }
+}
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+// HTML template replaces .rdlc file — data bound via C# interpolation
+var data = GetSalesData();
+var html = BuildSalesReportHtml(data, title: "Q3 2024 Sales", dateRange: "Jul–Sep 2024");
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("sales-report.pdf");
+
+Console.WriteLine($"Saved sales-report.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h2>How Do You Convert RDL Report Definitions to HTML Templates?</h2>
+
+<p>The most significant work in this migration is converting <code>.rdl</code> / <code>.rdlc</code> report definitions to HTML templates. SSRS report definition XML describes the layout declaratively &mdash; the equivalent in IronPDF is an HTML file.</p>
+
+<p>For each report, the process is:</p>
+
+<p>1. Export a sample PDF from SSRS (visual reference).</p>
+<p>2. Identify the data regions (tablix tables, matrices, sub-reports, charts).</p>
+<p>3. Build an HTML/CSS template for the layout.</p>
+<p>4. Replace SSRS expression syntax (<code>=Fields!ColumnName.Value</code>) with C# interpolation or a template engine.</p>
+
+<h3>A Simple Tabular Report Conversion</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var salesData = new[]
+{
+    new { Region = "North America", Revenue = 12_400_000m, Units = 4820 },
+    new { Region = "Europe",        Revenue =  9_100_000m, Units = 3210 },
+    new { Region = "APAC",          Revenue =  6_800_000m, Units = 2440 },
+};
+
+// Build HTML — replaces SSRS tablix data region
+var rows = new StringBuilder();
+foreach (var row in salesData)
+{
+    rows.Append($"&lt;tr&gt;&lt;td&gt;{row.Region}&lt;/td&gt;&lt;td&gt;${row.Revenue:N0}&lt;/td&gt;&lt;td&gt;{row.Units:N0}&lt;/td&gt;&lt;/tr&gt;");
+}
+
+var totalRevenue = salesData.Sum(r =&gt; r.Revenue);
+var totalUnits   = salesData.Sum(r =&gt; r.Units);
+
+var html = $@"
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        body {{ font-family: Arial, sans-serif; padding: 40px; color: #333; }}
+        h1 {{ font-size: 20px; margin-bottom: 4px; }}
+        .subtitle {{ color: #666; font-size: 12px; margin-bottom: 20px; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        th {{ background: #2c3e50; color: white; padding: 8px; text-align: left; font-size: 12px; }}
+        td {{ border-bottom: 1px solid #eee; padding: 8px; font-size: 12px; }}
+        .total-row {{ font-weight: bold; background: #f9f9f9; }}
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Q3 2024 Sales Report&lt;/h1&gt;
+        &lt;div class='subtitle'&gt;Jul–Sep 2024&lt;/div&gt;
+        &lt;table&gt;
+            &lt;tr&gt;&lt;th&gt;Region&lt;/th&gt;&lt;th&gt;Revenue&lt;/th&gt;&lt;th&gt;Units&lt;/th&gt;&lt;/tr&gt;
+            {rows}
+            &lt;tr class='total-row'&gt;
+                &lt;td&gt;Total&lt;/td&gt;
+                &lt;td&gt;${totalRevenue:N0}&lt;/td&gt;
+                &lt;td&gt;{totalUnits:N0}&lt;/td&gt;
+            &lt;/tr&gt;
+        &lt;/table&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+// https://ironpdf.com/how-to/headers-and-footers/
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    HtmlFragment = "&lt;div style='text-align:right; font-size:9px; color:#999'&gt;Page {page} of {total-pages}&lt;/div&gt;",
+};
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("q3-sales.pdf");
+Console.WriteLine($"Saved q3-sales.pdf ({pdf.PageCount} page(s))");
+</code></pre>
+
+<p>For larger template sets, consider a dedicated template engine: Scriban or Fluid (both MIT-licensed) provide a separation between template markup and C# code that is closer to SSRS's RDL model.</p>
+
+<h2>How Do Common SSRS Operations Map to IronPDF?</h2>
+
+<p>Here are the API mapping tables I put together to help you translate SSRS concepts into IronPDF equivalents.</p>
+
+<h3>Namespace Mapping</h3>
+
+<ul>
+<li><code>Microsoft.Reporting.WebForms</code> / <code>Microsoft.Reporting.WinForms</code> &rarr; <code>IronPdf</code> &mdash; core namespace</li>
+<li><code>Microsoft.Reporting.WebForms.ReportDataSource</code> &rarr; N/A &mdash; data is bound in the HTML template</li>
+<li>SSRS SOAP proxy namespace &rarr; N/A &mdash; no external server</li>
+</ul>
+
+<h3>Core Class Mapping</h3>
+
+<ul>
+<li><code>LocalReport</code> + <code>.rdlc</code> file &rarr; <code>ChromePdfRenderer</code> + HTML &mdash; no .rdlc file needed</li>
+<li><code>ReportDataSource</code> &rarr; HTML template + C# data &mdash; data passed as template variables</li>
+<li><code>ReportParameter</code> &rarr; HTML string interpolation &mdash; report parameters become template inputs</li>
+<li>N/A &rarr; <code>PdfDocument</code> &mdash; PDF manipulation object</li>
+</ul>
+
+<h3>Document Loading Methods</h3>
+
+<ul>
+<li><strong>Load report definition.</strong> <code>report.ReportPath = "file.rdlc"</code> becomes an HTML string, file, or URL passed to the renderer.</li>
+<li><strong>Bind data.</strong> <code>report.DataSources.Add(...)</code> becomes C# interpolation or a template engine.</li>
+<li><strong>Render to bytes.</strong> <code>report.Render("PDF")</code> becomes <code>renderer.RenderHtmlAsPdfAsync(html)</code>.</li>
+<li><strong>Save to file.</strong> <code>File.WriteAllBytes(path, bytes)</code> becomes <code>pdf.SaveAs(path)</code>.</li>
+</ul>
+
+<h3>Page Operations</h3>
+
+<ul>
+<li><strong>Page count.</strong> SSRS reports it from the render result; IronPDF exposes <code>pdf.PageCount</code>.</li>
+<li><strong>Remove page.</strong> Not available in <code>LocalReport</code>; IronPDF uses <code>pdf.RemovePages(index)</code>.</li>
+<li><strong>Extract text.</strong> Not available from <code>LocalReport</code>; IronPDF uses <code>pdf.ExtractAllText()</code>.</li>
+<li><strong>Rotate.</strong> Not available in SSRS; verify the current rotation API in the IronPDF docs.</li>
+</ul>
+
+<h3>Merge / Split Operations</h3>
+
+<ul>
+<li><strong>Merge.</strong> Not native to SSRS; IronPDF uses <code>PdfDocument.Merge(doc1, doc2)</code>.</li>
+<li><strong>Split.</strong> Not native to SSRS; see the IronPDF <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge/split guide</a>.</li>
+</ul>
+
+<h2>What Do Complete Before/After Migrations Look Like?</h2>
+
+<p>Here are four complete migration examples covering the most common SSRS-to-IronPDF patterns.</p>
+
+<h3>1. RDLC Template Rewrite (LocalReport In-Process)</h3>
+
+<p><strong>Before (SSRS LocalReport):</strong></p>
+
+<pre><code>using Microsoft.Reporting.WebForms;
+using System;
+using System.Collections.Generic;
+using System.IO;
+
+class RdlcTemplateBefore
+{
+    static void Main()
+    {
+        var reportViewer = new ReportViewer();
+        reportViewer.ProcessingMode = ProcessingMode.Local;
+        reportViewer.LocalReport.ReportPath = Path.Combine(AppContext.BaseDirectory, "Reports", "Invoice.rdlc");
+
+        // Bind typed data — matches DataSet name in the .rdlc XML
+        var invoiceData = new List&lt;InvoiceRow&gt;
+        {
+            new() { ProductName = "Widget Pro", Qty = 3, UnitPrice = 149.00m },
+            new() { ProductName = "Gadget Plus", Qty = 1, UnitPrice = 299.00m },
+        };
+        reportViewer.LocalReport.DataSources.Add(new ReportDataSource("InvoiceDataSet", invoiceData));
+
+        // Parameters defined in .rdlc
+        reportViewer.LocalReport.SetParameters(new[]
+        {
+            new ReportParameter("CustomerName", "Acme Corp"),
+            new ReportParameter("InvoiceNumber", "INV-2024-0099"),
+        });
+
+        // Render
+        string mimeType, encoding, fileNameExtension;
+        string[] streams;
+        Warning[] warnings;
+        var pdfBytes = reportViewer.LocalReport.Render(
+            "PDF", null,
+            out mimeType, out encoding, out fileNameExtension,
+            out streams, out warnings);
+        File.WriteAllBytes("invoice.pdf", pdfBytes);
+        Console.WriteLine($"Saved invoice.pdf ({pdfBytes.Length} bytes)");
+    }
+}
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var invoiceLines = new[]
+{
+    new { Product = "Widget Pro",  Qty = 3, Unit = 149.00m },
+    new { Product = "Gadget Plus", Qty = 1, Unit = 299.00m },
+};
+var total = invoiceLines.Sum(l =&gt; l.Qty * l.Unit);
+
+var rows = new StringBuilder();
+foreach (var line in invoiceLines)
+    rows.Append($"&lt;tr&gt;&lt;td&gt;{line.Product}&lt;/td&gt;&lt;td&gt;{line.Qty}&lt;/td&gt;&lt;td&gt;${line.Unit:N2}&lt;/td&gt;&lt;td&gt;${line.Qty * line.Unit:N2}&lt;/td&gt;&lt;/tr&gt;");
+
+var html = $@"
+    &lt;html&gt;&lt;head&gt;&lt;style&gt;
+        body {{ font-family: Arial, sans-serif; padding: 40px; }}
+        h1 {{ font-size: 20px; }} table {{ width: 100%; border-collapse: collapse; }}
+        th {{ background: #f0f0f0; padding: 8px; border: 1px solid #ddd; font-size: 12px; }}
+        td {{ padding: 8px; border: 1px solid #ddd; font-size: 12px; }}
+        .total {{ font-weight: bold; text-align: right; margin-top: 10px; }}
+    &lt;/style&gt;&lt;/head&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Invoice INV-2024-0099 — Acme Corp&lt;/h1&gt;
+        &lt;table&gt;&lt;tr&gt;&lt;th&gt;Product&lt;/th&gt;&lt;th&gt;Qty&lt;/th&gt;&lt;th&gt;Unit&lt;/th&gt;&lt;th&gt;Total&lt;/th&gt;&lt;/tr&gt;{rows}&lt;/table&gt;
+        &lt;div class='total'&gt;Total: ${total:N2}&lt;/div&gt;
+    &lt;/body&gt;&lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("invoice.pdf");
+Console.WriteLine($"Saved invoice.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h3>2. Parameter Binding (Database-Driven Report)</h3>
+
+<p><strong>Before (SSRS &mdash; SqlDataAdapter populating a DataSet bound to the .rdlc):</strong></p>
+
+<pre><code>using Microsoft.Reporting.WebForms;
+using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.IO;
+
+class ParameterBindingBefore
+{
+    static void Main()
+    {
+        var reportViewer = new ReportViewer();
+        reportViewer.ProcessingMode = ProcessingMode.Local;
+        reportViewer.LocalReport.ReportPath = "SalesReport.rdlc";
+
+        // Fetch data from SQL Server
+        string connString = "Server=localhost;Database=SalesDB;Integrated Security=true;";
+        using (var connection = new SqlConnection(connString))
+        {
+            var adapter = new SqlDataAdapter("SELECT * FROM Sales WHERE Year = @Year", connection);
+            adapter.SelectCommand.Parameters.AddWithValue("@Year", 2024);
+            var dataSet = new DataSet();
+            adapter.Fill(dataSet, "Sales");
+
+            reportViewer.LocalReport.DataSources.Clear();
+            reportViewer.LocalReport.DataSources.Add(new ReportDataSource("SalesDataSet", dataSet.Tables[0]));
+        }
+
+        reportViewer.LocalReport.SetParameters(new ReportParameter("ReportYear", "2024"));
+
+        string mimeType, encoding, fileNameExtension;
+        string[] streams;
+        Warning[] warnings;
+        byte[] bytes = reportViewer.LocalReport.Render(
+            "PDF", null,
+            out mimeType, out encoding, out fileNameExtension,
+            out streams, out warnings);
+        File.WriteAllBytes("sales-report.pdf", bytes);
+    }
+}
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.Text;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+// Fetch data — same query, same data layer
+var dataTable = new DataTable();
+string connString = "Server=localhost;Database=SalesDB;Integrated Security=true;";
+using (var connection = new SqlConnection(connString))
+{
+    var adapter = new SqlDataAdapter("SELECT * FROM Sales WHERE Year = @Year", connection);
+    adapter.SelectCommand.Parameters.AddWithValue("@Year", 2024);
+    adapter.Fill(dataTable);
+}
+
+// Parameter binding via C# interpolation — replaces .rdlc parameters and tablix
+var year = 2024;
+var rows = new StringBuilder();
+foreach (DataRow row in dataTable.Rows)
+{
+    rows.Append("&lt;tr&gt;");
+    foreach (var cell in row.ItemArray)
+        rows.Append($"&lt;td&gt;{cell}&lt;/td&gt;");
+    rows.Append("&lt;/tr&gt;");
+}
+
+var html = $@"
+    &lt;html&gt;&lt;body style='font-family: Arial; padding: 30px;'&gt;
+        &lt;h1&gt;Sales Report &mdash; {year}&lt;/h1&gt;
+        &lt;table border='1' style='width:100%; border-collapse: collapse;'&gt;{rows}&lt;/table&gt;
+    &lt;/body&gt;&lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("sales-report.pdf");
+Console.WriteLine($"Saved sales-report.pdf ({pdf.PageCount} page(s))");
+</code></pre>
+
+<h3>3. Sub-Reports (Master-Detail Composition)</h3>
+
+<p><strong>Before (SSRS &mdash; <code>.rdlc</code> sub-report controls bound by parameter):</strong></p>
+
+<pre><code>using Microsoft.Reporting.WebForms;
+using System;
+using System.IO;
+
+class SubReportBefore
+{
+    static void Main()
+    {
+        // Master report contains a SubReport control referencing CustomerOrders.rdlc
+        var reportViewer = new ReportViewer();
+        reportViewer.ProcessingMode = ProcessingMode.Local;
+        reportViewer.LocalReport.ReportPath = "Reports/CustomerSummary.rdlc";
+
+        // Master dataset
+        reportViewer.LocalReport.DataSources.Add(
+            new ReportDataSource("CustomersDataSet", GetCustomers()));
+
+        // SubReport handler — fires per master row to populate the nested report
+        reportViewer.LocalReport.SubreportProcessing += (sender, e) =&gt;
+        {
+            var customerId = (int)e.Parameters["CustomerId"].Values[0];
+            e.DataSources.Add(new ReportDataSource(
+                "OrdersDataSet", GetOrdersForCustomer(customerId)));
+        };
+
+        string mimeType, encoding, fileNameExtension;
+        string[] streams;
+        Warning[] warnings;
+        var bytes = reportViewer.LocalReport.Render(
+            "PDF", null,
+            out mimeType, out encoding, out fileNameExtension,
+            out streams, out warnings);
+        File.WriteAllBytes("customer-summary.pdf", bytes);
+    }
+}
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+using System.Linq;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+// Sub-reports become HTML composition — the master loop renders each detail block inline
+var customers = GetCustomersWithOrders();
+
+var html = $@"
+    &lt;html&gt;&lt;head&gt;&lt;style&gt;
+        body {{ font-family: Arial; padding: 30px; }}
+        .customer {{ margin-bottom: 30px; page-break-after: always; }}
+        .customer-header {{ background: #2c3e50; color: white; padding: 12px; }}
+        .orders {{ width: 100%; border-collapse: collapse; margin-top: 8px; }}
+        .orders th, .orders td {{ padding: 6px; border: 1px solid #ddd; }}
+    &lt;/style&gt;&lt;/head&gt;&lt;body&gt;
+    {string.Join("", customers.Select(c =&gt; $@"
+        &lt;div class='customer'&gt;
+            &lt;div class='customer-header'&gt;
+                &lt;h2&gt;{c.Name}&lt;/h2&gt;
+                &lt;div&gt;Customer #{c.Id} &mdash; {c.Orders.Count} orders&lt;/div&gt;
+            &lt;/div&gt;
+            &lt;table class='orders'&gt;
+                &lt;tr&gt;&lt;th&gt;Order&lt;/th&gt;&lt;th&gt;Date&lt;/th&gt;&lt;th&gt;Amount&lt;/th&gt;&lt;/tr&gt;
+                {string.Join("", c.Orders.Select(o =&gt; $@"
+                &lt;tr&gt;&lt;td&gt;{o.OrderNumber}&lt;/td&gt;&lt;td&gt;{o.Date:yyyy-MM-dd}&lt;/td&gt;&lt;td&gt;${o.Amount:N2}&lt;/td&gt;&lt;/tr&gt;"))}
+            &lt;/table&gt;
+        &lt;/div&gt;"))}
+    &lt;/body&gt;&lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("customer-summary.pdf");
+
+// Alternatively, render each sub-report independently and merge:
+// https://ironpdf.com/how-to/merge-or-split-pdfs/
+// var docs = customers.Select(c =&gt; renderer.RenderHtmlAsPdf(BuildCustomerHtml(c))).ToArray();
+// PdfDocument.Merge(docs).SaveAs("customer-summary.pdf");
+Console.WriteLine($"Saved customer-summary.pdf ({pdf.PageCount} page(s))");
+</code></pre>
+
+<h3>4. Charts and Cross-Tab (Matrix) Reports</h3>
+
+<p><strong>Before (SSRS &mdash; chart data region and matrix/tablix in the .rdlc designer):</strong></p>
+
+<pre><code>using Microsoft.Reporting.WebForms;
+using System;
+using System.IO;
+
+class ChartCrossTabBefore
+{
+    static void Main()
+    {
+        // The .rdlc contains a Chart data region (column chart on monthly sales)
+        // and a Matrix/Tablix data region with row group = Region, column group = Quarter
+        var reportViewer = new ReportViewer();
+        reportViewer.ProcessingMode = ProcessingMode.Local;
+        reportViewer.LocalReport.ReportPath = "Reports/SalesDashboard.rdlc";
+
+        reportViewer.LocalReport.DataSources.Add(
+            new ReportDataSource("MonthlySales", GetMonthlySales()));
+        reportViewer.LocalReport.DataSources.Add(
+            new ReportDataSource("RegionQuarterSales", GetRegionQuarterSales()));
+
+        string mimeType, encoding, fileNameExtension;
+        string[] streams;
+        Warning[] warnings;
+        var bytes = reportViewer.LocalReport.Render(
+            "PDF", null,
+            out mimeType, out encoding, out fileNameExtension,
+            out streams, out warnings);
+        File.WriteAllBytes("dashboard.pdf", bytes);
+    }
+}
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+using System.Linq;
+using System.Text;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var monthly = GetMonthlySales(); // (Month, Amount)
+var grid    = GetRegionQuarterSales(); // (Region, Q1..Q4)
+
+// Cross-tab: build matrix HTML directly from data
+var matrix = new StringBuilder();
+matrix.Append("&lt;tr&gt;&lt;th&gt;Region&lt;/th&gt;&lt;th&gt;Q1&lt;/th&gt;&lt;th&gt;Q2&lt;/th&gt;&lt;th&gt;Q3&lt;/th&gt;&lt;th&gt;Q4&lt;/th&gt;&lt;/tr&gt;");
+foreach (var r in grid)
+    matrix.Append($"&lt;tr&gt;&lt;td&gt;{r.Region}&lt;/td&gt;&lt;td&gt;${r.Q1:N0}&lt;/td&gt;&lt;td&gt;${r.Q2:N0}&lt;/td&gt;&lt;td&gt;${r.Q3:N0}&lt;/td&gt;&lt;td&gt;${r.Q4:N0}&lt;/td&gt;&lt;/tr&gt;");
+
+var html = $@"
+    &lt;html&gt;&lt;head&gt;
+    &lt;script src='https://cdn.jsdelivr.net/npm/chart.js'&gt;&lt;/script&gt;
+    &lt;style&gt;
+        body {{ font-family: Arial; padding: 30px; }}
+        table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
+        th, td {{ padding: 8px; border: 1px solid #ccc; text-align: right; }}
+        th:first-child, td:first-child {{ text-align: left; }}
+    &lt;/style&gt;&lt;/head&gt;&lt;body&gt;
+        &lt;h1&gt;Sales Dashboard&lt;/h1&gt;
+        &lt;canvas id='chart' width='600' height='250'&gt;&lt;/canvas&gt;
+        &lt;h2&gt;Region by Quarter&lt;/h2&gt;
+        &lt;table&gt;{matrix}&lt;/table&gt;
+        &lt;script&gt;
+            new Chart(document.getElementById('chart'), {{
+                type: 'bar',
+                data: {{
+                    labels: [{string.Join(",", monthly.Select(m =&gt; $"'{m.Month}'"))}],
+                    datasets: [{{ label: 'Sales', data: [{string.Join(",", monthly.Select(m =&gt; m.Amount))}] }}]
+                }}
+            }});
+        &lt;/script&gt;
+    &lt;/body&gt;&lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.EnableJavaScript = true;
+renderer.RenderingOptions.WaitFor.JavaScript(2000);
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("dashboard.pdf");
+Console.WriteLine($"Saved dashboard.pdf ({pdf.PageCount} page(s))");
+</code></pre>
+
+<h2>What Should You Watch Out For During Migration?</h2>
+
+<p>There are several critical considerations I want to flag before you begin.</p>
+
+<h3>RDL Count Determines Scope</h3>
+
+<p>Count your <code>.rdl</code> / <code>.rdlc</code> files before scoping the migration:</p>
+
+<pre><code>find . -name "*.rdl" -o -name "*.rdlc" | wc -l
+</code></pre>
+
+<p>Each report definition needs an HTML equivalent. Simple tabular reports: 30&ndash;60 minutes each. Complex reports with charts, sub-reports, or matrix data regions: several hours each.</p>
+
+<h3>Charts in HTML Templates</h3>
+
+<p>SSRS has a native chart data region. HTML templates can render charts via JavaScript chart libraries (Chart.js, ApexCharts, Highcharts) &mdash; IronPDF executes JavaScript in the Chromium renderer. For static PDF output, these render cleanly:</p>
+
+<pre><code>var htmlWithChart = @"
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;script src='https://cdn.jsdelivr.net/npm/chart.js'&gt;&lt;/script&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+    &lt;canvas id='salesChart' width='600' height='300'&gt;&lt;/canvas&gt;
+    &lt;script&gt;
+        new Chart(document.getElementById('salesChart'), {
+            type: 'bar',
+            data: {
+                labels: ['Q1', 'Q2', 'Q3', 'Q4'],
+                datasets: [{ label: 'Revenue ($M)', data: [8.2, 9.4, 12.4, 11.1] }]
+            }
+        });
+    &lt;/script&gt;
+    &lt;/body&gt;&lt;/html&gt;";
+
+// IronPDF waits for JS to execute before rendering
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.EnableJavaScript = true;
+renderer.RenderingOptions.WaitFor.JavaScript(2000);
+var pdf = await renderer.RenderHtmlAsPdfAsync(htmlWithChart);
+// https://ironpdf.com/how-to/rendering-options/
+</code></pre>
+
+<h3>Page Numbering Migration</h3>
+
+<p>SSRS uses page number expressions in report header/footer sections (<code>=Globals!PageNumber</code>). IronPDF uses tokens in <code>HtmlHeaderFooter</code>:</p>
+
+<pre><code>// SSRS footer expression: =Globals!PageNumber &amp; " of " &amp; Globals!TotalPages
+// IronPDF equivalent:
+// https://ironpdf.com/how-to/headers-and-footers/
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    HtmlFragment = "&lt;div style='text-align:right; font-size:9px'&gt;{page} of {total-pages}&lt;/div&gt;",
+};
+</code></pre>
+
+<h3>Scheduled Delivery</h3>
+
+<p>SSRS's subscription-based email delivery has no direct IronPDF equivalent &mdash; that is application code:</p>
+
+<pre><code>using IronPdf;
+using System.Net.Mail;
+using System.Threading.Tasks;
+
+// IronPDF generates the PDF; your application handles email delivery
+async Task SendReportByEmail(string recipientEmail)
+{
+    var renderer = new ChromePdfRenderer();
+    using var pdf = await renderer.RenderHtmlAsPdfAsync(BuildReportHtml(GetData()));
+    var pdfBytes = pdf.BinaryData;
+
+    using var message = new MailMessage("reports@yourcompany.com", recipientEmail)
+    {
+        Subject = "Monthly Report",
+        Body = "Please find your report attached.",
+        Attachments = { new Attachment(new System.IO.MemoryStream(pdfBytes), "report.pdf", "application/pdf") },
+    };
+
+    using var smtp = new SmtpClient("your-smtp-server");
+    await smtp.SendMailAsync(message);
+}
+</code></pre>
+
+<h3>Performance: Parallel Report Generation</h3>
+
+<pre><code>using IronPdf;
+using System.Linq;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+// Replace SSRS subscriptions with parallel generation + direct delivery
+var reportRequests = GetPendingReportRequests();
+
+await Task.WhenAll(reportRequests.Select(async req =&gt;
+{
+    var renderer = new ChromePdfRenderer();
+    using var pdf = await renderer.RenderHtmlAsPdfAsync(BuildReportHtml(req.Data));
+    pdf.SaveAs(req.OutputPath);
+    // Or: await SendReportByEmail(req.Email, pdf.BinaryData);
+}));
+
+Console.WriteLine($"Generated {reportRequests.Length} reports in parallel");
+// See: https://ironpdf.com/how-to/async/
+</code></pre>
+
+<h3>Renderer Warm-Up</h3>
+
+<pre><code>using IronPdf;
+
+// Initialize at application startup to avoid cold-start latency on first report
+var renderer = new ChromePdfRenderer();
+using var _ = await renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;warmup&lt;/body&gt;&lt;/html&gt;");
+// Renderer ready for production traffic
+</code></pre>
+
+<h3>Disposal Pattern</h3>
+
+<pre><code>using IronPdf;
+using System.IO;
+
+var renderer = new ChromePdfRenderer();
+
+// Use 'using' for automatic disposal
+using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+
+// For email attachment (bytes):
+var bytes = pdf.BinaryData;
+// pdf disposed at end of 'using' block
+</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>How many reports can I realistically migrate per day?</h3>
+
+<p>Simple tabular reports that use a single tablix data region and no charts typically take 30 to 60 minutes each to convert from <code>.rdl</code> to an HTML template with C# data binding. That puts you at roughly 8 to 12 reports per day for straightforward layouts.</p>
+
+<p>Complex reports with charts, sub-reports, or matrix data regions take several hours each. If your SSRS environment has a mix, count your <code>.rdl</code> files and categorize them before estimating the full timeline.</p>
+
+<h3>Do I need to rewrite my data access layer?</h3>
+
+<p>No. Your existing data queries and data access code remain the same. In SSRS, data flows through <code>ReportDataSource</code> objects bound to dataset names in the <code>.rdlc</code> XML. With IronPDF, you pass that same data directly into your HTML template via C# string interpolation or a template engine like Scriban or Fluid.</p>
+
+<p>The data layer stays intact. What changes is the presentation layer &mdash; from RDL XML to HTML/CSS.</p>
+
+<h3>Can IronPDF handle SSRS-style scheduled report delivery?</h3>
+
+<p>IronPDF is a PDF generation and manipulation library, not a scheduling system. SSRS's subscription manager handles scheduling, email delivery, and file-share output natively. To replicate that, you build a background service (Hangfire, .NET <code>BackgroundService</code>, or similar) that calls IronPDF to generate the PDF and then uses <code>System.Net.Mail</code> or an email API to deliver it.</p>
+
+<p>The generation side is straightforward. The scheduling and delivery side is application code you own and control, which is actually an advantage for teams that want reports integrated into their deployment pipeline.</p>
+
+<h3>Will my PDF output look the same as SSRS output?</h3>
+
+<p>Not pixel-identical, because the rendering engines are fundamentally different. SSRS uses its own renderer; IronPDF uses embedded Chromium. The visual fidelity of IronPDF output matches what you see in a modern browser, which typically means better CSS support, modern typography, and consistent cross-platform rendering.</p>
+
+<p>I recommend exporting a sample PDF from SSRS for each report as a visual reference, then building the HTML template to match that layout. The result is usually cleaner, but you should compare side by side during testing.</p>
+
+<h3>What happens to SSRS features that IronPDF does not directly replace?</h3>
+
+<p>Features like data-driven subscriptions, report caching, and the SSRS web portal do not have direct IronPDF equivalents. These are server infrastructure features, not PDF generation features. When you move to IronPDF, you are moving PDF generation into your application code and taking responsibility for the surrounding infrastructure.</p>
+
+<p>For most teams, this is a net positive &mdash; you get version-controlled templates, CI/CD deployment, and no Windows Server dependency. But if your organization relies heavily on the SSRS web portal for ad-hoc report browsing by non-technical users, you will need to build or adopt a separate UI for that workflow.</p>
+
+<h2>How Should You Approach the Migration Overall?</h2>
+
+<p>The RDL count and chart complexity are the two variables that determine whether this migration takes days or weeks. Simple tabular reports from <code>LocalReport</code> migrate cleanly and quickly. Chart-heavy, sub-report-composed, subscription-driven reporting infrastructure is a larger project.</p>
+
+<p>The operational win &mdash; running reports without a dedicated Windows Server, IIS, and SQL Server Reporting Services installation &mdash; is the clearest immediate benefit once any report type is migrated.</p>
+
+<p>Start with one simple tabular report, validate the output against your SSRS reference, and expand from there. The core pattern (license, namespace swap, renderer swap) stays the same regardless of report complexity. The variable is always the HTML template conversion.</p>

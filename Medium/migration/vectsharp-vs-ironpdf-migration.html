@@ -1,0 +1,575 @@
+<h1>Migrating from VectSharp to IronPDF: The Drawing API to HTML Transition Guide</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Consider Migrating from VectSharp to IronPDF?</h2>
+
+<p>VectSharp is a vector graphics library. It draws shapes, lines, text, and figures with precision. What it does not do natively is take an HTML string and produce a paginated PDF from it. Teams that chose VectSharp for diagram and chart rendering eventually hit the point where they also need report-style HTML output, and the two requirements are architecturally separate.</p>
+
+<p>Adding a second library to handle HTML-to-PDF creates a dependency split that compounds over time. Here are the migration triggers I see most often.</p>
+
+<p>First, there is the HTML input gap. VectSharp generates PDFs from drawing operations. Generating from HTML requires converting HTML to VectSharp drawing calls, which is a significant intermediate step.</p>
+
+<p>Second, the layout calculation burden. Positioning text and layout elements requires explicit coordinate calculation. HTML and CSS handle this automatically.</p>
+
+<p>Third, CSS and web content sources. If your input data comes from a web template or Razor view, VectSharp requires converting that to drawing API calls.</p>
+
+<p>Fourth, table and list rendering. Complex tabular layouts that are trivial in HTML with <code>&lt;table&gt;</code> require manual coordinate math in VectSharp.</p>
+
+<p>Fifth, font management. VectSharp has its own font loading mechanism via <code>FontLibrary</code>. Web fonts from Google Fonts or embedded CSS <code>@font-face</code> are not directly usable.</p>
+
+<p>Sixth, there is no PDF manipulation. VectSharp creates PDFs but it does not merge, watermark, add passwords, or extract text from existing PDFs.</p>
+
+<p>Seventh, the two-library pattern. Teams using VectSharp for diagrams plus another library for HTML-to-PDF carry both dependencies.</p>
+
+<p>Eighth, page numbering. Adding page numbers across a multi-page document in VectSharp requires manual tracking. HTML footer patterns handle this automatically.</p>
+
+<p>Ninth, image-heavy report layouts. Embedding images in VectSharp PDFs requires explicit rasterization or SVG embedding steps.</p>
+
+<p>Tenth, team familiarity. Teams with web development backgrounds find HTML/CSS templates easier to maintain than coordinate-based drawing code.</p>
+
+<h2>What Does the Migration Effort Actually Look Like?</h2>
+
+<p>I want to give you a realistic picture of the effort involved. This is not a simple library swap &mdash; it is a model change. VectSharp's model is: describe what to draw, where to draw it. IronPDF's model is: provide HTML, get back a PDF. Here is a feature-by-feature breakdown.</p>
+
+<h3>Effort by Feature</h3>
+
+<ul>
+<li><strong>HTML string to PDF &mdash; Low (new capability).</strong> Not applicable in VectSharp; in IronPDF it is <code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code>.</li>
+<li><strong>Drawing-based PDF &mdash; High (rewrite).</strong> VectSharp's <code>Graphics.*</code> drawing API becomes an HTML/CSS template in IronPDF.</li>
+<li><strong>Save to file &mdash; Low.</strong> <code>Document.SaveAsPDF(path)</code> maps directly to <code>pdf.SaveAs(path)</code>.</li>
+<li><strong>Save to stream &mdash; Low.</strong> <code>Document.SaveAsPDF(stream)</code> maps to <code>pdf.Stream</code> or <code>pdf.BinaryData</code>.</li>
+<li><strong>Custom page size &mdash; Low.</strong> <code>Page(width, height)</code> becomes <code>RenderingOptions.PaperSize</code>.</li>
+<li><strong>Merge PDFs &mdash; Medium.</strong> Not native to VectSharp; IronPDF provides <code>PdfDocument.Merge()</code>.</li>
+<li><strong>Watermark &mdash; Medium.</strong> Manual drawing layer in VectSharp; <code>TextStamper</code> or <code>ImageStamper</code> in IronPDF.</li>
+<li><strong>Password protection &mdash; Low.</strong> Not native to VectSharp; <code>pdf.SecuritySettings</code> in IronPDF.</li>
+<li><strong>Text extraction &mdash; Medium.</strong> Not applicable in VectSharp; <code>pdf.ExtractAllText()</code> in IronPDF.</li>
+<li><strong>Diagrams/charts &mdash; High.</strong> VectSharp's native strength is vector drawing; IronPDF approaches this via HTML plus JavaScript chart libraries.</li>
+<li><strong>Custom fonts &mdash; Medium.</strong> VectSharp's <code>FontLibrary</code> system becomes CSS <code>@font-face</code> or Google Fonts.</li>
+</ul>
+
+<h2>How Do You Decide Whether to Migrate or Keep Both?</h2>
+
+<p>Not every team should do a full replacement. Here is a decision matrix to help you figure out where you fall.</p>
+
+<ul>
+<li>If your primary need is HTML/CSS report generation, switch &mdash; VectSharp is drawing-first and IronPDF is HTML-first.</li>
+<li>If your primary need is precise diagram or chart rendering from data, keep VectSharp for the diagrams and add IronPDF for HTML reports.</li>
+<li>If you need both diagrams and HTML reports, run both libraries together and scope the boundary carefully.</li>
+<li>If you need PDF merge, watermark, or security on existing PDFs, switch for those operations &mdash; VectSharp does not cover them.</li>
+</ul>
+
+<h2>How Do the Two Libraries Compare Side by Side?</h2>
+
+<p>Before diving into code, here is a direct feature comparison so you can see the architectural differences at a glance.</p>
+
+<ul>
+<li><strong>Focus.</strong> VectSharp is built for vector graphics creation with PDF, SVG, and raster output. IronPDF is built for HTML-to-PDF plus PDF manipulation.</li>
+<li><strong>Pricing.</strong> VectSharp is open source under LGPL-3.0-only. IronPDF is commercial; current pricing is on ironsoftware.com.</li>
+<li><strong>API style.</strong> VectSharp exposes drawing calls like <code>Graphics.FillText</code>, <code>FillPath</code>, and <code>FillRectangle</code>. IronPDF exposes <code>ChromePdfRenderer</code> plus HTML input.</li>
+<li><strong>Learning curve.</strong> VectSharp is low for developers with a graphics background but harder for report layouts. IronPDF is low for web developers because HTML and CSS are the input.</li>
+<li><strong>HTML rendering.</strong> Not applicable in VectSharp; embedded Chromium in IronPDF.</li>
+<li><strong>Page indexing.</strong> Both libraries are 0-based.</li>
+<li><strong>Thread safety.</strong> VectSharp's per-<code>Document</code>/<code>Page</code> objects are not designed for shared mutation across threads; IronPDF supports concurrent rendering using separate <code>ChromePdfRenderer</code> instances.</li>
+<li><strong>Namespace.</strong> <code>VectSharp</code> and <code>VectSharp.PDF</code> become <code>IronPdf</code>.</li>
+</ul>
+
+<h2>How Do You Set Up IronPDF and Replace VectSharp?</h2>
+
+<p>I will walk you through the core migration. First, find your existing VectSharp references, then swap the packages, and finally update your code.</p>
+
+<h3>Finding VectSharp References in Your Codebase</h3>
+
+<pre><code># Find VectSharp usage
+rg -l "VectSharp\|VectSharp\.PDF" --type cs
+rg "VectSharp\|SaveAsPDF\|FillText\b" --type cs -n
+
+# Count drawing API vs file save usage
+rg "Graphics\.\|FillText\|FillPath\|FillRectangle" --type cs | wc -l
+rg "SaveAsPDF\b" --type cs -n
+
+# Find VectSharp NuGet references
+grep -r "VectSharp" *.csproj **/*.csproj 2&gt;/dev/null
+</code></pre>
+
+<h3>Swapping the Packages</h3>
+
+<pre><code># Remove VectSharp packages (PDF first, then core)
+dotnet remove package VectSharp.PDF
+dotnet remove package VectSharp
+
+# Install IronPDF
+dotnet add package IronPdf
+
+dotnet restore
+</code></pre>
+
+<h3>License Configuration</h3>
+
+<pre><code>using IronPdf;
+
+// https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+</code></pre>
+
+<h3>Namespace Swap</h3>
+
+<p>Before:</p>
+
+<pre><code>using VectSharp;
+using VectSharp.PDF;
+</code></pre>
+
+<p>After:</p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+</code></pre>
+
+<h3>Basic PDF Generation</h3>
+
+<p>Before (VectSharp drawing API):</p>
+
+<pre><code>using VectSharp;
+using VectSharp.PDF;
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // VectSharp: draw content via graphics API
+        var doc = new Document();
+        var page = new Page(595, 842); // A4 in points
+        doc.Pages.Add(page);
+
+        var g = page.Graphics;
+
+        var font = new Font(FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 24);
+        g.FillText(40, 40, "Hello, PDF!", font, Colours.Black);
+
+        doc.SaveAsPDF("output.pdf");
+        Console.WriteLine("Saved output.pdf");
+    }
+}
+</code></pre>
+
+<p>After:</p>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+// HTML replaces drawing API — no coordinate calculation
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body style='font-family:Arial; padding:40px'&gt;&lt;h1&gt;Hello, PDF!&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+pdf.SaveAs("output.pdf");
+
+Console.WriteLine($"Saved output.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h2>How Do You Migrate Report Generation from Drawing Calls to HTML?</h2>
+
+<p>This is the most common migration scenario. Teams have invoice or report code that manually positions every element with coordinates. Here is a complete before-and-after.</p>
+
+<h3>VectSharp Drawing API for a Report</h3>
+
+<pre><code>using VectSharp;
+using VectSharp.PDF;
+using System;
+
+class ReportBefore
+{
+    static void Main()
+    {
+        // VectSharp: explicit coordinate positioning for every element
+
+        var doc = new Document();
+        var page = new Page(595, 842); // A4 in points (72 DPI)
+        doc.Pages.Add(page);
+        var g = page.Graphics;
+
+        // Title — manual coordinate (40, 40)
+        var titleFont = new Font(
+            FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.HelveticaBold), 20);
+        g.FillText(40, 40, "Q3 Invoice #4421", titleFont, Colours.Black);
+
+        // Customer field — manual coordinate (40, 80)
+        var bodyFont = new Font(
+            FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 12);
+        g.FillText(40, 80, "Customer: Acme Corp", bodyFont, Colours.Black);
+
+        // Amount — manual coordinate (40, 110)
+        g.FillText(40, 110, "Total: $8,400.00", bodyFont, Colours.Black);
+
+        doc.SaveAsPDF("invoice.pdf");
+        Console.WriteLine("Saved invoice.pdf — manual coordinates for every element");
+    }
+}
+</code></pre>
+
+<h3>IronPDF HTML Template Equivalent</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+// HTML/CSS handles layout — no manual coordinate math
+var html = @"
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        body { font-family: Arial, sans-serif; padding: 40px; color: #222; }
+        h1 { font-size: 20px; font-weight: bold; }
+        .field { margin-top: 8px; font-size: 13px; }
+        .total { font-size: 16px; font-weight: bold; margin-top: 20px; }
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Q3 Invoice #4421&lt;/h1&gt;
+        &lt;div class='field'&gt;Customer: Acme Corp&lt;/div&gt;
+        &lt;div class='total'&gt;Total: $8,400.00&lt;/div&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("invoice.pdf");
+Console.WriteLine($"Saved invoice.pdf ({pdf.PageCount} page(s))");
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h2>How Do You Handle PDF Merge, Watermark, and Password Protection?</h2>
+
+<p>These are the features VectSharp does not cover natively. Teams commonly bolt on a second library for them. With IronPDF, they are built in.</p>
+
+<h3>Merge PDFs &mdash; Before (VectSharp)</h3>
+
+<pre><code>using VectSharp;
+using VectSharp.PDF;
+using System;
+
+class MergeBefore
+{
+    static void Main()
+    {
+        // VectSharp builds PDFs from drawing operations — it does not parse or import
+        // existing PDF files. To compose a multi-section document, build all sections
+        // as Pages on a single Document, then call SaveAsPDF once.
+
+        var merged = new Document();
+
+        // Section A
+        var pageA = new Page(595, 842);
+        var gA = pageA.Graphics;
+        // ... draw section A content ...
+        merged.Pages.Add(pageA);
+
+        // Section B
+        var pageB = new Page(595, 842);
+        var gB = pageB.Graphics;
+        // ... draw section B content ...
+        merged.Pages.Add(pageB);
+
+        merged.SaveAsPDF("merged.pdf");
+        Console.WriteLine("Note: merging existing PDF files requires a separate library.");
+    }
+}
+</code></pre>
+
+<h3>Merge PDFs &mdash; After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+
+var results = await Task.WhenAll(
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section A&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"),
+    renderer.RenderHtmlAsPdfAsync("&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section B&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;")
+);
+
+// https://ironpdf.com/how-to/merge-or-split-pdfs/
+var merged = PdfDocument.Merge(results[0], results[1]);
+merged.SaveAs("merged.pdf");
+Console.WriteLine($"Merged: {merged.PageCount} pages");
+</code></pre>
+
+<h3>Watermark &mdash; Before (VectSharp)</h3>
+
+<pre><code>using VectSharp;
+using VectSharp.PDF;
+using System;
+
+class WatermarkBefore
+{
+    static void Main()
+    {
+        // VectSharp creates PDFs from scratch — it cannot load and modify an existing
+        // PDF. Watermarks are drawn directly onto each Page during construction.
+
+        var doc = new Document();
+        var page = new Page(595, 842);
+        doc.Pages.Add(page);
+        var g = page.Graphics;
+
+        // Main content
+        var bodyFont = new Font(
+            FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 14);
+        g.FillText(40, 40, "Document Content", bodyFont, Colours.Black);
+
+        // Draw rotated semi-transparent text — manual coordinate transform required.
+        // Colour.FromRgba accepts four doubles (0–1) for r, g, b, alpha.
+        var watermarkFont = new Font(
+            FontFamily.ResolveFontFamily(FontFamily.StandardFontFamilies.Helvetica), 60);
+        g.Save();
+        g.Translate(297, 421); // center of A4 page
+        g.Rotate(-Math.PI / 4); // -45 degrees
+        g.FillText(-100, 0, "DRAFT", watermarkFont, Colour.FromRgba(0.5, 0.5, 0.5, 0.15));
+        g.Restore();
+
+        doc.SaveAsPDF("watermarked.pdf");
+        Console.WriteLine("Watermark drawn during page construction.");
+    }
+}
+</code></pre>
+
+<h3>Watermark &mdash; After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+using System;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Document Content&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// https://ironpdf.com/how-to/custom-watermark/
+var watermark = new TextStamper
+{
+    Text = "DRAFT",
+    FontColor = IronSoftware.Drawing.Color.Gray,
+    Opacity = 15,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center,
+};
+
+pdf.ApplyStamp(watermark);
+pdf.SaveAs("watermarked.pdf");
+Console.WriteLine("Watermark applied");
+</code></pre>
+
+<h3>Password Protection &mdash; Before (VectSharp)</h3>
+
+<pre><code>using VectSharp;
+using VectSharp.PDF;
+using System;
+
+class PasswordBefore
+{
+    static void Main()
+    {
+        // VectSharp.PDF has no built-in password or encryption API.
+        // To protect output, save the PDF and apply encryption with a secondary library.
+
+        var doc = new Document();
+        var page = new Page(595, 842);
+        doc.Pages.Add(page);
+        // ... build document ...
+        doc.SaveAsPDF("temp.pdf");
+
+        // Password via secondary library (illustrative):
+        // var bytes = File.ReadAllBytes("temp.pdf");
+        // var secured = SomePdfLib.SetPassword(bytes, "open123", "admin456");
+        // File.WriteAllBytes("secured.pdf", secured);
+
+        Console.WriteLine("VectSharp.PDF has no native password API — apply via a secondary library.");
+    }
+}
+</code></pre>
+
+<h3>Password Protection &mdash; After (IronPDF)</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Protected Document&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+
+// https://ironpdf.com/how-to/pdf-permissions-passwords/
+pdf.SecuritySettings.UserPassword = "open123";
+pdf.SecuritySettings.OwnerPassword = "admin456";
+
+pdf.SaveAs("secured.pdf");
+Console.WriteLine("Saved secured.pdf");
+</code></pre>
+
+<h2>What Are the Most Common Troubleshooting Issues During Migration?</h2>
+
+<p>Here are the issues I see teams run into most frequently when moving from VectSharp to IronPDF.</p>
+
+<h3>Drawing API Has No HTML Equivalent for Complex Diagrams</h3>
+
+<p>If you have a VectSharp drawing that generates a precise chart or diagram with exact coordinate positioning, bezier curves, and custom paths, there is no direct HTML/CSS equivalent. The bridge is VectSharp's SVG output.</p>
+
+<p>Keep VectSharp for diagrams, export to SVG, and embed that SVG in HTML for IronPDF to render. Here is how that looks:</p>
+
+<pre><code>// Render diagram as SVG with VectSharp
+using VectSharp;
+using VectSharp.SVG;
+using System;
+
+var doc = new Document();
+var page = new Page(400, 300);
+doc.Pages.Add(page);
+var g = page.Graphics;
+// ... draw your diagram ...
+page.SaveAsSVG("diagram.svg"); // extension method from VectSharp.SVG
+
+// Embed SVG in HTML for IronPDF
+using IronPdf;
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var svgContent = System.IO.File.ReadAllText("diagram.svg");
+var html = $@"
+    &lt;html&gt;&lt;body style='padding:40px'&gt;
+        &lt;h1&gt;Report with Embedded Diagram&lt;/h1&gt;
+        {svgContent}
+        &lt;p&gt;Diagram analysis...&lt;/p&gt;
+    &lt;/body&gt;&lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("report-with-diagram.pdf");
+</code></pre>
+
+<h3>Font Mismatch After Migration</h3>
+
+<p>If a report was using VectSharp's <code>FontFamily.StandardFontFamilies.Helvetica</code> and after migration the font looks different, this is expected. Helvetica is a licensed font. VectSharp uses Type 1 standard fonts. IronPDF renders via Chromium using system fonts or web fonts, and Helvetica may not be available.</p>
+
+<p>Specify the font explicitly in your HTML to get consistent results:</p>
+
+<pre><code>var html = @"
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        /* Use Arial as the near-equivalent to Helvetica on most systems */
+        body { font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif; }
+        /* Or use Google Fonts for exact web font */
+        /* @import url('https://fonts.googleapis.com/css2?family=Inter'); */
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;&lt;h1&gt;Report Title&lt;/h1&gt;&lt;/body&gt;
+    &lt;/html&gt;";
+</code></pre>
+
+<h3>Page Size Units Differ Between Libraries</h3>
+
+<p>VectSharp pages are specified in points (<code>new Page(595, 842)</code> for A4). IronPDF rendering options use an enum or millimeters. Instead of specifying raw points, use the enum:</p>
+
+<pre><code>using IronPdf.Rendering;
+
+// Instead of specifying raw points, use the enum:
+renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+// Or Letter, A3, A5, etc.
+
+// For custom sizes, use SetCustomPaperSizeinPixelsOrPoints(width, height)
+// See: https://ironpdf.com/how-to/rendering-options/
+</code></pre>
+
+<h3>Stream Output After SaveAsPDF Is Gone</h3>
+
+<p>If VectSharp's <code>document.SaveAsPDF(stream)</code> was used to write to a <code>MemoryStream</code> for API responses, here is the IronPDF equivalent:</p>
+
+<pre><code>using IronPdf;
+using System.IO;
+
+var renderer = new ChromePdfRenderer();
+using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+
+// Option 1: get bytes directly
+var bytes = pdf.BinaryData;
+return File(bytes, "application/pdf", "output.pdf");
+
+// Option 2: copy stream
+using var ms = new MemoryStream();
+pdf.Stream.CopyTo(ms);
+return ms.ToArray();
+// pdf disposed at end of 'using' block
+</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Is this migration a simple library swap?</h3>
+
+<p>No. The migration from VectSharp to IronPDF is a model change, not a drop-in replacement. VectSharp's model is to describe what to draw and where to draw it with explicit coordinates. IronPDF's model is to provide HTML and get back a PDF.</p>
+
+<p>If your existing codebase builds content via VectSharp drawing calls, those drawing calls become HTML and CSS templates. If it already builds content via HTML templates, <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF is the natural fit</a> and the migration is more direct.</p>
+
+<h3>Should I keep VectSharp for diagrams and add IronPDF for reports?</h3>
+
+<p>Yes, this is a legitimate architecture. For precise data-driven diagrams, VectSharp's vector drawing API can be more appropriate than trying to achieve equivalent precision with SVG and JavaScript chart libraries. The bridge is SVG export from VectSharp embedded in HTML rendered by IronPDF.</p>
+
+<p>Consider keeping VectSharp for the diagram component and adding IronPDF for HTML report generation. Both libraries can coexist in the same project.</p>
+
+<h3>Does page indexing change between the two libraries?</h3>
+
+<p>No. Both VectSharp and IronPDF use 0-based page indexing. This typically does not require changes for page manipulation code.</p>
+
+<h3>Can IronPDF handle parallel rendering for batch reports?</h3>
+
+<p>Yes. You can render multiple PDFs concurrently using <code>Task.WhenAll</code>. Each renderer instance handles its own Chromium process. Here is the pattern:</p>
+
+<pre><code>using IronPdf;
+using System.Linq;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var pdfs = await Task.WhenAll(reportDataList.Select(async data =&gt;
+{
+    var renderer = new ChromePdfRenderer();
+    return await renderer.RenderHtmlAsPdfAsync(BuildHtml(data));
+}));
+
+foreach (var pdf in pdfs) pdf.Dispose();
+</code></pre>
+
+<h3>What about disposal patterns &mdash; does IronPDF require explicit cleanup?</h3>
+
+<p>VectSharp's <code>Document</code> uses managed objects with no explicit disposal. IronPDF's <code>PdfDocument</code> should be wrapped in a <code>using</code> block. This is a small but important change:</p>
+
+<pre><code>using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs("output.pdf");
+// pdf disposed automatically at end of scope
+</code></pre>
+
+<h2>Conclusion</h2>
+
+<p>The drawing API to HTML transition is the core challenge in this migration. For report-style documents &mdash; tabular data, text, simple formatting &mdash; HTML is generally simpler to write and maintain than coordinate-based drawing code. For precision diagrams, VectSharp's approach is often more appropriate, and the SVG bridge keeps both tools working in the same pipeline.</p>
+
+<p>The missing features like <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge</a>, <a href="https://ironpdf.com/how-to/custom-watermark/">watermark</a>, and <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">security</a> migrate with minimal effort since they are additive &mdash; new API calls on existing rendered output.</p>
+
+<p>If you are starting from report-style code that manually positions every text element with coordinates, the move to HTML templates will feel like a significant improvement. If you are working with precise vector diagrams, keep VectSharp for that and let IronPDF handle everything else.</p>

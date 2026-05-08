@@ -1,0 +1,573 @@
+<h1>CraftMyPDF vs IronPDF: Solving the Template-vs-Code Dilemma for .NET PDF Generation</h1>
+
+<p>Picture a certificate generation system for online courses built on top of a template-based PDF SaaS. The visual template editor looks perfect at the start — drag-drop a certificate design in the browser, call the API with student data, done. A few weeks in, support tickets start surfacing themes like "certificate shows wrong course name," "date format displays as raw number," or "logo disappeared after a template edit." Why does that pattern keep recurring?</p>
+
+<p>The answer is usually architectural fit: cloud template services use fixed field mappings defined in a web editor. Changing your JSON structure can require re-editing the template; conditional logic and dynamic layout depend on what the editor exposes. Visual editors trade off some code-level control for design-time convenience, which can become a constraint as data models evolve.</p>
+
+<p>This article walks through what tends to go wrong with template-based services — and how a code-first approach addresses each scenario. CraftMyPDF is a cloud template service emphasizing visual design and no-code integration. <a href="https://ironpdf.com">IronPDF</a> is a programmatic .NET library where developers control rendering with code and HTML. The comparison focuses on architectural differences, not vendor characterization.</p>
+
+<h2>What is CraftMyPDF and where does it shine?</h2>
+
+<p>CraftMyPDF is an active SaaS PDF generation service. It offers a REST API for generating PDFs from templates, with documented integrations for Zapier, Make.com (formerly Integromat), and Bubble.io aimed at no-code workflows. Its focus is low-code and no-code users and automation scenarios. The service exposes endpoints including <code>/v1/create</code>, <code>/v1/merge</code>, and <code>/v1/add-watermark</code>; auxiliary endpoints (such as PDF-to-image) are documented in the CraftMyPDF API reference.</p>
+
+<p>The pricing model is credit-based per API call (1 credit per generated PDF; 0.5 credit per watermark, merge, or text-add operation), with a free tier. Higher-volume enterprise plans require contacting the vendor.</p>
+
+<p>CraftMyPDF is a <strong>template-based cloud service</strong> rather than a local code library. Templates are designed in CraftMyPDF's web-based drag-and-drop editor, and PDF generation runs on CraftMyPDF servers, so every render involves an HTTP API call. There is no in-process rendering inside your .NET application; the public surface is the REST API consumed via standard HTTP clients such as <code>RestSharp</code> or <code>HttpClient</code>.</p>
+
+<p>Template logic is expressed through CraftMyPDF's component system. Conditional rendering, dynamic layouts, and complex business rules depend on what the editor and template language expose. Layout is defined via GUI rather than raw HTML/CSS, and templates are stored on the CraftMyPDF platform — your Git workflow does not directly version the template artifacts.</p>
+
+<p>For debugging, templates are edited visually, so the rendering pipeline is observed via output PDFs and API responses rather than a local debugger. Errors surface as API responses rather than .NET exceptions and stack traces.</p>
+
+<p>Support is offered by the CraftMyPDF team via email, with documentation at craftmypdf.com/docs — verify support terms and any SLAs with the vendor. There is no first-party .NET SDK; integration uses direct HTTP/REST calls or third-party automation tools (Zapier, Make), so teams write their own HTTP client code, retry logic, and authentication handling.</p>
+
+<h2>Problem 1 — What happens when you need conditional logic in your PDFs?</h2>
+
+<p>This is where the template-vs-code divide shows up in practice. Once business rules go beyond "fill in the blank," the friction of round-tripping through a visual template editor tends to grow.</p>
+
+<p>CraftMyPDF templates bind to data fields defined at design time (e.g., <code>{customer_name}</code>, <code>{invoice_total}</code>). When the backend JSON shape changes, the template typically needs to be updated in the web UI, which can require coordination with whoever has CraftMyPDF access.</p>
+
+<p>Conditional rendering inside templates is constrained — verify the current template syntax against the CraftMyPDF documentation. A pattern like "show the discount section only if discount &gt; 0" is generally handled either by separate templates per scenario or by preprocessing data on the API caller side, rather than by inline if/else inside the template.</p>
+
+<p>Components like text, table, and chart have predefined behavior. Raw HTML is not the primary authoring surface, and CSS control is whatever the template editor exposes. Teams targeting pixel-perfect layouts have reported friction with the component system — verify against your specific layout needs.</p>
+
+<p>Every PDF generation involves an HTTP API call to CraftMyPDF. Network latency, API quotas, and service availability factor into application responsiveness, and offline / air-gapped environments are not supported by design.</p>
+
+<h3>CraftMyPDF — Template Constraints</h3>
+
+<pre><code>// NuGet: Install-Package RestSharp
+using RestSharp;
+using System.IO;
+using System.Threading.Tasks;
+
+public class CraftMyPdfGenerator
+{
+    private readonly string _apiKey;
+    private readonly string _templateId;
+
+    public CraftMyPdfGenerator(string apiKey, string templateId)
+    {
+        _apiKey = apiKey;
+        _templateId = templateId;
+    }
+
+    public async Task&lt;byte[]&gt; GenerateInvoiceAsync(InvoiceData invoice)
+    {
+        // Conditional content is handled by preprocessing data on the caller side
+        // because template-level if/else is constrained — verify against the
+        // current CraftMyPDF template syntax for your account.
+        var templateData = new
+        {
+            customer_name = invoice.CustomerName,
+            invoice_number = invoice.InvoiceNumber,
+
+            // Discount field is always sent; the template renders the
+            // bound region either way, so callers commonly send "N/A" or
+            // an empty string when there is no discount.
+            discount_amount = invoice.Discount &gt; 0
+                ? $"${invoice.Discount:F2}"
+                : "N/A",
+
+            total = $"${invoice.Total:F2}"
+        };
+
+        // Date and number formats are coupled to template expectations,
+        // so callers typically format values to match before sending.
+        var client = new RestClient("https://api.craftmypdf.com/v1/create");
+        var request = new RestRequest(Method.POST);
+        request.AddHeader("X-API-KEY", _apiKey);
+        request.AddJsonBody(new
+        {
+            template_id = _templateId,
+            data = templateData
+        });
+
+        var response = await client.ExecuteAsync(request);
+
+        if (!response.IsSuccessful)
+        {
+            // Errors come back as HTTP responses; the rendering pipeline
+            // is on CraftMyPDF's side, so debugging happens via API
+            // response payloads rather than a local debugger.
+            throw new System.Exception($"PDF generation failed: {response.Content}");
+        }
+
+        return response.RawBytes;
+    }
+}</code></pre>
+
+<ul>
+<li><strong>Conditional rendering.</strong> Inline if/else inside templates is constrained; common patterns use caller-side preprocessing or per-scenario templates — verify the current template language against CraftMyPDF's docs.</li>
+<li><strong>Data formats.</strong> Templates bind to specific field formats, so callers typically format dates and numbers before sending the JSON payload.</li>
+<li><strong>Rendering pipeline.</strong> The template renderer runs in CraftMyPDF's cloud, so intermediate states are observed via API responses rather than a local debugger.</li>
+<li><strong>Version control.</strong> Templates live on the CraftMyPDF platform; your Git workflow does not directly version the template artifacts.</li>
+<li><strong>Local testing.</strong> Unit tests exercising real template rendering require an HTTP call to the service.</li>
+<li><strong>Collaboration model.</strong> Template edits happen in the CraftMyPDF web UI, so changes are coordinated through whoever has editor access.</li>
+</ul>
+
+<p>Compare that with IronPDF, where the templating happens in C# and HTML you can debug, test, and version-control like the rest of your code.</p>
+
+<h3>IronPDF — Code-Based Control</h3>
+
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
+using System.Text;
+using System.Threading.Tasks;
+
+public class IronPdfGenerator
+{
+    public IronPdfGenerator()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+    }
+
+    public async Task&lt;byte[]&gt; GenerateInvoiceAsync(InvoiceData invoice)
+    {
+        // Conditional logic lives in C# and HTML
+        var html = BuildInvoiceHtml(invoice);
+
+        var renderer = new ChromePdfRenderer();
+        using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+        return pdf.BinaryData;
+    }
+
+    private string BuildInvoiceHtml(InvoiceData invoice)
+    {
+        var html = new StringBuilder();
+        html.Append(@"
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+    &lt;style&gt;
+        body { font-family: Arial; margin: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+    &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+    &lt;h1&gt;Invoice #" + invoice.InvoiceNumber + @"&lt;/h1&gt;
+    &lt;p&gt;&lt;strong&gt;Customer:&lt;/strong&gt; " + invoice.CustomerName + @"&lt;/p&gt;
+    &lt;table&gt;
+        &lt;tr&gt;&lt;th&gt;Description&lt;/th&gt;&lt;th&gt;Amount&lt;/th&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;Services&lt;/td&gt;&lt;td&gt;$" + invoice.Subtotal.ToString("F2") + @"&lt;/td&gt;&lt;/tr&gt;");
+
+        // Conditional section: only show discount if &gt; 0
+        if (invoice.Discount &gt; 0)
+        {
+            html.Append(@"
+        &lt;tr&gt;&lt;td&gt;Discount&lt;/td&gt;&lt;td&gt;-$" + invoice.Discount.ToString("F2") + @"&lt;/td&gt;&lt;/tr&gt;");
+        }
+        // If no discount, the row is omitted from the rendered HTML
+
+        html.Append(@"
+        &lt;tr&gt;&lt;td&gt;&lt;strong&gt;Total&lt;/strong&gt;&lt;/td&gt;&lt;td&gt;&lt;strong&gt;$" + invoice.Total.ToString("F2") + @"&lt;/strong&gt;&lt;/td&gt;&lt;/tr&gt;
+    &lt;/table&gt;
+    &lt;p&gt;Date: " + invoice.Date.ToString("MMMM dd, yyyy") + @"&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;");
+
+        return html.ToString();
+    }
+}
+
+// Notes on this approach:
+// - if/else in C# selects which HTML fragments render
+// - .ToString() formats use standard .NET conventions
+// - The HTML string can be inspected in a debugger or browser
+// - The template lives in source control alongside the code
+// - Unit tests can render PDFs in-process without an external API</code></pre>
+
+<p>IronPDF puts layout control in code. Conditional rendering, format control, and debugging use standard .NET workflows. You can preview the HTML in a browser, set breakpoints in your IDE, and test without any external API. For more on achieving precise output, see the <a href="https://ironpdf.com/how-to/pixel-perfect-html-to-pdf/">pixel-perfect HTML-to-PDF rendering guide</a>.</p>
+
+<h2>Problem 2 — How do you version-control and evolve templates?</h2>
+
+<p>Template versioning is one of the trickier parts of any template-based PDF workflow. Once a template lives outside your repository, your normal Git audit trail does not cover it — verify whether your CraftMyPDF plan exposes any first-party version history or staging features.</p>
+
+<p>The architecture concentrates template authoring in the CraftMyPDF web UI. Rendering happens server-side, and template iteration happens through the editor and API responses rather than a local debugger. That model can suit teams whose template editors are non-developers, but it does mean that template changes are decoupled from the code repository unless you build that bridge yourself.</p>
+
+<p>Version control implications follow from that split: template artifacts live on the CraftMyPDF platform, so diffing, code review, and rollback go through whatever facilities the platform exposes rather than through Git, and team collaboration uses the CraftMyPDF account model.</p>
+
+<h3>CraftMyPDF — Template Management Challenges</h3>
+
+<pre><code>// NuGet: Install-Package RestSharp
+using RestSharp;
+using System.Threading.Tasks;
+
+public class CraftMyPdfTemplateEvolution
+{
+    private readonly string _apiKey;
+
+    public CraftMyPdfTemplateEvolution(string apiKey)
+    {
+        _apiKey = apiKey;
+    }
+
+    public async Task&lt;byte[]&gt; GeneratePdfAsync(string templateId, object data)
+    {
+        // The template_id is the only handle the API exposes here, so
+        // versioning, staging, and rollback workflows are typically
+        // implemented either with separate template IDs per environment
+        // or through whatever facilities CraftMyPDF exposes — verify
+        // current capabilities against the latest CraftMyPDF docs.
+        var client = new RestClient("https://api.craftmypdf.com/v1/create");
+        var request = new RestRequest(Method.POST);
+        request.AddHeader("X-API-KEY", _apiKey);
+        request.AddJsonBody(new
+        {
+            template_id = templateId,
+            data
+        });
+
+        var response = await client.ExecuteAsync(request);
+        return response.RawBytes;
+    }
+}
+
+// Operational considerations to plan for:
+// - Template artifacts live on the CraftMyPDF platform rather than in Git
+// - Code review and CI for template changes are not part of the default flow
+// - Field renames in the editor decouple from the JSON payload sent by callers
+// - Coordination between developers and template editors is part of the workflow
+// - Multiple template IDs are a common pattern for dev / staging / production</code></pre>
+
+<ul>
+<li><strong>Template versioning.</strong> The default <code>template_id</code> handle points at the current template; verify whether your plan exposes pinned versions, staging environments, or rollback features.</li>
+<li><strong>Field renames.</strong> Renaming a field in the editor decouples it from the JSON payload sent by callers, which can result in blank values until the caller is updated.</li>
+<li><strong>Rollback.</strong> Recovering a prior template version generally goes through whatever the platform offers rather than <code>git revert</code>.</li>
+<li><strong>Code review.</strong> Template changes happen in the GUI, so reviews would need a workflow on top of that rather than a Git diff.</li>
+<li><strong>Testing.</strong> Exercising a real template render requires an HTTP call to the service.</li>
+<li><strong>Deployment coordination.</strong> Code and template changes evolve in different systems, so promoting them together is part of the release plan.</li>
+</ul>
+
+<h3>IronPDF — Template as Code</h3>
+
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
+using System.IO;
+using System.Threading.Tasks;
+
+public class IronPdfTemplateVersioning
+{
+    public IronPdfTemplateVersioning()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+    }
+
+    public async Task&lt;byte[]&gt; GeneratePdfAsync(InvoiceData data)
+    {
+        // Template is an HTML file in the same source tree as the code
+        var templatePath = "Templates/Invoice_v2.html";
+        var template = File.ReadAllText(templatePath);
+
+        // Substitute placeholders with model values
+        template = template.Replace("{{CustomerName}}", data.CustomerName);
+        template = template.Replace("{{InvoiceNumber}}", data.InvoiceNumber);
+        template = template.Replace("{{Total}}", data.Total.ToString("C"));
+
+        // For richer templating, plug in Razor, Handlebars, Scriban, etc.
+
+        var renderer = new ChromePdfRenderer();
+        using var pdf = await renderer.RenderHtmlAsPdfAsync(template);
+        return pdf.BinaryData;
+    }
+}
+
+// Notes on this approach:
+// - Template changes flow through normal commits and pull requests
+// - HTML diffs are reviewable alongside the C# changes
+// - CI can render test PDFs from the same templates
+// - Rolling back a template is a git revert away
+// - Designer-authored HTML can be merged into the same repo</code></pre>
+
+<p>With IronPDF, templates are files in the same repository as the code that renders them. Version control, code review, and automated testing all use the same workflow as the rest of the .NET project, so a template change can ride in the same pull request as the data-model change that motivated it. For high-throughput scenarios, see the <a href="https://ironpdf.com/how-to/async/">async rendering guide</a>.</p>
+
+<h2>Problem 3 — Can template-based services handle complex multi-page layouts?</h2>
+
+<p>When the requirements include dynamic tables with variable row counts, programmatic page breaks, per-page headers and footers, and calculated totals, the component-based template surface tends to require more careful workarounds. Teams that adopt template SaaS for simple documents and later add complex reports often hit this transition.</p>
+
+<p>Components like text, table, and chart expose predefined behavior, and CSS control is whatever the template editor surfaces — verify against the current CraftMyPDF component documentation if you need pixel-perfect layouts.</p>
+
+<h3>CraftMyPDF — Component Limitations</h3>
+
+<pre><code>// NuGet: Install-Package RestSharp
+using RestSharp;
+using System.Linq;
+using System.Threading.Tasks;
+
+public class CraftMyPdfComplexLayouts
+{
+    private readonly string _apiKey;
+    private readonly string _templateId;
+
+    public CraftMyPdfComplexLayouts(string apiKey, string templateId)
+    {
+        _apiKey = apiKey;
+        _templateId = templateId;
+    }
+
+    public async Task&lt;byte[]&gt; GenerateReportAsync(ReportData data)
+    {
+        // For variable-row tables, the Sections component is the typical
+        // building block — verify the layout features it exposes against
+        // CraftMyPDF's docs for your account.
+        // Calculated values (running totals, summaries) are commonly
+        // pre-computed by the caller before sending the JSON payload.
+        var totals = new
+        {
+            item_total = data.Items.Sum(i =&gt; i.Amount),
+            item_count = data.Items.Count
+        };
+
+        var client = new RestClient("https://api.craftmypdf.com/v1/create");
+        var request = new RestRequest(Method.POST);
+        request.AddHeader("X-API-KEY", _apiKey);
+        request.AddJsonBody(new
+        {
+            template_id = _templateId,
+            data = new
+            {
+                month = data.Month,
+                items = data.Items,
+                totals
+            }
+        });
+
+        var response = await client.ExecuteAsync(request);
+        return response.RawBytes;
+    }
+}
+
+// Layout considerations to plan for:
+// - Page-break control follows whatever the template engine offers
+// - Per-page headers / footers depend on the template's header / footer fields
+// - Calculated values are typically pre-computed by the caller
+// - Conditional sections may be expressed via template variants or data toggles
+// - Verify each capability against the current CraftMyPDF docs</code></pre>
+
+<ul>
+<li><strong>Component system.</strong> Authoring centers on predefined components (text, table, chart, sections); raw HTML is not the primary surface.</li>
+<li><strong>Page breaks.</strong> Pagination is driven by the template engine — verify whether your template can force a break before a given section.</li>
+<li><strong>Calculations.</strong> Running totals and summaries are commonly pre-computed by the caller before sending the JSON payload.</li>
+<li><strong>Headers and footers.</strong> Header / footer fields are template-level; per-page customization depends on what the engine exposes.</li>
+<li><strong>Section iteration.</strong> The Sections component repeats data; layout flexibility within a section follows the component model.</li>
+<li><strong>Debugging.</strong> Render iteration goes through the editor and API responses rather than a local debugger.</li>
+</ul>
+
+<h3>IronPDF — Full HTML/CSS Control</h3>
+
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+public class IronPdfComplexLayouts
+{
+    public IronPdfComplexLayouts()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+    }
+
+    public async Task&lt;byte[]&gt; GenerateReportAsync(ReportData data)
+    {
+        var html = BuildReportHtml(data);
+
+        var renderer = new ChromePdfRenderer();
+        using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+        return pdf.BinaryData;
+    }
+
+    private string BuildReportHtml(ReportData data)
+    {
+        var html = new StringBuilder();
+        html.Append(@"
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+    &lt;style&gt;
+        @page {
+            margin: 1in;
+            @top-center { content: 'Monthly Report'; }
+            @bottom-right { content: 'Page ' counter(page) ' of ' counter(pages); }
+        }
+        body { font-family: Arial; }
+        table { width: 100%; page-break-inside: avoid; }
+        .page-break { page-break-before: always; }
+        .subtotal { font-weight: bold; background: #f0f0f0; }
+    &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+    &lt;h1&gt;Monthly Report - " + data.Month + @"&lt;/h1&gt;");
+
+        // Dynamic table with calculated totals
+        html.Append("&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Amount&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;&lt;tbody&gt;");
+
+        decimal runningTotal = 0;
+        foreach (var item in data.Items)
+        {
+            html.Append($"&lt;tr&gt;&lt;td&gt;{item.Name}&lt;/td&gt;&lt;td&gt;${item.Amount:F2}&lt;/td&gt;&lt;/tr&gt;");
+            runningTotal += item.Amount;
+        }
+
+        html.Append($@"
+        &lt;tr class='subtotal'&gt;&lt;td&gt;Total&lt;/td&gt;&lt;td&gt;${runningTotal:F2}&lt;/td&gt;&lt;/tr&gt;
+        &lt;/tbody&gt;&lt;/table&gt;");
+
+        // Conditional section
+        if (data.Items.Count &gt; 10)
+        {
+            html.Append(@"&lt;div class='page-break'&gt;&lt;/div&gt;
+&lt;h2&gt;Summary&lt;/h2&gt;
+&lt;p&gt;Report contains " + data.Items.Count + @" items...&lt;/p&gt;");
+        }
+
+        html.Append("&lt;/body&gt;&lt;/html&gt;");
+        return html.ToString();
+    }
+}
+
+// Notes on this approach:
+// - CSS controls page breaks, margins, headers, and footers
+// - Totals and summaries are computed in C# alongside the HTML build
+// - Conditional sections are plain if/else around HTML fragments
+// - The HTML can be opened in a browser and inspected with dev tools
+// - @page rules can drive per-page header / footer content</code></pre>
+
+<p>IronPDF uses standard HTML/CSS for layouts. Page breaks, headers, totals, and conditional sections work like building web pages. You can preview your HTML in a browser, inspect it with developer tools, and iterate rapidly. For more on controlling page headers and footers programmatically, see the <a href="https://ironpdf.com/how-to/headers-and-footers/">headers and footers guide</a>.</p>
+
+<h2>How do the features compare overall?</h2>
+
+<p>Here is the comprehensive feature comparison drawn from every capability I evaluated. This covers status, development workflow, content creation, integration, and support.</p>
+
+<p><strong>Status.</strong></p>
+<ul>
+<li><strong>Maintenance.</strong> CraftMyPDF is an active SaaS; IronPDF is an actively maintained .NET library.</li>
+<li><strong>Architecture.</strong> CraftMyPDF is a cloud template service consumed via REST; IronPDF is a local .NET library that runs in-process.</li>
+<li><strong>Primary use case.</strong> CraftMyPDF targets no-code and low-code automation; IronPDF targets programmatic PDF generation from .NET code.</li>
+</ul>
+
+<p><strong>Development workflow.</strong></p>
+<ul>
+<li><strong>Template system.</strong> CraftMyPDF uses a web-based drag-and-drop editor; IronPDF uses HTML and CSS authored in your normal editor.</li>
+<li><strong>Conditional logic.</strong> CraftMyPDF expresses it through the template engine and caller-side preprocessing — verify against current docs; IronPDF uses C# control flow around HTML fragments.</li>
+<li><strong>Version control.</strong> CraftMyPDF templates are stored on the platform; IronPDF templates are HTML files in your Git repository.</li>
+<li><strong>Code review.</strong> CraftMyPDF changes happen in the GUI; IronPDF template changes show up as HTML diffs in pull requests.</li>
+<li><strong>Local testing.</strong> CraftMyPDF rendering requires an HTTP call to the service; IronPDF can render PDFs in unit tests in-process.</li>
+<li><strong>Debugging.</strong> CraftMyPDF iteration uses the editor and API responses; IronPDF integrates with the .NET debugger and browser dev tools on the source HTML.</li>
+</ul>
+
+<p><strong>Content creation.</strong></p>
+<ul>
+<li><strong>HTML authoring.</strong> CraftMyPDF authoring centers on a component library rather than raw HTML; IronPDF takes HTML / CSS / JavaScript as primary inputs.</li>
+<li><strong>Dynamic tables.</strong> CraftMyPDF uses the Sections component for repeated rows; IronPDF uses HTML tables combined with C# loops.</li>
+<li><strong>Conditional sections.</strong> CraftMyPDF approaches it via template structure or data toggles — verify current capabilities; IronPDF uses standard C# if/else around HTML.</li>
+<li><strong>Calculated fields.</strong> CraftMyPDF callers commonly pre-compute totals before sending the JSON; IronPDF calculates them in C# during HTML composition.</li>
+</ul>
+
+<p><strong>Integration.</strong></p>
+<ul>
+<li><strong>Installation.</strong> CraftMyPDF is integrated through an HTTP client like RestSharp or HttpClient; IronPDF ships as the <code>IronPdf</code> NuGet package.</li>
+<li><strong>Data format.</strong> CraftMyPDF accepts a JSON payload; IronPDF works directly with C# objects.</li>
+<li><strong>Output handling.</strong> CraftMyPDF responses include the PDF bytes or a URL — verify against the endpoint you call; IronPDF returns <code>PdfDocument</code> objects with <code>BinaryData</code> in-process.</li>
+<li><strong>Offline support.</strong> CraftMyPDF requires connectivity to the service; IronPDF runs on your own infrastructure, including air-gapped environments.</li>
+</ul>
+
+<p><strong>Support and resources.</strong></p>
+<ul>
+<li><strong>Channel.</strong> CraftMyPDF support is offered by the CraftMyPDF team; IronPDF is supported commercially by Iron Software.</li>
+<li><strong>Documentation.</strong> CraftMyPDF documentation is hosted at craftmypdf.com/docs; IronPDF maintains documentation, how-to guides, and an API reference at ironpdf.com.</li>
+<li><strong>Community.</strong> Both vendors maintain their own community channels — verify the current state of forums, GitHub issues, and Stack Overflow tags for either product.</li>
+</ul>
+
+<h2>How do the concepts map between CraftMyPDF and IronPDF?</h2>
+
+<p>If you are migrating from CraftMyPDF or evaluating both tools side by side, this mapping table shows how each concept translates between the two approaches.</p>
+
+<ul>
+<li><strong>Template editor (web UI)</strong> — HTML files checked in alongside the application code.</li>
+<li><strong>Template ID</strong> — an HTML template path or string passed to <code>ChromePdfRenderer</code>.</li>
+<li><strong>JSON data payload</strong> — C# objects or view models composed into the HTML.</li>
+<li><strong>Field placeholder <code>{field_name}</code></strong> — Razor, Handlebars, Scriban, or plain C# string interpolation.</li>
+<li><strong>Sections (repeat component)</strong> — a <code>foreach</code> loop in C# that emits HTML rows.</li>
+<li><strong>HTTP response bytes / URL</strong> — <code>pdf.BinaryData</code> returned in-process from the renderer.</li>
+<li><strong>Platform-managed template versioning</strong> — Git history on the template file.</li>
+<li><strong>Component library</strong> — full HTML and CSS, plus any client-side libraries you choose.</li>
+<li><strong>Zapier / Make integration</strong> — direct .NET integration; orchestrate from your existing job runner or message bus.</li>
+<li><strong>Cloud PDF generation</strong> — local, in-process generation on your own infrastructure.</li>
+<li><strong>Template debugging via the GUI</strong> — browser preview of the source HTML plus the .NET debugger.</li>
+</ul>
+
+<h2>How do you get started with each?</h2>
+
+<p>The installation story is very different for these two tools. CraftMyPDF requires account setup and HTTP integration, while IronPDF is a single NuGet package.</p>
+
+<h3>CraftMyPDF Setup</h3>
+
+<pre><code># No package installation—HTTP API integration
+# 1. Sign up at craftmypdf.com
+# 2. Create templates via web editor
+# 3. Get API key from portal
+# 4. Make HTTP POST requests</code></pre>
+
+<pre><code>using System.Net.Http;
+
+var client = new HttpClient();
+client.DefaultRequestHeaders.Add("X-API-KEY", "your-api-key");
+
+var json = @"{ ""template_id"": ""abc123"", ""data"": {...} }";
+var response = await client.PostAsync(
+    "https://api.craftmypdf.com/v1/create",
+    new StringContent(json));</code></pre>
+
+<h3>IronPDF Setup</h3>
+
+<pre><code>Install-Package IronPdf</code></pre>
+
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+using var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Hello&lt;/h1&gt;");</code></pre>
+
+<p>IronPDF is a .NET library where developers write HTML and CSS to define PDF layouts. Install via <code>Install-Package IronPdf</code>. The <code>ChromePdfRenderer</code> converts HTML to PDF using Chromium rendering — the same engine as the Chrome browser. Changes to layout? Edit HTML. Conditional content? Write C# logic. Debugging? Standard .NET debugger and browser preview. For working with interactive <a href="https://ironpdf.com/how-to/edit-forms/">PDF forms</a>, IronPDF provides a full programmatic API as well.</p>
+
+<h2>FAQ and Troubleshooting Tips</h2>
+
+<h3>Can CraftMyPDF handle conditional rendering within templates?</h3>
+
+<p>Conditional rendering inside CraftMyPDF templates is constrained — verify the current template syntax against CraftMyPDF's documentation. A common pattern for "show the discount row only when discount &gt; 0" is to send "N/A" or an empty string for the unused case, or to maintain separate templates for distinct scenarios. IronPDF handles this with C# if/else statements that decide which HTML fragments are included before rendering.</p>
+
+<h3>What happens when someone edits a CraftMyPDF template?</h3>
+
+<p>Edits land on whatever lifecycle the platform exposes — verify whether your plan offers pinned versions, staging, or rollback. With IronPDF, templates are HTML files in Git, which gives you the standard version history, diffs, code review, and <code>git revert</code> behavior already used for the rest of the codebase.</p>
+
+<h3>Can I unit test PDF generation with CraftMyPDF?</h3>
+
+<p>Tests that exercise real template rendering go through the CraftMyPDF API, which means network dependency, API quotas, and per-call cost considerations. IronPDF generates PDFs locally and in-process, so unit tests can run as part of a normal CI/CD pipeline without an external service dependency.</p>
+
+<h3>How do I debug a CraftMyPDF template that renders incorrectly?</h3>
+
+<p>Iteration happens in the editor and through API responses, since the rendering pipeline runs server-side. With IronPDF, the source HTML can be opened in a browser, inspected with dev tools, and stepped through with the .NET debugger before the PDF is rendered.</p>
+
+<h3>Does CraftMyPDF support complex multi-page layouts with dynamic tables?</h3>
+
+<p>CraftMyPDF offers the Sections component for repeating data and exposes header / footer fields at the template level. Page-break control, running totals, and per-page header customization depend on what the template engine offers — verify against current docs. IronPDF uses standard HTML / CSS, so <code>page-break-before: always</code>, CSS <code>@page</code> rules for headers and footers, and C# loops for dynamic tables follow the same patterns as web development.</p>
+
+<h3>Can CraftMyPDF generate PDFs offline or in air-gapped environments?</h3>
+
+<p>By design, every render goes through CraftMyPDF's cloud API, so connectivity to the service is required and network latency, quotas, and service availability factor into responsiveness. IronPDF runs in-process on your own infrastructure, so it can operate offline and in air-gapped environments without an external service dependency.</p>
+
+<h2>When should you use CraftMyPDF vs IronPDF?</h2>
+
+<p>CraftMyPDF serves no-code and low-code scenarios where visual template editors let non-developers design PDF layouts. The drag-and-drop interface appeals to teams that prefer GUI tools, and integrations with Zapier, Make, and Bubble.io support workflow automation without writing code. For certificate generation, badge creation, or straightforward form filling where templates change infrequently, the visual approach can reduce initial complexity.</p>
+
+<p>The trade-offs are architectural. Template authoring lives in the CraftMyPDF web UI, rendering happens in CraftMyPDF's cloud, and template artifacts live on the platform rather than in your repository. That keeps the surface accessible for non-developers but pushes versioning, debugging, and local testing through whatever facilities the platform exposes — verify those against your team's release engineering needs.</p>
+
+<p>Several practical scenarios surface these trade-offs. Dynamic content with conditional rendering tends to lean on caller-side preprocessing or per-scenario templates. Template history, rollback, and diffs follow the platform's lifecycle rather than Git. Multi-page documents with calculated fields exercise the component system's pagination and summary features — verify against your specific layouts. Tests that exercise real rendering involve an HTTP call. And collaboration crosses two systems: code in the repository, templates on the CraftMyPDF platform.</p>
+
+<p>Migrating to IronPDF tends to make sense when the team prefers code-based templates, when conditional logic and layout complexity want to live in C# and CSS, when template artifacts should sit in Git alongside the code, when local PDF generation is part of the testing strategy, or when the data model changes often enough that coupling templates to the same pull request as the code is valuable.</p>
+
+<p>CraftMyPDF fits teams building automation workflows with stable templates and straightforward data shapes. IronPDF fits development teams that want programmatic control, full HTML / CSS for layout, and integration with standard .NET development practices. Evaluate based on whether visual template editing or code-based control is the better match for the team's skills and the requirements' complexity.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

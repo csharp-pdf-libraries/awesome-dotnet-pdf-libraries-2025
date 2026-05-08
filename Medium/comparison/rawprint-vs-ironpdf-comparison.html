@@ -1,0 +1,352 @@
+<h1>RawPrint vs IronPDF: A .NET Developer's Honest Take</h1>
+
+<p>A pattern I have seen with warehouse and logistics teams: a developer searches NuGet for ".NET PDF printing" and finds both raw-printing helpers and IronPDF in the results. The two libraries sit at completely different layers of the stack, and the search terms overlap enough that it is easy to install the wrong one for the job at hand. Raw printing utilities push bytes — PostScript, PCL, ZPL, ESC/POS — straight to a physical printer's spool queue. IronPDF generates a PDF document from HTML, CSS, and JavaScript. They are architectural complements, not substitutes.</p>
+
+<p>The <code>RawPrint</code> NuGet package (frogmorecs/RawPrint) is a thin .NET wrapper that ships byte streams to the Windows print spooler with the RAW datatype. Its public API is a single <code>Printer</code> class (implementing <code>IPrinter</code>) in the <code>RawPrint</code> namespace, exposing <code>PrintRawFile</code> and <code>PrintRawStream</code> overloads — internally it P/Invokes into <code>winspool.Drv</code>. <a href="https://ironpdf.com">IronPDF</a> is a cross-platform PDF generation library that converts HTML/CSS/JavaScript into PDF documents using an embedded Chromium engine, and exposes <code>pdf.Print()</code> for sending the rendered document to a printer through the OS print pipeline. This comparison clarifies which layer each tool occupies and when teams should reach for one, the other, or both together.</p>
+
+<h2>What Is RawPrint?</h2>
+
+<p>RawPrint is a small .NET package (frogmorecs/RawPrint on GitHub, NuGet ID <code>RawPrint</code>) that wraps the Windows <code>winspool.Drv</code> spooler API behind a single public class — <code>Printer : IPrinter</code> in the <code>RawPrint</code> namespace. It sends raw bytes directly to a Windows printer queue with the RAW datatype, bypassing the printer driver's rendering. It is designed for scenarios where you have pre-formatted print data — typically PostScript (<code>.ps</code>), Printer Command Language (<code>.pcl</code>), Zebra Programming Language (<code>.zpl</code>), or ESC/POS for receipt printers — and need to send it to the device verbatim. The public surface is just two methods (<code>PrintRawFile</code> and <code>PrintRawStream</code>, each with a couple of overloads) plus an <code>OnJobCreated</code> event; the underlying spooler calls (<code>OpenPrinter</code>, <code>StartDocPrinter</code>, <code>WritePrinter</code>, <code>EndDocPrinter</code>, <code>ClosePrinter</code>) are internal P/Invoke targets, not part of RawPrint's public API. A community fork, <code>RawPrint.NetStd</code>, packages the same pattern for .NET Standard.</p>
+
+<p>What raw printing does: sends raw files or byte streams to Windows printer queues, bypasses the Windows printer driver subsystem, and works with specialized printers that expect raw print languages (label printers, receipt printers, industrial devices). It does not parse, render, or generate any content — it requires pre-formatted print data as input.</p>
+
+<p>What raw printing does not do: generate PDFs, parse or render HTML, create print content from data, run on Linux or macOS in this form (the spooler P/Invoke is Windows-only), or convert formats (HTML to PDF, PDF to PCL, etc.).</p>
+
+<p><strong>Maintenance status:</strong> The <code>RawPrint</code> NuGet package's last release is 0.5.0 (September 2019), and the package is now unlisted on nuget.org as legacy. The technique itself, however, is a stable wrapper over a long-lived Win32 API — most teams either pin to the existing version or copy the helper into their project directly. Treat it as low-level plumbing rather than a maintained framework.</p>
+
+<h2>What Is IronPDF?</h2>
+
+<p><a href="https://ironpdf.com">IronPDF</a> is a .NET library for generating PDF documents from HTML, CSS, and JavaScript using an embedded Chromium rendering engine. It converts web content into PDFs and provides PDF manipulation features: merging, splitting, watermarking, form filling, digital signatures, and encryption. IronPDF runs on Windows, Linux, and macOS, supports .NET Core, .NET 5+, and .NET Framework 4.6.2+, and works in cloud environments (Azure, AWS), containers (Docker, Kubernetes), and serverless functions.</p>
+
+<p>IronPDF can also send a generated PDF to a physical printer through <code>pdf.Print()</code>, which routes through the OS print pipeline — a different layer from raw spooler bytes. If a workflow needs both rendered documents and verbatim ZPL or ESC/POS frames, the two approaches sit side by side in the same application: IronPDF for the document, a raw-printer helper for the device-specific stream.</p>
+
+<h2>What Are the Architectural Boundaries of Raw Printing?</h2>
+
+<p>Raw printing is intentionally narrow in scope. The constraints below are properties of the technique, not bugs:</p>
+
+<p><strong>No PDF generation:</strong> Raw printing does not create PDFs. It does not parse HTML, render layouts, or convert formats. You must provide pre-formatted print data — PostScript, PCL, ZPL, or ESC/POS bytes — as input.</p>
+
+<p><strong>No format conversion:</strong> It does not convert HTML to PostScript, PDF to PCL, or any other transformation. It is a passthrough.</p>
+
+<p><strong>No content manipulation:</strong> Raw printing cannot merge documents, extract text, add watermarks, or apply signatures. It sends bytes to a printer — nothing more.</p>
+
+<p><strong>Windows-only in this form:</strong> The <code>winspool.Drv</code> P/Invoke pattern targets the Windows printer spooler. Linux and macOS need a different approach (CUPS, IPP, or a TCP socket directly to the printer's RAW port 9100).</p>
+
+<p><strong>Older .NET targets:</strong> The <code>RawPrint</code> 0.5.0 package targets .NET Framework 4.0; the community <code>RawPrint.NetStd</code> fork repackages the same pattern for .NET Standard. The underlying P/Invoke pattern still compiles on .NET 5+, but the original package itself was not modernized for newer language features or async patterns.</p>
+
+<p><strong>Minimal error reporting:</strong> The Win32 spooler API returns boolean success and a Win32 error code via <code>SetLastError</code>. RawPrint translates spooler failures into thrown <code>Win32Exception</code>s, but the diagnostic information available is limited to whatever the spooler API surfaces.</p>
+
+<p><strong>Limited print job management:</strong> RawPrint exposes an <code>OnJobCreated</code> event that fires when the spooler accepts a new job, which is enough to capture the job ID. Querying status, cancelling jobs, or reacting to printer-offline conditions still requires additional spooler API calls (<code>EnumJobs</code>, <code>SetJob</code>) that RawPrint itself does not wrap.</p>
+
+<p><strong>Community packaging, not vendor-supported:</strong> RawPrint is a community project (frogmorecs / Frogmore Computer Services Ltd). There is no commercial support contract behind it — typical for low-level OS-interop helpers — and the package is now unlisted on nuget.org. Many teams copy the class into their own codebase instead of taking a dependency.</p>
+
+<p><strong>Scope is the point, not a flaw:</strong> Raw printing exists to push verbatim bytes to a device. It is not a document generation library, not a format converter, and not a PDF toolkit. When a workflow needs HTML-to-PDF, raw printing is simply the wrong layer of the stack — pair it with a renderer like IronPDF rather than substitute one for the other.</p>
+
+<h2>How Does Sending Print Data Compare to Generating PDFs?</h2>
+
+<h3>Raw Printing — Send Pre-formatted Bytes to a Printer</h3>
+
+<p>RawPrint sends bytes directly to a Windows printer queue via the <code>winspool.Drv</code> spooler API. The public surface is the <code>Printer</code> class with <code>PrintRawFile</code> and <code>PrintRawStream</code> methods:</p>
+
+<pre><code>// NuGet: Install-Package RawPrint
+using System;
+using System.IO;
+using RawPrint;
+
+public class RawPrintExample
+{
+    public static void SendFileDirectlyToPrinter()
+    {
+        // Pre-formatted print file (PostScript, PCL, ZPL, ESC/POS, etc.)
+        string printerName = &quot;Zebra ZT230&quot;;
+        string filePath = @&quot;C:\print-files\label.zpl&quot;;
+
+        // PrintRawFile streams the file bytes to the spooler with the RAW datatype.
+        // Signature: PrintRawFile(string printer, string path, bool paused)
+        IPrinter printer = new Printer();
+        printer.OnJobCreated += (sender, e) =&gt;
+            Console.WriteLine($&quot;Spooler accepted job {e.JobId} for {printerName}&quot;);
+
+        printer.PrintRawFile(printerName, filePath, paused: false);
+
+        Console.WriteLine($&quot;Sent {Path.GetFileName(filePath)} to {printerName}&quot;);
+    }
+}
+
+// Usage
+RawPrintExample.SendFileDirectlyToPrinter();
+</code></pre>
+
+<p><strong>Constraints to keep in mind:</strong> The input bytes must already be in a language the printer understands — RawPrint does not generate <code>.zpl</code>, <code>.pcl</code>, or <code>.ps</code>. Sending ZPL to a regular office laser printer is unlikely to produce useful output. The technique uses the Windows spooler, so it runs on Windows hosts. <code>OnJobCreated</code> confirms that the spooler accepted the job, but downstream status (printer offline, paper out, job cancelled) requires additional <code>EnumJobs</code> / <code>GetJob</code> calls that sit outside RawPrint's API. And the path never touches PDF — there is no rendered document to inspect.</p>
+
+<p><strong>Performance notes:</strong> Spooler call overhead is small (a single Win32 call plus the byte copy); end-to-end print time is dominated by the printer hardware itself (label printers commonly run 2–6 inches/sec, receipt printers 50–200 mm/sec — verify against your specific device's datasheet).</p>
+
+<h3>IronPDF — Generate PDF from HTML</h3>
+
+<p><a href="https://ironpdf.com/tutorials/html-to-pdf/">IronPDF</a> creates PDF documents from content:</p>
+
+<pre><code>using IronPdf;
+using System;
+
+public class IronPdfExample
+{
+    public static void GeneratePdfFromHtml()
+    {
+        IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
+
+        // Generate PDF from HTML content (no printer, no pre-existing files required)
+        var html = @&quot;
+            &lt;!DOCTYPE html&gt;
+            &lt;html&gt;
+            &lt;head&gt;
+                &lt;style&gt;
+                    body { font-family: Arial, sans-serif; margin: 40px; }
+                    .label { border: 2px solid #000; padding: 10px; width: 400px; }
+                    h2 { margin: 0; font-size: 18px; }
+                    p { margin: 5px 0; font-size: 14px; }
+                &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+                &lt;div class='label'&gt;
+                    &lt;h2&gt;Shipping Label&lt;/h2&gt;
+                    &lt;p&gt;&lt;strong&gt;To:&lt;/strong&gt; John Doe, 123 Main St, Springfield, IL 62701&lt;/p&gt;
+                    &lt;p&gt;&lt;strong&gt;From:&lt;/strong&gt; Warehouse A, 456 Industrial Ave, Chicago, IL 60601&lt;/p&gt;
+                    &lt;p&gt;&lt;strong&gt;Tracking:&lt;/strong&gt; 1Z999AA10123456784&lt;/p&gt;
+                &lt;/div&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;
+        &quot;;
+
+        var renderer = new ChromePdfRenderer();
+        using var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs(&quot;shipping-label.pdf&quot;);
+
+        Console.WriteLine(&quot;Generated shipping-label.pdf&quot;);
+    }
+}
+
+// Usage
+IronPdfExample.GeneratePdfFromHtml();
+</code></pre>
+
+<p><strong>Functional differences:</strong> IronPDF generates content — it creates the document from HTML. The raw-printing technique requires pre-existing print files. The output is a PDF — saved to disk, returned as a stream, or held as a byte array; you choose what happens to it next (save, email, archive, or feed to <code>pdf.Print()</code> if you also need a hardcopy). IronPDF runs cross-platform on Windows, Linux, macOS, containers, and cloud functions.</p>
+
+<p><strong>Performance notes:</strong> Render times depend heavily on HTML complexity and host hardware — typically a few hundred milliseconds for simple pages once the Chromium engine is warm, scaling up with page count, images, and complex CSS layout. Benchmark on your own target hardware before sizing throughput.</p>
+
+<h2>How Does Invoice Generation Work with IronPDF?</h2>
+
+<p>A common real-world scenario is generating PDF invoices from ERP data. You query a database for order details, populate an HTML template, render it to PDF, and email it or save it. Raw printing cannot help with the <em>generation</em> step — it only sends pre-formatted bytes to a device. If the same workflow then needs a paper copy on a thermal label printer, the raw-printing helper is the right tool for that final hop.</p>
+
+<h3>IronPDF — Generate Invoice from Order Data</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+public class InvoiceGenerator
+{
+    public static void GenerateInvoice(int orderId)
+    {
+        IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
+
+        // Fetch order data from database (simulated here)
+        var order = new
+        {
+            OrderId = orderId,
+            CustomerName = &quot;Acme Corp&quot;,
+            Items = new[]
+            {
+                new { Product = &quot;Widget A&quot;, Quantity = 10, Price = 25.50m },
+                new { Product = &quot;Gadget B&quot;, Quantity = 5, Price = 47.99m }
+            },
+            Total = (10 * 25.50m) + (5 * 47.99m)
+        };
+
+        // Build HTML invoice
+        var html = $@&quot;
+            &lt;!DOCTYPE html&gt;
+            &lt;html&gt;
+            &lt;head&gt;
+                &lt;style&gt;
+                    body {{ font-family: Arial, sans-serif; margin: 40px; }}
+                    h1 {{ color: #333; }}
+                    table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+                    th, td {{ padding: 10px; border: 1px solid #ddd; text-align: left; }}
+                    .total {{ font-weight: bold; text-align: right; }}
+                &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+                &lt;h1&gt;Invoice #{order.OrderId}&lt;/h1&gt;
+                &lt;p&gt;&lt;strong&gt;Customer:&lt;/strong&gt; {order.CustomerName}&lt;/p&gt;
+                &lt;table&gt;
+                    &lt;thead&gt;
+                        &lt;tr&gt;&lt;th&gt;Product&lt;/th&gt;&lt;th&gt;Qty&lt;/th&gt;&lt;th&gt;Price&lt;/th&gt;&lt;th&gt;Subtotal&lt;/th&gt;&lt;/tr&gt;
+                    &lt;/thead&gt;
+                    &lt;tbody&gt;
+                        {string.Join(&quot;&quot;, System.Linq.Enumerable.Select(order.Items, item =&gt; $@&quot;
+                        &lt;tr&gt;
+                            &lt;td&gt;{item.Product}&lt;/td&gt;
+                            &lt;td&gt;{item.Quantity}&lt;/td&gt;
+                            &lt;td&gt;${item.Price:F2}&lt;/td&gt;
+                            &lt;td&gt;${item.Quantity * item.Price:F2}&lt;/td&gt;
+                        &lt;/tr&gt;&quot;))}
+                    &lt;/tbody&gt;
+                &lt;/table&gt;
+                &lt;p class='total'&gt;Total: ${order.Total:F2}&lt;/p&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;
+        &quot;;
+
+        // Generate PDF
+        var renderer = new ChromePdfRenderer();
+        using var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs($&quot;invoice-{orderId}.pdf&quot;);
+
+        Console.WriteLine($&quot;Generated invoice-{orderId}.pdf&quot;);
+    }
+}
+
+// Usage
+InvoiceGenerator.GenerateInvoice(12345);
+</code></pre>
+
+<p><strong>Sizing guidance:</strong> A simple line-item invoice typically renders in well under a second on modern hardware; complex invoices with embedded charts or images take longer. For batch workloads, instantiate <code>ChromePdfRenderer</code> once and reuse it across documents to amortize engine startup. Run a representative load test against your own target environment before settling on throughput numbers.</p>
+
+<h2>How Does Web Report Export Work with IronPDF?</h2>
+
+<p>When users click "Export to PDF" on a web dashboard, you need a library that can render the same HTML the browser displays into a PDF file. IronPDF handles this with its embedded Chromium engine. Raw printing operates at a different layer and is not involved in this step — though if the exported report also needs to print to a Zebra label printer afterwards, that final hop would be where a raw-printing helper comes in.</p>
+
+<h3>IronPDF — Export Dashboard to PDF</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+public class ReportExporter
+{
+    public static byte[] ExportDashboardToPdf(string htmlContent)
+    {
+        IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
+        var renderer = new ChromePdfRenderer();
+
+        // Configure rendering for web content
+        renderer.RenderingOptions.CssMediaType = IronPdf.Rendering.PdfCssMediaType.Print;
+        renderer.RenderingOptions.PrintHtmlBackgrounds = true;
+        renderer.RenderingOptions.MarginTop = 10;
+        renderer.RenderingOptions.MarginBottom = 10;
+
+        using var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+        return pdf.BinaryData; // Return as byte array for streaming
+    }
+}
+
+// Usage (e.g., in ASP.NET Core controller)
+public IActionResult ExportReport()
+{
+    var htmlContent = RenderReportHtml(); // Your existing HTML generation
+    var pdfBytes = ReportExporter.ExportDashboardToPdf(htmlContent);
+    return File(pdfBytes, &quot;application/pdf&quot;, &quot;report.pdf&quot;);
+}
+</code></pre>
+
+<p><strong>Sizing guidance:</strong> Render time scales with page count and CSS complexity (especially flex/grid layouts and embedded raster images). Multi-page dashboards take noticeably longer than single-page reports. Profile against your real templates before committing to a per-request budget.</p>
+
+<h2>How Do RawPrint and IronPDF Compare Feature by Feature?</h2>
+
+<ul>
+  <li><strong>Primary purpose.</strong> Raw printing pushes pre-formatted bytes to a Windows printer queue; IronPDF generates PDF documents from HTML/CSS/JavaScript and can also print the result via <code>pdf.Print()</code>.</li>
+  <li><strong>Content creation.</strong> Raw printing does not render anything — input must already be in PostScript, PCL, ZPL, or ESC/POS. IronPDF uses an embedded Chromium engine to render HTML/CSS/JavaScript into PDF, and offers manipulation features such as merge, split, watermark, and digital signing.</li>
+  <li><strong>Platform reach.</strong> The <code>winspool.Drv</code> raw-printing pattern targets the Windows spooler, so it does not run on Linux or macOS in this form. IronPDF runs on Windows, Linux, and macOS, including containerized and cloud (Azure, AWS) environments.</li>
+  <li><strong>.NET targets.</strong> The <code>RawPrint</code> 0.5.0 package targets .NET Framework 4.0; the <code>RawPrint.NetStd</code> fork repackages the same pattern for .NET Standard. The same P/Invoke pattern still compiles on .NET 5+, but the original package itself was not modernized. IronPDF supports .NET Framework 4.6.2+, .NET Core, and current .NET 5/6/7/8/9 releases.</li>
+  <li><strong>Error handling.</strong> RawPrint surfaces spooler failures as <code>Win32Exception</code>; the diagnostic detail is whatever the underlying spooler API exposes via <code>GetLastWin32Error()</code>. IronPDF surfaces failures as .NET exceptions with structured messages.</li>
+  <li><strong>Maintenance and support.</strong> RawPrint's last release is 0.5.0 (September 2019), and the package is now unlisted on nuget.org as legacy; the technique itself is a thin Win32 wrapper that many teams copy directly. IronPDF is a commercial product with vendor support and SLAs.</li>
+  <li><strong>Layer of the stack.</strong> They are not substitutes — raw printing is the bottom layer (bytes to a device), while IronPDF is a document layer (HTML to PDF). A workflow that needs both can use them together.</li>
+</ul>
+
+<h2>How Do the APIs Map Between RawPrint and IronPDF?</h2>
+
+<ul>
+  <li><strong>Generate PDF from HTML</strong> — not in scope for raw printing; <code>ChromePdfRenderer.RenderHtmlAsPdf()</code> in IronPDF.</li>
+  <li><strong>Generate PDF from URL</strong> — not in scope for raw printing; <code>ChromePdfRenderer.RenderUrlAsPdf()</code> in IronPDF.</li>
+  <li><strong>Send raw bytes to a printer</strong> — <code>new Printer().PrintRawStream(printerName, stream, documentName, paused)</code> or <code>PrintRawFile(printerName, filePath, paused)</code> from the <code>RawPrint</code> package. IronPDF does not target this layer; for high-level printing of a generated PDF, use <code>pdf.Print()</code> instead, which routes through the OS print pipeline rather than the spooler raw queue.</li>
+  <li><strong>Set page size</strong> — printer-dependent for raw printing (encoded into the PCL/PostScript/ZPL stream itself); <code>RenderingOptions.PaperSize</code> in IronPDF.</li>
+  <li><strong>Merge PDFs</strong> — not in scope for raw printing; <code>PdfDocument.Merge()</code> in IronPDF.</li>
+  <li><strong>Extract text from PDF</strong> — not in scope for raw printing; <code>PdfDocument.ExtractAllText()</code> in IronPDF.</li>
+  <li><strong>Password-protect a PDF</strong> — not in scope for raw printing; <code>pdf.SecuritySettings.UserPassword</code> / <code>pdf.SecuritySettings.OwnerPassword</code> in IronPDF.</li>
+  <li><strong>Cross-platform support</strong> — the <code>winspool.Drv</code> pattern targets Windows; IronPDF runs on Windows, Linux, and macOS.</li>
+</ul>
+
+<h2>How Do Installation and Setup Compare?</h2>
+
+<h3>Raw Printing Setup</h3>
+
+<p>RawPrint is published on NuGet (current/last version 0.5.0, released September 2019, now unlisted as legacy). Because the package is unlisted, new <code>dotnet add package</code> resolution may not pick it up by default; teams either install the existing version explicitly, use the community <code>RawPrint.NetStd</code> fork, or copy the helper class into their codebase directly.</p>
+
+<pre><code># Install the original RawPrint package (legacy, unlisted)
+dotnet add package RawPrint --version 0.5.0
+
+# Or the community fork for .NET Standard targets
+dotnet add package RawPrint.NetStd
+</code></pre>
+
+<pre><code>using RawPrint;
+
+byte[] data = System.IO.File.ReadAllBytes(@&quot;C:\path\to\file.zpl&quot;);
+using var stream = new System.IO.MemoryStream(data);
+
+IPrinter printer = new Printer();
+printer.PrintRawStream(&quot;PrinterName&quot;, stream, &quot;Label&quot;, paused: false);
+</code></pre>
+
+<p><strong>Constraints to note:</strong> Windows-only (uses the Windows printer spooler API). The API is synchronous; async behavior must be wrapped by the caller. Spooler failures surface as <code>Win32Exception</code>, so wrap with the diagnostics your environment needs.</p>
+
+<h3>IronPDF Installation</h3>
+
+<pre><code># Install via NuGet
+dotnet add package IronPdf
+
+# Or via Package Manager Console
+Install-Package IronPdf
+</code></pre>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
+
+// Generate PDF from HTML
+var renderer = new ChromePdfRenderer();
+using var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;h1&gt;Hello World&lt;/h1&gt;&quot;);
+pdf.SaveAs(&quot;output.pdf&quot;);
+</code></pre>
+
+<p><strong>Notes:</strong> Cross-platform (Windows, Linux, macOS). Async/await supported. Exception-based error handling. Runs in containers, cloud functions, and serverless hosts.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can raw printing generate PDF documents?</h3>
+
+<p>No. Raw printing does not generate, parse, or manipulate PDFs. It sends raw bytes (PostScript, PCL, ZPL, ESC/POS) directly to a Windows printer queue. If you need to generate PDFs from HTML or data, use a PDF generation library such as <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF</a>.</p>
+
+<h3>Can IronPDF send documents to physical printers?</h3>
+
+<p>Yes — IronPDF exposes <code>pdf.Print()</code> to send a generated <code>PdfDocument</code> to a printer through the OS print pipeline. That is a different layer from raw spooler bytes: <code>pdf.Print()</code> hands the PDF to the print subsystem, which renders it via the printer driver, while raw printing bypasses the driver and sends device-specific commands directly. For PDFs to standard office printers, <code>pdf.Print()</code> is usually the right call; for ZPL or ESC/POS to label and receipt printers, raw printing is the appropriate layer.</p>
+
+<h3>Is RawPrint still maintained?</h3>
+
+<p>The <code>RawPrint</code> NuGet package's last release is 0.5.0 from September 2019, and the package is now unlisted on nuget.org as legacy. The community fork <code>RawPrint.NetStd</code> repackages the same pattern for .NET Standard. The technique itself is a thin wrapper over a stable Win32 API (<code>winspool.Drv</code>) that has not changed in years — most production codebases either pin to the existing version or include the helper class inline.</p>
+
+<h3>Does raw printing work on Linux or macOS?</h3>
+
+<p>Not in the <code>winspool.Drv</code> form shown here. The Windows spooler API is Windows-only. On Linux and macOS, the equivalent is sending the same byte stream over IPP, CUPS, or directly to TCP port 9100 on the printer.</p>
+
+<h3>When should I use raw printing instead of IronPDF?</h3>
+
+<p>Use raw printing when you already have a byte stream in a printer command language (<code>.zpl</code>, <code>.pcl</code>, <code>.ps</code>, ESC/POS) and need it delivered verbatim to a specialized device such as a Zebra label printer, a thermal receipt printer, or a legacy industrial unit on Windows. Use <a href="https://ironpdf.com">IronPDF</a> when you need to generate PDFs from HTML, convert web reports to documents, or manipulate PDF files. Some workflows use both — IronPDF generates the document, and a raw-printing helper handles a specialized device alongside it.</p>
+
+<h2>What Is the Final Verdict?</h2>
+
+<p>Raw printing and IronPDF are not really competitors — they sit at different layers of the stack. Raw printing is a Windows-spooler technique for pushing pre-formatted bytes to specialized printers (Zebra label printers, receipt printers, legacy industrial devices) that speak ZPL, PCL, PostScript, or ESC/POS rather than PDF. It does not generate, parse, or manipulate documents.</p>
+
+<p>IronPDF is a cross-platform PDF generation library for creating PDFs from HTML, CSS, and JavaScript. It produces documents from data, offers PDF manipulation (merge, split, watermark, sign), and runs on Windows, Linux, and macOS, with vendor support behind it.</p>
+
+<p>Teams who land on RawPrint while searching for "PDF generation" are searching one layer too low — raw printing does not produce PDFs. For document generation from data, reach for IronPDF. For specialized printer control on Windows, RawPrint (or the same <code>winspool.Drv</code> P/Invoke pattern copied inline) is the standard approach. Many real systems use both side by side: IronPDF for the rendered document, RawPrint for the device-specific stream.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

@@ -1,0 +1,699 @@
+<h1>Migrating from Telerik Reporting to IronPDF in C#: The Complete Guide</h1>
+
+<p>The design goes through three rounds of review and gets approved. Then the TRDX report runs, and the output is close but not right &mdash; the table header font is slightly heavier than the mock, the spacing between sections is off, and the custom border radius on the summary box isn't supported. You file it under "acceptable fidelity loss" and move on. A month later it's the same conversation with a different report.</p>
+
+<p>The gap between what CSS produces in a browser and what a report designer produces in Telerik Reporting is a recurring negotiation, not a one-time compromise. If that fidelity loss is costing more in back-and-forth than a migration would cost in rewriting, this article covers the path from Telerik Reporting to <a href="https://ironpdf.com/">IronPDF</a>. You'll have working before/after code for the core operations by the end.</p>
+
+<h2>Why Should You Migrate from Telerik Reporting to IronPDF?</h2>
+
+<p>Teams evaluating Telerik Reporting replacements commonly encounter these friction points.</p>
+
+<p>First, the HTML/CSS fidelity gap. Telerik's report engine renders from its own layout model; modern CSS features (flex, grid, custom properties, advanced typography) aren't available. The design approved in the browser doesn't match what comes out of the PDF.</p>
+
+<p>Second, designer dependency. Report templates live in <code>.trdx</code> files that require the Telerik Report Designer to modify. Developers who work in code find this a friction point.</p>
+
+<p>Third, license and feed friction. Telerik Reporting is sold standalone or as part of the DevCraft Complete bundle, but in either case the runtime assemblies come from a private NuGet feed (<code>nuget.telerik.com/v3/index.json</code>) that requires a license key to restore &mdash; an extra step in CI that public-feed packages don't impose.</p>
+
+<p>Fourth, version coupling. Telerik Reporting version is coupled to other Telerik packages in the same solution, creating upgrade coordination overhead.</p>
+
+<p>Fifth, viewer deployment. Interactive Telerik Report Viewers require server-side report processing infrastructure, adding deployment complexity.</p>
+
+<p>Sixth, custom layout limits. Complex pixel-perfect layouts that work in HTML/CSS may not be achievable in the Telerik report designer without workarounds.</p>
+
+<p>Seventh, report server infrastructure. Server-based report delivery requires Telerik Report Server or REST API setup, similar in overhead to SSRS.</p>
+
+<p>Eighth, testing difficulty. Testing Telerik reports requires running the report processor; HTML templates can be previewed in any browser.</p>
+
+<p>Ninth, JavaScript chart rendering. Charts in Telerik Reporting use their own chart engine; web-native chart libraries (Chart.js, ApexCharts) require HTML rendering.</p>
+
+<p>Tenth, version control workflow. <code>.trdx</code> XML is diffable but the development workflow still requires the designer for most changes.</p>
+
+<ul>
+<li><strong>Focus.</strong> Telerik Reporting is a full reporting platform (design, view, export); IronPDF is HTML-to-PDF plus PDF manipulation.</li>
+<li><strong>Pricing.</strong> Telerik Reporting standalone starts at roughly $685 per developer; the DevCraft Complete bundle starts at roughly $1,763. Both ship as perpetual + maintenance or annual subscription. IronPDF is sold per-developer with optional support.</li>
+<li><strong>Distribution.</strong> Telerik Reporting NuGet packages ship from the private Telerik feed at <code>nuget.telerik.com/v3/index.json</code> and require a license key to restore; IronPDF is on public nuget.org.</li>
+<li><strong>API style.</strong> Telerik uses <code>ReportProcessor</code> with report source objects; IronPDF uses <code>ChromePdfRenderer</code> with HTML input.</li>
+<li><strong>Learning curve.</strong> Telerik is medium-high (visual designer plus API); IronPDF is low for .NET devs since HTML/CSS is the input.</li>
+<li><strong>HTML rendering.</strong> Telerik's report engine is not browser-based; IronPDF uses embedded Chromium.</li>
+<li><strong>Page indexing.</strong> Telerik report design is 1-based; IronPDF is 0-based.</li>
+<li><strong>Thread safety.</strong> <code>ReportProcessor</code> is documented as thread-safe; for IronPDF, prefer one <code>ChromePdfRenderer</code> per concurrent job rather than sharing a single instance across threads.</li>
+<li><strong>Namespace.</strong> <code>Telerik.Reporting.*</code> &rarr; <code>IronPdf</code>.</li>
+</ul>
+
+<h2>How Complex Is the Migration Effort?</h2>
+
+<p>The core complexity is that every <code>.trdx</code> template must be rewritten as an HTML template. There is no automated converter &mdash; the <code>.trdx</code> format is Telerik-specific XML. Simple tabular reports take 30&ndash;60 minutes each. Complex reports with sub-reports, charts, and conditional formatting take several hours.</p>
+
+<ul>
+<li><strong>Export report to PDF &mdash; High.</strong> <code>ReportProcessor.RenderReport("PDF", ...)</code> becomes <code>ChromePdfRenderer.RenderHtmlAsPdfAsync()</code> &mdash; the call swap is trivial; the template rewrite is the cost.</li>
+<li><strong>TRDX template to HTML &mdash; High.</strong> Incompatible formats. Each TRDX needs an HTML/CSS template built per report.</li>
+<li><strong>Data binding &mdash; High.</strong> Data source in the report designer becomes C# interpolation or a template engine like Razor.</li>
+<li><strong>Sub-reports &mdash; High.</strong> <code>SubReport</code> items become inline HTML composition or merged PDFs via <code>PdfDocument.Merge()</code>.</li>
+<li><strong>Charts &mdash; High.</strong> Telerik chart items become Chart.js (or similar) rendered via Chromium.</li>
+<li><strong>Headers/footers &mdash; Medium.</strong> Report Header/Footer sections map to <code>RenderingOptions.HtmlHeader</code> / <code>HtmlFooter</code>.</li>
+<li><strong>Page numbering &mdash; Medium.</strong> Telerik's expression-based <code>= PageNumber + " of " + PageCount</code> in a Page Header/Footer section becomes <code>HtmlHeaderFooter</code> tokens (<code>{page}</code>, <code>{total-pages}</code>) on <code>RenderingOptions</code>.</li>
+<li><strong>Save to file &mdash; Low.</strong> Writing bytes from render result becomes <code>pdf.SaveAs(path)</code>.</li>
+<li><strong>Save to stream &mdash; Low.</strong> Writing to <code>MemoryStream</code> becomes <code>pdf.Stream</code>.</li>
+</ul>
+
+<h2>What's the Right Decision for Your Scenario?</h2>
+
+<p>The migration makes sense when your reports are driven from HTML/CSS designs. If you rely heavily on Telerik's interactive viewer with drill-down and parameters, IronPDF does not have an equivalent &mdash; evaluate carefully before switching those paths.</p>
+
+<ul>
+<li>If reports drive from HTML/CSS designs (handed over by a web designer), switch &mdash; this eliminates the HTML &rarr; report designer translation step.</li>
+<li>If reports need an interactive viewer with drill-down and parameter inputs, Telerik Reporting has this and IronPDF does not.</li>
+<li>If reports are simple tabular exports from data, switch &mdash; HTML tables render cleanly.</li>
+<li>If reporting is one component among many Telerik UI uses, evaluate partial migration carefully.</li>
+</ul>
+
+<h2>How Do I Set Up and Start the Migration?</h2>
+
+<p>Before writing any code, scope the work. Count your <code>.trdx</code> files and categorize them by complexity. Then swap the packages and configure the license.</p>
+
+<h3>Find All Telerik Reporting References</h3>
+
+<pre><code># Find ReportProcessor and report source usage
+rg -l &quot;Telerik\.Reporting\|ReportProcessor\|InstanceReportSource\|UriReportSource&quot; --type cs
+rg &quot;ReportProcessor\|RenderReport\|InstanceReportSource&quot; --type cs -n
+
+# Find TRDX/TRBP template files
+find . -name &quot;*.trdx&quot; -o -name &quot;*.trbp&quot; | sort
+find . -name &quot;*.trdx&quot; | wc -l  # scope of template migration
+
+# Find Telerik Reporting NuGet references
+grep -r &quot;Telerik\.Reporting&quot; *.csproj **/*.csproj 2&gt;/dev/null
+
+# Find Telerik Reporting service registrations (ASP.NET Core)
+rg &quot;AddTelerikReporting\|UseTelerikReporting\|ReportServiceConfiguration&quot; --type cs -n
+</code></pre>
+
+<h3>Uninstall Telerik, Install IronPDF</h3>
+
+<pre><code># Remove Telerik Reporting packages (private Telerik feed)
+dotnet remove package Telerik.Reporting
+dotnet remove package Telerik.Reporting.Services.AspNetCore   # if hosting the REST viewer service
+dotnet remove package Telerik.ReportViewer.Mvc                # if using the MVC viewer
+
+# Install IronPDF (public nuget.org)
+dotnet add package IronPdf
+
+dotnet restore
+</code></pre>
+
+<h3>License Configuration</h3>
+
+<pre><code>using IronPdf;
+
+// https://ironpdf.com/how-to/license-keys/
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;)
+    ?? throw new InvalidOperationException(&quot;IRONPDF_LICENSE_KEY not set&quot;);
+</code></pre>
+
+<h3>Namespace Swap</h3>
+
+<p>Before:</p>
+
+<pre><code>using Telerik.Reporting;
+using Telerik.Reporting.Processing;
+</code></pre>
+
+<p>After:</p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+</code></pre>
+
+<h2>How Do I Convert Core Report Operations?</h2>
+
+<p>The four operations that drive most Telerik Reporting migrations are: TRDX-to-HTML template export, parameter binding, sub-reports, and chart rewrites. Each has a Telerik before and IronPDF after.</p>
+
+<h3>Report to PDF &mdash; Telerik Before</h3>
+
+<pre><code>using Telerik.Reporting;
+using Telerik.Reporting.Processing;
+using System;
+using System.Collections;
+using System.IO;
+
+class ReportExportBefore
+{
+    static void Main()
+    {
+        var processor = new ReportProcessor();
+        var deviceInfo = new Hashtable();
+
+        // TRDX report source &mdash; binary template file
+        var reportSource = new UriReportSource
+        {
+            Uri = Path.Combine(AppContext.BaseDirectory, &quot;Reports&quot;, &quot;Invoice.trdx&quot;)
+        };
+
+        // Report parameters defined in the designer
+        reportSource.Parameters.Add(new Parameter(&quot;CustomerId&quot;, &quot;ACME-042&quot;));
+        reportSource.Parameters.Add(new Parameter(&quot;InvoiceNumber&quot;, &quot;INV-2024-0099&quot;));
+        reportSource.Parameters.Add(new Parameter(&quot;TotalAmount&quot;, 4200.00m));
+
+        // Render to PDF format
+        var result = processor.RenderReport(&quot;PDF&quot;, reportSource, deviceInfo);
+
+        if (result.HasErrors)
+        {
+            foreach (var error in result.Errors)
+                Console.Error.WriteLine($&quot;Report error: {error}&quot;);
+            return;
+        }
+
+        File.WriteAllBytes(&quot;invoice.pdf&quot;, result.DocumentBytes);
+        Console.WriteLine($&quot;Saved invoice.pdf ({result.DocumentBytes.Length:N0} bytes)&quot;);
+    }
+}
+</code></pre>
+
+<h3>Report to PDF &mdash; IronPDF After</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+// Data that was passed as report parameters &mdash; now template variables
+var customerId = &quot;ACME-042&quot;;
+var invoiceNumber = &quot;INV-2024-0099&quot;;
+var totalAmount = 4200.00m;
+
+// HTML template replaces Invoice.trdx &mdash; full CSS fidelity
+var html = BuildInvoiceHtml(customerId, invoiceNumber, totalAmount);
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs(&quot;invoice.pdf&quot;);
+Console.WriteLine($&quot;Saved invoice.pdf ({pdf.PageCount} page(s))&quot;);
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h3>Data-Bound Tabular Report &mdash; IronPDF HTML Template Pattern</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+// Data that was bound via Telerik data source configuration
+var salesLines = new[]
+{
+    new { Region = &quot;North America&quot;, Q1 = 3_200_000m, Q2 = 4_100_000m, Q3 = 5_100_000m },
+    new { Region = &quot;Europe&quot;,        Q1 = 2_400_000m, Q2 = 2_900_000m, Q3 = 3_800_000m },
+    new { Region = &quot;APAC&quot;,          Q1 = 1_800_000m, Q2 = 2_200_000m, Q3 = 3_400_000m },
+};
+
+// Build HTML &mdash; replaces TRDX tablix data region
+var rows = new StringBuilder();
+foreach (var line in salesLines)
+{
+    rows.Append($@&quot;&lt;tr&gt;
+        &lt;td&gt;{line.Region}&lt;/td&gt;
+        &lt;td&gt;${line.Q1:N0}&lt;/td&gt;
+        &lt;td&gt;${line.Q2:N0}&lt;/td&gt;
+        &lt;td&gt;${line.Q3:N0}&lt;/td&gt;
+        &lt;td&gt;${line.Q1 + line.Q2 + line.Q3:N0}&lt;/td&gt;
+    &lt;/tr&gt;&quot;);
+}
+
+var html = $@&quot;
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        body {{ font-family: Arial, sans-serif; padding: 40px; color: #222; }}
+        h1 {{ font-size: 20px; margin-bottom: 4px; }}
+        .subtitle {{ color: #888; font-size: 12px; margin-bottom: 24px; }}
+        table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+        th {{ background: #1a3a5c; color: white; padding: 8px 10px; text-align: left; }}
+        td {{ padding: 7px 10px; border-bottom: 1px solid #e0e0e0; }}
+        tr:nth-child(even) td {{ background: #f8f8f8; }}
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Regional Sales Report&lt;/h1&gt;
+        &lt;div class='subtitle'&gt;Fiscal Year 2024 &middot; Q1&ndash;Q3&lt;/div&gt;
+        &lt;table&gt;
+            &lt;tr&gt;&lt;th&gt;Region&lt;/th&gt;&lt;th&gt;Q1&lt;/th&gt;&lt;th&gt;Q2&lt;/th&gt;&lt;th&gt;Q3&lt;/th&gt;&lt;th&gt;YTD Total&lt;/th&gt;&lt;/tr&gt;
+            {rows}
+        &lt;/table&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;&quot;;
+
+var renderer = new ChromePdfRenderer();
+// https://ironpdf.com/how-to/headers-and-footers/
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    HtmlFragment = &quot;&lt;div style='text-align:right;font-size:9px;color:#999;padding:0 40px'&gt;Page {page} of {total-pages}&lt;/div&gt;&quot;,
+};
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs(&quot;regional-sales.pdf&quot;);
+Console.WriteLine($&quot;Saved regional-sales.pdf ({pdf.PageCount} page(s))&quot;);
+</code></pre>
+
+<h3>Parameter Binding &mdash; Telerik Before</h3>
+
+<pre><code>using Telerik.Reporting;
+using Telerik.Reporting.Processing;
+using System;
+using System.Collections;
+using System.IO;
+
+class ParameterBindingBefore
+{
+    static void Main()
+    {
+        var processor = new ReportProcessor();
+        var deviceInfo = new Hashtable();
+
+        // Report parameters are declared inside the TRDX with type, default,
+        // and visibility. Programmatic binding goes through the report source.
+        var reportSource = new UriReportSource
+        {
+            Uri = Path.Combine(AppContext.BaseDirectory, &quot;Reports&quot;, &quot;Invoice.trdx&quot;)
+        };
+
+        reportSource.Parameters.Add(new Parameter(&quot;CustomerId&quot;, &quot;ACME-042&quot;));
+        reportSource.Parameters.Add(new Parameter(&quot;FromDate&quot;, new DateTime(2024, 1, 1)));
+        reportSource.Parameters.Add(new Parameter(&quot;ToDate&quot;, new DateTime(2024, 12, 31)));
+        reportSource.Parameters.Add(new Parameter(&quot;ShowTaxBreakdown&quot;, true));
+
+        var result = processor.RenderReport(&quot;PDF&quot;, reportSource, deviceInfo);
+        File.WriteAllBytes(&quot;invoice.pdf&quot;, result.DocumentBytes);
+    }
+}
+</code></pre>
+
+<h3>Parameter Binding &mdash; IronPDF After</h3>
+
+<pre><code>using IronPdf;
+using System;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+// Strongly-typed report inputs &mdash; no separate Parameter declarations
+public record InvoiceParams(
+    string CustomerId,
+    DateTime FromDate,
+    DateTime ToDate,
+    bool ShowTaxBreakdown);
+
+string BuildInvoiceHtml(InvoiceParams p, decimal total, decimal tax) =&gt; $@&quot;
+    &lt;html&gt;&lt;head&gt;&lt;style&gt;
+        body {{ font-family: Arial, sans-serif; padding: 40px; }}
+        h1 {{ color: #1a3a5c; }}
+        .meta {{ color: #666; font-size: 12px; margin-bottom: 24px; }}
+    &lt;/style&gt;&lt;/head&gt;&lt;body&gt;
+        &lt;h1&gt;Invoice for {p.CustomerId}&lt;/h1&gt;
+        &lt;div class='meta'&gt;Period: {p.FromDate:yyyy-MM-dd} to {p.ToDate:yyyy-MM-dd}&lt;/div&gt;
+        &lt;p&gt;Total: ${total:N2}&lt;/p&gt;
+        {(p.ShowTaxBreakdown ? $&quot;&lt;p&gt;Of which tax: ${tax:N2}&lt;/p&gt;&quot; : &quot;&quot;)}
+    &lt;/body&gt;&lt;/html&gt;&quot;;
+
+var args = new InvoiceParams(&quot;ACME-042&quot;,
+    new DateTime(2024, 1, 1), new DateTime(2024, 12, 31), ShowTaxBreakdown: true);
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(BuildInvoiceHtml(args, 4200m, 336m));
+pdf.SaveAs(&quot;invoice.pdf&quot;);
+// https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h3>Sub-Reports &mdash; Telerik Before</h3>
+
+<pre><code>using Telerik.Reporting;
+using Telerik.Reporting.Processing;
+using System;
+using System.Collections;
+
+class SubReportBefore
+{
+    static void Main()
+    {
+        var mainReport = new Report();
+
+        // SubReport item bound to a child report definition
+        var detailSource = new TypeReportSource
+        {
+            TypeName = typeof(InvoiceLineDetailReport).AssemblyQualifiedName
+        };
+
+        // Pass parent context to the sub-report via expression binding on the report source
+        detailSource.Parameters.Add(new Parameter(&quot;ParentInvoiceId&quot;, &quot;= Fields.InvoiceId&quot;));
+
+        var subReport = new SubReport { ReportSource = detailSource };
+        mainReport.Items.Add(subReport);
+
+        var processor = new ReportProcessor();
+        var src = new InstanceReportSource { ReportDocument = mainReport };
+        var result = processor.RenderReport(&quot;PDF&quot;, src, new Hashtable());
+        System.IO.File.WriteAllBytes(&quot;master-detail.pdf&quot;, result.DocumentBytes);
+    }
+}
+</code></pre>
+
+<h3>Sub-Reports &mdash; IronPDF After</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+// Two equivalent strategies. Pick based on whether the &quot;sub-report&quot; should
+// share page flow with the parent (Strategy A) or remain a separate document
+// concatenated at the end (Strategy B).
+
+// Strategy A: inline composition &mdash; parent and detail share one HTML stream
+var invoices = GetInvoices();
+var detailSections = string.Join(&quot;&quot;, invoices.Select(inv =&gt; $@&quot;
+    &lt;section class='invoice'&gt;
+        &lt;h2&gt;Invoice {inv.Id}&lt;/h2&gt;
+        &lt;table&gt;
+            {string.Join(&quot;&quot;, inv.Lines.Select(l =&gt;
+                $&quot;&lt;tr&gt;&lt;td&gt;{l.Description}&lt;/td&gt;&lt;td&gt;${l.Amount:N2}&lt;/td&gt;&lt;/tr&gt;&quot;))}
+        &lt;/table&gt;
+    &lt;/section&gt;
+    &lt;div style='page-break-after: always'&gt;&lt;/div&gt;&quot;));
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync($&quot;&lt;html&gt;&lt;body&gt;{detailSections}&lt;/body&gt;&lt;/html&gt;&quot;);
+pdf.SaveAs(&quot;master-detail.pdf&quot;);
+
+// Strategy B: render parent + each child as a separate PDF, then merge
+// https://ironpdf.com/how-to/merge-or-split-pdfs/
+var parts = await Task.WhenAll(
+    renderer.RenderHtmlAsPdfAsync(BuildMasterHtml(invoices)),
+    renderer.RenderHtmlAsPdfAsync(BuildDetailHtml(invoices.First()))
+);
+PdfDocument.Merge(parts).SaveAs(&quot;master-detail-merged.pdf&quot;);
+</code></pre>
+
+<h3>Charts and Cross-Tabs &mdash; Telerik Before</h3>
+
+<pre><code>using Telerik.Reporting;
+using Telerik.Reporting.Processing;
+using System;
+using System.Collections;
+
+class ChartBefore
+{
+    static void Main()
+    {
+        var report = new Report();
+
+        // Telerik Graph chart item, configured against the report's data source
+        var chart = new Graph();
+        var cartesian = new CartesianCoordinateSystem();
+        chart.CoordinateSystems.Add(cartesian);
+
+        var bar = new BarSeries
+        {
+            ArgumentExpression = &quot;= Fields.Region&quot;,
+            Y = &quot;= Fields.Revenue&quot;,
+            CoordinateSystem = cartesian,
+        };
+        chart.Series.Add(bar);
+
+        // Cross-tab (tablix-like pivot) is a separate item:
+        // var crosstab = new Crosstab();
+        // crosstab.RowGroups.Add(new TableGroup { Groupings = { new Grouping(&quot;= Fields.Region&quot;) } });
+        // crosstab.ColumnGroups.Add(new TableGroup { Groupings = { new Grouping(&quot;= Fields.Quarter&quot;) } });
+
+        report.Items.Add(chart);
+
+        var processor = new ReportProcessor();
+        var src = new InstanceReportSource { ReportDocument = report };
+        var result = processor.RenderReport(&quot;PDF&quot;, src, new Hashtable());
+        System.IO.File.WriteAllBytes(&quot;sales-chart.pdf&quot;, result.DocumentBytes);
+    }
+}
+</code></pre>
+
+<h3>Charts and Cross-Tabs &mdash; IronPDF After (Chart.js + HTML pivot)</h3>
+
+<pre><code>using IronPdf;
+using System;
+using System.Linq;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+var rows = GetRevenueRows(); // (Region, Quarter, Revenue)
+var regions = rows.Select(r =&gt; r.Region).Distinct().ToArray();
+var quarters = new[] { &quot;Q1&quot;, &quot;Q2&quot;, &quot;Q3&quot;, &quot;Q4&quot; };
+
+// Cross-tab as plain HTML &mdash; rows = regions, columns = quarters
+var pivotRows = string.Join(&quot;&quot;, regions.Select(r =&gt; $@&quot;
+    &lt;tr&gt;&lt;td&gt;{r}&lt;/td&gt;
+    {string.Join(&quot;&quot;, quarters.Select(q =&gt;
+        $&quot;&lt;td&gt;${rows.Where(x =&gt; x.Region == r &amp;&amp; x.Quarter == q).Sum(x =&gt; x.Revenue):N0}&lt;/td&gt;&quot;))}
+    &lt;/tr&gt;&quot;));
+
+var html = $@&quot;
+    &lt;html&gt;&lt;head&gt;
+    &lt;script src='https://cdn.jsdelivr.net/npm/chart.js'&gt;&lt;/script&gt;
+    &lt;style&gt;
+        body {{ font-family: Arial, sans-serif; padding: 40px; }}
+        table {{ width: 100%; border-collapse: collapse; margin-top: 24px; }}
+        th, td {{ padding: 8px 10px; border: 1px solid #ddd; text-align: right; }}
+        th:first-child, td:first-child {{ text-align: left; }}
+    &lt;/style&gt;&lt;/head&gt;&lt;body&gt;
+        &lt;h1&gt;Revenue by Region&lt;/h1&gt;
+        &lt;canvas id='chart' width='700' height='320'&gt;&lt;/canvas&gt;
+        &lt;table&gt;&lt;tr&gt;&lt;th&gt;Region&lt;/th&gt;{string.Concat(quarters.Select(q =&gt; $&quot;&lt;th&gt;{q}&lt;/th&gt;&quot;))}&lt;/tr&gt;{pivotRows}&lt;/table&gt;
+        &lt;script&gt;
+            new Chart(document.getElementById('chart'), {{
+                type: 'bar',
+                data: {{
+                    labels: {System.Text.Json.JsonSerializer.Serialize(regions)},
+                    datasets: [{{ label: 'Revenue',
+                        data: {System.Text.Json.JsonSerializer.Serialize(regions.Select(r =&gt; rows.Where(x =&gt; x.Region == r).Sum(x =&gt; x.Revenue)))} }}]
+                }}
+            }});
+        &lt;/script&gt;
+    &lt;/body&gt;&lt;/html&gt;&quot;;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.EnableJavaScript = true;
+renderer.RenderingOptions.WaitFor.JavaScript(2000);
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+pdf.SaveAs(&quot;sales-chart.pdf&quot;);
+</code></pre>
+
+<h2>What Are the API Mappings Between Telerik Reporting and IronPDF?</h2>
+
+<p>Here are the namespace, class, and method mappings. These cover every common operation you'll need to translate.</p>
+
+<h3>Namespace Mapping</h3>
+
+<ul>
+<li><code>Telerik.Reporting</code> &rarr; <code>IronPdf</code> &mdash; core namespace.</li>
+<li><code>Telerik.Reporting.Processing</code> &rarr; <code>IronPdf</code> &mdash; renderer is included; no separate processor class.</li>
+<li><code>Telerik.Reporting.Services.*</code> &rarr; removed &mdash; REST service layer is not needed.</li>
+</ul>
+
+<h3>Core Class Mapping</h3>
+
+<ul>
+<li><code>ReportProcessor</code> &rarr; <code>ChromePdfRenderer</code> &mdash; renders HTML (not TRDX) to PDF.</li>
+<li><code>UriReportSource</code> &rarr; HTML string / file path / URL &mdash; template source format changes.</li>
+<li><code>InstanceReportSource</code> &rarr; not applicable &mdash; template is HTML, no report instance object.</li>
+<li><code>RenderingResult</code> &rarr; <code>PdfDocument</code> &mdash; output document object.</li>
+</ul>
+
+<h3>Document Loading Methods</h3>
+
+<ul>
+<li>Load TRDX template: <code>new UriReportSource { Uri = "file.trdx" }</code> &rarr; HTML string, file, or URL passed directly to the renderer.</li>
+<li>Set parameters: <code>reportSource.Parameters.Add(new Parameter(...))</code> &rarr; template variable injection (string interpolation or Razor model).</li>
+<li>Render to bytes: <code>processor.RenderReport("PDF", source, info)</code> &rarr; <code>renderer.RenderHtmlAsPdfAsync(html)</code>.</li>
+<li>Save to file: <code>File.WriteAllBytes(path, result.DocumentBytes)</code> &rarr; <code>pdf.SaveAs(path)</code>.</li>
+</ul>
+
+<h3>Page Operations</h3>
+
+<ul>
+<li>Page count: from render result &rarr; <code>pdf.PageCount</code>.</li>
+<li>Remove page: not applicable in Telerik Reporting &rarr; <code>pdf.RemovePages(index)</code>.</li>
+<li>Extract text: not exposed by the standard report API &rarr; <code>pdf.ExtractAllText()</code>.</li>
+<li>Rotate: report designer property &rarr; <code>pdf.RotateAllPages(PageRotation.Clockwise90)</code>.</li>
+</ul>
+
+<h3>Merge / Split Operations</h3>
+
+<ul>
+<li>Merge: not native in Telerik Reporting &mdash; a secondary library is required &rarr; <code>PdfDocument.Merge(doc1, doc2)</code>.</li>
+<li>Split: not native in Telerik Reporting &rarr; see the IronPDF <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge/split guide</a>.</li>
+</ul>
+
+<h2>What Are the Critical Migration Notes I Should Know?</h2>
+
+<p>The HTML/CSS fidelity gap that triggered this migration closes structurally: Chromium renders current CSS standards exactly as Chrome browser does. The design approved in the browser is the design that comes out of the PDF. The negotiation ends.</p>
+
+<p>The new gap to watch is print-specific CSS behavior. Some CSS properties behave differently between <code>@media screen</code> and <code>@media print</code>. Test your templates with Chrome's DevTools print preview before rendering with IronPDF.</p>
+
+<h3>Print CSS Testing Pattern</h3>
+
+<pre><code>// IronPDF renders @media print CSS &mdash; preview in Chrome DevTools:
+// DevTools &rarr; More tools &rarr; Rendering &rarr; Emulate CSS media type &rarr; print
+// See: https://ironpdf.com/how-to/pixel-perfect-html-to-pdf/
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// Add @media print styles to your HTML for print-specific layout
+var html = @&quot;
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        @media print {
+            .no-print { display: none; }
+            .page-break { page-break-before: always; }
+        }
+        body { font-family: Arial, sans-serif; padding: 40px; }
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;...&lt;/body&gt;
+    &lt;/html&gt;&quot;;
+
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+</code></pre>
+
+<h3>Page Number Tokens</h3>
+
+<pre><code>// Telerik: expression syntax in a TextBox inside Page Header/Footer:
+//     = 'Page ' + PageNumber + ' of ' + PageCount
+// IronPDF equivalent:
+// https://ironpdf.com/how-to/headers-and-footers/
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    HtmlFragment = @&quot;&lt;div style='font-size:9px; text-align:right; padding:0 40px'&gt;
+        Page {page} of {total-pages}
+    &lt;/div&gt;&quot;,
+};
+</code></pre>
+
+<h3>Error Handling Pattern Change</h3>
+
+<p>Telerik's <code>RenderingResult.HasErrors</code> becomes exception-based in IronPDF:</p>
+
+<pre><code>// Before &mdash; check HasErrors:
+// var result = processor.RenderReport(&quot;PDF&quot;, source, deviceInfo);
+// if (result.HasErrors) { ... }
+
+// After &mdash; exception-based:
+try
+{
+    using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+    pdf.SaveAs(outputPath);
+}
+catch (IronPdf.Exceptions.IronPdfException ex)
+{
+    Console.Error.WriteLine($&quot;Render failed: {ex.Message}&quot;);
+}
+</code></pre>
+
+<h3>Interactive Viewer Replacement</h3>
+
+<p>Telerik Reporting has interactive HTML viewers with drill-down and parameter inputs. IronPDF generates static PDFs only &mdash; there is no equivalent interactive viewer. If interactive report viewing is a requirement, evaluate whether a browser-based HTML viewer could replace it, or whether Telerik Reporting should remain for those specific use cases.</p>
+
+<h3>Parallel Report Generation</h3>
+
+<pre><code>using IronPdf;
+using System.Linq;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+var reportJobs = reportDataList.Select(data =&gt; (
+    Html: BuildReportHtml(data),
+    Path: $&quot;reports/{data.Id}.pdf&quot;
+)).ToArray();
+
+await Task.WhenAll(reportJobs.Select(async job =&gt;
+{
+    var renderer = new ChromePdfRenderer();
+    using var pdf = await renderer.RenderHtmlAsPdfAsync(job.Html);
+    pdf.SaveAs(job.Path);
+}));
+
+Console.WriteLine($&quot;Generated {reportJobs.Length} reports in parallel&quot;);
+</code></pre>
+
+<h3>Disposal Pattern</h3>
+
+<pre><code>using IronPdf;
+using System.IO;
+
+// Telerik: result.DocumentBytes is a byte array &mdash; no disposal needed
+// IronPDF: 'using' on PdfDocument handles disposal
+
+var renderer = new ChromePdfRenderer();
+using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+
+// If you need bytes:
+var bytes = pdf.BinaryData;
+// pdf disposed at end of 'using' block
+
+// If you need a stream:
+using var ms = new MemoryStream();
+pdf.Stream.CopyTo(ms);
+</code></pre>
+
+<h3>Renderer Warm-Up</h3>
+
+<pre><code>using IronPdf;
+
+// Amortize Chromium initialization at application startup
+// The ReportProcessor initializes on first use too &mdash; this is equivalent
+var renderer = new ChromePdfRenderer();
+using var _ = await renderer.RenderHtmlAsPdfAsync(&quot;&lt;html&gt;&lt;body&gt;warmup&lt;/body&gt;&lt;/html&gt;&quot;);
+// Ready for production traffic
+</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I convert my .trdx templates to HTML automatically?</h3>
+
+<p>No. There is no automated converter. The <code>.trdx</code> format is Telerik-specific XML, and the rendering engine is proprietary. Each report template requires manual conversion to HTML/CSS. The practical process is: export a reference PDF from Telerik Reporting as your visual target, identify data bindings (<code>=Fields.ColumnName</code>) in the TRDX and map them to C# model properties, then build an HTML/CSS template that produces equivalent layout.</p>
+
+<h3>What happens to reports that use Telerik's interactive viewer?</h3>
+
+<p>Telerik Reporting has interactive HTML viewers with drill-down and parameter inputs. <a href="https://ironpdf.com/">IronPDF</a> generates static PDFs only &mdash; there is no equivalent interactive viewer. If interactive report viewing is a requirement, evaluate whether a browser-based HTML viewer could replace it, or whether Telerik Reporting should remain for those specific use cases.</p>
+
+<h3>How do I handle charts that were built in Telerik's chart engine?</h3>
+
+<p>Charts that used Telerik's chart items need to be replaced with JavaScript-based alternatives (Chart.js, ApexCharts) rendered via Chromium. IronPDF's embedded Chromium executes the JavaScript before generating the PDF. Each chart type requires verification, but you gain access to the full ecosystem of web charting libraries rather than being limited to the Telerik chart engine.</p>
+
+<h3>How long does a typical migration take per report?</h3>
+
+<p>A simple tabular report takes 30&ndash;60 minutes. A complex report with sub-reports, charts, and conditional formatting takes several hours. Before committing to a timeline, count your <code>.trdx</code> and <code>.trbp</code> files and categorize them by complexity: tabular, chart-heavy, sub-reports, and interactive.</p>
+
+<h3>Can I use Razor templates instead of string interpolation for data binding?</h3>
+
+<p>Yes. For organizations already using Razor in their web layer, a Razor-based renderer keeps the template authoring model consistent. Render the Razor view to an HTML string, then pass that to <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF's ChromePdfRenderer</a>. This gives you Razor's data binding model without the Telerik designer dependency.</p>
+
+<h3>Do I need to keep the Telerik packages installed during migration?</h3>
+
+<p>I recommend a phased approach. Keep Telerik Reporting installed while you convert templates one by one. Once all report paths are migrated and tested, remove the <code>Telerik.Reporting</code> NuGet packages, archive your <code>.trdx</code> and <code>.trbp</code> files for reference, and remove any Telerik REST service configuration from ASP.NET Core if present.</p>
+
+<h2>How Should I Approach This Migration?</h2>
+
+<p>The Telerik Reporting migration story is a template rewrite story. The library swap is the easy part &mdash; swap the NuGet package, change the namespace, adjust the rendering call. The real work is converting each <code>.trdx</code> file to an HTML template that produces equivalent output.</p>
+
+<p>Start with the simplest tabular reports to build confidence and establish your HTML template patterns. Leave the complex chart-heavy reports and any interactive-viewer-dependent paths for last &mdash; or keep them on Telerik if the migration cost exceeds the benefit.</p>
+
+<p>The structural win is clear: once your templates are HTML, the design approved in the browser is the design that goes into the PDF. The fidelity negotiation that triggered this migration is resolved. For the complete <a href="https://ironpdf.com/">IronPDF</a> API reference and additional rendering options, the documentation covers every operation shown in this guide.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

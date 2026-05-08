@@ -1,0 +1,264 @@
+<h1>ZetPDF vs IronPDF in C#: Which Should Your Team Choose?</h1>
+
+<p>One architectural contrast frames this whole comparison: ZetPDF is a coordinate-based programmatic PDF toolkit in the PDFsharp lineage, while IronPDF is a headless Chromium HTML-to-PDF engine. The two libraries can both produce a PDF file, but the route they take is so different that picking the wrong one usually shows up as weeks of rework rather than a missing feature.</p>
+
+<p>ZetPDF (zetpdf.com) is marketed as a proprietary, 100%-managed-code .NET PDF SDK whose API closely resembles PDFsharp — to the point that the PDFsharp community has <a href="https://forum.pdfsharp.net/viewtopic.php?f=2&amp;t=3841">questioned whether it is a closed fork</a>. <a href="https://ironpdf.com">IronPDF</a> is a server-side HTML-to-PDF generation engine built on embedded Chromium. These libraries address fundamentally different use cases, and the comparison matters because teams sometimes evaluate them side by side without realizing the architectural gap.</p>
+
+<h2>What is ZetPDF and what does it actually do?</h2>
+
+<p>ZetPDF is a commercial .NET PDF SDK focused on programmatic PDF construction and manipulation — creating documents page by page, drawing text and shapes via an <code>XGraphics</code>-style API, handling annotations and form fields, and exposing AES256 encryption settings on the document. The published feature surface (per <a href="https://zetpdf.com/net-pdf-sdk/">zetpdf.com/net-pdf-sdk/</a>) covers PDF view/print, annotations, AES256 encryption, form fields, and text extraction. There is no documented HTML-to-PDF or URL-to-PDF API in that surface.</p>
+
+<p>One thing worth checking before adoption is ZetPDF's distribution and update cadence. ZetPDF is <strong>not distributed via NuGet</strong> — installation is a ZIP download from <a href="https://zetpdf.com/download/">https://zetpdf.com/download/</a>, and the <code>ZetPDF.dll</code> is referenced from the project manually. AlternativeTo's listing shows no public release activity since 2021, and there is no visible GitHub repository or recent release announcement. Verify the latest package version and supported runtimes directly with the vendor.</p>
+
+<h2>How does ZetPDF differ from IronPDF architecturally?</h2>
+
+<p>The primary difference is the rendering model. ZetPDF builds PDFs the way PDFsharp does: you create a <code>PdfDocument</code>, add pages, get an <code>XGraphics</code> off each page, and draw text, lines, rectangles, and images at explicit coordinates. The layout is whatever you compute. IronPDF builds PDFs from HTML/CSS, with Chromium handling text flow, page breaks, tables, images, fonts, and CSS resolution.</p>
+
+<p>That difference cascades. Coordinate-based APIs need manual page-break detection, manual text measurement for wrapping, manual tabular layout, and per-element font and color management. HTML-based APIs delegate all of that to a layout engine. For a fixed-format document where you control every coordinate (a label, a receipt, a tax form), the programmatic approach is fine and arguably preferable. For a document whose shape varies with content — invoices with N line items, reports with embedded charts, anything that started as a designed web page — the HTML approach is dramatically less code.</p>
+
+<p>IronPDF's <code>ChromePdfRenderer</code> class converts HTML to PDF using embedded Chromium and is designed for throughput, parallel processing, and stateless operation in ASP.NET Core, Azure Functions, AWS Lambda, or Docker containers. Async/await is supported throughout, with no UI thread or STAThread requirement.</p>
+
+<h2>How does HTML-to-PDF conversion compare between ZetPDF and IronPDF?</h2>
+
+<p>This is the cleanest line in the comparison: ZetPDF does not natively render HTML to PDF. The documented feature list does not include HTML-to-PDF or URL-to-PDF, and the API surface is built around <code>XGraphics</code> drawing rather than markup parsing. Practical migration paths usually pair ZetPDF with an external HTML renderer or move to a Chromium-based library.</p>
+
+<p>IronPDF's HTML-to-PDF entry point is a renderer-based API that returns a composable <code>PdfDocument</code> and supports async operation:</p>
+
+<h3>IronPDF: Headless HTML-to-PDF Generation</h3>
+
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.Diagnostics;
+using System.Threading.Tasks;
+
+public class IronPdfGenerator
+{
+    public async Task&lt;byte[]&gt; GeneratePdfFromHtmlAsync(string html)
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        var stopwatch = Stopwatch.StartNew();
+
+        var renderer = new ChromePdfRenderer();
+
+        // Headless Chromium rendering - no UI thread
+        using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+
+        stopwatch.Stop();
+        Console.WriteLine($"Generation time: {stopwatch.ElapsedMilliseconds}ms");
+
+        return pdf.BinaryData;
+    }
+}
+
+// Usage
+var generator = new IronPdfGenerator();
+string html = @"
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+    &lt;style&gt;
+        body { font-family: Arial; padding: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 8px; }
+    &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+    &lt;h1&gt;Performance Test Document&lt;/h1&gt;
+    &lt;table&gt;
+        &lt;tr&gt;&lt;th&gt;Metric&lt;/th&gt;&lt;th&gt;Value&lt;/th&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;Throughput&lt;/td&gt;&lt;td&gt;High&lt;/td&gt;&lt;/tr&gt;
+    &lt;/table&gt;
+&lt;/body&gt;
+&lt;/html&gt;";
+
+byte[] pdf = await generator.GeneratePdfFromHtmlAsync(html);
+// Typical: 200-400ms for simple document on modern hardware</code></pre>
+
+<p>IronPDF's headless architecture eliminates UI dependencies. Chromium runs in isolated processes, supporting parallel operations. Learn more about the <a href="https://ironpdf.com/how-to/ironpdf-2021-chrome-rendering-engine-eap/">Chrome rendering engine architecture</a>.</p>
+
+<h3>ZetPDF: Coordinate-Based Programmatic PDF</h3>
+
+<p>By contrast, building a PDF in ZetPDF means positioning every element explicitly via <code>XGraphics</code>. The shape of the code is a long sequence of <code>DrawString</code> / <code>DrawRectangle</code> / <code>DrawImage</code> calls with calculated x/y coordinates:</p>
+
+<pre><code>// ZetPDF is NOT on NuGet — install via SDK ZIP from https://zetpdf.com/download/
+using ZetPDF;
+using ZetPDF.Drawing;
+
+var document = new PdfDocument();
+var page = document.AddPage();
+var graphics = XGraphics.FromPdfPage(page);
+
+var titleFont = new XFont("Arial", 24, XFontStyle.Bold);
+var bodyFont = new XFont("Arial", 12);
+
+graphics.DrawString("Company Report", titleFont, XBrushes.Navy, new XPoint(50, 50));
+graphics.DrawString("This is the introduction paragraph.", bodyFont, XBrushes.Black, new XPoint(50, 80));
+graphics.DrawString("Generated: " + DateTime.Now, bodyFont, XBrushes.Gray, new XPoint(50, 100));
+
+document.Save("report.pdf");</code></pre>
+
+<p>For a fixed-format document this is direct and predictable. For anything where the content drives the layout — N-row tables, multi-page reports, designed templates — manual coordinate management is where most of the engineering effort goes.</p>
+
+<h2>How do merging and batch processing compare?</h2>
+
+<p>ZetPDF does not ship a one-line <code>PdfMerger.MergeFiles()</code> helper. Merging follows the PDFsharp pattern: open each input with <code>PdfReader</code>, loop pages into an output <code>PdfDocument</code>, and call <code>Save()</code>. It works, and for low-volume merging it is straightforward, but the synchronous file-by-file style means orchestrating concurrency is the caller's problem — there is no built-in async surface and no batched renderer pool.</p>
+
+<p>IronPDF processes batches in parallel with no UI thread bottleneck and supports async/await directly on the renderer.</p>
+
+<h3>IronPDF: Parallel Async Batch Processing</h3>
+
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Threading.Tasks;
+
+public class IronPdfBatchProcessor
+{
+    public async Task&lt;List&lt;byte[]&gt;&gt; ProcessBatchAsync(List&lt;string&gt; htmlDocuments)
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        var stopwatch = Stopwatch.StartNew();
+
+        var renderer = new ChromePdfRenderer();
+
+        // Process in parallel - no UI thread constraints
+        var tasks = htmlDocuments.Select(async html =&gt;
+        {
+            using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+            return pdf.BinaryData;
+        });
+
+        var results = (await Task.WhenAll(tasks)).ToList();
+
+        stopwatch.Stop();
+        Console.WriteLine($"Batch time: {stopwatch.Elapsed.TotalSeconds:F1}s");
+
+        return results;
+    }
+}
+
+// Usage
+var processor = new IronPdfBatchProcessor();
+
+var htmlDocs = Enumerable.Range(1, 100)
+    .Select(i =&gt; $@"
+        &lt;!DOCTYPE html&gt;
+        &lt;html&gt;&lt;body&gt;
+            &lt;h1&gt;Document #{i}&lt;/h1&gt;
+            &lt;p&gt;Content for document {i}&lt;/p&gt;
+        &lt;/body&gt;&lt;/html&gt;")
+    .ToList();
+
+var sw = Stopwatch.StartNew();
+var pdfs = await processor.ProcessBatchAsync(htmlDocs);
+sw.Stop();
+
+Console.WriteLine($"Processed {pdfs.Count} PDFs in {sw.Elapsed.TotalSeconds:F1}s");
+Console.WriteLine($"Throughput: {pdfs.Count / sw.Elapsed.TotalSeconds:F1} PDFs/sec");
+// Throughput scales with available CPU cores</code></pre>
+
+<p>IronPDF's parallel processing scales with CPU cores. See <a href="https://ironpdf.com/examples/pdf-generation-settings/">PDF generation settings</a> for performance tuning options.</p>
+
+<h3>IronPDF: Server Deployment in ASP.NET Core</h3>
+
+<pre><code>// NuGet: Install-Package IronPdf
+using Microsoft.AspNetCore.Mvc;
+using IronPdf;
+using System.Threading.Tasks;
+
+[ApiController]
+[Route("api/[controller]")]
+public class PdfController : ControllerBase
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public PdfController()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        // Renderer is reusable across requests
+        _renderer = new ChromePdfRenderer();
+    }
+
+    [HttpPost]
+    public async Task&lt;IActionResult&gt; GeneratePdf([FromBody] string html)
+    {
+        // No UI thread dependencies - works in ASP.NET Core
+        using var pdf = await _renderer.RenderHtmlAsPdfAsync(html);
+
+        return File(pdf.BinaryData, "application/pdf", "document.pdf");
+    }
+}
+
+// Deployment characteristics:
+// - No STAThread requirements
+// - Concurrent requests handled by the host's thread pool
+// - Horizontal scaling supported (multiple instances)
+// - Azure / AWS / Docker compatible
+// - Stateless operation
+// - Memory-efficient (automatic cleanup with using/Dispose)</code></pre>
+
+<p>IronPDF is designed for server environments from day one. No UI dependencies, supports containerization, scales horizontally.</p>
+
+<h2>How do the two libraries compare feature by feature?</h2>
+
+<p>The bullets below capture the dimensions worth evaluating. Several ZetPDF entries are framed as "verify with vendor" because the public documentation surface does not cover them in depth.</p>
+
+<ul>
+<li><strong>Primary use case.</strong> ZetPDF — programmatic PDF construction and manipulation via a coordinate-based <code>XGraphics</code> API in the PDFsharp lineage. IronPDF — server-side PDF generation from HTML.</li>
+<li><strong>Distribution.</strong> ZetPDF — ZIP download from <code>zetpdf.com/download/</code>; the <code>ZetPDF.dll</code> is referenced manually. IronPDF — NuGet (<code>Install-Package IronPdf</code>).</li>
+<li><strong>Update cadence and documentation.</strong> ZetPDF shows no public release activity since 2021 (per AlternativeTo's listing) and has no visible GitHub repository — verify current build with the vendor. IronPDF ships regular updates with comprehensive documentation.</li>
+<li><strong>HTML-to-PDF.</strong> Not part of ZetPDF's documented feature list; the API is coordinate-based drawing. IronPDF — <code>ChromePdfRenderer.RenderHtmlAsPdf</code> / <code>RenderHtmlAsPdfAsync</code>, returning a composable <code>PdfDocument</code>.</li>
+<li><strong>URL-to-PDF.</strong> Not part of ZetPDF's documented feature list. IronPDF — <code>RenderUrlAsPdf</code> / <code>RenderUrlAsPdfAsync</code>.</li>
+<li><strong>Merge PDFs.</strong> ZetPDF — manual loop using <code>PdfReader.Open</code> and copying pages, in the PDFsharp pattern. IronPDF — one-line <code>PdfDocument.Merge(...)</code>.</li>
+<li><strong>Page layout model.</strong> ZetPDF — manual: caller calculates coordinates, page breaks, and text wrapping. IronPDF — automatic via Chromium's layout engine.</li>
+<li><strong>Async/await.</strong> Not surfaced on ZetPDF's API. Native on IronPDF.</li>
+<li><strong>Headless server operation.</strong> ZetPDF is 100%-managed-code per the vendor, so server use is plausible, but verify the converter/encryption helpers' behavior on Linux/container hosts before depending on them. IronPDF is designed for headless server use (ASP.NET Core, Azure Functions, AWS Lambda, Docker).</li>
+<li><strong>Watermarks.</strong> Manual via <code>XGraphics</code> drawing on each page. IronPDF — <code>pdf.ApplyWatermark(html)</code> with HTML/CSS.</li>
+<li><strong>Encryption / password.</strong> ZetPDF exposes AES256 encryption settings on the document. IronPDF — <code>pdf.SecuritySettings.UserPassword</code> / <code>SecuritySettings.OwnerPassword</code>.</li>
+<li><strong>Annotations, form fields, text extraction.</strong> Listed on ZetPDF's published feature surface; verify depth against your specific needs. Supported on IronPDF.</li>
+<li><strong>Digital signatures, PDF/A.</strong> Verify in current ZetPDF docs. Supported on IronPDF.</li>
+<li><strong>Learning curve.</strong> ZetPDF — comfortable if you already know PDFsharp; the cost is manual layout work. IronPDF — low curve if HTML/CSS is already familiar.</li>
+</ul>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Is ZetPDF still actively maintained?</h3>
+
+<p>Worth checking directly with the vendor. AlternativeTo's listing shows no public release activity since 2021, there is no visible GitHub repository, and the public-facing blog content is dated. Confirm the latest published version, target frameworks, and support channels before adopting it for a new project.</p>
+
+<h3>Can ZetPDF generate PDFs from HTML?</h3>
+
+<p>HTML-to-PDF and URL-to-PDF are not part of ZetPDF's documented feature list. The API is built around programmatic PDF construction via an <code>XGraphics</code>-style drawing surface, not markup parsing. Teams that need HTML rendering typically pair ZetPDF with an external renderer or move to a Chromium-based library.</p>
+
+<h3>How does IronPDF handle installation compared to ZetPDF?</h3>
+
+<p>IronPDF installs from NuGet with <code>Install-Package IronPdf</code> and works out of the box in headless server environments. ZetPDF is not on NuGet — installation is a ZIP download from <a href="https://zetpdf.com/download/">https://zetpdf.com/download/</a>, with the <code>ZetPDF.dll</code> added as a manual reference in the project file.</p>
+
+<h3>Can I use ZetPDF in ASP.NET Core or Docker containers?</h3>
+
+<p>ZetPDF markets itself as 100%-managed-code, so server use is plausible in principle, but the public documentation does not focus on Linux containers or ASP.NET Core scenarios — verify your specific runtime and feature set against the vendor before depending on it. IronPDF is designed for these environments — ASP.NET Core, Azure Functions, AWS Lambda, and Docker containers all work out of the box.</p>
+
+<h3>What is the performance difference for batch PDF generation?</h3>
+
+<p>IronPDF supports async/await directly on the renderer and parallel processing scales with available CPU cores. ZetPDF's API is synchronous and offers no built-in batch or async surface, so concurrency is the caller's responsibility. For high-throughput batch generation, benchmark both against representative inputs before choosing.</p>
+
+<h3>Does migrating from ZetPDF to IronPDF make sense?</h3>
+
+<p>Migration makes sense when the requirement shifts from coordinate-based drawing to HTML-driven layout, when server-side PDF creation becomes critical, when batch processing performance matters, or when cloud deployment and containerization are required. The <a href="https://ironpdf.com/object-reference/api/IronPdf.ChromePdfRenderer.html/">ChromePdfRenderer API</a> is designed for stateless operation across all these scenarios. A full step-by-step path is documented in the <a href="https://ironpdf.com/blog/migration-guides/migrate-from-zetpdf-to-ironpdf/">ZetPDF to IronPDF migration guide</a>.</p>
+
+<h2>Which should your team choose — ZetPDF or IronPDF?</h2>
+
+<p>ZetPDF and IronPDF address different rendering models. ZetPDF is a programmatic PDF SDK in the PDFsharp lineage — coordinate-based drawing, AES256 encryption, annotations, form fields, text extraction — distributed as a ZIP rather than a NuGet package, with no documented HTML-to-PDF surface. IronPDF is a server-side <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML-to-PDF generation engine</a>, designed for headless operation in web applications and cloud services.</p>
+
+<p>If your team needs to build PDFs by drawing fixed-format documents at known coordinates — labels, receipts, forms with stable layout — and you are comfortable with a PDFsharp-shaped API, ZetPDF is the right category. Verify the current build, supported runtimes, and support channels with the vendor before adopting it, since the public-facing material is dated.</p>
+
+<p>If your team needs server-side PDF generation, HTML-to-PDF conversion, batch processing, or cloud deployment, IronPDF is the clear choice. The headless Chromium architecture eliminates UI thread dependencies, supports async/await patterns, and scales horizontally. Install via <code>Install-Package IronPdf</code> and start converting HTML to PDF in minutes. The architectural difference — markup-driven layout versus manual coordinate management — is what shapes the engineering effort on each side, more than any single feature checkbox.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

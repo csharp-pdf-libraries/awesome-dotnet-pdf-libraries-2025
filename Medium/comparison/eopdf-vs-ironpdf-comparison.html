@@ -1,0 +1,412 @@
+<h1>EO.Pdf vs IronPDF: When Platform Constraints Shape Your PDF Architecture</h1>
+
+<p>A recurring support pattern shows up in .NET PDF implementations: HTML converts fine locally, then breaks in Azure App Service. Fonts render correctly in development, then come out as squares in production. JavaScript charts work most of the time, then fail silently on the occasional run. These are not bugs in the traditional sense — they are environment-specific behavior patterns that emerge when rendering engines interact with different runtime contexts.</p>
+
+<p>EO.Pdf uses a Chromium-based approach similar to IronPDF, but with platform constraints and architectural differences that surface in specific deployment scenarios. Teams evaluating options often ask "which is more stable?" but the more actionable question is "which edge cases align with my infrastructure?"</p>
+
+<p>I want to walk through the specific differences — limitations, code comparisons, feature tables, and the real troubleshooting scenarios that emerge when you pick one over the other.</p>
+
+<h2>What is EO.Pdf and how does it work?</h2>
+
+<p>EO.Pdf is an HTML-to-PDF converter and PDF manipulation library that uses a Chromium engine (via the EO.WebBrowser component) for rendering. It targets .NET Framework, .NET Core 3.1+, and .NET 5+ — Windows only per the vendor documentation. The <code>EO.Pdf</code> NuGet package (with optional <code>EO.WebBrowser</code> for embedded HTML rendering) typically pulls in extra dependencies like <code>System.Drawing.Common</code> and <code>System.Text.Encoding.CodePages</code> for .NET Core projects.</p>
+
+<p>The library is actively maintained by Essential Objects. It provides HTML5/CSS3 rendering through its Chromium engine, JavaScript execution support, and standard PDF operations like merging, splitting, encryption, and form filling.</p>
+
+<p>Where it gets complicated is the platform story. From the documentation: "EO.Pdf and EO.WebBrowser supports .NET Core 3.1 and above (.NET Core 3.1, .NET 5 and .NET 6) on Windows only. Non Windows systems are not supported." That single constraint ripples through deployment decisions in ways that aren't obvious until you're mid-project.</p>
+
+<h2>What are the key limitations of EO.Pdf?</h2>
+
+<p>The most impactful limitation is the Windows-only constraint. This blocks Docker deployments on Linux, Azure App Service Linux plans, macOS local development, and AWS Lambda or serverless functions on non-Windows runtimes. If your organization standardizes on Linux containers, EO.Pdf becomes an infrastructure-level blocker.</p>
+
+<p>Beyond the platform constraint, dependency management adds friction. .NET Core and .NET 5+ projects require explicit installation of System.Drawing.Common and System.Text.Encoding.CodePages. Missing these causes runtime errors that may not surface until specific code paths execute — the kind of issue that passes unit tests but fails in staging.</p>
+
+<p>The process architecture introduces its own edge cases. EO.Pdf's Chromium engine runs as a separate process (<code>eowp.exe</code>), which creates inter-process communication overhead and potential failure modes around process cleanup. In high-concurrency scenarios or when exceptions interrupt normal disposal flows, <code>eowp.exe</code> processes can accumulate. Process lifecycle management on Windows servers is an additional operational concern compared to in-process renderers.</p>
+
+<p>EO.Pdf's documentation and examples carry heritage from the ASP.NET WebForms era, which may require adaptation for modern MVC, Razor Pages, or Blazor workflows.</p>
+
+<h2>How does HTML-to-PDF conversion compare between the two libraries?</h2>
+
+<p>Both libraries use Chromium for rendering, but the developer experience differs. EO.Pdf exposes a static <code>HtmlToPdf</code> entry point; IronPDF uses an instance-based <code>ChromePdfRenderer</code>. Here is the same invoice generation in both libraries.</p>
+
+<h3>EO.Pdf — HTML String to PDF</h3>
+
+<pre><code>using EO.Pdf;
+using System;
+
+namespace HtmlToPdfDemo
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            try
+            {
+                string htmlContent = @"
+                    &lt;html&gt;
+                    &lt;head&gt;
+                        &lt;style&gt;
+                            body { font-family: Arial; margin: 40px; }
+                            h1 { color: #333; }
+                        &lt;/style&gt;
+                    &lt;/head&gt;
+                    &lt;body&gt;
+                        &lt;h1&gt;Invoice #12345&lt;/h1&gt;
+                        &lt;p&gt;Customer: Acme Corp&lt;/p&gt;
+                        &lt;p&gt;Total: $1,250.00&lt;/p&gt;
+                    &lt;/body&gt;
+                    &lt;/html&gt;";
+
+                HtmlToPdf.ConvertHtml(htmlContent, "output.pdf");
+
+                Console.WriteLine("PDF created successfully");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Conversion failed: {ex.Message}");
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>Common configuration steps with EO.Pdf on .NET Core / .NET 5+ include installing <code>System.Drawing.Common</code> explicitly, registering <code>System.Text.Encoding.CodePages</code> for non-ASCII text, setting <code>BaseUrl</code> when HTML references relative paths, matching the 64-bit vs 32-bit package to your hosting runtime to avoid <code>BadImageFormatException</code>, and coordinating access to the static <code>HtmlToPdf.Options</code> across threads. Long-running services on Windows may also need to monitor the out-of-process renderer (<code>eowp.exe</code>) — verify against current vendor docs for your version.</p>
+
+<h3>IronPDF — HTML String to PDF</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlAsPdf(@"
+    &lt;html&gt;
+    &lt;head&gt;
+        &lt;style&gt;
+            body { font-family: Arial; margin: 40px; }
+            h1 { color: #333; }
+        &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Invoice #12345&lt;/h1&gt;
+        &lt;p&gt;Customer: Acme Corp&lt;/p&gt;
+        &lt;p&gt;Total: $1,250.00&lt;/p&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;");
+pdf.SaveAs("output.pdf");
+</code></pre>
+
+<p>IronPDF handles dependency management internally — no separate System.Drawing.Common installation required. The <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> details platform-specific nuances for Windows, Linux, and macOS deployments.</p>
+
+<h2>How do file-based conversions and external assets differ?</h2>
+
+<p>When HTML references external assets like images, stylesheets, and fonts, the two libraries handle base path resolution differently.</p>
+
+<h3>EO.Pdf — HTML File with External Assets</h3>
+
+<pre><code>using EO.Pdf;
+using System;
+
+namespace HtmlFileToPdfDemo
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            try
+            {
+                HtmlToPdfOptions options = new HtmlToPdfOptions();
+                options.BaseUrl = "file:///C:/Projects/InvoiceApp/Templates/";
+                options.EnableJavaScript = true;
+                options.Timeout = 30000;
+
+                HtmlToPdf.ConvertHtml(
+                    System.IO.File.ReadAllText("invoice.html"),
+                    "output.pdf",
+                    options);
+
+                Console.WriteLine("Conversion completed");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>With EO.Pdf, you read the file contents manually and pass a <code>BaseUrl</code> in <code>HtmlToPdfOptions</code> for relative path resolution. As with any HTML-to-PDF engine, image and stylesheet resolution depends on a correct base URL, custom fonts require accessible font files, and remote network resources can affect render timing — set timeouts and audit external dependencies for headless environments.</p>
+
+<h3>IronPDF — HTML File with External Assets</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+var pdf = renderer.RenderHtmlFileAsPdf("Templates/invoice.html");
+pdf.SaveAs("output.pdf");
+</code></pre>
+
+<p>IronPDF automatically resolves assets relative to the HTML file's directory. For explicit control, set <code>renderer.RenderingOptions.BaseUrlOrPath = @"C:\Projects\Assets";</code>. The <a href="https://ironpdf.com/how-to/html-file-to-pdf/">HTML File to PDF guide</a> explains the automatic base path resolution in detail.</p>
+
+<h2>How does JavaScript-heavy content render in each library?</h2>
+
+<p>JavaScript execution is where timing control becomes critical. Chart libraries, dynamic content, and async rendering all depend on knowing when the page is "done." The two libraries take fundamentally different approaches to this problem.</p>
+
+<h3>EO.Pdf — JavaScript-Heavy HTML</h3>
+
+<pre><code>using EO.Pdf;
+using System;
+
+namespace JavaScriptPdfDemo
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            try
+            {
+                string htmlWithJs = @"
+                    &lt;html&gt;
+                    &lt;head&gt;
+                        &lt;script src='https://cdn.jsdelivr.net/npm/chart.js'&gt;&lt;/script&gt;
+                    &lt;/head&gt;
+                    &lt;body&gt;
+                        &lt;canvas id='myChart' width='400' height='400'&gt;&lt;/canvas&gt;
+                        &lt;script&gt;
+                            var ctx = document.getElementById('myChart').getContext('2d');
+                            var myChart = new Chart(ctx, {
+                                type: 'bar',
+                                data: {
+                                    labels: ['Red', 'Blue', 'Yellow'],
+                                    datasets: [{
+                                        label: '# of Votes',
+                                        data: [12, 19, 3],
+                                        backgroundColor: ['rgba(255, 99, 132, 0.2)',
+                                                          'rgba(54, 162, 235, 0.2)',
+                                                          'rgba(255, 206, 86, 0.2)']
+                                    }]
+                                }
+                            });
+                        &lt;/script&gt;
+                    &lt;/body&gt;
+                    &lt;/html&gt;";
+
+                HtmlToPdfOptions options = new HtmlToPdfOptions();
+                options.EnableJavaScript = true;
+                options.AfterRenderDelay = 2000; // 2 seconds
+
+                HtmlToPdf.ConvertHtml(htmlWithJs, "chart.pdf", options);
+
+                Console.WriteLine("JavaScript-based PDF created");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>EO.Pdf's documented JavaScript wait mechanism is <code>HtmlToPdfOptions.AfterRenderDelay</code>, a fixed millisecond delay. Tuning it is empirical — too short and charts may render blank, too long and you pay throughput. Other timing concerns common to delay-based renderers include HTTPS certificate trust for external scripts, lack of a built-in JavaScript console hook, and long-running timers that keep the page "busy" past the delay window — verify the current vendor docs for what is exposed in your version.</p>
+
+<h3>IronPDF — JavaScript-Heavy HTML</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+string htmlWithJs = @"
+    &lt;html&gt;
+    &lt;head&gt;
+        &lt;script src='https://cdn.jsdelivr.net/npm/chart.js'&gt;&lt;/script&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;canvas id='myChart' width='400' height='400'&gt;&lt;/canvas&gt;
+        &lt;script&gt;
+            var ctx = document.getElementById('myChart').getContext('2d');
+            var myChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Red', 'Blue', 'Yellow'],
+                    datasets: [{
+                        label: '# of Votes',
+                        data: [12, 19, 3]
+                    }]
+                }
+            });
+            window.ironpdf.notifyRender();
+        &lt;/script&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.EnableJavaScript = true;
+renderer.RenderingOptions.WaitFor.JavaScript();
+
+var pdf = renderer.RenderHtmlAsPdf(htmlWithJs);
+pdf.SaveAs("chart.pdf");
+</code></pre>
+
+<p>The <a href="https://ironpdf.com/examples/javascript-html-to-pdf/">JavaScript in HTML to PDF guide</a> shows how <code>window.ironpdf.notifyRender()</code> provides explicit control over rendering timing, eliminating guesswork around delay values.</p>
+
+<h2>How does PDF merging and manipulation compare?</h2>
+
+<p>PDF merging reveals a clear API design difference. EO.Pdf requires iterating through pages and cloning them individually. IronPDF provides a single static method call.</p>
+
+<h3>EO.Pdf — PDF Merging</h3>
+
+<pre><code>using EO.Pdf;
+using System;
+
+namespace PdfMergeDemo
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            try
+            {
+                PdfDocument doc1 = new PdfDocument("document1.pdf");
+                PdfDocument doc2 = new PdfDocument("document2.pdf");
+                PdfDocument doc3 = new PdfDocument("document3.pdf");
+
+                // EO.Pdf exposes merging as a static method that returns a combined document.
+                PdfDocument mergedDoc = PdfDocument.Merge(doc1, doc2, doc3);
+
+                mergedDoc.Save("merged.pdf");
+
+                doc1.Dispose();
+                doc2.Dispose();
+                doc3.Dispose();
+                mergedDoc.Dispose();
+
+                Console.WriteLine("Merge completed");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Merge failed: {ex.Message}");
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>Merge operations on any library can encounter memory pressure with large source PDFs, bookmark or form-field name collisions across source documents, and font-embedding gaps if source documents reference missing fonts — verify behavior against your version. Manual disposal of each <code>PdfDocument</code> matters here because the type is <code>IDisposable</code>.</p>
+
+<h3>IronPDF — PDF Merging</h3>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var pdf1 = PdfDocument.FromFile("document1.pdf");
+var pdf2 = PdfDocument.FromFile("document2.pdf");
+var pdf3 = PdfDocument.FromFile("document3.pdf");
+
+var merged = PdfDocument.Merge(pdf1, pdf2, pdf3);
+merged.SaveAs("merged.pdf");
+</code></pre>
+
+<p>The <a href="https://ironpdf.com/tutorials/csharp-edit-pdf-complete-tutorial/">Edit PDF Documents tutorial</a> covers additional scenarios like merging specific page ranges and combining newly generated PDFs with existing documents.</p>
+
+<h2>How do the features compare across all categories?</h2>
+
+<ul>
+<li><strong>Platform reach.</strong> EO.Pdf targets .NET Framework and .NET Core 3.1 / .NET 5+ — Windows only per Essential Objects' documentation, including Docker containers on Windows base images. IronPDF supports modern .NET on Windows, Linux, and macOS, including Linux Docker images.</li>
+<li><strong>Rendering engine.</strong> Both libraries embed Chromium and support modern HTML5, CSS3, web fonts, SVG, canvas, responsive media queries, and <code>@media print</code>. JavaScript execution is available in both — see the wait-control discussion above for the timing difference.</li>
+<li><strong>PDF operations.</strong> Merge, split, extract pages, rotate, extract text, extract images, fill and flatten forms, set headers/footers, and add page numbers are available in both. IronPDF's headers, footers, and page numbers are HTML-driven; EO.Pdf provides them via its own options API.</li>
+<li><strong>Security.</strong> Both offer password encryption, user permissions, digital signatures, and metadata removal. IronPDF documents 128/256-bit AES encryption and granular permissions; EO.Pdf's certificate-validation and redaction surface should be verified against current vendor docs for your version.</li>
+<li><strong>Operational footprint.</strong> EO.Pdf renders out-of-process via <code>eowp.exe</code> (monitor and recycle on long-running services), pulls in <code>System.Drawing.Common</code> and related packages on .NET Core/.NET 5+, and the static <code>HtmlToPdf.Options</code> design means concurrent callers must coordinate. IronPDF ships as a single NuGet package, runs the rendering engine in-process, and uses instance-based options on each <code>ChromePdfRenderer</code>.</li>
+<li><strong>Async and developer experience.</strong> IronPDF exposes async <code>Render*Async</code> variants throughout. EO.Pdf's primary surface is the synchronous static <code>HtmlToPdf.ConvertHtml</code> / <code>ConvertUrl</code>; verify any async overloads against the current docs. Both libraries are unit-testable.</li>
+<li><strong>Documentation and support.</strong> Essential Objects offers commercial support; SLA terms should be confirmed with the vendor. IronPDF publishes 100+ tutorial examples, an active community forum, and engineering chat support.</li>
+</ul>
+
+<h2>How do API concepts map between EO.Pdf and IronPDF?</h2>
+
+<ul>
+<li><strong>HTML string to PDF.</strong> <code>HtmlToPdf.ConvertHtml(html, path)</code> (static) — <code>new ChromePdfRenderer().RenderHtmlAsPdf(html)</code> followed by <code>SaveAs(path)</code>.</li>
+<li><strong>HTML file to PDF.</strong> <code>HtmlToPdf.ConvertHtml(File.ReadAllText(path), output)</code> — <code>renderer.RenderHtmlFileAsPdf(path)</code>.</li>
+<li><strong>URL to PDF.</strong> <code>HtmlToPdf.ConvertUrl(url, path)</code> — <code>renderer.RenderUrlAsPdf(url)</code>.</li>
+<li><strong>Enable JavaScript.</strong> <code>options.EnableJavaScript = true</code> — <code>renderer.RenderingOptions.EnableJavaScript = true</code>.</li>
+<li><strong>Set base path.</strong> <code>options.BaseUrl = path</code> — <code>renderer.RenderingOptions.BaseUrlOrPath = path</code>.</li>
+<li><strong>Wait for JavaScript.</strong> <code>options.AfterRenderDelay = ms</code> (fixed delay) — <code>renderer.RenderingOptions.WaitFor.JavaScript()</code> (signal-driven via <code>window.ironpdf.notifyRender()</code>).</li>
+<li><strong>Load an existing PDF.</strong> <code>new PdfDocument(path)</code> — <code>PdfDocument.FromFile(path)</code>.</li>
+<li><strong>Merge PDFs.</strong> Loop the source pages and <code>Clone()</code> into a target document — <code>PdfDocument.Merge(pdf1, pdf2)</code>.</li>
+<li><strong>Extract text.</strong> <code>page.GetText()</code> per page — <code>pdf.ExtractAllText()</code> across the document.</li>
+<li><strong>Set password.</strong> <code>doc.Security.UserPassword = pwd</code> — <code>pdf.SecuritySettings.UserPassword = pwd</code>.</li>
+<li><strong>Compression and watermarks.</strong> EO.Pdf's compression and watermark surface should be verified against current vendor docs for your version. IronPDF exposes <code>CompressImages()</code> and <code>ApplyWatermark(html, rotation)</code>.</li>
+</ul>
+
+<h2>How do you install each library?</h2>
+
+<h3>EO.Pdf Installation</h3>
+
+<pre><code>Install-Package EO.Pdf
+# For .NET Core/.NET 5+, also install:
+Install-Package System.Drawing.Common
+Install-Package System.Text.Encoding.CodePages
+</code></pre>
+
+<p>After installation, .NET Core and .NET 5+ projects require encoding provider registration at startup:</p>
+
+<pre><code>using EO.Pdf;
+using System.Text;
+
+Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+</code></pre>
+
+<p>Deployment checklist for EO.Pdf: verify 64-bit vs 32-bit package matches runtime, ensure System.Drawing.Common is compatible with hosting environment, and register encoding providers in .NET Core startup.</p>
+
+<h3>IronPDF Installation</h3>
+
+<pre><code>Install-Package IronPdf
+</code></pre>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+</code></pre>
+
+<p>The single NuGet package includes all platform binaries. No additional configuration required. IronPDF also exposes granular rendering control through <code>ChromePdfRenderOptions</code>:</p>
+
+<pre><code>renderer.RenderingOptions.Timeout = 60; // seconds
+renderer.RenderingOptions.EnableJavaScript = true;
+renderer.RenderingOptions.WaitFor.RenderDelay(500); // milliseconds
+</code></pre>
+
+<h2>FAQ and Troubleshooting Tips</h2>
+
+<h3>Why does my EO.Pdf conversion work locally but fail on Azure App Service?</h3>
+
+<p>On Azure App Service, ensure the app runs in 64-bit mode if using the 64-bit NuGet package. Platform mismatch causes "BadImageFormatException" at runtime. Also verify that System.Drawing.Common and System.Text.Encoding.CodePages are included in your deployment. With IronPDF, a single NuGet package includes all platform binaries — no 64-bit vs 32-bit configuration needed, and it runs on both Windows and Linux App Service plans.</p>
+
+<h3>How do I handle eowp.exe process accumulation in production?</h3>
+
+<p>EO.Pdf's Chromium engine runs out-of-process as <code>eowp.exe</code>. In high-throughput scenarios, child processes may accumulate if exceptions interrupt normal disposal — verify against current vendor docs. Monitor process counts and consider application-level recycling if you observe leaked handles, and coordinate access to the static options surface (locking, or separate instances per thread) to avoid "Object is currently in use elsewhere" exceptions. IronPDF runs its rendering engine differently and exposes instance-based options on each <code>ChromePdfRenderer</code>.</p>
+
+<h3>Can I deploy EO.Pdf to Linux Docker containers or macOS?</h3>
+
+<p>No. EO.Pdf explicitly does not support non-Windows systems. From the documentation: "EO.Pdf and EO.WebBrowser supports .NET Core 3.1 and above on Windows only. Non Windows systems are not supported." This blocks Linux Docker deployments, macOS development, and serverless functions on non-Windows runtimes. IronPDF bundles Chromium binaries for Windows, Linux, and macOS within its NuGet package, supporting all major deployment targets.</p>
+
+<h3>Why do special characters appear garbled in EO.Pdf output?</h3>
+
+<p>If PDFs display garbled text for non-ASCII characters, you need to install the System.Text.Encoding.CodePages package and register encodings with <code>System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);</code> at application startup. This is a required step for .NET Core and .NET 5+ projects that isn't always obvious from the initial setup documentation. IronPDF handles encoding internally without additional package dependencies.</p>
+
+<h3>When should I migrate from EO.Pdf to IronPDF?</h3>
+
+<p>Platform constraints drive migration more than feature gaps. If your organization standardizes on Linux-based Docker images or Azure App Service Linux plans, EO.Pdf's Windows-only constraint becomes a blocker. If your team includes developers on macOS or Linux who cannot run EO.Pdf locally, that creates environment parity issues. If production logs show eowp.exe process accumulation or memory leaks under high load, the architectural difference becomes relevant. And if you're targeting .NET 8+ where System.Drawing.Common deprecation warnings create ongoing maintenance friction, it's time to evaluate the switch. See the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF with Chrome rendering guide</a> for migration starting points.</p>
+
+<h2>When should you choose EO.Pdf vs IronPDF?</h2>
+
+<p>EO.Pdf is a capable Chromium-based PDF library for teams that deploy exclusively on Windows. If your infrastructure is Windows-only, your development team works on Windows machines, and you don't anticipate needing Linux containers or macOS support, EO.Pdf provides solid HTML5/CSS3 rendering with active maintenance.</p>
+
+<p>IronPDF is the better fit when your deployment targets include Linux, macOS, or cross-platform containers. The single NuGet package with no external dependencies, in-process rendering without separate eowp.exe management, thread-safe architecture, and explicit JavaScript wait control reduce the operational surface area. For teams building cloud-native applications with CI/CD pipelines that span platforms, IronPDF eliminates the infrastructure constraints that EO.Pdf's Windows-only requirement introduces.</p>
+
+<p>The forcing function is usually the platform question. If you need Linux or macOS — now or on your roadmap — EO.Pdf's Windows-only constraint means you'll need to migrate eventually. Starting with a cross-platform library avoids that architectural debt.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

@@ -1,0 +1,417 @@
+<h1>Rotativa vs IronPDF in C#: Which Should Your Team Choose?</h1>
+
+<p>You are building an ASP.NET Core MVC application. Product owners want "Export to PDF" buttons on reports. You search ".NET MVC PDF" and Rotativa appears with clean examples showing <code>return new ViewAsPdf()</code>. It looks simple — and for the MVC-controller case, it is. The friction tends to surface later, in three places: deploying the wkhtmltopdf binary across platforms, configuring Azure App Service or container temp directories, and trying to generate PDFs from a background service only to find the API is built around <code>ControllerContext</code>. Rotativa is a focused wrapper for ASP.NET MVC controllers; what it does, it does cleanly, but its scope is narrower than a general PDF library.</p>
+
+<p>Rotativa and <a href="https://ironpdf.com">IronPDF</a> both generate PDFs from HTML in .NET, but they make fundamentally different architectural choices. Rotativa wraps wkhtmltopdf (an external Qt WebKit-based command-line tool) for MVC controller convenience. IronPDF embeds a Chromium rendering engine as a library component. This comparison covers deployment requirements, architectural constraints, and feature completeness to help your team decide which tool fits your stack.</p>
+
+<h2>What Is IronPDF?</h2>
+
+<p><a href="https://ironpdf.com">IronPDF</a> is a .NET library with an embedded Chromium rendering engine. It works in any .NET application context: MVC controllers, background services, console apps, Azure Functions, worker processes. You call <code>ChromePdfRenderer.RenderHtmlAsPdf()</code> from any code location, and IronPDF handles HTML parsing, CSS layout, JavaScript execution, and PDF generation in-process. No external binaries to manage, no command-line tool invocations, no temporary file handling. IronPDF runs on Windows, Linux, and macOS without platform-specific binary dependencies.</p>
+
+<p>IronPDF supports .NET Core, .NET 5+, and .NET Framework 4.6.2+. Because it is a library, not a controller helper, it integrates with any architecture: microservices generating PDFs asynchronously, batch processors creating reports overnight, API endpoints streaming PDFs to clients, or background jobs rendering thousands of documents. See the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> for implementation patterns.</p>
+
+<h2>How Does Rotativa Differ from IronPDF?</h2>
+
+<p>Rotativa (and Rotativa.AspNetCore) is an ASP.NET MVC library that wraps wkhtmltopdf, a Qt WebKit-based command-line tool for HTML-to-PDF conversion. Rotativa provides convenience methods like <code>ViewAsPdf</code>, <code>UrlAsPdf</code>, and <code>ActionAsPdf</code> that return <code>ActionResult</code> objects from MVC controllers. The library handles invoking wkhtmltopdf as an external process, passing HTML content via temporary files, and streaming the resulting PDF back to the HTTP response.</p>
+
+<p>Rotativa is designed specifically for MVC controllers responding to web requests. It simplifies the common pattern of "render Razor view, convert to PDF, return to browser." However, this convenience comes with constraints: tight coupling to MVC request contexts, dependency on wkhtmltopdf binaries in specific file system locations, and limited support for non-web scenarios (background jobs, API services, console apps).</p>
+
+<p>Rotativa.AspNetCore is a community-maintained third-party fork that continues to receive updates (v1.4.0 was released on 2024-11-06). The original <code>Rotativa</code> package for .NET Framework MVC 5 has not seen a release since 2017 (v1.7.3, 2017-09-29). The library inherits wkhtmltopdf's upstream status: the wkhtmltopdf GitHub repository was archived (read-only) on January 2, 2023, and the maintainers state no further releases are planned for its Qt WebKit rendering engine.</p>
+
+<p><strong>MVC-centric architecture:</strong> Rotativa's API is built around <code>ActionResult</code> types and MVC controller contexts. Generating PDFs outside controller actions (background jobs, console apps, Azure Functions) typically requires constructing a controller context manually or routing back through HTTP.</p>
+
+<p><strong>Generation-only scope:</strong> Rotativa generates PDFs from views; it does not provide APIs to merge, split, extract text, add watermarks programmatically, apply digital signatures, fill forms, or encrypt with passwords. For post-generation operations, you pair it with an additional library.</p>
+
+<p><strong>Rendering engine vintage:</strong> Rotativa uses wkhtmltopdf's Qt WebKit engine, which is based on a WebKit branch from the early 2010s. CSS Grid and Flexbox support is limited in this engine, and JavaScript ES6+ features may not execute reliably — verify against the version you ship.</p>
+
+<p><strong>Binary management:</strong> Rotativa requires wkhtmltopdf executables in a configured folder structure (typically <code>wwwroot/Rotativa</code>). These binaries are platform-specific (Windows .exe, Linux binaries with library dependencies, macOS variants). Shipping the correct binary for each target adds deployment steps.</p>
+
+<p><strong>File system writes:</strong> Rotativa writes temporary HTML files to disk, invokes wkhtmltopdf as an external process, and reads the resulting PDF from disk. In read-only file systems (some cloud environments, immutable containers), this can cause failures. Azure App Service, AWS Lambda, and Kubernetes pods with restricted write permissions typically require careful temp-directory configuration.</p>
+
+<p><strong>External process overhead:</strong> Every PDF generation spawns a wkhtmltopdf process. Process creation latency adds to per-document time. For high-throughput scenarios, this overhead compounds. Process cleanup must be reliable; leaked processes consume memory.</p>
+
+<p><strong>Synchronous API:</strong> Rotativa's <code>BuildFile</code> method is synchronous. For async controllers or high-concurrency scenarios, this blocks the calling thread during process invocation and file I/O.</p>
+
+<p>Rotativa.AspNetCore has community support via GitHub issues. There is no commercial support offering or SLA for bug fixes — production support is via community channels.</p>
+
+<h2>How Does HTML-to-PDF Generation Compare?</h2>
+
+<h3>Rotativa -- MVC Controller Action</h3>
+
+<p>Rotativa shines in its primary use case: returning PDFs from MVC controller actions.</p>
+
+<pre><code>using Microsoft.AspNetCore.Mvc;
+using Rotativa.AspNetCore;
+using Rotativa.AspNetCore.Options;
+using System;
+using System.Collections.Generic;
+
+namespace MyApp.Controllers
+{
+    public class ReportController : Controller
+    {
+        public class ReportData
+        {
+            public string Title { get; set; }
+            public DateTime GeneratedDate { get; set; }
+            public List&lt;ReportItem&gt; Items { get; set; }
+        }
+
+        public class ReportItem
+        {
+            public string ProductName { get; set; }
+            public int Quantity { get; set; }
+            public decimal UnitPrice { get; set; }
+            public decimal Total =&gt; Quantity * UnitPrice;
+        }
+
+        // Return PDF directly from controller action
+        public IActionResult GeneratePdf()
+        {
+            var model = new ReportData
+            {
+                Title = "Q4 Sales Report",
+                GeneratedDate = DateTime.Now,
+                Items = new List&lt;ReportItem&gt;
+                {
+                    new ReportItem { ProductName = "Widget A", Quantity = 100, UnitPrice = 25.50m },
+                    new ReportItem { ProductName = "Gadget B", Quantity = 50, UnitPrice = 47.99m }
+                }
+            };
+
+            // Render Razor view as PDF and return to browser
+            return new ViewAsPdf("ReportTemplate", model)
+            {
+                FileName = $"report-{DateTime.Now:yyyyMMdd}.pdf",
+                PageSize = Size.A4,
+                PageOrientation = Orientation.Portrait,
+                PageMargins = new Margins(10, 10, 10, 10),
+                // Pass additional wkhtmltopdf command-line switches
+                CustomSwitches = "--enable-local-file-access"
+            };
+        }
+
+        // For saving to disk instead of returning to browser
+        public IActionResult SavePdfToDisk()
+        {
+            var model = new ReportData
+            {
+                Title = "Q4 Sales Report",
+                GeneratedDate = DateTime.Now,
+                Items = new List&lt;ReportItem&gt;
+                {
+                    new ReportItem { ProductName = "Widget A", Quantity = 100, UnitPrice = 25.50m }
+                }
+            };
+
+            var pdf = new ViewAsPdf("ReportTemplate", model)
+            {
+                PageSize = Size.A4
+            };
+
+            // BuildFile materializes the PDF synchronously into a byte array
+            byte[] pdfBytes = pdf.BuildFile(ControllerContext);
+            System.IO.File.WriteAllBytes("output.pdf", pdfBytes);
+
+            return Ok("PDF saved to disk");
+        }
+    }
+}
+</code></pre>
+
+<p>Rotativa requires setup in <code>Program.cs</code>:</p>
+
+<pre><code>var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllersWithViews();
+
+var app = builder.Build();
+app.UseRouting();
+
+// Configure Rotativa (points to wkhtmltopdf binary location)
+IWebHostEnvironment env = app.Environment;
+Rotativa.AspNetCore.RotativaConfiguration.Setup(env.WebRootPath, "Rotativa");
+
+app.MapControllerRoute(
+    name: "default",
+    pattern: "{controller=Home}/{action=Index}/{id?}");
+
+app.Run();
+</code></pre>
+
+<p>Architectural notes: the API is centered on MVC controller contexts, so calling it from a background service or console app typically means constructing a controller context manually. <code>BuildFile</code> is synchronous, which blocks the calling thread during external-process invocation. The correct wkhtmltopdf binary must ship for each deployment platform. Read-only file systems (Azure App Service in some configurations, AWS Lambda, Kubernetes pods without writable temp mounts) require additional configuration. Post-generation operations like merging, watermarking, or signing are out of scope for Rotativa and need a separate library.</p>
+
+<h3>IronPDF -- Any Context (MVC, Background, Console)</h3>
+
+<p>IronPDF works in any .NET context. Here is the same report in an MVC controller:</p>
+
+<pre><code>using IronPdf;
+using Microsoft.AspNetCore.Mvc;
+using System;
+using System.Collections.Generic;
+
+namespace MyApp.Controllers
+{
+    public class ReportController : Controller
+    {
+        static ReportController()
+        {
+            IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        }
+
+        public class ReportData
+        {
+            public string Title { get; set; }
+            public DateTime GeneratedDate { get; set; }
+            public List&lt;ReportItem&gt; Items { get; set; }
+        }
+
+        public class ReportItem
+        {
+            public string ProductName { get; set; }
+            public int Quantity { get; set; }
+            public decimal UnitPrice { get; set; }
+            public decimal Total =&gt; Quantity * UnitPrice;
+        }
+
+        // Generate PDF and return to browser
+        public IActionResult GeneratePdf()
+        {
+            var model = new ReportData
+            {
+                Title = "Q4 Sales Report",
+                GeneratedDate = DateTime.Now,
+                Items = new List&lt;ReportItem&gt;
+                {
+                    new ReportItem { ProductName = "Widget A", Quantity = 100, UnitPrice = 25.50m },
+                    new ReportItem { ProductName = "Gadget B", Quantity = 50, UnitPrice = 47.99m }
+                }
+            };
+
+            // Build HTML (could also render Razor view to string)
+            var html = $@"
+                &lt;!DOCTYPE html&gt;
+                &lt;html&gt;
+                &lt;head&gt;
+                    &lt;style&gt;
+                        body {{ font-family: Arial, sans-serif; margin: 40px; }}
+                        h1 {{ color: #333; }}
+                        table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+                        th, td {{ padding: 10px; border: 1px solid #ddd; text-align: left; }}
+                        .total {{ text-align: right; font-weight: bold; }}
+                    &lt;/style&gt;
+                &lt;/head&gt;
+                &lt;body&gt;
+                    &lt;h1&gt;{model.Title}&lt;/h1&gt;
+                    &lt;p&gt;Generated: {model.GeneratedDate:yyyy-MM-dd}&lt;/p&gt;
+                    &lt;table&gt;
+                        &lt;thead&gt;
+                            &lt;tr&gt;&lt;th&gt;Product&lt;/th&gt;&lt;th&gt;Qty&lt;/th&gt;&lt;th&gt;Price&lt;/th&gt;&lt;th&gt;Total&lt;/th&gt;&lt;/tr&gt;
+                        &lt;/thead&gt;
+                        &lt;tbody&gt;
+                            {string.Join("", model.Items.Select(item =&gt; $@"
+                            &lt;tr&gt;
+                                &lt;td&gt;{item.ProductName}&lt;/td&gt;
+                                &lt;td&gt;{item.Quantity}&lt;/td&gt;
+                                &lt;td&gt;${item.UnitPrice:F2}&lt;/td&gt;
+                                &lt;td class='total'&gt;${item.Total:F2}&lt;/td&gt;
+                            &lt;/tr&gt;"))}
+                        &lt;/tbody&gt;
+                    &lt;/table&gt;
+                &lt;/body&gt;
+                &lt;/html&gt;
+            ";
+
+            // Render HTML to PDF in-process
+            var renderer = new ChromePdfRenderer();
+            using var pdf = renderer.RenderHtmlAsPdf(html);
+
+            // Return as file to browser
+            return File(pdf.BinaryData, "application/pdf", $"report-{DateTime.Now:yyyyMMdd}.pdf");
+        }
+
+        // Async version for high-concurrency scenarios
+        public async Task&lt;IActionResult&gt; GeneratePdfAsync()
+        {
+            var model = new ReportData
+            {
+                Title = "Q4 Sales Report",
+                GeneratedDate = DateTime.Now,
+                Items = new List&lt;ReportItem&gt;
+                {
+                    new ReportItem { ProductName = "Widget A", Quantity = 100, UnitPrice = 25.50m }
+                }
+            };
+
+            var html = $@"&lt;!DOCTYPE html&gt;&lt;html&gt;&lt;body&gt;&lt;h1&gt;{model.Title}&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;";
+
+            var renderer = new ChromePdfRenderer();
+            using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+
+            return File(pdf.BinaryData, "application/pdf", "report.pdf");
+        }
+    }
+}
+</code></pre>
+
+<p>Deployment checklist for IronPDF: add the <code>IronPdf</code> NuGet package. That is it. No binaries, no dependencies, no configuration.</p>
+
+<p>IronPDF also works outside MVC contexts. Here is a background service example:</p>
+
+<pre><code>public class ReportGenerationService : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            // Generate nightly reports
+            var renderer = new ChromePdfRenderer();
+            using var pdf = await renderer.RenderHtmlAsPdfAsync("&lt;h1&gt;Nightly Report&lt;/h1&gt;");
+            pdf.SaveAs($"reports/nightly-{DateTime.Now:yyyyMMdd}.pdf");
+
+            await Task.Delay(TimeSpan.FromHours(24), stoppingToken);
+        }
+    }
+}
+</code></pre>
+
+<p>This pattern is straightforward in IronPDF because the API does not require a controller context — the same code works in console apps, background services, and Azure Functions. Async support via <code>RenderHtmlAsPdfAsync()</code> enables non-blocking generation. The Chromium engine is bundled with the package, so there is no separate binary to ship. And merging, watermarking, signing, and encryption live in the same library — see the <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge/split guide</a>.</p>
+
+<h2>How Do Merging and Signing Compare?</h2>
+
+<p>Rotativa's scope is HTML-to-PDF generation. It does not expose APIs to merge, split, add watermarks programmatically, apply digital signatures, fill forms, or encrypt with passwords. For any post-generation operations, teams typically pair Rotativa with another library such as iText, PdfSharp, or IronPDF.</p>
+
+<p>For watermarking specifically, the Rotativa pattern is to embed watermark styling directly in the HTML/CSS. The watermark becomes part of the rendered page content rather than a separate PDF annotation layer, so per-page variation or post-generation watermark application happens at the HTML layer rather than via a PDF API.</p>
+
+<h3>Rotativa -- No Built-in Watermark API</h3>
+
+<pre><code>using Microsoft.AspNetCore.Mvc;
+using Rotativa.AspNetCore;
+using Rotativa.AspNetCore.Options;
+
+public class ReportController : Controller
+{
+    public IActionResult GeneratePdfWithWatermark()
+    {
+        // Watermark applied via HTML/CSS as page content
+        var html = @"
+            &lt;!DOCTYPE html&gt;
+            &lt;html&gt;
+            &lt;head&gt;
+                &lt;style&gt;
+                    body { font-family: Arial; margin: 40px; position: relative; }
+                    .watermark {
+                        position: fixed;
+                        top: 50%;
+                        left: 50%;
+                        transform: translate(-50%, -50%) rotate(-45deg);
+                        font-size: 72px;
+                        color: rgba(200, 200, 200, 0.3);
+                        z-index: -1;
+                        white-space: nowrap;
+                    }
+                &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+                &lt;div class='watermark'&gt;CONFIDENTIAL&lt;/div&gt;
+                &lt;h1&gt;Quarterly Financial Report&lt;/h1&gt;
+                &lt;p&gt;This document contains sensitive information.&lt;/p&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;
+        ";
+
+        // Render the view that contains the styled watermark element
+        return new ViewAsPdf
+        {
+            ViewName = "WatermarkTemplate",
+            PageSize = Size.A4
+        };
+    }
+}
+</code></pre>
+
+<h3>IronPDF -- Built-in Watermark, Merge, and Sign APIs</h3>
+
+<p><a href="https://ironpdf.com/how-to/custom-watermark/">IronPDF provides dedicated watermarking methods</a> that apply true PDF annotation layers with configurable rotation, opacity, and positioning:</p>
+
+<pre><code>using IronPdf;
+
+public class ReportController : Controller
+{
+    static ReportController()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+    }
+
+    public IActionResult GeneratePdfWithWatermark()
+    {
+        // Render the report HTML
+        var renderer = new ChromePdfRenderer();
+        using var pdf = renderer.RenderHtmlAsPdf(@"
+            &lt;h1&gt;Quarterly Financial Report&lt;/h1&gt;
+            &lt;p&gt;This document contains sensitive information.&lt;/p&gt;
+        ");
+
+        // Apply watermark as a PDF annotation layer with rotation and opacity
+        pdf.ApplyWatermark("&lt;div style='font-size: 72px; color: #cccccc; font-weight: bold;'&gt;CONFIDENTIAL&lt;/div&gt;",
+            rotation: -45,
+            opacity: 30);
+
+        return File(pdf.BinaryData, "application/pdf", "report-watermarked.pdf");
+    }
+}
+</code></pre>
+
+<p>Beyond watermarks, IronPDF supports merging via <code>PdfDocument.Merge()</code>, splitting and extracting pages, digital signatures via <code>PdfDocument.Sign()</code>, password protection via <code>SecuritySettings.UserPassword/OwnerPassword</code>, form filling, and text extraction via <code>PdfDocument.ExtractAllText()</code>. Rotativa supports none of these operations.</p>
+
+<h2>What Does the Full Feature Comparison Look Like?</h2>
+
+<ul>
+<li><strong>Project status.</strong> Rotativa.AspNetCore is a community-maintained third-party fork (latest v1.4.0, 2024-11-06). IronPDF is commercially developed with regular releases. The underlying wkhtmltopdf GitHub repository was archived on January 2, 2023; IronPDF's Chromium engine is updated alongside upstream Chromium.</li>
+<li><strong>Support model.</strong> Rotativa support is via GitHub issues and community channels. IronPDF offers commercial engineer support via chat and email, with documentation covering tutorials, how-tos, and an API reference.</li>
+<li><strong>HTML engine.</strong> Rotativa renders via wkhtmltopdf's Qt WebKit engine, a branch with limited support for modern CSS Grid, Flexbox, and ES6+ JavaScript. IronPDF uses a current Chromium build with full HTML5, CSS3, and modern JavaScript.</li>
+<li><strong>External binary.</strong> Rotativa requires shipping the platform-specific wkhtmltopdf executable. IronPDF bundles its rendering engine via the NuGet package — no separate binary to ship.</li>
+<li><strong>Application context.</strong> Rotativa is built around MVC controllers and <code>ControllerContext</code>; calling it from background services, console apps, or Azure Functions typically requires workarounds. IronPDF works in any .NET context — controller, background service, console app, or function.</li>
+<li><strong>Async support.</strong> Rotativa's <code>BuildFile</code> is synchronous. IronPDF exposes <code>RenderHtmlAsPdfAsync()</code> for non-blocking generation.</li>
+<li><strong>PDF manipulation.</strong> Rotativa's scope is generation only; merging, splitting, watermarks, digital signatures, form filling, text extraction, and password protection are out of scope. IronPDF includes APIs for all of these operations in the same library.</li>
+<li><strong>Watermarks.</strong> Rotativa watermarks are HTML/CSS elements rendered as page content. IronPDF's <code>ApplyWatermark</code> applies a PDF annotation layer with configurable rotation and integer opacity 0–100.</li>
+<li><strong>Deployment.</strong> Rotativa deployments include the wkhtmltopdf binary, Linux library dependencies (X11, fontconfig, etc.), and a writable temp directory. IronPDF deploys as a standard NuGet dependency — no separate binary, no required temp writes for the basic path.</li>
+<li><strong>Cloud and container environments.</strong> Read-only file systems (some Azure App Service configurations, AWS Lambda, restricted Kubernetes pods) typically need extra configuration for Rotativa's temp-file workflow. IronPDF runs in standard .NET Docker images and on Azure App Service without additional configuration in most cases.</li>
+<li><strong>Platform coverage.</strong> Both libraries support .NET Core 3.1+, .NET 5+, and .NET Framework 4.6.2+. Linux support requires shipping Linux wkhtmltopdf binaries and their dependencies for Rotativa; IronPDF supports Linux and macOS natively.</li>
+<li><strong>Learning curve.</strong> Rotativa is straightforward for teams already on MVC — return a <code>ViewAsPdf</code> from an action. IronPDF is straightforward for HTML-driven scenarios — instantiate <code>ChromePdfRenderer</code> and call <code>RenderHtmlAsPdf</code>.</li>
+</ul>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I use Rotativa outside of an MVC controller?</h3>
+
+<p>Rotativa's API is built around <code>ActionResult</code> types and MVC controller contexts. Its convenience methods (<code>ViewAsPdf</code>, <code>ActionAsPdf</code>) depend on <code>ControllerContext</code> and MVC infrastructure. Background services, console apps, or microservices without MVC pipelines typically construct a controller context manually or route generation through an HTTP endpoint. IronPDF works in any .NET context without that step.</p>
+
+<h3>Does Rotativa support async PDF generation?</h3>
+
+<p>No. Rotativa's <code>BuildFile</code> method is synchronous. For async controllers or high-concurrency scenarios, this blocks threads during process invocation and file I/O, reducing scalability. IronPDF provides <code>RenderHtmlAsPdfAsync()</code> for non-blocking generation.</p>
+
+<h3>What are the deployment requirements for each library?</h3>
+
+<p>Rotativa requires wkhtmltopdf binaries in a specific folder structure, platform-specific binaries for each environment, Linux dependencies (libgdiplus, libfontconfig1, X11 libraries), file system write permissions for temp file creation, and process execution permissions. IronPDF requires only the NuGet package -- no additional binaries, dependencies, or configuration.</p>
+
+<h3>Does Rotativa support modern CSS like Grid and Flexbox?</h3>
+
+<p>Rotativa uses wkhtmltopdf's Qt WebKit engine, a branch from the early 2010s. CSS Grid and Flexbox support is limited in this engine, and JavaScript ES6+ may not execute reliably — verify against the version you ship. IronPDF uses an embedded Chromium engine with support for modern HTML5, CSS3, and JavaScript standards.</p>
+
+<h3>Can Rotativa merge PDFs or apply digital signatures?</h3>
+
+<p>No. Rotativa's scope is HTML-to-PDF generation; it does not provide APIs to merge, split, extract text, add watermarks programmatically, apply digital signatures, fill forms, or encrypt with passwords. Teams typically pair it with an additional library for those operations. IronPDF includes all of these capabilities in a single package: <code>PdfDocument.Merge()</code>, <code>PdfDocument.Sign()</code>, <code>PdfDocument.ExtractAllText()</code>, and <code>SecuritySettings.UserPassword/OwnerPassword</code>.</p>
+
+<h3>Will Rotativa work on Azure App Service or in Docker containers?</h3>
+
+<p>Rotativa can work in these environments with configuration. On Azure App Service, you ship the wkhtmltopdf binary and verify write permissions for the temp directory. In Docker, your base image includes wkhtmltopdf and its dependencies (libgdiplus, libfontconfig1, X11 libraries). In Kubernetes, you mount a writable temp directory. IronPDF runs on Azure App Service, in standard .NET Docker images, and in Kubernetes without those extra steps in most cases.</p>
+
+<h2>Which Should Your Team Choose?</h2>
+
+<p>Rotativa is a focused tool for ASP.NET MVC applications that need simple "Export to PDF" buttons on web pages. If your application is MVC-centric, you have file system write access for temp files, and your HTML stays within the CSS feature set the engine supports, Rotativa's convenience methods (<code>ViewAsPdf</code>, <code>ActionAsPdf</code>) provide quick integration. Rotativa.AspNetCore is community-maintained for its core use case.</p>
+
+<p>The architectural fit matters most. When requirements expand to background services, console apps, Azure Functions, or serverless architectures, the controller-context dependency becomes friction. Modern CSS features such as Grid and Flexbox may render inconsistently in the wkhtmltopdf engine. Read-only file systems in some cloud environments require additional configuration. Post-generation operations (merging, watermarking, signing) live in separate libraries. And because the wkhtmltopdf repository was archived on January 2, 2023, the rendering engine itself will not gain new web-platform support over time.</p>
+
+<p><a href="https://ironpdf.com">IronPDF</a>'s embedded Chromium architecture is shaped around different trade-offs. It works in any .NET context (MVC, background services, console apps, functions), supports modern HTML5, CSS3, and JavaScript, ships its rendering engine via NuGet, and includes PDF manipulation features in a single package. The async API helps with high-concurrency scenarios, and commercial support is available for production environments. For teams building beyond MVC controller actions or deploying to modern cloud and container environments, IronPDF's library-based approach is worth evaluating.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

@@ -1,0 +1,338 @@
+<h1>TX Text Control vs IronPDF: The .NET Developer's Decision Guide</h1>
+
+<p>Your application requirements include a compliance checklist: generated PDFs must meet PDF/UA accessibility standards, support PDF/A-3a archival format, and handle electronic signatures for regulatory submissions. TX Text Control's recent release notes prominently feature these capabilities, suggesting it might be the comprehensive solution. A closer look reveals the architectural reality: TX Text Control is a rich text editing control — essentially a Word-style document component — that exports to PDF. The PDF generation capability exists as an export feature from documents created or edited in the text control, not as a standalone HTML-to-PDF conversion library.</p>
+
+<p>This discovery forces reevaluation: does your workflow require interactive document editing with users modifying content in a Word-like interface, or do you need programmatic PDF generation from HTML templates? TX Text Control fits well when requirements demand rich editing UI — toolbar controls, mail merge functionality, track changes, commenting. For applications where PDF generation is code-driven without user editing, the editing control architecture is additional surface area beyond what is needed. This comparison contrasts the two architectures against common PDF generation requirements to clarify when alignment matters.</p>
+
+<h2>What Is IronPDF?</h2>
+
+<p><a href="https://ironpdf.com">IronPDF</a> is a developer library focused exclusively on HTML-to-PDF conversion. There is no UI control, no editing interface, no document editor. You provide HTML (or URLs), receive PDFs. The architectural simplicity reflects single-purpose design: render web content to PDF using Chromium's engine. This focus means no rich text editing, no visual document composition, no interactive modification — only generation.</p>
+
+<p>For workflows where PDFs originate from HTML templates, application data, or existing web content, this architectural match eliminates unnecessary components. No editing UI to instantiate, no toolbar controls to configure, no document internal format to manage. The tradeoff: if requirements demand interactive editing, IronPDF provides no solution — it is strictly a generation library. See the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> for implementation patterns.</p>
+
+<h2>What Are the Key Limitations of TX Text Control?</h2>
+
+<p>TX Text Control is actively maintained by Text Control GmbH, with recent releases adding PDF/UA and PDF/A-3a support and current .NET runtime targets. It is commercially licensed with editions for .NET Server, Windows Forms, WPF, and ActiveX. The points below characterize the architecture rather than the vendor.</p>
+
+<p><strong>HTML-to-PDF as an import-then-export path:</strong> TX Text Control imports HTML by parsing it into its internal document format — a structure optimized for rich text editing. HTML structures that do not map cleanly to that format may be transformed during import. Modern CSS features (Grid, Flexbox, CSS variables) typically do not survive intact because the internal model represents documents as rich text with formatting, not as the HTML DOM — verify against your version's release notes.</p>
+
+<p><strong>Editor architecture in headless mode:</strong> TX Text Control is a UI control component. Headless scenarios (using the .NET Server edition without a visible UI) still instantiate the control via <code>ServerTextControl</code>. For applications that only need PDF generation, that initialization is overhead compared to a dedicated PDF library.</p>
+
+<p><strong>JavaScript execution:</strong> HTML import parses static markup. There is no browser engine, so JavaScript does not execute. Single-page applications, AJAX-loaded content, and JavaScript-driven layouts will not be reflected — only the initial static HTML.</p>
+
+<p><strong>STA threading affinity:</strong> The control historically requires single-threaded apartment affinity for many operations. For programmatic batch generation in modern ASP.NET Core or worker services, this is a real architectural constraint to plan around.</p>
+
+<p><strong>Internal-format intermediary:</strong> Documents are stored in TX Text Control's internal format. Converting HTML to PDF goes HTML → internal format → PDF. The two-step path introduces an additional point where layout transformations can occur.</p>
+
+<p><strong>Licensing tiers:</strong> Multiple editions (Professional, Enterprise, Server) carry different capability tiers, and developer licenses differ from deployment licenses. Choosing an edition requires comparing feature matrices against your scenario.</p>
+
+<p>The core architectural contrast: TX Text Control is a document editor (a Word-style component) that exports to PDF, not an HTML-to-PDF rendering library. Where workflows involve user editing — form filling, document composition, track changes, mail-merge template authoring — that architecture is the value proposition. Where PDF generation is purely code-driven from templates, the editing control is surface area you do not need. TX Text Control's strength remains office-document editing, conversion, and structured authoring — that is what it was designed to do.</p>
+
+<h2>How Do the Compliance Capabilities Compare?</h2>
+
+<p>Below is how the two architectures map to a typical compliance checklist covering PDF/UA, PDF/A, digital signatures, form filling, batch processing, cross-platform deployment, licensing, and maintenance.</p>
+
+<p><strong>PDF/UA (Universal Accessibility):</strong> TX Text Control provides built-in PDF/UA generation in recent versions, producing tagged PDFs that target ISO 14289-1. Accessibility quality still depends on proper document structure in the editor. <a href="https://ironpdf.com">IronPDF</a> achieves accessibility through semantic HTML — Chromium respects ARIA attributes and alt text exports with accessibility tags, but developers must author accessible HTML. For regulatory scenarios demanding PDF/UA without HTML expertise on the team, the editor approach is architecturally closer to the requirement.</p>
+
+<p><strong>PDF/A (Archival Format):</strong> Both support PDF/A. TX Text Control's recent updates highlight PDF/A-3a with built-in compliance, automatic font embedding, color-space handling, and internal validation aimed at ISO 19005. IronPDF supports PDF/A generation with configurable conformance levels and automatic font embedding; external validators are still recommended for strict compliance sign-off.</p>
+
+<p><strong>Digital Signatures:</strong> Both provide digital signature capabilities with X.509 certificate handling. PAdES-level support and timestamp authority integration vary by version on both sides — verify against your release notes if this matters for your jurisdiction.</p>
+
+<p><strong>Form Filling:</strong> TX Text Control provides a visual form designer with interactive form fields, data binding, and PDF export. IronPDF uses HTML form elements that become PDF form fields, with programmatic filling via API. For workflows where users design forms interactively, the editor model is the natural fit; for developer-authored HTML forms, the gap is small.</p>
+
+<p><strong>Batch Processing Performance:</strong> IronPDF exposes lightweight renderer instances and async/await throughout, which suits high-throughput batch generation. TX Text Control's control initialization adds per-instance overhead even in headless mode, and the control's STA-affinity threading model can limit concurrency in worker-service scenarios. For high-throughput pipelines, the IronPDF model is architecturally closer to the workload.</p>
+
+<p><strong>Cross-Platform Deployment:</strong> Both support cross-platform deployment. Recent TX Text Control releases emphasize parity across Windows, Linux, containers, and cloud. IronPDF adds macOS support. For cloud and container deployments, both are viable.</p>
+
+<p><strong>Licensing and Deployment:</strong> IronPDF's licensing structure is fewer variations with features available across tiers. TX Text Control's multiple editions (Professional, Enterprise, Server) with separate development and deployment licensing require more careful evaluation when scoping a purchase.</p>
+
+<p><strong>Maintenance and Support:</strong> Both are actively maintained with commercial support. Documentation emphasis differs — TX Text Control's documentation is comprehensive for editing scenarios; IronPDF's is focused on PDF generation.</p>
+
+<h2>How Does the Code Compare for PDF Generation?</h2>
+
+<h3>TX Text Control — Editor-Based PDF Export</h3>
+
+<pre><code>using TXTextControl;
+using System.IO;
+using System.Threading.Tasks;
+
+public class TextControlPdfGenerator
+{
+    public async Task&lt;byte[]&gt; GenerateFromHtmlAsync(string htmlContent)
+    {
+        // Initialize ServerTextControl (headless control)
+        using (ServerTextControl textControl = new ServerTextControl())
+        {
+            textControl.Create();
+
+            // Import HTML to internal format
+            // The string Load overload uses StringStreamType
+            textControl.Load(
+                htmlContent,
+                StringStreamType.HTMLFormat
+            );
+
+            // Configure PDF export settings
+            SaveSettings saveSettings = new SaveSettings
+            {
+                CreatorApplication = "MyApp",
+                Author = "System"
+            };
+
+            // Export to PDF from internal format
+            byte[] pdfBytes;
+            using (MemoryStream ms = new MemoryStream())
+            {
+                textControl.Save(
+                    ms,
+                    StreamType.AdobePDF,
+                    saveSettings
+                );
+                pdfBytes = ms.ToArray();
+            }
+
+            return pdfBytes;
+        }
+    }
+
+    public async Task&lt;byte[]&gt; GenerateWithPdfUaAsync(string htmlContent)
+    {
+        using (ServerTextControl textControl = new ServerTextControl())
+        {
+            textControl.Create();
+
+            textControl.Load(htmlContent, StringStreamType.HTMLFormat);
+
+            // Configure PDF/UA compliance (recent versions)
+            // Property names vary across versions — check your SaveSettings reference
+            SaveSettings saveSettings = new SaveSettings
+            {
+                PDFAVersion = PDFAVersion.PDFUACompliance,
+                EmbedFonts = true
+            };
+
+            byte[] pdfBytes;
+            using (MemoryStream ms = new MemoryStream())
+            {
+                textControl.Save(ms, StreamType.AdobePDF, saveSettings);
+                pdfBytes = ms.ToArray();
+            }
+
+            return pdfBytes;
+        }
+    }
+
+    public async Task&lt;byte[]&gt; GenerateWithDigitalSignatureAsync(
+        string htmlContent,
+        string certificatePath,
+        string password)
+    {
+        using (ServerTextControl textControl = new ServerTextControl())
+        {
+            textControl.Create();
+            textControl.Load(htmlContent, StringStreamType.HTMLFormat);
+
+            // Configure digital signature
+            SaveSettings saveSettings = new SaveSettings();
+            DigitalSignature signature = new DigitalSignature(
+                certificatePath,
+                password
+            );
+
+            signature.Location = "Headquarters";
+            signature.Reason = "Document approval";
+
+            saveSettings.DigitalSignature = signature;
+
+            byte[] pdfBytes;
+            using (MemoryStream ms = new MemoryStream())
+            {
+                textControl.Save(ms, StreamType.AdobePDF, saveSettings);
+                pdfBytes = ms.ToArray();
+            }
+
+            return pdfBytes;
+        }
+    }
+}</code></pre>
+
+<p>Checklist notes for TX Text Control: built-in PDF/UA support in recent versions, a digital signature API with location/reason metadata, but <code>textControl.Create()</code> initialization overhead, the two-step HTML → internal format → PDF path, modern CSS limited by what the internal format models, and control architecture instantiation even in headless mode.</p>
+
+<h3>IronPDF — Direct Rendering with Compliance</h3>
+
+<pre><code>using IronPdf;
+using System.Threading.Tasks;
+
+public class IronPdfComplianceGenerator
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public IronPdfComplianceGenerator()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+        _renderer = new ChromePdfRenderer();
+    }
+
+    public async Task&lt;byte[]&gt; GenerateFromHtmlAsync(string htmlContent)
+    {
+        var pdf = await _renderer.RenderHtmlAsPdfAsync(htmlContent);
+        return pdf.BinaryData;
+    }
+
+    public async Task&lt;byte[]&gt; GenerateAccessiblePdfAsync(string accessibleHtml)
+    {
+        // Accessibility via semantic HTML
+        string html = @"
+            &lt;!DOCTYPE html&gt;
+            &lt;html lang='en'&gt;
+            &lt;head&gt;
+                &lt;meta charset='UTF-8'&gt;
+                &lt;title&gt;Accessible Document&lt;/title&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+                &lt;header&gt;
+                    &lt;h1&gt;Document Title&lt;/h1&gt;
+                &lt;/header&gt;
+                &lt;main&gt;
+                    &lt;article&gt;
+                        &lt;h2&gt;Section Heading&lt;/h2&gt;
+                        &lt;p&gt;Semantic HTML provides accessibility structure.&lt;/p&gt;
+                        &lt;img src='chart.png' alt='Sales chart showing Q4 growth' /&gt;
+                        &lt;table&gt;
+                            &lt;caption&gt;Financial Summary&lt;/caption&gt;
+                            &lt;thead&gt;
+                                &lt;tr&gt;&lt;th scope='col'&gt;Quarter&lt;/th&gt;&lt;th scope='col'&gt;Revenue&lt;/th&gt;&lt;/tr&gt;
+                            &lt;/thead&gt;
+                            &lt;tbody&gt;
+                                &lt;tr&gt;&lt;td&gt;Q1&lt;/td&gt;&lt;td&gt;$1.2M&lt;/td&gt;&lt;/tr&gt;
+                            &lt;/tbody&gt;
+                        &lt;/table&gt;
+                    &lt;/article&gt;
+                &lt;/main&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        var pdf = await _renderer.RenderHtmlAsPdfAsync(html);
+        return pdf.BinaryData;
+    }
+
+    public async Task&lt;byte[]&gt; GenerateWithPdfAAsync(string htmlContent)
+    {
+        // Configure PDF/A compliance via RenderingOptions
+        _renderer.RenderingOptions.PdfAFormat = PdfAVersions.PdfA1B;
+
+        var pdf = await _renderer.RenderHtmlAsPdfAsync(htmlContent);
+        return pdf.BinaryData;
+    }
+
+    public async Task&lt;byte[]&gt; GenerateWithDigitalSignatureAsync(
+        string htmlContent,
+        string certificatePath,
+        string password)
+    {
+        var pdf = await _renderer.RenderHtmlAsPdfAsync(htmlContent);
+
+        // Sign PDF programmatically
+        var signature = new IronPdf.Signing.PdfSignature(certificatePath, password);
+        signature.SigningReason = "Document approval";
+        signature.SigningLocation = "Headquarters";
+
+        pdf.Sign(signature);
+
+        return pdf.BinaryData;
+    }
+
+    // Batch processing with concurrency
+    public async Task&lt;List&lt;byte[]&gt;&gt; GenerateBatchAsync(List&lt;string&gt; htmlDocuments)
+    {
+        var tasks = htmlDocuments.Select(html =&gt;
+            _renderer.RenderHtmlAsPdfAsync(html).ContinueWith(t =&gt; t.Result.BinaryData)
+        );
+
+        return (await Task.WhenAll(tasks)).ToList();
+    }
+}</code></pre>
+
+<p>Checklist notes for IronPDF: direct rendering with no intermediate format, full async/await support throughout, lightweight instances suited to high-concurrency batch generation, modern CSS support via Chromium, a programmatic signing API, but accessibility relies on semantic HTML authored by the developer. For detailed rendering configuration, see the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a>.</p>
+
+<h2>What Does the Feature Comparison Look Like?</h2>
+
+<ul>
+<li><strong>Interactive document editing.</strong> TX Text Control is a rich text editor; IronPDF has no editing UI.</li>
+<li><strong>Built-in PDF/UA compliance.</strong> TX Text Control generates tagged output from editor structure in recent versions; IronPDF relies on semantic HTML from the developer.</li>
+<li><strong>PDF/A archival format.</strong> TX Text Control highlights PDF/A-3a; IronPDF exposes PDF/A conformance levels via <code>RenderingOptions.PdfAFormat</code> — both are credible options here.</li>
+<li><strong>Digital signatures.</strong> Both ship X.509-based signing APIs with metadata such as reason and location.</li>
+<li><strong>HTML-to-PDF rendering.</strong> TX Text Control imports HTML into its internal format and then exports to PDF; IronPDF renders HTML through Chromium directly.</li>
+<li><strong>Modern CSS (Grid, Flexbox, variables).</strong> The internal-format intermediary in TX Text Control limits fidelity; Chromium-backed rendering in IronPDF supports the full modern CSS surface.</li>
+<li><strong>JavaScript execution.</strong> TX Text Control parses static HTML only; IronPDF executes scripts via Chromium, suitable for client-rendered pages.</li>
+<li><strong>Batch processing.</strong> TX Text Control instantiates the control even in headless mode and has STA-affinity considerations; IronPDF uses lightweight renderer instances with full async/await.</li>
+<li><strong>Visual form designer.</strong> TX Text Control includes a form designer; IronPDF expects HTML form authoring.</li>
+<li><strong>Deployment shape.</strong> TX Text Control deploys an editor control architecture; IronPDF deploys as a library only.</li>
+<li><strong>Licensing structure.</strong> TX Text Control has multiple editions and separate developer/deployment licenses; IronPDF licensing has fewer variations.</li>
+<li><strong>Office-document editing and conversion.</strong> TX Text Control's strength — DOCX editing, mail merge, structured authoring, format conversion — has no equivalent in IronPDF.</li>
+</ul>
+
+<h2>How Do You Install Each Library?</h2>
+
+<h3>TX Text Control Setup</h3>
+
+<pre><code># TX Text Control .NET Server is delivered through a licensed installer (textcontrol.com)
+# or the vendor's private NuGet feed; the public TXTextControl.Web package is the editor
+# companion, not a self-contained headless server runtime.
+
+# Editor companion (public)
+dotnet add package TXTextControl.Web</code></pre>
+
+<pre><code>using TXTextControl;
+
+using (ServerTextControl textControl = new ServerTextControl())
+{
+    textControl.Create();
+    // String overload uses StringStreamType
+    textControl.Load(html, StringStreamType.HTMLFormat);
+
+    using (MemoryStream ms = new MemoryStream())
+    {
+        // File/stream Save overload uses StreamType
+        textControl.Save(ms, StreamType.AdobePDF);
+        return ms.ToArray();
+    }
+}</code></pre>
+
+<h3>IronPDF Setup</h3>
+
+<pre><code>dotnet add package IronPdf</code></pre>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(html);</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Is TX Text Control suitable for standalone PDF generation without editing?</h3>
+
+<p>TX Text Control is architecturally a document editor — a Word-style component — that exports to PDF. Even in headless scenarios using the .NET Server edition, the control architecture initializes with the associated memory and startup cost. For applications that only need code-driven PDF generation from HTML templates without user editing, that editor architecture is more surface area than the workload requires. <a href="https://ironpdf.com">IronPDF</a> targets that scenario as a single-purpose generation library.</p>
+
+<h3>Does TX Text Control support modern CSS features like Grid and Flexbox?</h3>
+
+<p>TX Text Control imports HTML by parsing it into an internal document format optimized for rich text editing. Modern CSS features (Grid, Flexbox, CSS variables) typically do not survive the import intact because the internal format models documents as rich text with formatting rather than as the HTML DOM — verify against your version. IronPDF uses embedded Chromium and supports the full modern CSS surface with browser-quality rendering.</p>
+
+<h3>Which library handles batch processing better?</h3>
+
+<p>IronPDF exposes lightweight renderer instances and async/await throughout, which suits high-concurrency batch generation. TX Text Control's control initialization adds per-instance overhead even in headless mode, and STA-affinity in the control threading model can constrain concurrency in modern worker-service hosts. For high-throughput scenarios, the IronPDF architecture maps more directly to the workload.</p>
+
+<h3>How do the licensing models differ?</h3>
+
+<p>TX Text Control has multiple editions (Professional, Enterprise, Server) with different capability tiers and separate developer and deployment licensing. IronPDF offers fewer license variations with features available across tiers and developer seat licensing. TX Text Control's licensing reflects the full editor component; IronPDF's reflects a focused PDF generation library.</p>
+
+<h2>When Should You Choose TX Text Control vs IronPDF?</h2>
+
+<p><strong>Consider TX Text Control if:</strong> users need interactive document editing with a Word-like interface; PDF/UA compliance generated from editor structure rather than authored HTML is required; a visual form designer for non-developers is essential; track changes, commenting, and collaboration features are needed; mail merge from databases benefits from visual template design; your application already uses TX Text Control for editing; regulatory requirements favor built-in accessibility tooling; or document composition involves user interaction rather than purely code-driven generation. Office-document editing and conversion is its strength.</p>
+
+<p><strong>IronPDF fits when:</strong> PDF generation is code-driven without user editing; HTML templates are the source content; modern CSS features like Grid and Flexbox are required; high-throughput batch processing benefits from async-friendly concurrency; JavaScript execution inside documents is needed; the deployment shape favors a library over a control architecture; Chrome-equivalent rendering accuracy matters; or single-purpose PDF generation is the goal.</p>
+
+<p>The decision usually reduces to one question: does the workflow require interactive document editing and user composition, or programmatic PDF generation from templates? If users type, format, and edit documents before PDF export, TX Text Control's architecture is the asset. If developers generate PDFs from HTML templates without user editing, the editor control is surface area beyond what the workload needs. For teams comfortable with semantic HTML and accessibility patterns, <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF's approach</a> offers direct control. For teams that prefer compliance generated from editor structure, TX Text Control's approach reduces the HTML expertise required.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

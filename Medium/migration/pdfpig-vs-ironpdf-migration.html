@@ -1,0 +1,484 @@
+<h1>Migrating from PdfPig to IronPDF in C#: The Complete Guide</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Should You Consider Migrating from PdfPig to IronPDF?</h2>
+
+<p>Before you open a single pull request, it helps to be honest about the motivation. I have worked with teams whose CI pipelines broke because PdfPig holds a file handle via <code>PdfDocument.Open()</code>, and parallel test runners step on each other. It works on your machine because you run tests serially. The pipeline runs them in parallel.</p>
+
+<p>That said, there are quick fixes within PdfPig itself. If you open from bytes instead of from a file path, you eliminate the file handle contention entirely. If those fixes resolve your CI failure, the migration may not be necessary.</p>
+
+<p>Here are the nine reasons teams most commonly evaluate alternatives to PdfPig:</p>
+
+<p>First, HTML-to-PDF is not supported. PdfPig is reading-first and exposes only a narrow writer surface. Teams needing HTML-to-PDF add a second library like wkhtmltopdf or NReco, which adds maintenance overhead. Second, document manipulation is limited. PdfPig does support basic concatenation through <code>PdfMerger</code> in <code>UglyToad.PdfPig.Writer</code>, and low-level new-document authoring through <code>PdfDocumentBuilder</code>, but watermarking, encryption authoring, signing, form filling, and high-level split/rotate/edit are out of scope. Third, dependency sprawl becomes real when a codebase has PdfPig plus wkhtmltopdf plus PdfSharp plus iTextSharp all handling the same domain across four packages.</p>
+
+<p>Fourth, parallel test isolation requires explicit workarounds for file handle management. Fifth, if your requirements have grown beyond parsing into generation and richer manipulation, a single library covering both simplifies the stack. Sixth, PdfPig's word/letter model is powerful for layout analysis but verbose for simple text extraction tasks.</p>
+
+<p>Seventh, cloud and serverless rendering with PdfPig requires a second deployment concern for the HTML-to-PDF binary. Eighth, tracking two or more PDF libraries through version updates is twice the maintenance work. Ninth, teams with HTML templates for reports need generation capabilities PdfPig does not provide. A separate consideration: PdfPig is pre-1.0 (currently v0.1.14) and its README warns that minor versions may change the public API without following SemVer until 1.0.0 is reached.</p>
+
+<h3>Overall Comparison</h3>
+
+<ul>
+<li><strong>Focus.</strong> PdfPig is a PDF parser with strong text extraction (originally inspired by, and partially ported from, Apache PDFBox); IronPDF covers HTML-to-PDF, document manipulation, and extraction in one library.</li>
+<li><strong>Pricing.</strong> PdfPig is open source under Apache 2.0. IronPDF is commercial; verify current pricing at ironsoftware.com.</li>
+<li><strong>API style.</strong> PdfPig exposes a document/page/word object model. IronPDF combines an HTML renderer with a document model.</li>
+<li><strong>Learning curve.</strong> Both sit at medium difficulty. PdfPig's layout-analysis model is the part that takes the longest to internalise.</li>
+<li><strong>HTML rendering.</strong> PdfPig has none. IronPDF uses a Chromium engine.</li>
+<li><strong>Page indexing.</strong> PdfPig is 1-based (<code>doc.GetPage(1)</code>). IronPDF is 0-based (<code>pdf.Pages[0]</code>). This is the most common migration bug.</li>
+<li><strong>Thread safety.</strong> PdfPig requires file handle isolation under parallel test runners. IronPDF reuses renderer instances safely.</li>
+<li><strong>Namespace.</strong> <code>UglyToad.PdfPig</code> becomes <code>IronPdf</code>.</li>
+</ul>
+
+<h2>What Does the Migration Effort Actually Look Like?</h2>
+
+<p>I want to give you a realistic picture of the work involved. Not everything is a simple swap. PdfPig's word-level layout analysis is its primary strength, and that model does not transfer directly to IronPDF.</p>
+
+<h3>Effort by Feature</h3>
+
+<ul>
+<li><strong>Text extraction, full document &mdash; Low.</strong> PdfPig's <code>doc.GetPages()</code> + words pattern collapses to a single <code>pdf.ExtractAllText()</code> call.</li>
+<li><strong>Text extraction, per page &mdash; Low.</strong> <code>page.GetWords()</code> becomes <code>pdf.Pages[i].Text</code> or <code>pdf.ExtractTextFromPage(i)</code>.</li>
+<li><strong>Word-level layout analysis &mdash; High.</strong> This is PdfPig's native strength and uses a different model in IronPDF; the geometric word/letter API does not transfer.</li>
+<li><strong>Font inspection &mdash; Medium-High.</strong> PdfPig exposes <code>page.Letters</code> and <code>word.Font</code>; verify IronPDF equivalent for your specific use case.</li>
+<li><strong>HTML to PDF &mdash; Low.</strong> Not supported by PdfPig at all; native in IronPDF via <code>ChromePdfRenderer</code>.</li>
+<li><strong>Merge PDFs &mdash; Low.</strong> PdfPig supports basic concatenation via <code>PdfMerger.Merge(...)</code>; IronPDF exposes the equivalent through <code>PdfDocument.Merge</code> and adds split, rotate, append, and remove on the same document object.</li>
+<li><strong>Watermark &mdash; Low.</strong> Not in PdfPig's scope; <code>pdf.ApplyWatermark(html)</code> in IronPDF.</li>
+<li><strong>Password protection (authoring) &mdash; Low.</strong> PdfPig can read encrypted PDFs with a password but cannot add or change encryption; <code>pdf.SecuritySettings</code> in IronPDF authors passwords and permissions.</li>
+<li><strong>Page count and metadata &mdash; Low.</strong> <code>doc.NumberOfPages</code> becomes <code>pdf.PageCount</code>; <code>doc.Information</code> becomes <code>pdf.MetaData</code>.</li>
+<li><strong>Annotation reading &mdash; Medium.</strong> PdfPig supports annotation reading; verify IronPDF annotation coverage for your scenarios.</li>
+<li><strong>Open source requirement.</strong> PdfPig is Apache 2.0; IronPDF is commercial.</li>
+</ul>
+
+<h3>Decision Matrix</h3>
+
+<ul>
+<li>If your primary use is precise word- or letter-level layout analysis, PdfPig remains the stronger fit; IronPDF has a different focus.</li>
+<li>If you need HTML-to-PDF plus basic text extraction, IronPDF covers both and eliminates the secondary HTML rendering library.</li>
+<li>If an open source license is a hard budget constraint, stay on PdfPig (Apache 2.0); IronPDF is commercial.</li>
+<li>If dependency consolidation is the goal, IronPDF replaces PdfPig plus the HTML-to-PDF and manipulation libraries typically added alongside it.</li>
+</ul>
+
+<h2>How Do You Set Up IronPDF and Replace PdfPig?</h2>
+
+<p>The core migration is straightforward: find existing PdfPig references, swap the packages, configure the IronPDF license, and update your code file by file.</p>
+
+<h3>Finding PdfPig References in Your Codebase</h3>
+
+<pre><code># Find all PdfPig usage
+rg -l "PdfPig\|UglyToad" --type cs
+
+# Find using statements
+rg "using UglyToad\.PdfPig" --type cs -n
+
+# Find document open patterns
+rg "PdfDocument\.Open\|\.GetPages\|\.GetWords\|\.GetLetters" --type cs -n
+
+# Find text extraction calls
+rg "\.Text\b\|GetWords\(\)\|GetLetters\(\)" --type cs -n | grep -i pdf
+
+# Find NuGet package references
+grep -r -i "pdfpig\|uglytoad" **/*.csproj *.csproj 2&gt;/dev/null
+</code></pre>
+
+<h3>Removing PdfPig and Installing IronPDF</h3>
+
+<pre><code># Remove PdfPig
+dotnet remove package PdfPig
+
+# Also remove secondary libraries if added only to supplement PdfPig:
+# dotnet remove package NReco.PdfGenerator  # if added for HTML-to-PDF
+# dotnet remove package PdfSharp            # if added for merge/manipulation
+
+# Install IronPDF
+dotnet add package IronPdf
+dotnet restore
+</code></pre>
+
+<p>On Windows via Package Manager Console: <code>Install-Package IronPdf</code> and <code>Uninstall-Package PdfPig</code>. You can verify the install pattern at <a href="https://ironpdf.com/how-to/license-keys/">the IronPDF license configuration guide</a>.</p>
+
+<h3>License Configuration</h3>
+
+<p><strong>Before (PdfPig &mdash; open source, no license key):</strong></p>
+
+<pre><code>using UglyToad.PdfPig;
+// No license initialization needed &mdash; Apache 2.0 open source
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+// Set once at application startup
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+// License guide: https://ironpdf.com/how-to/license-keys/
+</code></pre>
+
+<h3>Namespace Imports</h3>
+
+<p><strong>Before:</strong></p>
+
+<pre><code>using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
+using UglyToad.PdfPig.DocumentLayoutAnalysis;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.WordExtractor;
+</code></pre>
+
+<p><strong>After:</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Rendering;  // for ChromePdfRenderOptions
+using IronPdf.Editing;    // for TextStamper
+using IronPdf.Security;   // for SecuritySettings
+</code></pre>
+
+<h3>Basic Text Extraction</h3>
+
+<p><strong>Before (PdfPig):</strong></p>
+
+<pre><code>using UglyToad.PdfPig;
+using System;
+
+using var doc = PdfDocument.Open("invoice.pdf");
+foreach (var page in doc.GetPages())
+{
+    string pageText = page.Text;
+    Console.WriteLine($"Page {page.Number}: {pageText.Length} chars");
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var pdf = PdfDocument.FromFile("invoice.pdf");
+string allText = pdf.ExtractAllText();
+Console.WriteLine($"Total text: {allText.Length} chars");
+// Per-page: pdf.Pages[n].Text (0-based)
+// Guide: https://ironpdf.com/how-to/extract-text-and-images/
+</code></pre>
+
+<h2>What Does Each Before/After Migration Look Like in Practice?</h2>
+
+<p>Let me walk through four complete migration examples so you can see exactly what changes in real code.</p>
+
+<h3>Text Extraction (PdfPig's Primary Use Case)</h3>
+
+<p><strong>Before (PdfPig &mdash; full text extraction per page):</strong></p>
+
+<pre><code>using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
+using System;
+using System.Text;
+
+class TextExtractionExample
+{
+    static void Main()
+    {
+        using var doc = PdfDocument.Open("invoice.pdf");
+
+        Console.WriteLine($"PDF has {doc.NumberOfPages} pages");
+
+        var fullText = new StringBuilder();
+
+        // PdfPig: 1-based page access via GetPages()
+        foreach (Page page in doc.GetPages())
+        {
+            Console.WriteLine($"\n--- Page {page.Number} ---");
+
+            // page.Text: concatenated text content
+            fullText.AppendLine(page.Text);
+            Console.WriteLine(page.Text);
+
+            // Word-level access with position data:
+            int wordCount = 0;
+            foreach (Word word in page.GetWords())
+            {
+                wordCount++;
+                // word.Text, word.BoundingBox.Left, word.BoundingBox.Bottom
+            }
+            Console.WriteLine($"({wordCount} words)");
+        }
+
+        System.IO.File.WriteAllText("extracted.txt", fullText.ToString());
+        Console.WriteLine("\nExtracted to: extracted.txt");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF):</strong></p>
+
+<pre><code>using IronPdf;
+using System;
+using System.IO;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var pdf = PdfDocument.FromFile("invoice.pdf");
+Console.WriteLine($"PDF has {pdf.PageCount} pages");
+
+// Full document text &mdash; one call
+string allText = pdf.ExtractAllText();
+File.WriteAllText("extracted.txt", allText);
+Console.WriteLine($"Extracted {allText.Length} chars to: extracted.txt");
+
+// Per-page access (0-based):
+for (int i = 0; i &lt; pdf.PageCount; i++)
+    Console.WriteLine($"Page {i + 1}: {pdf.Pages[i].Text.Length} chars");
+
+// Guide: https://ironpdf.com/how-to/extract-text-and-images/
+</code></pre>
+
+<h3>HTML to PDF (Secondary Tool Migration)</h3>
+
+<p><strong>Before (wkhtmltopdf subprocess, commonly added alongside PdfPig for generation):</strong></p>
+
+<pre><code>using System;
+using System.Diagnostics;
+using System.IO;
+
+class HtmlToPdfWithSecondaryTool
+{
+    static void Main()
+    {
+        // PdfPig has no HTML rendering; teams add wkhtmltopdf or NReco
+        // for HTML-to-PDF generation alongside it
+        string html    = "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;p&gt;Data here&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;";
+        string tmpHtml = Path.GetTempFileName() + ".html";
+        string tmpPdf  = Path.GetTempFileName() + ".pdf";
+
+        File.WriteAllText(tmpHtml, html);
+
+        var psi = new ProcessStartInfo("wkhtmltopdf", $"\"{tmpHtml}\" \"{tmpPdf}\"")
+        {
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow  = true
+        };
+
+        using var proc = Process.Start(psi)!;
+        if (!proc.WaitForExit(30_000))
+        {
+            proc.Kill();
+            throw new TimeoutException("wkhtmltopdf timed out");
+        }
+        if (proc.ExitCode != 0)
+            throw new Exception($"wkhtmltopdf error: {proc.StandardError.ReadToEnd()}");
+
+        byte[] pdfBytes = File.ReadAllBytes(tmpPdf);
+        File.Delete(tmpHtml);
+        File.Delete(tmpPdf);
+        Console.WriteLine($"Generated {pdfBytes.Length} bytes");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF &mdash; replaces secondary HTML-to-PDF tool):</strong></p>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+var pdf = renderer.RenderHtmlAsPdf(
+    "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;p&gt;Data here&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
+);
+pdf.SaveAs("report.pdf");
+// Guide: https://ironpdf.com/how-to/html-string-to-pdf/
+</code></pre>
+
+<h3>Merge PDFs</h3>
+
+<p><strong>Before (PdfPig &mdash; basic concatenation via <code>PdfMerger</code>):</strong></p>
+
+<pre><code>using UglyToad.PdfPig.Writer;
+using System.IO;
+
+// PdfPig supports basic merging via PdfMerger in UglyToad.PdfPig.Writer.
+// The API takes file paths or byte arrays and returns merged bytes.
+byte[] mergedBytes = PdfMerger.Merge("chapter1.pdf", "chapter2.pdf", "chapter3.pdf");
+File.WriteAllBytes("full_document.pdf", mergedBytes);
+
+// PdfPig has no high-level split/rotate/insert; those operations require
+// rebuilding the document page-by-page through PdfDocumentBuilder.
+</code></pre>
+
+<p><strong>After (IronPDF &mdash; merge plus split, rotate, append, and remove on the same object):</strong></p>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var merged = PdfDocument.Merge(
+    PdfDocument.FromFile("chapter1.pdf"),
+    PdfDocument.FromFile("chapter2.pdf"),
+    PdfDocument.FromFile("chapter3.pdf")
+);
+merged.SaveAs("full_document.pdf");
+// Guide: https://ironpdf.com/how-to/merge-or-split-pdfs/
+</code></pre>
+
+<h3>Watermark (Secondary Library Migration)</h3>
+
+<p><strong>Before (iTextSharp secondary library, commonly added alongside PdfPig):</strong></p>
+
+<pre><code>using iTextSharp.text;
+using iTextSharp.text.pdf;
+using System.IO;
+using System;
+
+class WatermarkExample
+{
+    static void Main()
+    {
+        // PdfPig has no high-level watermark API &mdash; teams add iTextSharp or similar
+        using var reader  = new PdfReader("document.pdf");
+        using var fs      = new FileStream("watermarked.pdf", FileMode.Create);
+        using var stamper = new PdfStamper(reader, fs);
+
+        var baseFont = BaseFont.CreateFont(BaseFont.HELVETICA_BOLD, BaseFont.CP1252, false);
+
+        for (int page = 1; page &lt;= reader.NumberOfPages; page++)
+        {
+            var cb = stamper.GetOverContent(page);
+            cb.SaveState();
+            cb.SetGState(new PdfGState { FillOpacity = 0.3f });
+            cb.BeginText();
+            cb.SetFontAndSize(baseFont, 60);
+            cb.SetColorFill(BaseColor.GRAY);
+            cb.ShowTextAligned(Element.ALIGN_CENTER, "DRAFT", 300, 420, 45);
+            cb.EndText();
+            cb.RestoreState();
+        }
+
+        Console.WriteLine("Watermarked: watermarked.pdf");
+    }
+}
+</code></pre>
+
+<p><strong>After (IronPDF &mdash; eliminates iTextSharp dependency):</strong></p>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var pdf = PdfDocument.FromFile("document.pdf");
+var stamper = new TextStamper
+{
+    Text = "DRAFT",
+    FontColor = IronSoftware.Drawing.Color.LightGray,
+    FontSize = 60,
+    Opacity = 30,
+    Rotation = 45,
+    VerticalAlignment = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center
+};
+pdf.ApplyStamp(stamper);
+pdf.SaveAs("watermarked.pdf");
+// Guide: https://ironpdf.com/how-to/custom-watermark/
+</code></pre>
+
+<h2>How Do the Two Libraries Compare Feature by Feature?</h2>
+
+<p>Here are the full mapping tables I use when planning a migration. These cover namespaces, core classes, document loading, page operations, and merge/split.</p>
+
+<h3>Namespace Mapping</h3>
+
+<ul>
+<li><code>UglyToad.PdfPig</code> &rarr; <code>IronPdf</code> &mdash; core document operations</li>
+<li><code>UglyToad.PdfPig.Content</code> &rarr; <code>IronPdf.Editing</code> &mdash; content and manipulation</li>
+<li><code>UglyToad.PdfPig.DocumentLayoutAnalysis</code> &rarr; N/A &mdash; layout analysis has no direct IronPDF equivalent</li>
+</ul>
+
+<h3>Core Class Mapping</h3>
+
+<ul>
+<li><code>UglyToad.PdfPig.PdfDocument</code> &rarr; <code>IronPdf.PdfDocument</code> &mdash; same name, different API surface</li>
+<li><code>Page</code> &rarr; <code>pdf.Pages[n]</code> &mdash; page access (note 1-based vs 0-based)</li>
+<li><code>Word</code> &rarr; N/A &mdash; word-level geometric model is not exposed in IronPDF</li>
+<li>N/A &rarr; <code>ChromePdfRenderer</code> &mdash; HTML-to-PDF generation, no PdfPig analogue</li>
+</ul>
+
+<h3>Document Loading Methods</h3>
+
+<ul>
+<li><strong>Open from file.</strong> <code>PdfDocument.Open(path)</code> &rarr; <code>PdfDocument.FromFile(path)</code></li>
+<li><strong>Open from bytes.</strong> <code>PdfDocument.Open(bytes)</code> &rarr; <code>PdfDocument.FromBinaryData(bytes)</code></li>
+<li><strong>Open from stream.</strong> <code>PdfDocument.Open(stream)</code> &rarr; <code>PdfDocument.FromStream(stream)</code></li>
+<li><strong>Open with password.</strong> <code>PdfDocument.Open(path, new ParsingOptions { Password = "..." })</code> &rarr; <code>PdfDocument.FromFile(path, password)</code></li>
+<li><strong>HTML to PDF.</strong> Not supported by PdfPig &rarr; <code>renderer.RenderHtmlAsPdf(html)</code></li>
+</ul>
+
+<h3>Page Operations</h3>
+
+<ul>
+<li><strong>Page count.</strong> <code>doc.NumberOfPages</code> &rarr; <code>pdf.PageCount</code></li>
+<li><strong>Access page.</strong> <code>doc.GetPage(n)</code> (1-based) &rarr; <code>pdf.Pages[n]</code> (0-based)</li>
+<li><strong>Extract text.</strong> <code>page.Text</code> &rarr; <code>pdf.Pages[n].Text</code> or <code>pdf.ExtractTextFromPage(n)</code></li>
+<li><strong>Page dimensions.</strong> <code>page.Width</code> / <code>page.Height</code> &rarr; <code>pdf.Pages[n].Width</code> / <code>.Height</code></li>
+</ul>
+
+<h3>Merge/Split Operations</h3>
+
+<ul>
+<li><strong>Merge.</strong> <code>PdfMerger.Merge(path1, path2, ...)</code> in <code>UglyToad.PdfPig.Writer</code> &rarr; <code>PdfDocument.Merge(pdf1, pdf2)</code></li>
+<li><strong>Split.</strong> No high-level API in PdfPig (manual rebuild via <code>PdfDocumentBuilder</code>) &rarr; <code>pdf.CopyPages(startIndex, endIndex)</code></li>
+</ul>
+
+<h2>What Are the Frequently Asked Questions?</h2>
+
+<p>I get these questions on nearly every PdfPig migration I advise on. Here they are with direct answers.</p>
+
+<h3>Will My Text Extraction Output Be Identical After Migration?</h3>
+
+<p>Not necessarily. The two libraries take different approaches: PdfPig exposes a layout-analysis pipeline that can reconstruct reading order from word geometry, while IronPDF returns text-block strings from the content stream. For simple single-column documents the results are usually comparable. For complex multi-column layouts, right-to-left text, or documents with ligatures, you should run a side-by-side comparison on your representative document corpus before committing to the migration.</p>
+
+<p>I recommend a simple character count comparison as a first signal, then a deeper word-set diff on documents where extraction quality matters most.</p>
+
+<h3>What Happens to My Word-Level Layout Analysis Code?</h3>
+
+<p>This is the biggest migration consideration. PdfPig exposes individual <code>Letter</code> and <code>Word</code> objects with geometric bounding boxes, fonts, and colours. IronPDF's extraction model is text-string focused. If your application logic depends on <code>word.BoundingBox.Left</code> or <code>letter.FontName</code>, that data is not directly available in IronPDF's extraction API.</p>
+
+<p>For teams who need layout analysis AND HTML-to-PDF generation, keeping PdfPig for parsing while using IronPDF for generation is a valid architecture. You do not have to choose one library for everything.</p>
+
+<h3>How Do I Handle the Page Indexing Difference?</h3>
+
+<p>This is the most common migration bug. PdfPig uses 1-based page numbering via <code>doc.GetPage(1)</code> for the first page. IronPDF uses 0-based indexing via <code>pdf.Pages[0]</code>. Audit every <code>GetPage(n)</code> call in your codebase and subtract 1 for the IronPDF equivalent. Also update <code>doc.NumberOfPages</code> to <code>pdf.PageCount</code>.</p>
+
+<h3>How Do Encrypted PDFs Work After Migration?</h3>
+
+<p>Both libraries support opening password-protected PDFs, but the API differs. PdfPig uses <code>PdfDocument.Open("secured.pdf", new ParsingOptions { Password = "yourpassword" })</code>. IronPDF uses <code>PdfDocument.FromFile("secured.pdf", "yourpassword")</code>. The IronPDF approach is more concise, but functionally equivalent for reading. IronPDF additionally supports writing encrypted PDFs natively, which PdfPig does not. You can learn more at <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">the IronPDF security guide</a>.</p>
+
+<h3>What About Performance Differences?</h3>
+
+<p>Both libraries extract text from the PDF content stream, but they take different approaches. PdfPig is fully managed .NET code. IronPDF uses its Chromium-based internals. Profile on your actual document set rather than relying on benchmarks. For the file-handle contention issue that surfaces in parallel CI tests, IronPDF resolves it because <code>PdfDocument.FromFile()</code> reads the file and closes the handle. For large PDFs, note that PdfPig streams page data lazily while IronPDF loads the document into memory. Test with your largest representative files.</p>
+
+<h3>Can I Keep Both Libraries During a Gradual Migration?</h3>
+
+<p>Yes. A partial migration is a valid pattern. Keep PdfPig for layout analysis where you depend on word-level bounding box data, and use IronPDF for HTML-to-PDF generation and document manipulation. This eliminates the secondary libraries (wkhtmltopdf, PdfSharp, iTextSharp) while preserving PdfPig's layout strengths. Over time, you can evaluate whether IronPDF's text extraction meets your needs for the remaining PdfPig use cases.</p>
+
+<h2>What Is the Decision Framework for Your Team?</h2>
+
+<p>Here is the migration checklist I recommend. Work through it in order: pre-migration assessment, code migration, testing, and post-migration cleanup.</p>
+
+<h3>Pre-Migration</h3>
+
+<p>Inventory all PdfPig features in use with <code>rg "UglyToad\|PdfPig" --type cs -n</code>. Distinguish word/letter layout analysis from simple text extraction. Identify secondary libraries added alongside PdfPig (wkhtmltopdf, PdfSharp, iTextSharp). Verify <a href="https://ironpdf.com/how-to/license-keys/">IronPDF .NET target framework compatibility</a>. Confirm commercial license requirements internally. Set up an IronPDF trial license in your dev environment. Run side-by-side text extraction comparison on representative PDFs. Document all page indexing references with <code>rg "GetPage\|\.Pages\[" --type cs -n</code>.</p>
+
+<h3>Code Migration</h3>
+
+<p>Remove the <code>PdfPig</code> NuGet package. Remove secondary libraries if they only supplemented PdfPig. Add the <code>IronPdf</code> NuGet package. Replace <code>using UglyToad.PdfPig</code> with <code>using IronPdf</code>. Replace <code>PdfDocument.Open()</code> with <code>PdfDocument.FromFile()</code>. Replace <code>doc.GetPages()</code> / <code>page.Text</code> with <code>pdf.Pages[n].Text</code> using 0-based indexing. Replace <code>doc.NumberOfPages</code> with <code>pdf.PageCount</code>. Update all page index references: PdfPig page N becomes IronPDF index N-1. Replace HTML-to-PDF secondary tools with <code>ChromePdfRenderer</code>. Add your IronPDF license key to config.</p>
+
+<h3>Testing</h3>
+
+<p>Compare text extraction output on all PDF fixtures. Verify page index updates by regression-testing page-specific operations. Test encrypted PDF opening with password. Test merge, watermark, and security if migrating from secondary libraries. Run the parallel test suite to verify the CI/CD failure mode is resolved. Render HTML templates if HTML-to-PDF is a new requirement. Test in your Docker/CI environment.</p>
+
+<h3>Post-Migration</h3>
+
+<p>Remove secondary libraries that are no longer needed. Update CI/CD pipeline documentation. Commit the updated <code>packages.lock.json</code> if using locked restores. Monitor the first production week for any text extraction regression.</p>
+
+<p>The most common reason a PdfPig migration hits complications is the word/letter layout model. Teams doing simple text extraction migrate in an afternoon. Teams with layout-aware parsing should budget more time to validate extraction output on their document corpus.</p>

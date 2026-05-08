@@ -1,0 +1,500 @@
+<h1>Migrating from EO.Pdf to IronPDF in C#: The Complete Guide</h1>
+
+<p>The error message that sends most teams down the EO.Pdf migration path looks something like this: <code>NullReferenceException</code> somewhere inside <code>HtmlToPdf.ConvertHtml</code>, triggered by a perfectly valid HTML file that rendered fine last deploy. EO.Pdf has been in maintenance territory for years, and as .NET versions advance, the surface area for subtle compatibility issues grows.</p>
+
+<p>I've watched this pattern play out across dozens of teams. In this guide, I'll walk you through the full migration from EO.Pdf to <a href="https://ironpdf.com/">IronPDF</a> — structured around the problems teams actually encounter, with complete before/after code examples and every API mapping you need.</p>
+
+<h2>Why Should I Migrate Away from EO.Pdf?</h2>
+
+<p>Migrations off EO.Pdf tend to happen when one of these pressure points tips over. Here are the ten most common reasons I see teams make the switch:</p>
+
+<p><strong>Static, global rendering options.</strong> EO.Pdf configures rendering through <code>HtmlToPdf.Options</code>, a static singleton. Two requests on different threads stomp on each other's <code>PageSize</code>, <code>BaseUrl</code>, and event handlers. This is the single most common reason teams migrate.</p>
+
+<p><strong>Runtime exceptions on newer .NET.</strong> EO.Pdf was built for .NET Framework. Running it on net6+ via compatibility shims can produce hard-to-diagnose NREs and SEHExceptions.</p>
+
+<p><strong>Windows-only on .NET Core.</strong> Essential Objects' own documentation states that EO.Pdf supports .NET Core 3.1 and newer on Windows only — Linux and macOS are not officially supported on .NET Core (<a href="https://www.essentialobjects.com/Doc/Common/dotnetcore.html">EO docs</a>). Teams targeting Linux containers or macOS dev machines hit this wall hard.</p>
+
+<p><strong>Bundled Chromium footprint.</strong> EO.Pdf ships its own Chromium-based renderer, which inflates the install footprint, Docker layers, and CI artifacts compared with non-Chromium libraries.</p>
+
+<p><strong>Legacy IE-era rendering baggage.</strong> EO.Pdf migrated from an IE-based engine to Chromium over its lifetime, and the API still carries artifacts from that transition — inconsistent option naming and version-specific behavior gaps.</p>
+
+<p><strong>ACM (Advanced Content Model) lock-in.</strong> Teams that built reports with <code>AcmRender</code>, <code>AcmText</code>, and <code>AcmBlock</code> are running an imperative coordinate-positioned layout engine that nobody outside EO.Pdf understands. HTML/CSS is a more portable target.</p>
+
+<p><strong>Limited async support.</strong> Synchronous-only rendering becomes a bottleneck in async ASP.NET controller pipelines.</p>
+
+<p><strong>Debug experience.</strong> When EO.Pdf fails, the exception stack is often inside the library internals with no actionable message. Troubleshooting involves trial and error.</p>
+
+<p><strong>Memory growth in long-running processes.</strong> Teams running EO.Pdf in Windows services or worker roles sometimes report unbounded memory growth.</p>
+
+<p><strong>Paid-only licensing.</strong> EO.Pdf is sold in Single, 3-License Bundle, Corporate, and Corporate Plus tiers, with no permanent free tier — only a 30-day watermarked trial. Exact prices appear on the order page; verify at <a href="https://www.essentialobjects.com/order">essentialobjects.com/order</a> before budgeting.</p>
+
+<h2>How Do the Two Libraries Compare Side by Side?</h2>
+
+<p>Before diving into code, let me lay out the architectural differences. The headline contrast is configuration model: EO.Pdf is a static, global, converter-pattern API; IronPDF is an instance-based renderer with per-instance options. That single difference changes how you structure services, how you handle concurrency, and how you reason about thread safety.</p>
+
+<p>EO.Pdf's HTML engine started life on an embedded Internet Explorer / Trident engine and migrated to a Chromium-based renderer in later versions; IronPDF runs Chromium from the start, so modern CSS (Grid, Flexbox, custom properties) and JavaScript-driven content render the way Chrome renders them. Both libraries are commercial, and both ship a <code>PdfDocument</code> class — which causes a name collision during phased migrations. The namespaces are <code>EO.Pdf</code> and <code>IronPdf</code>.</p>
+
+<h2>How Complex Is the Migration Effort?</h2>
+
+<p>Not all features take the same amount of work. Here is the effort breakdown by feature area, so you can plan your migration sprint accurately.</p>
+
+<ul>
+<li><strong>HTML string to PDF — Low.</strong> Static <code>HtmlToPdf.ConvertHtml</code> becomes an instance <code>ChromePdfRenderer.RenderHtmlAsPdf</code>. Mostly mechanical.</li>
+<li><strong>URL to PDF — Low.</strong> EO.Pdf has <code>HtmlToPdf.ConvertUrl</code>; IronPDF has <code>RenderUrlAsPdf</code>. Direct swap, with the bonus that IronPDF executes JavaScript on the page first.</li>
+<li><strong>HTML file to PDF — Low.</strong> Both accept a path; the IronPDF method is <code>RenderHtmlFileAsPdf</code>.</li>
+<li><strong>Static options to instance options — Medium.</strong> Every <code>HtmlToPdf.Options.X = …</code> line needs to move onto a renderer instance. The mechanical part is fast; the design part is auditing where you assumed global config was safe.</li>
+<li><strong>Merge documents — Low.</strong> EO.Pdf's static <code>PdfDocument.Merge(doc1, doc2, ...)</code> maps cleanly onto IronPDF's static <code>PdfDocument.Merge</code>. Same shape on both sides.</li>
+<li><strong>Watermark — Medium.</strong> EO.Pdf typically uses ACM-positioned text overlays; IronPDF has a dedicated <code>ApplyWatermark</code> / stamper API.</li>
+<li><strong>Headers and footers — Medium.</strong> EO.Pdf wires per-page rendering through the <code>AfterRenderPage</code> event; IronPDF uses <code>HtmlHeaderFooter</code> templates with <code>{page}</code> / <code>{total-pages}</code> placeholders. The translation is conceptually clean but every callback has to be rewritten as HTML.</li>
+<li><strong>Password protection — Low.</strong> Both libraries expose user/owner passwords and permissions; the property names differ but the concepts map directly.</li>
+<li><strong>Page indexing — Low.</strong> IronPDF is 0-based; spot-check page-number arithmetic if your EO.Pdf code mixes in any 1-based external systems.</li>
+<li><strong>ACM (Advanced Content Model) — High.</strong> If your codebase leans on <code>AcmRender</code>, <code>AcmText</code>, <code>AcmBlock</code>, <code>AcmTable</code>, plan to rebuild those sections in HTML/CSS. The good news is HTML/CSS is far more expressive than ACM — flexbox alone replaces hundreds of lines of coordinate math.</li>
+<li><strong>JavaScript rendering — N/A to Low.</strong> New capability in IronPDF; no migration cost, only a template-QA pass.</li>
+<li><strong>CSS Grid / Flexbox — N/A to Low.</strong> New capability — may require template QA where EO.Pdf was silently dropping unsupported CSS.</li>
+</ul>
+
+<p>And here is my decision matrix for whether migrating makes sense for your scenario:</p>
+
+<ul>
+<li>If you're on .NET Framework on Windows with no migration plans, EO.Pdf may continue to work — verify Essential Objects' support timelines before committing further investment.</li>
+<li>If you're targeting Linux containers or macOS, the migration is a strong recommendation. EO.Pdf is documented as Windows-only on .NET Core.</li>
+<li>If complex CSS templates are not rendering correctly, migrate. Chromium fidelity resolves most CSS issues without template changes.</li>
+<li>If your codebase leans heavily on ACM, schedule the migration deliberately — the ACM-to-HTML rewrite is the long pole.</li>
+<li>If you have minimal HTML, simple output, and no rendering issues, urgency is lower — migrate when convenient.</li>
+</ul>
+
+<h2>How Do I Handle the Quick Start Migration?</h2>
+
+<p>The basic migration is three steps. Let me walk through each one.</p>
+
+<h3>Step 1: License Setup</h3>
+
+<pre><code>// Before (EO.Pdf)
+// EO.Pdf typically requires the runtime DLL on disk; no inline license call
+// for the trial. Production licensing is per the EO.Pdf vendor docs.
+
+// After (IronPDF)
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+// Docs: https://ironpdf.com/how-to/license-keys/</code></pre>
+
+<h3>Step 2: Namespace Imports</h3>
+
+<pre><code>// Before
+using EO.Pdf;
+
+// After
+using IronPdf;</code></pre>
+
+<h3>Step 3: Basic HTML to PDF</h3>
+
+<pre><code>// Before (EO.Pdf)
+HtmlToPdf.ConvertHtml("&lt;h1&gt;Hello&lt;/h1&gt;", "output.pdf");
+
+// After (IronPDF)
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+var renderer = new ChromePdfRenderer();
+using var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Hello&lt;/h1&gt;");
+pdf.SaveAs("output.pdf");
+// Docs: https://ironpdf.com/how-to/html-string-to-pdf/</code></pre>
+
+<h2>What Are the Core API Mappings?</h2>
+
+<p>These mappings are the reference you'll keep coming back to during the migration. Below are every major EO.Pdf class and operation paired with its IronPDF equivalent.</p>
+
+<h3>Namespace Mapping</h3>
+
+<ul>
+<li><code>EO.Pdf</code> → <code>IronPdf</code> — core namespace</li>
+<li><code>EO.Pdf.Acm</code> → HTML/CSS — IronPDF has no ACM equivalent; rebuild as HTML</li>
+<li><code>EO.Pdf.Contents</code> → <code>IronPdf.Editing</code> — low-level content operations</li>
+<li><code>EO.Pdf.Drawing</code> → HTML/CSS or <code>IronPdf.Editing</code> — graphics primitives</li>
+</ul>
+
+<h3>Core Class Mapping</h3>
+
+<ul>
+<li><code>HtmlToPdf</code> (static) → <code>ChromePdfRenderer</code> (instance) — main HTML rendering class</li>
+<li><code>EO.Pdf.PdfDocument</code> → <code>IronPdf.PdfDocument</code> — document object; <strong>name collision, use fully qualified names during phased migration</strong></li>
+<li><code>HtmlToPdfOptions</code> → <code>ChromePdfRenderOptions</code> (via <code>renderer.RenderingOptions</code>) — rendering configuration</li>
+<li><code>AcmRender</code>, <code>AcmText</code>, <code>AcmBlock</code>, <code>AcmImage</code>, <code>AcmTable</code> → HTML/CSS — no direct IronPDF class, rewrite as markup</li>
+<li><code>PdfDocument.Security</code> → <code>PdfDocument.SecuritySettings</code> — passwords and permissions</li>
+</ul>
+
+<h3>Document Loading</h3>
+
+<ul>
+<li>Load from file: <code>new PdfDocument(path)</code> → <code>PdfDocument.FromFile(path)</code></li>
+<li>Load from stream: <code>new PdfDocument(stream)</code> → <code>PdfDocument.FromStream(stream)</code></li>
+<li>Load from bytes: not directly supported in EO.Pdf → <code>PdfDocument.FromBinaryData(bytes)</code></li>
+<li>Render HTML string: <code>HtmlToPdf.ConvertHtml(html, path)</code> → <code>renderer.RenderHtmlAsPdf(html)</code> + <code>SaveAs(path)</code></li>
+<li>Render URL: <code>HtmlToPdf.ConvertUrl(url, path)</code> → <code>renderer.RenderUrlAsPdf(url)</code> + <code>SaveAs(path)</code></li>
+</ul>
+
+<h3>Page Operations</h3>
+
+<ul>
+<li>Page count: <code>doc.Pages.Count</code> → <code>pdf.PageCount</code></li>
+<li>Get specific page: <code>doc.Pages[i]</code> → <code>pdf.Pages[i]</code></li>
+<li>Remove page: <code>doc.Pages.RemoveAt(i)</code> → <code>pdf.RemovePages(i)</code></li>
+<li>Copy pages: <code>doc.Pages</code> iteration → <code>pdf.CopyPages(start, end)</code></li>
+</ul>
+
+<h3>Merge / Split</h3>
+
+<ul>
+<li>Merge PDFs: <code>PdfDocument.Merge(doc1, doc2, ...)</code> (static) → <code>PdfDocument.Merge(doc1, doc2, ...)</code> or <code>PdfDocument.Merge(IEnumerable&lt;PdfDocument&gt;)</code></li>
+<li>Split by page range: manual page iteration → <code>pdf.CopyPages(start, end)</code></li>
+</ul>
+
+<h2>How Do I Migrate HTML to PDF Rendering?</h2>
+
+<p>This is the most common migration path. Here is the full before/after for a typical report generation scenario.</p>
+
+<h3>EO.Pdf (Before)</h3>
+
+<pre><code>using EO.Pdf;
+
+class Program
+{
+    static void Main()
+    {
+        string html = @"
+            &lt;html&gt;
+            &lt;body&gt;
+                &lt;h1 style='color: #333;'&gt;Monthly Report&lt;/h1&gt;
+                &lt;p&gt;Generated: &lt;strong&gt;2025-01&lt;/strong&gt;&lt;/p&gt;
+                &lt;table border='1'&gt;
+                    &lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Value&lt;/th&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;Revenue&lt;/td&gt;&lt;td&gt;$120,000&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        // Static, global options — affects every thread in this process
+        HtmlToPdf.Options.PageSize = PdfPageSizes.A4;
+        HtmlToPdf.Options.OutputArea = new RectangleF(0.5f, 0.5f, 7.5f, 10.5f);
+
+        HtmlToPdf.ConvertHtml(html, "report.pdf");
+    }
+}</code></pre>
+
+<h3>IronPDF (After)</h3>
+
+<pre><code>using IronPdf;
+
+class Program
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        string html = @"
+            &lt;html&gt;
+            &lt;body&gt;
+                &lt;h1 style='color: #333;'&gt;Monthly Report&lt;/h1&gt;
+                &lt;p&gt;Generated: &lt;strong&gt;2025-01&lt;/strong&gt;&lt;/p&gt;
+                &lt;table border='1'&gt;
+                    &lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Value&lt;/th&gt;&lt;/tr&gt;
+                    &lt;tr&gt;&lt;td&gt;Revenue&lt;/td&gt;&lt;td&gt;$120,000&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        // Instance-scoped options — safe across threads and requests
+        var renderer = new ChromePdfRenderer();
+        renderer.RenderingOptions.PaperSize = PdfPaperSize.A4;
+        renderer.RenderingOptions.MarginTop = 12.7;    // 0.5 inch in mm
+        renderer.RenderingOptions.MarginBottom = 12.7;
+        renderer.RenderingOptions.MarginLeft = 12.7;
+        renderer.RenderingOptions.MarginRight = 12.7;
+
+        using var pdf = renderer.RenderHtmlAsPdf(html);
+        pdf.SaveAs("report.pdf");
+    }
+}</code></pre>
+
+<p>Note the unit change: EO.Pdf's <code>OutputArea</code> uses inches; IronPDF's margin properties use millimeters. Multiply inches by 25.4 to convert.</p>
+
+<h2>How Do I Migrate PDF Merging?</h2>
+
+<p>Merging is a common operation, and the API shape is similar on both sides: EO.Pdf exposes a static <code>PdfDocument.Merge(doc1, doc2, ...)</code> that returns a new combined document, and IronPDF exposes a static <code>PdfDocument.Merge</code> with the same shape (params overload plus an <code>IEnumerable&lt;PdfDocument&gt;</code> overload). EO.Pdf does not provide an instance <code>Append</code> method, so any code reaching for one needs to move to <code>Merge</code> regardless of which library it ends up on.</p>
+
+<h3>EO.Pdf (Before)</h3>
+
+<pre><code>using EO.Pdf;
+
+class MergeSample
+{
+    static void Main()
+    {
+        var doc1 = new PdfDocument("file1.pdf");
+        var doc2 = new PdfDocument("file2.pdf");
+
+        // Static Merge returns a new combined document.
+        PdfDocument merged = PdfDocument.Merge(doc1, doc2);
+
+        merged.Save("merged.pdf");
+    }
+}</code></pre>
+
+<h3>IronPDF (After)</h3>
+
+<pre><code>using IronPdf;
+using System.Collections.Generic;
+
+class MergeSample
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        using var pdf1 = PdfDocument.FromFile("file1.pdf");
+        using var pdf2 = PdfDocument.FromFile("file2.pdf");
+
+        using var merged = PdfDocument.Merge(new List&lt;PdfDocument&gt; { pdf1, pdf2 });
+        merged.SaveAs("merged.pdf");
+        // Docs: https://ironpdf.com/how-to/merge-or-split-pdfs/
+    }
+}</code></pre>
+
+<h2>How Do I Migrate Watermarks?</h2>
+
+<p>EO.Pdf typically handles watermarks through ACM — an <code>AcmText</code> rendered onto each page via <code>AcmRender</code> with explicit coordinates and styling. IronPDF has a dedicated stamp / watermark API that takes HTML and applies it across pages.</p>
+
+<h3>EO.Pdf (Before)</h3>
+
+<pre><code>using EO.Pdf;
+using EO.Pdf.Acm;
+using System.Drawing;
+
+class WatermarkSample
+{
+    static void Main()
+    {
+        var doc = new PdfDocument("input.pdf");
+
+        foreach (PdfPage page in doc.Pages)
+        {
+            var watermark = new AcmText("DRAFT");
+            watermark.Style.FontSize = 72;
+            watermark.Style.ForegroundColor = Color.FromArgb(80, 200, 200, 200);
+            watermark.Style.HorizontalAlign = AcmHorizontalAlign.Center;
+
+            var render = new AcmRender(page, 0, page.Size.Height / 2 - 50,
+                page.Size.Width, 100);
+            render.Render(watermark);
+        }
+
+        doc.Save("watermarked.pdf");
+    }
+}</code></pre>
+
+<h3>IronPDF (After)</h3>
+
+<pre><code>using IronPdf;
+
+class WatermarkSample
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        using var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.ApplyWatermark(
+            "&lt;h1 style='color:rgba(200,200,200,0.5); font-size:72pt;'&gt;DRAFT&lt;/h1&gt;",
+            rotation: 45,
+            opacity: 30);
+
+        pdf.SaveAs("watermarked.pdf");
+        // Docs: https://ironpdf.com/how-to/stamp-text-image/
+    }
+}</code></pre>
+
+<p>Note that IronPDF's <code>opacity</code> argument is an integer 0–100, not a 0.0–1.0 decimal.</p>
+
+<h2>How Do I Migrate Password Protection?</h2>
+
+<p>Security settings are straightforward to migrate. The property names change, but the concepts map directly.</p>
+
+<h3>EO.Pdf (Before)</h3>
+
+<pre><code>using EO.Pdf;
+
+class SecuritySample
+{
+    static void Main()
+    {
+        var doc = new PdfDocument("input.pdf");
+
+        doc.Security.UserPassword = "user123";
+        doc.Security.OwnerPassword = "owner456";
+        doc.Security.AllowPrint = true;
+        doc.Security.AllowCopy = false;
+        doc.Security.AllowModify = false;
+
+        doc.Save("secured.pdf");
+    }
+}</code></pre>
+
+<h3>IronPDF (After)</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Security;
+
+class SecuritySample
+{
+    static void Main()
+    {
+        IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+        using var pdf = PdfDocument.FromFile("input.pdf");
+
+        pdf.SecuritySettings.UserPassword = "user123";
+        pdf.SecuritySettings.OwnerPassword = "owner456";
+        pdf.SecuritySettings.AllowUserPrinting = PdfPrintSecurity.FullPrintRights;
+        pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+        pdf.SecuritySettings.AllowUserEdits = PdfEditSecurity.NoEdit;
+
+        pdf.SaveAs("secured.pdf");
+        // Docs: https://ironpdf.com/how-to/pdf-permissions-passwords/
+    }
+}</code></pre>
+
+<h2>What Are the Critical Migration Gotchas?</h2>
+
+<p>There are a few sharp corners in this migration that I want to flag explicitly.</p>
+
+<p><strong>Static options to instance options.</strong> This is the design-level shift, not just a syntax change. Every <code>HtmlToPdf.Options.X = …</code> in your codebase was setting global state. When you move to IronPDF's per-renderer <code>RenderingOptions</code>, audit every place that assumed previous configuration was still in effect — those assumptions silently break.</p>
+
+<p><strong>The <code>PdfDocument</code> name collision.</strong> Both EO.Pdf and IronPDF have a class named <code>PdfDocument</code>. If you're doing a phased migration with both packages installed, you'll get ambiguous reference errors. Use fully qualified names or aliases:</p>
+
+<pre><code>// Alias approach during transition
+using EoPdfDoc = EO.Pdf.PdfDocument;
+using IronPdfDoc = IronPdf.PdfDocument;</code></pre>
+
+<p>Once EO.Pdf is fully removed, drop the aliases.</p>
+
+<p><strong>Page indexing.</strong> IronPDF is 0-based. If you mix in any 1-based external system — or your EO.Pdf code happened to assume 1-based indexing somewhere — the silent failure mode is the wrong page being modified without an exception. Spot-check page-number arithmetic on the way through.</p>
+
+<p><strong>Event-based page rendering.</strong> EO.Pdf's <code>HtmlToPdf.Options.AfterRenderPage</code> event lets you inject per-page content (headers, footers, watermarks) imperatively. IronPDF doesn't use events; it uses <code>HtmlHeaderFooter</code> templates with <code>{page}</code> / <code>{total-pages}</code> placeholders for headers and footers, and <code>ApplyStamp</code> / <code>ApplyWatermark</code> for overlays. If you're relying heavily on per-page events, plan extra time — it requires restructuring how you inject per-page content.</p>
+
+<p><strong>Margin units.</strong> EO.Pdf's <code>OutputArea</code> takes a <code>RectangleF</code> in inches; IronPDF's margin properties are in millimeters. Multiply by 25.4.</p>
+
+<h2>How Do I Handle Performance After Migration?</h2>
+
+<p>IronPDF's Chromium engine has different performance characteristics than EO.Pdf's renderer. Here is what to plan for.</p>
+
+<p><strong>Cold start.</strong> IronPDF initializes a Chromium instance on first render. Plan for a 1-3 second startup cost. I recommend warming up at application startup:</p>
+
+<pre><code>// In Program.cs / startup
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+var renderer = new ChromePdfRenderer();
+using var warmup = renderer.RenderHtmlAsPdf("&lt;p&gt;init&lt;/p&gt;");
+// Now your first real render won't pay the startup cost</code></pre>
+
+<p><strong>Concurrency.</strong> <code>ChromePdfRenderer</code> can be reused across requests. For high-concurrency workloads, register it as a singleton:</p>
+
+<pre><code>// Singleton pattern for ASP.NET
+builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;();</code></pre>
+
+<p><strong>Disposal discipline.</strong> Every <code>PdfDocument</code> should be in a <code>using</code> block. In ASP.NET, returning a <code>File()</code> result after disposal is safe — <code>BinaryData</code> is a byte array that survives disposal:</p>
+
+<pre><code>using var pdf = renderer.RenderHtmlAsPdf(html);
+return File(pdf.BinaryData, "application/pdf", "report.pdf");
+// pdf disposed after this line — BinaryData already copied</code></pre>
+
+<h2>How Do I Troubleshoot Common EO.Pdf Problems During Migration?</h2>
+
+<p>The actual runtime problems teams hit, and how IronPDF handles each one differently:</p>
+
+<p><strong>Linux containers refusing to start.</strong> EO.Pdf is documented as Windows-only on .NET Core, so attempts to run it inside a Linux container often surface as <code>TypeInitializationException</code>, <code>SEHException</code>, or hard crashes during static initialization. IronPDF supports Linux directly with Chromium and a documented dependency list:</p>
+
+<pre><code># IronPDF Linux dependencies
+apt-get install -y \
+  libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+  libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
+  libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2
+# Full current list: https://ironpdf.com/how-to/azure/</code></pre>
+
+<p><strong><code>NullReferenceException</code> inside <code>HtmlToPdf.ConvertHtml</code>.</strong> In EO.Pdf, this is typically triggered by malformed HTML, missing resources, or certain CSS properties the engine can't parse. IronPDF exceptions are standard .NET exceptions with useful messages:</p>
+
+<pre><code>using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.WaitFor.RenderDelay(300);
+
+try
+{
+    using var pdf = renderer.RenderHtmlAsPdf("&lt;h1&gt;Test&lt;/h1&gt;");
+    pdf.SaveAs("output.pdf");
+}
+catch (IronPdfException ex)
+{
+    Console.WriteLine(ex.Message);
+}</code></pre>
+
+<p><strong>CSS not rendering correctly.</strong> EO.Pdf's older rendering paths may silently ignore unsupported CSS. IronPDF uses Chromium — what Chrome renders, IronPDF renders. Use browser DevTools to debug CSS first, then hand the same HTML to IronPDF:</p>
+
+<pre><code>using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.CssMediaType = IronPdf.Rendering.PdfCssMediaType.Print;
+
+using var pdf = renderer.RenderHtmlAsPdf(htmlWithComplexCss);
+pdf.SaveAs("output.pdf");
+// Docs: https://ironpdf.com/how-to/rendering-options/</code></pre>
+
+<p><strong>Memory growth in long-running processes.</strong> In IronPDF, <code>PdfDocument</code> is <code>IDisposable</code>. Always use <code>using</code>:</p>
+
+<pre><code>using IronPdf;
+
+var renderer = new ChromePdfRenderer(); // reuse this
+using var pdf = renderer.RenderHtmlAsPdf(html);
+byte[] data = pdf.BinaryData;
+// pdf is disposed here — no lingering memory</code></pre>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I run both EO.Pdf and IronPDF in the same project during migration?</h3>
+
+<p>Yes, you can install both NuGet packages side by side for a phased migration. The main issue you'll hit is the <code>PdfDocument</code> name collision — both libraries use that class name. Use fully qualified names or using aliases to resolve it:</p>
+
+<pre><code>using EoPdfDoc = EO.Pdf.PdfDocument;
+using IronPdfDoc = IronPdf.PdfDocument;</code></pre>
+
+<p>Once all EO.Pdf code is migrated, remove the package and drop the aliases.</p>
+
+<h3>Does IronPDF support Linux containers like Docker?</h3>
+
+<p>Yes. IronPDF uses Chromium and requires specific Linux packages installed in the container, with documented setup at <a href="https://ironpdf.com/how-to/azure/">ironpdf.com/how-to/azure</a>. EO.Pdf, by contrast, is documented as Windows-only on .NET Core, so Linux is the migration trigger for many teams rather than a parity comparison.</p>
+
+<h3>Will my existing HTML templates work without changes in IronPDF?</h3>
+
+<p>In most cases, yes — and they'll likely render better. IronPDF uses the actual Chromium rendering engine, so any CSS that works in Chrome will work in IronPDF. Templates that relied on EO.Pdf's quirks (CSS features it silently ignored, or older engine behaviors) may render differently because IronPDF actually processes them correctly. I recommend visual regression testing every template after migration.</p>
+
+<h3>How do I handle the cold start cost of IronPDF's Chromium engine?</h3>
+
+<p>IronPDF initializes a Chromium instance on first render, which takes 1-3 seconds depending on hardware. Warm up at application startup by rendering a dummy document. For ASP.NET, register <code>ChromePdfRenderer</code> as a singleton so the engine stays warm across requests.</p>
+
+<h3>What about EO.Pdf's event-based page callbacks — how do I replace those?</h3>
+
+<p>This is the most complex part of the migration. EO.Pdf uses <code>HtmlToPdf.Options.AfterRenderPage</code> for per-page operations like headers, footers, and overlays. IronPDF doesn't use events — it uses <code>HtmlHeaderFooter</code> templates for headers/footers and the stamp/watermark API for overlays. You'll need to restructure any per-page callback logic into HTML templates or stamp operations. Plan extra time for this area.</p>
+
+<h3>What about EO.Pdf's ACM (Advanced Content Model) — how do I migrate that?</h3>
+
+<p>ACM has no direct IronPDF equivalent, and that's intentional. ACM is an imperative coordinate-positioned layout engine; IronPDF replaces it with HTML/CSS, which is more expressive and far more portable. <code>AcmBlock</code> becomes <code>&lt;div&gt;</code>, <code>AcmText</code> becomes <code>&lt;span&gt;</code> or <code>&lt;p&gt;</code>, <code>AcmTable</code> becomes <code>&lt;table&gt;</code>, and <code>AcmStyle</code> properties become CSS. The migration is mechanical at the leaf level but often produces cleaner code overall, because flexbox and grid replace explicit X/Y math.</p>
+
+<h3>Is IronPDF thread-safe for high-concurrency workloads?</h3>
+
+<p>Yes. <code>ChromePdfRenderer</code> is reusable across threads and requests. For ASP.NET, register it as a singleton. For high-concurrency scenarios, IronPDF supports parallel render patterns. Every <code>PdfDocument</code> should be in a <code>using</code> block to ensure proper disposal — <code>BinaryData</code> is a byte array that survives disposal, so you can safely return file results after the document is disposed. This is a meaningful upgrade over EO.Pdf's static <code>HtmlToPdf.Options</code>, where two threads racing on global config was a real bug source.</p>
+
+<h2>Conclusion</h2>
+
+<p>The EO.Pdf migration is mostly mechanical for HTML-to-PDF workflows, with three sharp corners: the static-to-instance options shift, the <code>PdfDocument</code> name collision, and the event-based page handling. The name collision is a compile error you'll catch immediately; the options shift requires a thread-safety audit; the event model takes design time. ACM-heavy codebases add a fourth corner — a real rewrite into HTML/CSS, but one that usually produces simpler code afterwards.</p>
+
+<p>For teams using EO.Pdf primarily because "it was already there" and experiencing CSS rendering oddities, IronPDF's Chromium backing tends to resolve those without template changes — what the browser renders is what you get.</p>
+
+<p>The quick start is three steps: swap the NuGet package, change your namespace imports, and replace static <code>HtmlToPdf.ConvertHtml</code> with an instance <code>ChromePdfRenderer.RenderHtmlAsPdf</code>. From there, work through the API mapping in this guide and test each template. You can run both libraries side by side during the transition, so there's no need for a big-bang rewrite.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>

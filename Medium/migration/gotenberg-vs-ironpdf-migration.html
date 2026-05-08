@@ -1,0 +1,395 @@
+<h1>Migrating from Gotenberg to IronPDF: The Decision Guide for .NET Teams</h1>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
+
+<h2>Why Would a .NET Team Migrate Away from Gotenberg?</h2>
+
+<p>This migration is architecturally different from a typical library swap. Gotenberg is a network service &mdash; a Docker-based microservice exposing HTTP endpoints for document conversion. IronPDF is an in-process .NET library. That distinction changes everything about how you evaluate this move.</p>
+
+<p>Teams running Gotenberg specifically for a .NET service's PDF generation often hit these friction points:</p>
+
+<p><strong>Network latency.</strong> Every PDF generation is an HTTP round-trip. That adds measurable latency compared to in-process rendering.</p>
+
+<p><strong>Service dependency.</strong> Gotenberg must be running, healthy, and reachable. That's an operational dependency your .NET service doesn't need if it can render PDFs itself.</p>
+
+<p><strong>Container orchestration overhead.</strong> Managing the Gotenberg container &mdash; health checks, restarts, resource limits &mdash; adds DevOps complexity. The Gotenberg Docker image is ~1&ndash;1.5GB depending on enabled modules, which affects pull time and registry cost.</p>
+
+<p><strong>Multipart form construction.</strong> Gotenberg uses multipart HTTP requests. Building those request bodies in .NET requires more boilerplate than a direct library call.</p>
+
+<p><strong>Error handling across the network.</strong> HTTP errors, timeouts, and service unavailability are failure modes you simply don't have with library exceptions.</p>
+
+<p><strong>Local development friction.</strong> Developers need Docker running to test PDF generation locally. Remove the container and that friction disappears.</p>
+
+<p><strong>Scaling coupling.</strong> Scaling the Gotenberg service separately from your .NET service adds infrastructure complexity. In-process rendering scales with your application.</p>
+
+<p><strong>Debugging difficulty.</strong> PDF rendering issues require logs from a separate container, not just your application logs.</p>
+
+<h2>What Does the Migration Effort Actually Look Like?</h2>
+
+<p>I want to be upfront: the effort depends heavily on which Gotenberg routes you use. Here's the breakdown by feature.</p>
+
+<h3>Effort by Feature</h3>
+
+<ul>
+<li><strong>HTML string to PDF &mdash; Low.</strong> Direct mapping: HTTP POST becomes a renderer call.</li>
+<li><strong>URL to PDF &mdash; Low.</strong> Both support URL rendering.</li>
+<li><strong>Office to PDF (LibreOffice route) &mdash; N/A.</strong> No IronPDF equivalent.</li>
+<li><strong>Markdown to PDF &mdash; Medium.</strong> Convert Markdown to HTML first, then render.</li>
+<li><strong>PDF merge &mdash; Low.</strong> IronPDF supports merge natively.</li>
+<li><strong>PDF split &mdash; Medium.</strong> Not a Gotenberg feature; new capability in IronPDF.</li>
+<li><strong>Watermarking &mdash; Medium.</strong> Not a Gotenberg route; new capability.</li>
+<li><strong>Password protection &mdash; Medium.</strong> Not a Gotenberg route; new capability.</li>
+<li><strong>Custom headers/footers &mdash; Low.</strong> Both support.</li>
+<li><strong>Custom margins &mdash; Low.</strong> Both support; Gotenberg uses inches, IronPDF uses millimeters.</li>
+</ul>
+
+<h3>Decision Matrix</h3>
+
+<ul>
+<li>If you're a <strong>.NET-only Gotenberg consumer doing HTML/URL only</strong>, the IronPDF in-process migration is well-scoped.</li>
+<li>If <strong>multiple services (non-.NET) call Gotenberg</strong>, retain Gotenberg for those callers and migrate only the .NET path if desired.</li>
+<li>If <strong>Office document conversion is required</strong>, retain Gotenberg (LibreOffice route) or pair IronPDF with a separate Office&rarr;PDF tool.</li>
+<li>If you have a <strong>strict network isolation requirement</strong>, evaluate whether in-process Chromium meets your security posture before committing.</li>
+</ul>
+
+<h2>How Do the Two Approaches Compare Side by Side?</h2>
+
+<ul>
+<li><strong>Focus.</strong> Gotenberg is a document conversion microservice exposed over HTTP; IronPDF is an in-process .NET library covering HTML-to-PDF plus document manipulation.</li>
+<li><strong>Pricing.</strong> Gotenberg is open source and free, but you pay for the Docker image, hosting, and operational overhead. IronPDF is a commercial license.</li>
+<li><strong>API style.</strong> Gotenberg uses HTTP multipart form requests; IronPDF uses a fluent .NET API.</li>
+<li><strong>Learning curve.</strong> Gotenberg is low effort for simple calls and medium effort for advanced options. IronPDF lands at medium overall.</li>
+<li><strong>HTML rendering.</strong> Both use Chromium under the hood, so visual fidelity is closely aligned.</li>
+<li><strong>Page indexing.</strong> Not applicable on Gotenberg (its HTTP API isn't page-level); IronPDF is 0-based.</li>
+<li><strong>Thread safety.</strong> Gotenberg is inherently concurrent because each call is an independent HTTP request. With IronPDF, a renderer-per-thread is the recommended pattern.</li>
+<li><strong>Namespace.</strong> The Gotenberg consumer code lives under <code>System.Net.Http</code> (<code>HttpClient</code>); IronPDF lives under <code>IronPdf</code>.</li>
+</ul>
+
+<h2>How Do I Convert HTML to PDF After Migrating?</h2>
+
+<p>This is the most common Gotenberg use case I see teams migrating. The shift from HTTP multipart to a direct library call is dramatic in terms of code reduction.</p>
+
+<h3>Before: Gotenberg HTML to PDF via HttpClient</h3>
+
+<pre><code>using System;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Threading.Tasks;
+using System.IO;
+
+class Program
+{
+    static async Task Main(string[] args)
+    {
+        var client = new HttpClient { BaseAddress = new Uri("http://localhost:3000") };
+
+        string html = @"
+            &lt;html&gt;
+            &lt;head&gt;&lt;style&gt;body { font-family: Arial; margin: 40px; }&lt;/style&gt;&lt;/head&gt;
+            &lt;body&gt;
+                &lt;h1&gt;Quarterly Report&lt;/h1&gt;
+                &lt;p&gt;Generated via Gotenberg.&lt;/p&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;";
+
+        using var content = new MultipartFormDataContent();
+
+        var htmlBytes = Encoding.UTF8.GetBytes(html);
+        var htmlPart  = new ByteArrayContent(htmlBytes);
+        htmlPart.Headers.ContentType = new MediaTypeHeaderValue("text/html");
+        content.Add(htmlPart, "files", "index.html");
+
+        content.Add(new StringContent("8.27"), "paperWidth");   // A4 width in inches
+        content.Add(new StringContent("11.7"), "paperHeight");   // A4 height in inches
+
+        var response = await client.PostAsync("/forms/chromium/convert/html", content);
+        response.EnsureSuccessStatusCode();
+
+        byte[] pdfBytes = await response.Content.ReadAsByteArrayAsync();
+        await File.WriteAllBytesAsync("output.pdf", pdfBytes);
+        Console.WriteLine($"PDF written: {pdfBytes.Length} bytes");
+    }
+}</code></pre>
+
+<h3>After: <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF HTML String to PDF</a></h3>
+
+<pre><code>using IronPdf;
+using System.IO;
+using System.Threading.Tasks;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize   = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop   = 10;
+renderer.RenderingOptions.MarginBottom = 10;
+
+string html = @"
+    &lt;html&gt;
+    &lt;head&gt;&lt;style&gt;body { font-family: Arial; margin: 40px; }&lt;/style&gt;&lt;/head&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Quarterly Report&lt;/h1&gt;
+        &lt;p&gt;Generated via IronPDF.&lt;/p&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;";
+
+using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+await File.WriteAllBytesAsync("output.pdf", pdf.BinaryData);
+Console.WriteLine($"PDF written: {pdf.BinaryData.Length} bytes");</code></pre>
+
+<p>The Gotenberg version requires constructing a <code>MultipartFormDataContent</code> object, attaching an <code>index.html</code> file, setting content type headers, and making an HTTP POST to <code>/forms/chromium/convert/html</code>. The IronPDF version creates a <code>ChromePdfRenderer</code>, sets paper size and margins via typed properties, and calls <code>RenderHtmlAsPdfAsync</code>. No Docker container, no HTTP client, no multipart form construction.</p>
+
+<h2>How Do I Merge PDFs Without the Gotenberg Merge Endpoint?</h2>
+
+<p>Gotenberg's merge endpoint requires building multipart form data with each PDF as a named file attachment. The filename ordering determines merge order. Here's how that simplifies.</p>
+
+<h3>Before: Gotenberg PDF Merge via HTTP</h3>
+
+<pre><code>using System;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.IO;
+using System.Threading.Tasks;
+
+class MergeExample
+{
+    static async Task Main(string[] args)
+    {
+        var client = new HttpClient { BaseAddress = new Uri("http://localhost:3000") };
+
+        string[] filePaths = { "file1.pdf", "file2.pdf" };
+
+        using var content = new MultipartFormDataContent();
+
+        foreach (var path in filePaths)
+        {
+            var bytes   = await File.ReadAllBytesAsync(path);
+            var part    = new ByteArrayContent(bytes);
+            part.Headers.ContentType = new MediaTypeHeaderValue("application/pdf");
+            content.Add(part, "files", Path.GetFileName(path));
+        }
+
+        var response = await client.PostAsync("/forms/pdfengines/merge", content);
+        response.EnsureSuccessStatusCode();
+
+        byte[] merged = await response.Content.ReadAsByteArrayAsync();
+        await File.WriteAllBytesAsync("merged.pdf", merged);
+        Console.WriteLine($"Merged: {merged.Length} bytes");
+    }
+}</code></pre>
+
+<h3>After: <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">IronPDF Merge</a></h3>
+
+<pre><code>using IronPdf;
+using System.IO;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+using var doc1 = PdfDocument.FromFile("file1.pdf");
+using var doc2 = PdfDocument.FromFile("file2.pdf");
+
+using var merged = PdfDocument.Merge(doc1, doc2);
+merged.SaveAs("merged.pdf");
+Console.WriteLine($"Merged: {merged.PageCount} pages");</code></pre>
+
+<p>Gotenberg merge requires reading each PDF into byte arrays, constructing multipart form data with correct content types, and POSTing to <code>/forms/pdfengines/merge</code>. IronPDF loads files directly with <code>PdfDocument.FromFile</code> and merges with a single <code>PdfDocument.Merge</code> call. You also get <code>PageCount</code> on the result, which Gotenberg doesn't expose.</p>
+
+<h2>What New Capabilities Do I Gain That Gotenberg Doesn't Offer?</h2>
+
+<p>This is the part of the migration that surprised most teams I've worked with. Gotenberg is excellent at what it does &mdash; document conversion via HTTP &mdash; but it intentionally doesn't expose page-level manipulation, watermarking, or security features.</p>
+
+<h3>Watermarking: Before (Gotenberg Workaround) and After (IronPDF)</h3>
+
+<pre><code>// Gotenberg: no direct watermark API.
+// Teams inject watermark text via HTML/CSS before sending to Gotenberg.
+string htmlWithWatermark = @"
+    &lt;html&gt;
+    &lt;head&gt;
+    &lt;style&gt;
+        .watermark {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-45deg);
+            font-size: 60px;
+            color: rgba(128, 128, 128, 0.3);
+            z-index: 9999;
+            pointer-events: none;
+        }
+    &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;div class='watermark'&gt;CONFIDENTIAL&lt;/div&gt;
+        &lt;h1&gt;Document Content&lt;/h1&gt;
+        &lt;p&gt;Body text here.&lt;/p&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;";
+
+// Then POST this HTML to Gotenberg
+// This approach has limitations: doesn't apply to existing PDFs</code></pre>
+
+<h3>After: IronPDF Watermark on Existing PDFs</h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Editing;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+using var pdf = PdfDocument.FromFile("input.pdf");
+
+var stamp = new TextStamper
+{
+    Text                = "CONFIDENTIAL",
+    FontSize            = 40,
+    Opacity             = 30,
+    Rotation            = -45,
+    VerticalAlignment   = VerticalAlignment.Middle,
+    HorizontalAlignment = HorizontalAlignment.Center
+};
+
+pdf.ApplyStamp(stamp);
+pdf.SaveAs("watermarked.pdf");</code></pre>
+
+<h3>Password Protection: Not Available in Gotenberg</h3>
+
+<pre><code>// Gotenberg does not expose PDF password/encryption via its API routes.
+// Teams typically post-process PDF bytes with a second tool to add encryption.
+
+Console.WriteLine("Password protection is new capability — not available in Gotenberg routes");</code></pre>
+
+<h3>After: <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">IronPDF Password Protection</a></h3>
+
+<pre><code>using IronPdf;
+using IronPdf.Security;
+
+IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
+
+using var pdf = PdfDocument.FromFile("output.pdf");
+
+pdf.SecuritySettings.UserPassword  = "user123";
+pdf.SecuritySettings.OwnerPassword = "owner456";
+pdf.SecuritySettings.AllowUserPrinting         = PdfPrintSecurity.FullPrintRights;
+pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+
+pdf.SaveAs("protected.pdf");
+Console.WriteLine("Password protection applied — was not available via Gotenberg");</code></pre>
+
+<p>Gotenberg's Chromium routes don't expose watermark, stamp, or password protection APIs. Teams either inject watermarks via CSS in the source HTML (which can't apply to existing PDFs) or post-process with a second tool for encryption. IronPDF provides <code>TextStamper</code> for watermarks on any PDF and <code>SecuritySettings</code> for password protection and permission control &mdash; all in-process, no extra tooling.</p>
+
+<h2>How Does the Full Feature Set Compare?</h2>
+
+<h3>Namespace and API Mapping</h3>
+
+<ul>
+<li><code>HttpClient</code> + <code>MultipartFormDataContent</code> &rarr; <code>ChromePdfRenderer</code> &mdash; HTML/URL to PDF entry point</li>
+<li><code>/forms/chromium/convert/html</code> endpoint &rarr; <code>renderer.RenderHtmlAsPdf(html)</code> &mdash; HTML string to PDF</li>
+<li><code>/forms/chromium/convert/url</code> endpoint &rarr; <code>renderer.RenderUrlAsPdf(url)</code> &mdash; URL to PDF</li>
+<li><code>/forms/pdfengines/merge</code> endpoint &rarr; <code>PdfDocument.Merge(docs)</code> &mdash; PDF merge</li>
+</ul>
+
+<h3>Document Loading</h3>
+
+<ul>
+<li><strong>HTML string to PDF.</strong> Gotenberg: POST <code>/forms/chromium/convert/html</code>. IronPDF: <code>renderer.RenderHtmlAsPdf(html)</code>.</li>
+<li><strong>URL to PDF.</strong> Gotenberg: POST <code>/forms/chromium/convert/url</code>. IronPDF: <code>renderer.RenderUrlAsPdf(url)</code>.</li>
+<li><strong>Load existing PDF.</strong> Not a Gotenberg feature. IronPDF: <code>PdfDocument.FromFile(path)</code>.</li>
+<li><strong>Load from bytes.</strong> Not a Gotenberg feature. IronPDF: <code>PdfDocument.FromBinaryData(bytes)</code>.</li>
+</ul>
+
+<h3>Page Operations (New Capability Post-Migration)</h3>
+
+<ul>
+<li><strong>Page count.</strong> Not exposed by Gotenberg; IronPDF: <code>pdf.PageCount</code>.</li>
+<li><strong>Extract pages.</strong> Not a Gotenberg feature; IronPDF: <code>pdf.CopyPages(indices)</code>.</li>
+<li><strong>Rotate page.</strong> Not a Gotenberg route; IronPDF: <code>page.Rotation</code>.</li>
+<li><strong>Get page size.</strong> Not exposed by Gotenberg; IronPDF: <code>page.Width</code>, <code>page.Height</code>.</li>
+</ul>
+
+<h3>Merge/Split Operations</h3>
+
+<ul>
+<li><strong>Merge PDFs.</strong> Gotenberg: POST <code>/forms/pdfengines/merge</code>. IronPDF: <code>PdfDocument.Merge(docs)</code>.</li>
+<li><strong>Split PDF.</strong> Not a standard Gotenberg route. IronPDF: <code>pdf.CopyPages(indices)</code> to extract a page range into a new document.</li>
+</ul>
+
+<h3>Gotenberg Form Field to IronPDF Property Mapping</h3>
+
+<ul>
+<li><code>paperWidth</code> / <code>paperHeight</code> &rarr; <code>RenderingOptions.PaperSize</code> enum (or <code>SetCustomPaperSizeInInches</code> for non-standard sizes)</li>
+<li><code>marginTop</code> / <code>marginBottom</code> / <code>marginLeft</code> / <code>marginRight</code> &rarr; <code>RenderingOptions.MarginTop/Bottom/Left/Right</code> &mdash; note Gotenberg uses inches, IronPDF uses millimeters (multiply by 25.4)</li>
+<li><code>landscape</code> &rarr; <code>RenderingOptions.PaperOrientation</code> enum</li>
+<li><code>waitDelay</code> &rarr; <code>RenderingOptions.WaitFor.RenderDelay(ms)</code> in milliseconds (Gotenberg accepts strings like <code>"3s"</code>; <code>RenderDelay</code> property is deprecated)</li>
+</ul>
+
+<h2>What About Error Handling and Async Patterns?</h2>
+
+<p>Gotenberg surfaces errors as HTTP status codes. IronPDF throws exceptions. This is a fundamental shift in how your code handles failures.</p>
+
+<h3>Error Handling Migration</h3>
+
+<pre><code>// Before: HTTP error handling
+var response = await client.PostAsync("/forms/chromium/convert/html", content);
+if (!response.IsSuccessStatusCode)
+{
+    string body = await response.Content.ReadAsStringAsync();
+    throw new Exception($"Gotenberg error {response.StatusCode}: {body}");
+}
+
+// After: exception handling
+try
+{
+    using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+    // ...
+}
+catch (IronPdf.Exceptions.IronPdfException ex)
+{
+    Console.Error.WriteLine($"Render error: {ex.Message}");
+}</code></pre>
+
+<h3>Async Processing in ASP.NET Core</h3>
+
+<pre><code>public class PdfService
+{
+    private readonly ChromePdfRenderer _renderer = new ChromePdfRenderer();
+
+    public async Task&lt;byte[]&gt; GenerateAsync(string html)
+    {
+        using var pdf = await _renderer.RenderHtmlAsPdfAsync(html);
+        return pdf.BinaryData;
+    }
+}</code></pre>
+
+<p>Replace HTTP status code checks with try/catch on <code>IronPdf.Exceptions.IronPdfException</code>. For async patterns, IronPDF's <code>RenderHtmlAsPdfAsync</code> integrates directly with ASP.NET Core's async pipeline &mdash; no <code>HttpClient</code> management, no multipart form construction, just a renderer instance and an await call.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I keep Gotenberg running alongside IronPDF during migration?</h3>
+
+<p>Yes. Since Gotenberg is a separate service, you can run both in parallel. Migrate one endpoint at a time, verify PDF output visually against the Gotenberg baseline, and decommission the Gotenberg container only after all .NET callers have been migrated. If non-.NET services also consume your Gotenberg instance, those callers remain unaffected.</p>
+
+<h3>What happens to my Office document conversion if I drop Gotenberg?</h3>
+
+<p>IronPDF does not convert Office documents (Word, Excel, PowerPoint) to PDF. If you use Gotenberg's LibreOffice routes (<code>/forms/libreoffice/convert</code>), you'll need to either retain Gotenberg solely for those routes, use a separate Office conversion library, or restructure your source documents to HTML/CSS templates. This is the single most common blocker I see in this migration.</p>
+
+<h3>How does memory usage change when moving from a Gotenberg container to in-process IronPDF?</h3>
+
+<p>Gotenberg runs Chromium in a separate container, so memory usage is isolated from your .NET process. IronPDF runs Chromium in-process, meaning memory pressure affects your application's heap. For memory-constrained deployments, evaluate whether in-process Chromium is acceptable. For high-frequency conversions (100+ per minute), measure both approaches in your environment before concluding which is better for your workload.</p>
+
+<h3>Do I need Docker at all after migrating to IronPDF?</h3>
+
+<p>Not for PDF generation. One of the tangible developer experience wins is removing the Docker dependency for local PDF testing. Your .NET application handles rendering in-process. If you were running Docker solely for Gotenberg, you can drop it from your local development setup entirely. Update your local dev setup docs accordingly &mdash; no more Gotenberg Docker required.</p>
+
+<h2>How Do I Decide Whether This Migration Is Right for My Team?</h2>
+
+<p>Before a single line of code changes, answer these questions honestly.</p>
+
+<p><strong>Is the external service model a requirement?</strong> If other services (non-.NET) also call Gotenberg, IronPDF won't replace those callers. You'd be migrating only the .NET path.</p>
+
+<p><strong>Are you using Gotenberg's LibreOffice routes?</strong> If your pipeline converts Word or Excel documents to PDF via <code>/forms/libreoffice/convert</code>, that capability has no <a href="https://ironpdf.com/how-to/html-string-to-pdf/">IronPDF</a> equivalent. This is the question that most often stalls the migration.</p>
+
+<p><strong>What's your deployment constraint?</strong> Moving from microservice to in-process changes where the CPU/memory overhead lands. Gotenberg isolates Chromium in a container; IronPDF puts it in your application process.</p>
+
+<p>If you're a .NET-only Gotenberg consumer doing HTML and URL conversion, this migration is well-scoped and the code reduction is significant. You gain <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split capabilities</a>, <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">password protection</a>, watermarking, and page-level manipulation &mdash; none of which Gotenberg exposes through its API.</p>
+
+<p>The trade-off is real: you're moving from service isolation to in-process rendering. For teams where that trade-off works, the result is less infrastructure, simpler local development, and a substantially smaller codebase for PDF generation.</p>

@@ -1,0 +1,449 @@
+<h1>Syncfusion PDF vs IronPDF: A .NET Developer's Decision Guide</h1>
+
+<p>Picture an application generating thousands of compliance documents daily from dynamic HTML templates, with PDF generation consuming a sizeable share of CPU time during peak hours. Syncfusion PDF is a natural candidate to evaluate, given its broad feature surface as part of Essential Studio. Two architectural details tend to surface late in such evaluations: the Syncfusion HTML converter exposes a primarily synchronous <code>Convert(...)</code> API, and HTML-to-PDF deployment typically pulls in a separate platform-specific converter package alongside the core PDF library. Both points are answerable, but they are easier to weigh up front than after the integration is in place.</p>
+
+<p>This scenario highlights a common evaluation gap: comparing libraries based on feature lists rather than architectural alignment with actual workloads. Syncfusion PDF excels at programmatic PDF construction -- drawing text, shapes, and tables from scratch using its low-level API -- and at Office document conversion (Word/Excel/PowerPoint to PDF), an area where IronPDF does not compete directly. When your requirement is HTML-to-PDF conversion at scale, however, the rendering engine, async support, and API ergonomics become the determining factors. Understanding which strengths matter for your workload prevents optimizing for the wrong bottleneck.</p>
+
+<h2>What Is IronPDF?</h2>
+
+<p><a href="https://ironpdf.com">IronPDF</a> uses a Chromium-based rendering engine focused on HTML-to-PDF conversion. The library provides async methods throughout its API, enabling concurrent document generation without thread blocking. You pass HTML strings or URLs to the renderer, and it outputs PDFs that align with Chrome's print preview output -- no separate CSS workarounds for engine quirks.</p>
+
+<p>The performance profile favors HTML-heavy workloads: if you're converting web pages, rendering dashboard exports, or generating documents from templates, the Chromium engine handles modern HTML/CSS/JavaScript natively. For teams building from HTML first, this architectural match determines both development velocity and runtime characteristics. See the <a href="https://ironpdf.com/tutorials/html-to-pdf/">HTML to PDF tutorial</a> for implementation patterns.</p>
+
+<h2>What Are the Key Architectural Differences with Syncfusion PDF?</h2>
+
+<p>Syncfusion PDF Library is actively developed as part of the Essential Studio commercial suite. Regular updates add features like PDF/X compliance, OCR, and Office document conversion (Word/Excel/PowerPoint to PDF) -- the last is a real strength for teams whose source content is Office files rather than HTML. The library requires a commercial license for production use; a Community License is available for organizations meeting all of Syncfusion's published thresholds (currently revenue under $1M, no more than 5 developers, no more than 10 total employees, and no more than $3M lifetime outside capital — confirm current terms with <a href="https://www.syncfusion.com/products/communitylicense">syncfusion.com</a>), with a 30-day trial otherwise.</p>
+
+<p><strong>HTML Rendering Engine:</strong> Modern Syncfusion releases use a Blink-based HTML converter (the <code>Syncfusion.HtmlConverter</code> namespace), with the older Qt WebKit converter still available for legacy projects. Engine behavior depends on which converter and version you target -- verify CSS Grid, modern Flexbox, and ES6+ behavior against your specific Syncfusion version. By contrast, IronPDF tracks Chromium directly.</p>
+
+<p><strong>Async API Surface:</strong> Syncfusion's HTML conversion methods are predominantly synchronous (<code>converter.Convert(...)</code> returns a <code>PdfDocument</code>). In high-throughput ASP.NET applications, synchronous rendering ties up thread pool threads for the duration of each conversion. Wrapping in <code>Task.Run</code> moves the blocking off the request thread but does not introduce true async I/O.</p>
+
+<p><strong>Package Surface:</strong> HTML-to-PDF conversion historically requires multiple NuGet packages alongside the core <code>Syncfusion.Pdf.Net.Core</code>: a converter package (e.g., <code>Syncfusion.HtmlToPdfConverter.Net.Windows</code> or its Blink-based equivalent) plus the renderer binaries. Verify exact package names and platform targets against your Syncfusion version's documentation; deployment size and configuration vary across the converter options.</p>
+
+<p><strong>Renderer Binary Management:</strong> The HTML converter loads native rendering binaries (Blink or, for legacy projects, Qt WebKit). Container deployments typically require copying these binaries into the runtime image and configuring the path. Missing or mismatched binaries produce native loader errors rather than managed exceptions.</p>
+
+<p><strong>Dual-API Surface:</strong> Syncfusion exposes a low-level drawing API for coordinate-based PDF construction and a separate HTML converter for web-style content. The HTML converter returns a <code>PdfDocument</code> that the drawing API can manipulate. This is powerful when you genuinely need both, but it can lead to teams mixing layout logic across HTML and C# when the HTML output does not match expectations -- a maintenance cost worth weighing against an HTML-first approach.</p>
+
+<h2>How Do the APIs Compare for HTML-to-PDF Conversion?</h2>
+
+<h3>Syncfusion PDF -- Synchronous HTML Conversion</h3>
+
+<pre><code>// NuGet: Install-Package Syncfusion.Pdf.Net.Core
+//        plus the matching Syncfusion HTML converter package
+using Syncfusion.HtmlConverter;
+using Syncfusion.Pdf;
+using System.IO;
+
+public class SyncfusionHtmlConverterSample
+{
+    public byte[] ConvertHtmlStringToPdf(string htmlContent, string baseUrl)
+    {
+        // Initialize the HTML to PDF converter
+        HtmlToPdfConverter converter = new HtmlToPdfConverter();
+
+        // Synchronous conversion call
+        PdfDocument document = converter.Convert(htmlContent, baseUrl);
+
+        // Save to memory stream
+        using (MemoryStream ms = new MemoryStream())
+        {
+            document.Save(ms);
+            document.Close(true);
+            return ms.ToArray();
+        }
+    }
+
+    public byte[] ConvertUrlToPdf(string url)
+    {
+        HtmlToPdfConverter converter = new HtmlToPdfConverter();
+
+        // Synchronous URL fetch and render
+        PdfDocument document = converter.Convert(url);
+
+        using (MemoryStream ms = new MemoryStream())
+        {
+            document.Save(ms);
+            document.Close(true);
+            return ms.ToArray();
+        }
+    }
+
+    public byte[] ConvertWithCustomCss(string htmlContent, string cssContent)
+    {
+        // Inline CSS into the HTML payload
+        string styledHtml = $@&quot;
+            &lt;!DOCTYPE html&gt;
+            &lt;html&gt;
+            &lt;head&gt;
+                &lt;style&gt;{cssContent}&lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;{htmlContent}&lt;/body&gt;
+            &lt;/html&gt;&quot;;
+
+        HtmlToPdfConverter converter = new HtmlToPdfConverter();
+        PdfDocument document = converter.Convert(styledHtml, &quot;&quot;);
+
+        using (MemoryStream ms = new MemoryStream())
+        {
+            document.Save(ms);
+            document.Close(true);
+            return ms.ToArray();
+        }
+    }
+
+    public byte[] BatchConvertMultipleHtmlDocuments(string[] htmlContents)
+    {
+        // Manual loop: convert each HTML, then import pages into a merged document
+        PdfDocument mergedDocument = new PdfDocument();
+
+        foreach (var html in htmlContents)
+        {
+            HtmlToPdfConverter converter = new HtmlToPdfConverter();
+            PdfDocument doc = converter.Convert(html, &quot;&quot;);
+
+            // Import pages into merged document
+            mergedDocument.ImportPage(doc, 0, doc.Pages.Count);
+            doc.Close(true);
+        }
+
+        using (MemoryStream ms = new MemoryStream())
+        {
+            mergedDocument.Save(ms);
+            mergedDocument.Close(true);
+            return ms.ToArray();
+        }
+    }
+}</code></pre>
+
+<p><strong>Architectural Implications:</strong></p>
+
+<p><strong>Synchronous API:</strong> <code>Convert()</code> returns a <code>PdfDocument</code> directly rather than a <code>Task</code>. In ASP.NET request handlers, that ties up a thread for the duration of each conversion under load.</p>
+
+<p><strong>Manual Concurrency:</strong> Parallelizing conversions requires <code>Task.Run</code> wrappers around the synchronous calls; this offloads work but does not introduce non-blocking I/O underneath.</p>
+
+<p><strong>Native Renderer Binaries:</strong> Each converter instance brings up the underlying renderer (Blink in modern releases, Qt WebKit in legacy projects). Footprint and memory characteristics vary by converter -- verify against the version you target.</p>
+
+<p><strong>Manual Resource Management:</strong> <code>PdfDocument.Close(true)</code> must be called explicitly to release native resources; omitting it can leak resources that GC alone will not reclaim.</p>
+
+<p><strong>Renderer Path / Binary Configuration:</strong> Depending on the converter package and target platform, you may need to configure a binary path or copy native binaries into your container image. Treat this as a deployment-config item, not a one-line install.</p>
+
+<h3>IronPDF -- Async HTML Conversion</h3>
+
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+
+public class IronPdfAsyncConverter
+{
+    private readonly ChromePdfRenderer _renderer;
+
+    public IronPdfAsyncConverter()
+    {
+        IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
+        _renderer = new ChromePdfRenderer();
+    }
+
+    public async Task&lt;byte[]&gt; ConvertHtmlStringToPdfAsync(string htmlContent)
+    {
+        // True async operation - doesn't block threads
+        var pdf = await _renderer.RenderHtmlAsPdfAsync(htmlContent);
+        return pdf.BinaryData;
+    }
+
+    public async Task&lt;byte[]&gt; ConvertUrlToPdfAsync(string url)
+    {
+        // Async URL fetching and rendering
+        var pdf = await _renderer.RenderUrlAsPdfAsync(url);
+        return pdf.BinaryData;
+    }
+
+    public async Task&lt;byte[]&gt; ConvertWithCustomCssAsync(string htmlContent, string cssContent)
+    {
+        string styledHtml = $@&quot;
+            &lt;!DOCTYPE html&gt;
+            &lt;html&gt;
+            &lt;head&gt;
+                &lt;style&gt;{cssContent}&lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;{htmlContent}&lt;/body&gt;
+            &lt;/html&gt;&quot;;
+
+        var pdf = await _renderer.RenderHtmlAsPdfAsync(styledHtml);
+        return pdf.BinaryData;
+    }
+
+    public async Task&lt;byte[]&gt; BatchConvertMultipleHtmlDocumentsAsync(string[] htmlContents)
+    {
+        // Parallel async conversion with automatic thread management
+        var tasks = htmlContents.Select(html =&gt;
+            _renderer.RenderHtmlAsPdfAsync(html));
+
+        var pdfs = await Task.WhenAll(tasks);
+
+        // Built-in merge functionality
+        var merged = PdfDocument.Merge(pdfs);
+        return merged.BinaryData;
+    }
+
+    public async Task&lt;byte[]&gt; ConvertWithConcurrencyLimit(
+        string[] htmlContents, int maxConcurrency = 5)
+    {
+        // Process in batches to control resource usage
+        var pdfs = new List&lt;PdfDocument&gt;();
+
+        for (int i = 0; i &lt; htmlContents.Length; i += maxConcurrency)
+        {
+            var batch = htmlContents
+                .Skip(i)
+                .Take(maxConcurrency)
+                .Select(html =&gt; _renderer.RenderHtmlAsPdfAsync(html));
+
+            var batchResults = await Task.WhenAll(batch);
+            pdfs.AddRange(batchResults);
+        }
+
+        var merged = PdfDocument.Merge(pdfs);
+        return merged.BinaryData;
+    }
+}</code></pre>
+
+<p><strong>Architectural Implications:</strong></p>
+
+<p><strong>Async-first API:</strong> <code>RenderHtmlAsPdfAsync</code> and <code>RenderUrlAsPdfAsync</code> return <code>Task&lt;PdfDocument&gt;</code>, allowing the calling thread to be released during rendering and I/O.</p>
+
+<p><strong>Natural Parallelism:</strong> <code>Task.WhenAll()</code> patterns scale across many concurrent renders without manually managing threads.</p>
+
+<p><strong>Resource Management:</strong> <code>PdfDocument</code> implements <code>IDisposable</code>; <code>using</code> statements work as expected.</p>
+
+<p><strong>Single Package:</strong> The Chromium runtime ships with the IronPdf NuGet package, so there is no separate binary path to configure for typical Windows/Linux deployments.</p>
+
+<p><strong>CSS and JS Support:</strong> Because the renderer tracks Chromium, contemporary CSS (Grid, Flexbox, custom properties) and modern JavaScript work the same way they do in Chrome's print preview.</p>
+
+<p>For detailed rendering configuration, see the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a>.</p>
+
+<h2>How Does Programmatic PDF Construction Compare?</h2>
+
+<h3>Syncfusion PDF -- Low-Level Drawing API</h3>
+
+<pre><code>// NuGet: Install-Package Syncfusion.Pdf.Net.Core
+using Syncfusion.Pdf;
+using Syncfusion.Pdf.Graphics;
+using Syncfusion.Pdf.Grid;
+using Syncfusion.Drawing;
+using System.IO;
+
+public class SyncfusionLowLevelApi
+{
+    public byte[] CreateInvoiceFromScratch(InvoiceData data)
+    {
+        // This demonstrates what Syncfusion excels at:
+        // Low-level PDF construction without HTML
+
+        PdfDocument document = new PdfDocument();
+        PdfPage page = document.Pages.Add();
+        PdfGraphics graphics = page.Graphics;
+
+        // Manual positioning and drawing
+        PdfFont headerFont = new PdfStandardFont(PdfFontFamily.Helvetica, 18, PdfFontStyle.Bold);
+        PdfFont normalFont = new PdfStandardFont(PdfFontFamily.Helvetica, 12);
+
+        // Draw header
+        graphics.DrawString(&quot;INVOICE&quot;, headerFont, PdfBrushes.Black, new PointF(250, 20));
+        graphics.DrawString($&quot;Invoice #: {data.Number}&quot;, normalFont,
+            PdfBrushes.Black, new PointF(20, 60));
+
+        // Create table manually
+        PdfGrid table = new PdfGrid();
+        table.Columns.Add(4);
+        table.Headers.Add(1);
+
+        PdfGridRow headerRow = table.Headers[0];
+        headerRow.Cells[0].Value = &quot;Description&quot;;
+        headerRow.Cells[1].Value = &quot;Quantity&quot;;
+        headerRow.Cells[2].Value = &quot;Unit Price&quot;;
+        headerRow.Cells[3].Value = &quot;Total&quot;;
+
+        foreach (var item in data.Items)
+        {
+            PdfGridRow row = table.Rows.Add();
+            row.Cells[0].Value = item.Description;
+            row.Cells[1].Value = item.Quantity.ToString();
+            row.Cells[2].Value = $&quot;${item.UnitPrice:F2}&quot;;
+            row.Cells[3].Value = $&quot;${item.Total:F2}&quot;;
+        }
+
+        table.Draw(page, new PointF(20, 100));
+
+        using (MemoryStream ms = new MemoryStream())
+        {
+            document.Save(ms);
+            document.Close(true);
+            return ms.ToArray();
+        }
+    }
+}</code></pre>
+
+<p><strong>When This Approach Makes Sense:</strong> Syncfusion's low-level drawing API is appropriate when you're generating PDFs from non-HTML data sources (database rows, CSV files), precise coordinate-based positioning is required, you need programmatic control over PDF internals, or HTML's layout model is a poor fit for your content structure.</p>
+
+<h3>IronPDF -- HTML-First Approach</h3>
+
+<pre><code>// NuGet: Install-Package IronPdf
+using IronPdf;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+
+public class IronPdfHtmlFirstApproach
+{
+    public async Task&lt;byte[]&gt; CreateInvoiceFromHtmlAsync(InvoiceData data)
+    {
+        IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
+        // Same invoice, expressed as HTML
+        string html = $@&quot;
+            &lt;!DOCTYPE html&gt;
+            &lt;html&gt;
+            &lt;head&gt;
+                &lt;style&gt;
+                    body {{ font-family: Arial; margin: 40px; }}
+                    .header {{ font-size: 24px; font-weight: bold; text-align: center; }}
+                    table {{ width: 100%; border-collapse: collapse; margin-top: 30px; }}
+                    th, td {{ border: 1px solid #ddd; padding: 10px; text-align: left; }}
+                    th {{ background: #f2f2f2; font-weight: bold; }}
+                    .total {{ font-size: 16px; font-weight: bold; margin-top: 20px; }}
+                &lt;/style&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+                &lt;div class='header'&gt;INVOICE&lt;/div&gt;
+                &lt;p&gt;&lt;strong&gt;Invoice #:&lt;/strong&gt; {data.Number}&lt;/p&gt;
+                &lt;table&gt;
+                    &lt;thead&gt;
+                        &lt;tr&gt;
+                            &lt;th&gt;Description&lt;/th&gt;&lt;th&gt;Quantity&lt;/th&gt;
+                            &lt;th&gt;Unit Price&lt;/th&gt;&lt;th&gt;Total&lt;/th&gt;
+                        &lt;/tr&gt;
+                    &lt;/thead&gt;
+                    &lt;tbody&gt;
+                        {string.Join(&quot;&quot;, data.Items.Select(item =&gt;
+                            $@&quot;&lt;tr&gt;
+                                &lt;td&gt;{item.Description}&lt;/td&gt;
+                                &lt;td&gt;{item.Quantity}&lt;/td&gt;
+                                &lt;td&gt;${item.UnitPrice:F2}&lt;/td&gt;
+                                &lt;td&gt;${item.Total:F2}&lt;/td&gt;
+                            &lt;/tr&gt;&quot;))}
+                    &lt;/tbody&gt;
+                &lt;/table&gt;
+                &lt;div class='total'&gt;Total: ${data.Items.Sum(i =&gt; i.Total):F2}&lt;/div&gt;
+            &lt;/body&gt;
+            &lt;/html&gt;&quot;;
+
+        var renderer = new ChromePdfRenderer();
+        var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+        return pdf.BinaryData;
+    }
+}
+
+public class InvoiceData
+{
+    public string Number { get; set; }
+    public List&lt;InvoiceItem&gt; Items { get; set; }
+}
+
+public class InvoiceItem
+{
+    public string Description { get; set; }
+    public int Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal Total =&gt; Quantity * UnitPrice;
+}</code></pre>
+
+<p><strong>Code Comparison:</strong> The Syncfusion sample is largely C# positioning and drawing logic; the IronPDF sample is declarative HTML/CSS embedded in C#. The HTML version is typically easier to maintain because designers can adjust layouts, styling changes don't require recompilation, and previewing in a browser approximates the PDF output.</p>
+
+<p>For comprehensive rendering options and performance tuning, see the <a href="https://ironpdf.com/object-reference/api/IronPdf.ChromePdfRenderer.html">ChromePdfRenderer API reference</a>.</p>
+
+<h2>What Does the Comprehensive Feature Comparison Look Like?</h2>
+
+<ul>
+<li><strong>Status and support.</strong> Both libraries are actively developed with regular releases. Syncfusion offers ticket-based commercial support as part of Essential Studio; IronPDF offers direct engineering support to license holders.</li>
+<li><strong>HTML engine.</strong> Modern Syncfusion ships a Blink-based HTML converter, with the legacy Qt WebKit converter still available for older projects -- verify CSS Grid, modern Flexbox, and ES6+ behavior against your specific Syncfusion version. IronPDF tracks Chromium directly.</li>
+<li><strong>Async HTML rendering.</strong> Syncfusion's HTML converter exposes synchronous <code>Convert(...)</code> methods. IronPDF exposes <code>Task</code>-based <code>RenderHtmlAsPdfAsync</code> / <code>RenderUrlAsPdfAsync</code> alongside the synchronous overloads.</li>
+<li><strong>Concurrency model.</strong> Scaling Syncfusion conversions across many requests typically means wrapping synchronous calls in <code>Task.Run</code>; IronPDF supports <code>Task.WhenAll</code>-style parallelism naturally.</li>
+<li><strong>Resource management.</strong> Syncfusion <code>PdfDocument</code> objects expect explicit <code>Close(true)</code> to release native resources; IronPDF <code>PdfDocument</code> implements <code>IDisposable</code>.</li>
+<li><strong>Core PDF operations.</strong> Both libraries support merge, split, text extraction, digital signatures, and form filling. Syncfusion exposes merge via <code>ImportPage</code>/<code>ImportPageRange</code>; IronPDF exposes <code>PdfDocument.Merge()</code>.</li>
+<li><strong>Office document conversion.</strong> Syncfusion supports Word, Excel, and PowerPoint to PDF directly through the Essential Studio suite -- a real strength when source content is Office files. IronPDF does not provide Office-to-PDF conversion as a built-in feature.</li>
+<li><strong>.NET targets.</strong> Both support .NET Framework, .NET Core, and .NET 5+.</li>
+<li><strong>NuGet packaging.</strong> Syncfusion HTML-to-PDF typically needs the core <code>Syncfusion.Pdf.Net.Core</code> package plus the converter and renderer-binary packages. IronPDF ships as a single <code>IronPdf</code> NuGet package with Chromium binaries included.</li>
+<li><strong>Cross-platform.</strong> Syncfusion runs on Windows and Linux; IronPDF supports Windows, Linux, and macOS.</li>
+<li><strong>Containers.</strong> Both can run in containers; Syncfusion deployments typically require copying the renderer binaries into the runtime image, while IronPDF's bundled binaries reduce the path-configuration step.</li>
+<li><strong>Cloud hosting.</strong> Both vendors document Azure and AWS hosting scenarios.</li>
+</ul>
+
+<h2>How Does Installation Compare?</h2>
+
+<h3>Syncfusion PDF Setup</h3>
+
+<pre><code>dotnet add package Syncfusion.Pdf.Net.Core
+# Plus the HTML converter package matching your target platform/engine, e.g.:
+dotnet add package Syncfusion.HtmlToPdfConverter.Net.Windows</code></pre>
+
+<p>Depending on the converter package and platform, you may also need to ensure the renderer binaries (Blink or Qt WebKit, depending on your Syncfusion version) are present in the deployment and -- for some converters -- configure a binary path. Check the package documentation for the version you target.</p>
+
+<h3>IronPDF Setup</h3>
+
+<pre><code>dotnet add package IronPdf</code></pre>
+
+<pre><code>using IronPdf;
+
+IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
+
+var renderer = new ChromePdfRenderer();
+var pdf = await renderer.RenderHtmlAsPdfAsync(&quot;&lt;h1&gt;Hello World&lt;/h1&gt;&quot;);</code></pre>
+
+<p>A single package; the bundled Chromium binaries cover typical Windows and Linux deployments without separate path configuration.</p>
+
+<h2>What Does the API Mapping Look Like Between the Two Libraries?</h2>
+
+<ul>
+<li><code>HtmlToPdfConverter</code> &mdash; <code>ChromePdfRenderer</code> &mdash; the IronPDF renderer adds async overloads.</li>
+<li><code>BlinkConverterSettings</code> / <code>WebKitConverterSettings</code> &mdash; <code>ChromePdfRenderOptions</code> &mdash; strongly-typed configuration.</li>
+<li><code>converter.Convert(html, baseUrl)</code> &mdash; <code>renderer.RenderHtmlAsPdf(html)</code> / <code>RenderHtmlAsPdfAsync(html)</code>.</li>
+<li><code>PdfDocument.Save(stream)</code> &mdash; <code>pdf.SaveAs(path)</code> or <code>pdf.BinaryData</code> &mdash; both file and byte-array outputs.</li>
+<li>Renderer binary path configuration &mdash; not required for typical IronPDF deployments &mdash; binaries ship with the package.</li>
+<li><code>PdfGrid</code> drawing API &mdash; HTML <code>&lt;table&gt;</code> &mdash; declarative HTML/CSS instead of procedural drawing.</li>
+<li><code>PdfGraphics.DrawString()</code> &mdash; HTML text elements &mdash; the Chromium layout engine handles positioning and wrapping.</li>
+<li>Manual page management &mdash; Chromium-driven automatic pagination.</li>
+<li><code>PdfDocument.ImportPage()</code> / <code>ImportPageRange()</code> &mdash; <code>PdfDocument.Merge()</code> &mdash; built-in merge.</li>
+<li>Synchronous-first conversion API &mdash; async-first conversion API with <code>Task</code>-based methods.</li>
+<li>Multiple NuGet packages (core + converter + renderer binaries) &mdash; single <code>IronPdf</code> NuGet package.</li>
+</ul>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I use Syncfusion's drawing API alongside IronPDF's HTML rendering?</h3>
+
+<p>Not directly -- they are separate libraries with different PDF document models. However, if you need both programmatic drawing and HTML rendering, IronPDF's HTML-first approach covers most use cases. You express layouts in HTML/CSS rather than coordinate-based drawing code, and the Chromium engine handles positioning automatically. For teams already invested in Syncfusion's drawing API for non-HTML scenarios, it may make sense to use both libraries for their respective strengths.</p>
+
+<h3>How does Syncfusion's HTML engine compare to IronPDF's Chromium engine for CSS support?</h3>
+
+<p>Modern Syncfusion releases use a Blink-based HTML converter, while older Syncfusion projects may still use the legacy Qt WebKit converter -- which has documented gaps around CSS Grid, modern Flexbox, and ES6+ APIs. Verify behavior against the specific Syncfusion converter and version you target. IronPDF's Chromium-based engine handles contemporary CSS (Grid, Flexbox, custom properties) and modern JavaScript without separate workarounds, since it tracks Chromium's print rendering directly.</p>
+
+<h3>Is Syncfusion PDF a good choice for high-throughput async web applications?</h3>
+
+<p>Syncfusion's HTML conversion API is predominantly synchronous; there is no first-class <code>Task</code>-based async overload for the conversion call itself. Wrapping it in <code>Task.Run</code> moves the blocking off the request thread but does not make the underlying I/O non-blocking. <a href="https://ironpdf.com">IronPDF</a> provides async methods throughout -- <code>RenderHtmlAsPdfAsync</code>, <code>RenderUrlAsPdfAsync</code> -- which fit ASP.NET request pipelines naturally.</p>
+
+<h3>What are the deployment differences between the two libraries?</h3>
+
+<p>Syncfusion HTML-to-PDF typically involves the core <code>Syncfusion.Pdf.Net.Core</code> package plus a converter package and its renderer binaries (Blink in modern releases, Qt WebKit in legacy projects). Container deployments commonly require copying the renderer binaries into the runtime image. <a href="https://ironpdf.com/tutorials/html-to-pdf/">IronPDF</a> installs as a single NuGet package with Chromium binaries included, which simplifies the typical container deployment path.</p>
+
+<h2>When Should You Stay with Syncfusion vs. Switch to IronPDF?</h2>
+
+<p><strong>Consider staying with Syncfusion PDF if:</strong> you primarily use the low-level drawing API for coordinate-based PDF construction; your organization already holds Syncfusion Essential Studio licenses; HTML rendering is a minor part of your PDF workload; your inputs are structured data or Office documents (Word/Excel/PowerPoint), where Syncfusion's Office-to-PDF conversion is a real strength IronPDF does not match; you need ZUGFeRD or other specific Syncfusion features; or you qualify for the Syncfusion Community License (revenue, developer-count, employee-count, and outside-capital thresholds all apply — see Syncfusion's current terms).</p>
+
+<p><strong>Consider IronPDF when:</strong> HTML-to-PDF conversion is the primary use case; high-throughput web applications need first-class async APIs; you target modern CSS/JavaScript without engine workarounds; containerized deployment with minimal binary configuration is a priority; you need cross-platform support across Windows, Linux, and macOS; or your team prefers HTML/CSS layouts over procedural drawing code.</p>
+
+<p>Syncfusion PDF Library is a comprehensive PDF toolkit with strengths in coordinate-based PDF construction and Office document conversion. The architectural friction shows up in HTML-to-PDF scenarios -- engine behavior depends on which converter you target, the conversion API is synchronous, and the multi-package deployment model adds container-image work.</p>
+
+<p>IronPDF's design centers on the HTML-to-PDF use case. The Chromium engine handles modern web content directly, async methods fit ASP.NET pipelines, and the bundled binaries simplify the typical deployment story. Teams building from HTML templates, converting web pages, or generating documents from CSS-styled content tend to find the Chromium-based approach a closer match for both development and runtime characteristics.</p>
+
+<p><em>Written by <a href="https://ironsoftware.com/about-us/authors/jacobmellor/">Jacob Mellor</a>, CTO at Iron Software. Jacob is the creator of IronPDF and leads teams building .NET document processing libraries that help developers at scale.</em></p>
