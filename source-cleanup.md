@@ -11,13 +11,13 @@ look, confirm or correct each flag, and exit with no leftover markers.
 
 INPUTS
 - Competitor subdirectory: <competitor>/
-- Files: <competitor>/migrate-from-<competitor>.md and <competitor>/*.cs
+- Files: <competitor>/README.md and <competitor>/*.cs
 - Web access REQUIRED.
 
 PROCESS
 
 STEP 1 — INVENTORY THE FLAGS
-Scan the md and .cs files for:
+Scan the README and .cs files for:
 - Prose hedges: "verify against <vendor>.com", "verify in your version's
   docs", "verify against the current docs", "confirm before using".
 - Pass-1 explicit markers: "could not confirm during this pass",

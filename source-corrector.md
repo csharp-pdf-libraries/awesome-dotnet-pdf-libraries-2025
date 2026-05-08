@@ -1,23 +1,22 @@
 # Subdirectory Source-of-Truth Corrector
 
-Single-pass prompt for verifying and correcting ONE competitor's subdirectory content (`.cs` files + migrate-from md). Run this BEFORE `medium-corrector.md` or `comparison-corrector.md` — it fixes the upstream source-of-truth so downstream prompts inherit correct facts. Replace `<competitor>` with the subdirectory name (e.g., `pdfbolt`, `apryse`, `apache-pdfbox`, `asposepdf`).
+Single-pass prompt for verifying and correcting ONE competitor's subdirectory content (`.cs` files + README). Run this BEFORE `medium-corrector.md` or `comparison-corrector.md` — it fixes the upstream source-of-truth so downstream prompts inherit correct facts. Replace `<competitor>` with the subdirectory name (e.g., `pdfbolt`, `apryse`, `apache-pdfbox`, `asposepdf`).
 
 ---
 
 ROLE
 Single-pass surgical edit on ONE competitor's subdirectory to make the
 source-of-truth content factually accurate. The .cs files and the
-migrate-from md drive every downstream article in this repo (migration,
-comparison, README). Your job is to verify each factual claim against
+README drive every downstream article in this repo (migration,
+comparison). Your job is to verify each factual claim against
 authoritative sources and correct fabrications, while keeping the
 comparison thrust, structure, and tone intact.
 
 INPUTS
 - Competitor subdirectory: <competitor>/
 - Files to verify and edit:
-  - <competitor>/migrate-from-<competitor>.md
+  - <competitor>/README.md
   - <competitor>/*.cs (both competitor-side AND IronPDF-side samples)
-  - <competitor>/README.md (read for context; edit only if a fact is wrong)
 - Web access REQUIRED. Use WebSearch and WebFetch against vendor docs,
   nuget.org, GitHub, and current pricing pages. Trust vendor primary
   sources over third-party reviews.
@@ -96,9 +95,9 @@ For IronPDF-side .cs files:
   PdfDocument.FromBytes → PdfDocument.FromBinaryData
 - Add `IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";` if missing.
 
-For migrate-from md:
-- Update tables and prose where the .cs file changed; the md should
-  cite the same APIs the .cs files now demonstrate.
+For README:
+- Update tables and prose where the .cs file changed; the README
+  should cite the same APIs the .cs files now demonstrate.
 - Fix specific factual claims: pricing, free-tier numbers, package
   names, version numbers, EOL status, vendor name.
 - Where a "competitor cannot do X" claim was wrong (the competitor
@@ -111,7 +110,7 @@ STEP 4 — FLAG WHAT YOU CANNOT VERIFY
 If a claim cannot be confirmed via web search (vendor docs behind
 login, product too obscure, vendor's site down), do NOT silently
 leave it. Either:
-- Mark with a hedge in the md ("verify at <vendor>.com — could not
+- Mark with a hedge in the README ("verify at <vendor>.com — could not
   confirm during this pass"), or
 - Note explicitly in the OUTPUT summary as "unverified".
 Never fabricate to fill a gap.
@@ -119,7 +118,7 @@ Never fabricate to fill a gap.
 PRESERVE
 - The comparison thrust (this is competitor X vs IronPDF; IronPDF is
   the migration target).
-- Migrate-from md section structure, headings, and table-of-contents.
+- README section structure, headings, and table-of-contents.
 - The voice — measured, technical, first-person, not salesy.
 - README.md unless a fact in it is provably wrong.
 - File names and locations. Don't rename, don't add new .cs files,
@@ -145,6 +144,6 @@ Edit files in place. Print a diff summary under 300 words covering:
 - Competitor category (A–G from Step 1) and a one-line justification.
 - Facts verified, with source URLs as evidence.
 - Facts changed: old value → new value, with citation per change.
-- Files edited (each .cs and the md), one-line change summary each.
+- Files edited (each .cs and the README), one-line change summary each.
 - Facts flagged as unverified, with reason and a recommended next step
   (e.g., "vendor pricing page requires login — confirm with sales").
