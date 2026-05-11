@@ -1,0 +1,781 @@
+<!-- FRONTMATTER
+  title: Migrating from MuPDF to IronPDF: a .NET engineering guide
+  subtitle: API mapping, gotchas, and a migration checklist
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-mupdf/
+  description: Replacing MuPDF with IronPDF in your .NET stack? This guide covers what changes, what maps directly, and how to complete the switch efficiently.
+  published: False
+-->
+
+<h1>Migrating from MuPDF to IronPDF: a .NET engineering guide</h1>
+
+<p class="subtitle"><em>API mapping, gotchas, and a migration checklist</em></p>
+
+<h2>Framing</h2>
+
+<p>MuPDF occupies a distinctive position in the PDF library landscape. Developed by Artifex Software as the rendering engine inside Ghostscript and a foundation for many PDF readers, it is a high-performance C library with a reputation for correctness and speed in PDF parsing, text extraction, and page rasterization. Teams that integrate MuPDF into .NET applications typically do so for these specific capabilities — extracting text with accurate positional data, rendering PDF pages to images at configurable DPI, or validating that a PDF's content is structured as expected. The integration path is through P/Invoke wrappers or unofficial NuGet packages that bind to MuPDF's native binaries.</p>
+
+<p>The friction points that prompt re-evaluation are characteristically those of any native interop layer. Multi-platform binary management (x64, x86, ARM, Linux, macOS, Windows) becomes a deployment concern. P/Invoke boundary crossings, pinned memory lifetimes, and MuPDF's own context management require care to avoid leaks or access violations. And as application requirements expand — from extraction and rasterization toward manipulation, signature, form filling, or PDF generation from HTML — MuPDF's scope does not cover the new territory. Teams find themselves assembling a stack of libraries where a single managed library would reduce the integration surface.</p>
+
+<p>This guide covers the migration from MuPDF (via its .NET bindings) to IronPDF for .NET engineers evaluating or executing the switch. MuPDF is actively maintained by Artifex; the last release and .NET binding support should be verified in official documentation. The migration is classified as Low effort because the operations MuPDF is typically used for in .NET — text extraction, PDF-to-image rasterization, and basic document reading — map directly to IronPDF equivalents with cleaner managed-code APIs and no P/Invoke boundary.</p>
+
+<h2>What MuPDF Is Designed to Do</h2>
+
+<p>MuPDF is an open-source C library published by Artifex Software. Its core capabilities are PDF parsing (reading and validating PDF structure), high-quality page rasterization (rendering PDF pages to pixel buffers at arbitrary DPI), text extraction with positional data (characters with bounding box coordinates), annotation reading, and basic document manipulation. MuPDF is also the foundation for Ghostscript's PDF rendering pipeline and is embedded in many commercial PDF readers.</p>
+
+<p>For .NET applications, MuPDF is accessed through native interop. The official Artifex distribution does not include a first-class .NET SDK; teams typically use MuPDF.NET (an unofficial community binding), write their own P/Invoke wrappers, or use a vendor SDK built on MuPDF. The install footprint involves native binaries (MuPDF shared libraries for each target platform) alongside any managed wrapper assembly. Primary use cases include PDF content indexing and search (text extraction), thumbnail generation (rasterization to images), PDF preflight validation, and document viewing in applications that embed MuPDF's rendering. MuPDF does not provide HTML-to-PDF rendering, digital signatures, form filling, or PDF/A compliance output.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>MuPDF and IronPDF approach PDF processing from different starting points. MuPDF is a native C library accessed via interop, focused on reading and rendering existing PDF content. IronPDF is a fully managed .NET library that both generates PDFs from HTML/CSS (via embedded Chromium) and manipulates existing PDFs through a managed object model.</p>
+
+<p>IronPDF's two central types are <code>ChromePdfRenderer</code> (for generating PDFs from HTML) and <code>PdfDocument</code> (for the resulting document and all manipulation). Both implement <code>IDisposable</code> and use standard .NET resource management — no P/Invoke, no pinned memory, no native context lifecycle. Text extraction in IronPDF uses <code>pdf.ExtractAllText()</code> and <code>pdf.ExtractTextFromPage(n)</code>. Rasterization uses <code>pdf.RasterizeToImageFiles()</code>. The <a href="https://ironpdf.com/how-to/rasterize-pdf-to-images/">PDF to image guide</a> covers rasterization DPI and format options. License initialization is a one-time startup call; see the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</p>
+
+<p>The operational shift from MuPDF to IronPDF removes all native binary distribution requirements on Windows. On Linux, IronPDF requires Chromium system library packages rather than MuPDF shared libraries — a different dependency profile, but the same platform-specific packaging concern. The key improvement is that IronPDF's API is pure .NET, eliminating the P/Invoke boundary and its associated memory management obligations.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Extract full document text</td>
+      <td>Low</td>
+      <td><code>pdf.ExtractAllText()</code></td>
+      <td>MuPDF provides richer positional data</td>
+    </tr>
+    <tr>
+      <td>Extract text per page</td>
+      <td>Low</td>
+      <td><code>pdf.ExtractTextFromPage(n)</code></td>
+      <td>MuPDF: 0-based page index; verify IronPDF convention</td>
+    </tr>
+    <tr>
+      <td>Rasterize page to image</td>
+      <td>Low</td>
+      <td><code>pdf.RasterizeToImageFiles()</code></td>
+      <td>MuPDF: direct pixel buffer; IronPDF: saves to image file</td>
+    </tr>
+    <tr>
+      <td>Get page count</td>
+      <td>Low</td>
+      <td><code>pdf.PageCount</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Load PDF from file</td>
+      <td>Low</td>
+      <td><code>PdfDocument.FromFile(path)</code></td>
+      <td>Replaces MuPDF native open</td>
+    </tr>
+    <tr>
+      <td>Load PDF from byte array</td>
+      <td>Low</td>
+      <td><code>PdfDocument.FromStream(stream)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>New vs MuPDF scope</td>
+    </tr>
+    <tr>
+      <td>Split / extract pages</td>
+      <td>Low</td>
+      <td><code>PdfDocument.CopyPages()</code></td>
+      <td>New vs MuPDF scope</td>
+    </tr>
+    <tr>
+      <td>HTML to PDF generation</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>Not in MuPDF scope</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Low</td>
+      <td><code>PdfSignature</code></td>
+      <td>New vs MuPDF scope</td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAsPdfA()</code></td>
+      <td>New vs MuPDF scope</td>
+    </tr>
+    <tr>
+      <td>Form filling</td>
+      <td>Low</td>
+      <td><code>pdf.Form.Fields</code></td>
+      <td>New vs MuPDF scope</td>
+    </tr>
+    <tr>
+      <td>Native binary management</td>
+      <td>Low</td>
+      <td>Eliminated on Windows</td>
+      <td>Linux: Chromium libs required</td>
+    </tr>
+    <tr>
+      <td>P/Invoke boundary</td>
+      <td>Low</td>
+      <td>Eliminated</td>
+      <td>Pure managed code</td>
+    </tr>
+    <tr>
+      <td>Word-level bounding boxes</td>
+      <td>High</td>
+      <td>Not in IronPDF</td>
+      <td>MuPDF provides character/word positions</td>
+    </tr>
+    <tr>
+      <td>Annotation reading</td>
+      <td>-</td>
+      <td><code>IronPdf.Annotations.*</code></td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>Text Extraction</h3>
+
+<h4>MuPDF — Text Extraction via .NET Binding</h4>
+
+<pre><code class="language-csharp">// MuPDF .NET binding — API varies by binding library (MuPDF.NET, custom P/Invoke, etc.)
+// This illustrates the conceptual pattern; verify exact API in your binding's documentation
+
+// MuPDF context is required for all operations — must be created and disposed
+// The specific binding may wrap this in a class or expose it directly
+
+// Conceptual pattern:
+// 1. Create or obtain a MuPDF context (fz_context* in native)
+// 2. Open the PDF document (fz_open_document)
+// 3. Iterate pages (fz_load_page for each page index)
+// 4. Create a structured text page (fz_new_stext_page_from_page)
+// 5. Walk the text blocks, lines, and characters
+// 6. Release resources in reverse order (fz_drop_*)
+
+// Example using a hypothetical managed wrapper:
+// using var ctx = new MuPdfContext();
+// using var doc = ctx.OpenDocument(&quot;source.pdf&quot;);
+// var pageCount = doc.CountPages();
+//
+// for (int pageIndex = 0; pageIndex &lt; pageCount; pageIndex++)
+// {
+//     using var page = doc.LoadPage(pageIndex);
+//     string pageText = page.ToText(); // varies by binding
+//     Console.WriteLine(pageText);
+// }</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>MuPDF's native API requires explicit resource release in the correct order — contexts, documents, pages, and text pages each have separate <code>fz_drop_*</code> functions. Bindings wrap this but the underlying requirement does not go away.</li>
+
+  <li>MuPDF provides structured text with character-level bounding box coordinates (<code>fz_stext_char</code>). This positional data is the primary reason teams choose MuPDF over simpler extractors. If downstream code processes character or word positions, verify whether IronPDF's <code>ExtractAllText()</code> meets requirements before migrating.</li>
+
+  <li>The exact API depends entirely on which .NET binding is in use — there is no canonical MuPDF .NET SDK.</li>
+
+  <li>Thread safety of the MuPDF context depends on the binding and the threading model used</li>
+
+</ul>
+
+<h4>IronPDF — Text Extraction</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// Load the PDF document — IDisposable, requires using block
+using var pdf = PdfDocument.FromFile(&quot;source.pdf&quot;);
+
+// Extract all text from the entire document as a plain string
+string allText = pdf.ExtractAllText();
+Console.WriteLine(allText);
+
+// Extract text from a specific page (zero-based index)
+string firstPageText = pdf.ExtractTextFromPage(0);
+Console.WriteLine(firstPageText);
+
+// Page count — equivalent to MuPDF's CountPages()
+int pageCount = pdf.PageCount;
+Console.WriteLine($&quot;Total pages: {pageCount}&quot;);</code></pre>
+
+<p>IronPDF's <code>ExtractAllText()</code> returns plain text without positional bounding box data. For workflows that require text content without word positions — search indexing, content auditing, document summarization — this is sufficient. The <a href="https://ironpdf.com/how-to/extract-text-and-images/">extract text and images guide</a> covers extraction options. If character-level positional data is required by the current implementation, verify whether IronPDF's extraction API meets that requirement before committing to migration.</p>
+
+<h3>PDF Page Rasterization (PDF to Image)</h3>
+
+<h4>MuPDF — Rasterization via .NET Binding</h4>
+
+<pre><code class="language-csharp">// MuPDF rasterization — conceptual pattern
+// The exact API depends on the .NET binding in use
+// Verify class and method names in your specific binding's documentation
+
+// Conceptual steps:
+// 1. Open document (same as text extraction)
+// 2. Load the target page by index
+// 3. Create a transformation matrix for the desired DPI (72 DPI is MuPDF's base)
+//    Scale factor = target DPI / 72.0
+//    e.g., for 150 DPI: fz_scale(150/72.0, 150/72.0)
+// 4. Create a pixmap with the scaled bounds and desired colorspace (RGB)
+// 5. Run the display list or draw the page to the pixmap
+// 6. Export the pixmap to PNG/JPEG bytes or a managed Bitmap
+// 7. Release pixmap and page resources
+
+// DPI calculation in MuPDF is manual:
+// float scale = targetDpi / 72.0f;
+// var matrix = Matrix.Scale(scale, scale); // varies by binding
+// var pixmap = page.ToPixmap(matrix, ColorSpace.Rgb); // varies by binding
+// byte[] pngBytes = pixmap.ToPng(); // varies by binding
+// pixmap.Dispose(); // critical — pixmaps hold large native allocations</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>MuPDF's base resolution is 72 DPI (1 point = 1 pixel). Achieving 150 DPI requires a scale factor of 150/72 ≈ 2.083. Higher DPI values produce proportionally larger pixmaps — memory usage scales quadratically with DPI.</li>
+
+  <li>Pixmaps hold large native memory allocations and must be released promptly. Failure to dispose pixmaps is a common source of native memory pressure in MuPDF integrations.</li>
+
+  <li>The colorspace must be selected explicitly (RGB, RGBA, Grayscale). Alpha channel presence affects the output format (RGBA requires PNG; JPEG does not support alpha).</li>
+
+  <li>MuPDF renders annotations and form content as part of the page by default; options to suppress these may vary by binding.</li>
+
+</ul>
+
+<h4>IronPDF — PDF to Image Rasterization</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// Load the source PDF
+using var pdf = PdfDocument.FromFile(&quot;source.pdf&quot;);
+
+// Rasterize all pages to PNG files at 150 DPI
+// Returns an array of file paths to the generated images
+string[] imagePaths = pdf.RasterizeToImageFiles(
+    &quot;page-*.png&quot;,    // output file name pattern — * is replaced by page number
+    dpi: 150);
+
+Console.WriteLine($&quot;Generated {imagePaths.Length} image files.&quot;);
+
+// Rasterize a specific page range (0-based page indices)
+string[] selectedPaths = pdf.RasterizeToImageFiles(
+    &quot;selected-*.png&quot;,
+    dpi: 300,
+    fromPage: 0,
+    toPage: 2);   // pages 0, 1, 2 (first three pages)</code></pre>
+
+<p>IronPDF's <code>RasterizeToImageFiles()</code> handles the DPI matrix calculation, colorspace selection, and file encoding automatically. The native pixmap lifecycle from MuPDF's model is entirely managed by IronPDF internally. The <a href="https://ironpdf.com/how-to/rasterize-pdf-to-images/">PDF to image guide</a> covers DPI settings, output formats (PNG, JPEG, BMP), and page range selection.</p>
+
+<h3>Loading and Reading PDF Metadata</h3>
+
+<h4>MuPDF — Metadata Access</h4>
+
+<pre><code class="language-csharp">// MuPDF metadata access — conceptual pattern
+// Verify exact method names in your binding's documentation
+
+// MuPDF exposes PDF metadata via fz_lookup_metadata()
+// Common metadata keys: &quot;format&quot;, &quot;info:Title&quot;, &quot;info:Author&quot;,
+// &quot;info:Subject&quot;, &quot;info:Keywords&quot;, &quot;info:Creator&quot;, &quot;info:Producer&quot;
+
+// Conceptual example:
+// using var ctx = new MuPdfContext();
+// using var doc = ctx.OpenDocument(&quot;source.pdf&quot;);
+//
+// string title   = doc.GetMetadata(&quot;info:Title&quot;);   // verify method name
+// string author  = doc.GetMetadata(&quot;info:Author&quot;);
+// string creator = doc.GetMetadata(&quot;info:Creator&quot;);
+// string format  = doc.GetMetadata(&quot;format&quot;);       // e.g., &quot;PDF 1.7&quot;
+//
+// Console.WriteLine($&quot;Title: {title}&quot;);
+// Console.WriteLine($&quot;Author: {author}&quot;);
+// Console.WriteLine($&quot;Format: {format}&quot;);</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>MuPDF's metadata keys use the <code>info:</code> prefix for standard PDF Info dictionary entries. The exact API for retrieving metadata depends on the .NET binding.</li>
+
+  <li>MuPDF does not write metadata — modifications require a binding that exposes <code>pdf_set_obj()</code> or use a separate PDF manipulation tool.</li>
+
+  <li>PDF version/format is accessible via <code>fz_lookup_metadata(doc, "format", ...)</code>.</li>
+
+</ul>
+
+<h4>IronPDF — Metadata Access</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+using var pdf = PdfDocument.FromFile(&quot;source.pdf&quot;);
+
+// IronPDF exposes metadata as typed properties on MetaData
+string title    = pdf.MetaData.Title;
+string author   = pdf.MetaData.Author;
+string subject  = pdf.MetaData.Subject;
+string keywords = pdf.MetaData.Keywords;
+string creator  = pdf.MetaData.Creator;
+
+Console.WriteLine($&quot;Title:   {title}&quot;);
+Console.WriteLine($&quot;Author:  {author}&quot;);
+
+// Metadata can also be written — not possible in MuPDF's reading scope
+pdf.MetaData.Title = &quot;Updated Report Title&quot;;
+pdf.MetaData.Author = &quot;Updated Author&quot;;
+pdf.SaveAs(&quot;updated-metadata.pdf&quot;);</code></pre>
+
+<p>IronPDF's <code>pdf.MetaData</code> exposes standard PDF Info dictionary fields as typed C# properties — no string key lookups. Writing metadata is also available, which extends beyond MuPDF's typical read-only use case. The <a href="https://ironpdf.com/how-to/metadata/">metadata guide</a> covers all available properties.</p>
+
+<h3>HTML to PDF Generation (New Capability)</h3>
+
+<p>MuPDF has no HTML rendering capability. Teams using MuPDF for reading and extraction alongside a separate HTML-to-PDF tool can consolidate into IronPDF.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// ChromePdfRenderer for HTML to PDF generation
+// This capability does not exist in MuPDF
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 15;
+renderer.RenderingOptions.MarginBottom = 15;
+renderer.RenderingOptions.MarginLeft = 15;
+renderer.RenderingOptions.MarginRight = 15;
+
+string html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;&lt;style&gt;body { font-family: Arial; font-size: 11pt; }&lt;/style&gt;&lt;/head&gt;
+&lt;body&gt;
+  &lt;h1&gt;Generated Report&lt;/h1&gt;
+  &lt;p&gt;Content produced from HTML/CSS with Chromium rendering.&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+using var pdf = renderer.RenderHtmlAsPdf(html);
+
+// After rendering, all manipulation operations are available on the same PdfDocument:
+// Extract text, merge, sign, compress — no additional library required
+string extractedText = pdf.ExtractAllText();
+pdf.SaveAs(&quot;generated-report.pdf&quot;);</code></pre>
+
+<p>Applications that used MuPDF for PDF reading alongside a separate HTML-to-PDF generator can consolidate both operations into IronPDF's single library. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers rendering configuration.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>MuPDF Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>fz_context</code> / native context</td>
+      <td>Eliminated</td>
+      <td>No native context in IronPDF</td>
+    </tr>
+    <tr>
+      <td><code>fz_open_document(ctx, path)</code></td>
+      <td><code>PdfDocument.FromFile(path)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Open from bytes/stream</td>
+      <td><code>PdfDocument.FromStream(stream)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>fz_count_pages(ctx, doc)</code></td>
+      <td><code>pdf.PageCount</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>fz_load_page(ctx, doc, n)</code></td>
+      <td><code>pdf.ExtractTextFromPage(n)</code></td>
+      <td>Page loading implicit</td>
+    </tr>
+    <tr>
+      <td><code>fz_new_stext_page_from_page()</code></td>
+      <td><code>pdf.ExtractAllText()</code></td>
+      <td><a href="https://ironpdf.com/how-to/extract-text-and-images/">Extract text guide</a></td>
+    </tr>
+    <tr>
+      <td>Per-character bounding boxes</td>
+      <td>Not in IronPDF</td>
+      <td>MuPDF differentiator</td>
+    </tr>
+    <tr>
+      <td><code>fz_pixmap</code> rasterization</td>
+      <td><code>pdf.RasterizeToImageFiles()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>DPI scale matrix</td>
+      <td><code>dpi:</code> parameter</td>
+      <td>IronPDF handles matrix internally</td>
+    </tr>
+    <tr>
+      <td>Pixmap release (<code>fz_drop_pixmap</code>)</td>
+      <td>Managed by IronPDF</td>
+      <td>No manual release needed</td>
+    </tr>
+    <tr>
+      <td><code>fz_lookup_metadata("info:Title")</code></td>
+      <td><code>pdf.MetaData.Title</code></td>
+      <td>Typed property vs string key</td>
+    </tr>
+    <tr>
+      <td><code>fz_lookup_metadata("info:Author")</code></td>
+      <td><code>pdf.MetaData.Author</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>P/Invoke boundary</td>
+      <td>Eliminated</td>
+      <td>Pure managed .NET API</td>
+    </tr>
+    <tr>
+      <td>Native binary packaging</td>
+      <td>Eliminated (Windows)</td>
+      <td>Linux: Chromium libs required</td>
+    </tr>
+    <tr>
+      <td>Merge PDFs (not in MuPDF)</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td><a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Merge guide</a></td>
+    </tr>
+    <tr>
+      <td>HTML generation (not in MuPDF)</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures (not in MuPDF)</td>
+      <td><code>PdfSignature</code> / <code>pdf.Sign()</code></td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>Native binary distribution eliminated on Windows</strong>: MuPDF requires platform-specific shared libraries (<code>.dll</code> on Windows, <code>.so</code> on Linux, <code>.dylib</code> on macOS) in the deployment package. IronPDF on Windows is fully managed with no native binary packaging requirement. On Linux, IronPDF requires Chromium system library packages — a different set of native dependencies, but the same platform consideration applies.</li>
+
+  <li><strong>P/Invoke layer eliminated</strong>: All <code>DllImport</code>, <code>Marshal</code>, and pinned memory management associated with the MuPDF binding is removed. IronPDF provides a pure managed .NET API.</li>
+
+  <li><strong>Per-character bounding box data not in IronPDF</strong>: MuPDF's <code>fz_stext_page</code> provides character-level bounding box coordinates — the text content with spatial positions. IronPDF's <code>ExtractAllText()</code> returns plain text without positional data. If downstream processing code uses character or word positions (PDF search highlighting, coordinate-based data extraction, layout analysis), this is a potential blocking gap that must be evaluated before committing to migration.</li>
+
+  <li><strong>Page index convention</strong>: MuPDF uses 0-based page indices. IronPDF also uses 0-based indices throughout — no conversion required, but verify explicitly if the binding in use exposed 1-based indices.</li>
+
+  <li><strong>MuPDF context threading model</strong>: MuPDF's context (<code>fz_context</code>) has specific thread-safety semantics — contexts are not shared across threads by default. IronPDF's <code>PdfDocument</code> instances are also not thread-safe; per-operation instantiation is the safe default in both.</li>
+
+  <li><strong>Namespace change</strong>: Remove all MuPDF binding <code>using</code> directives and P/Invoke interop code. Replace with <code>using IronPdf;</code>.</li>
+
+  <li><strong>License key required</strong>: MuPDF is open-source (AGPL/commercial). IronPDF requires <code>IronPdf.License.LicenseKey</code> set at startup before any operation.</li>
+
+  <li><strong><code>PdfDocument</code> is <code>IDisposable</code></strong>: IronPDF's <code>PdfDocument</code> requires <code>using</code> blocks — similar to the manual <code>fz_drop_document</code> that MuPDF bindings handle. The pattern is familiar but must be applied consistently.</li>
+
+  <li><strong>Rasterization output is file-based</strong>: MuPDF's rasterization pipeline can return in-memory pixel buffers (<code>fz_pixmap</code>). IronPDF's <code>RasterizeToImageFiles()</code> writes image files to disk. Verify whether in-memory rasterization is required — check IronPDF documentation for stream-based output options.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>MuPDF (.NET binding)</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active development</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>Yes (AGPL / commercial)</td>
+      <td>No (commercial)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET SDK (first-party)</td>
+      <td>No (bindings only)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Native binary required</td>
+      <td>Yes (always)</td>
+      <td>No (Windows)</td>
+      <td>Linux: Chromium libs</td>
+    </tr>
+    <tr>
+      <td>P/Invoke required</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering</strong></td>
+    </tr>
+    <tr>
+      <td>HTML string rendering</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL rendering</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/javascript-to-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS3 / modern web</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content Reading</strong></td>
+    </tr>
+    <tr>
+      <td>Extract text (plain)</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Extract text with positions</td>
+      <td>Yes (character-level)</td>
+      <td>No</td>
+      <td>MuPDF differentiator</td>
+    </tr>
+    <tr>
+      <td>Extract images</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Read annotations</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Read metadata</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Write metadata</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rasterization</strong></td>
+    </tr>
+    <tr>
+      <td>PDF to image (rasterize)</td>
+      <td>Yes (pixmap)</td>
+      <td><a href="https://ironpdf.com/how-to/rasterize-pdf-to-images/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom DPI</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Grayscale output</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Add / remove pages</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Compress PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Find and replace text</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Forms</strong></td>
+    </tr>
+    <tr>
+      <td>Read form fields</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Fill PDF forms</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Create PDF forms</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password encryption</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>Async API</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>No (file-based)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom logging</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux support</td>
+      <td>Yes (native libs)</td>
+      <td>Yes (Chromium libs)</td>
+      <td>Different deps</td>
+    </tr>
+    <tr>
+      <td>Docker / container</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Audit MuPDF usage patterns</strong>: Identify which MuPDF operations are in active use — text extraction, rasterization, metadata reading, annotation reading. Confirm whether per-character bounding box data is used by any downstream code; this is the primary potential blocking gap.</li>
+
+  <li><strong>Evaluate the bounding box gap</strong>: If character-level positional extraction is needed, evaluate IronPDF's extraction API before proceeding. If only plain text is required, proceed.</li>
+
+  <li><strong>Install IronPDF via NuGet</strong>: <code>dotnet add package IronPdf</code>. Retain MuPDF binding references until replacement code compiles and tests pass.</li>
+
+  <li><strong>Configure the license key at startup</strong>: Set <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> in <code>Program.cs</code>. See the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>Remove P/Invoke and binding infrastructure</strong>: Delete all <code>DllImport</code> declarations, <code>Marshal</code> calls, pinned memory handles, and native context management code associated with the MuPDF binding.</li>
+
+  <li><strong>Update namespaces</strong>: Remove MuPDF binding <code>using</code> directives. Replace with <code>using IronPdf;</code>.</li>
+
+  <li><strong>Replace document open/load</strong>: Map the binding's document open call to <code>PdfDocument.FromFile(path)</code> or <code>PdfDocument.FromStream(stream)</code>. Wrap in <code>using</code> blocks.</li>
+
+  <li><strong>Replace text extraction</strong>: Map <code>page.ToText()</code> or equivalent to <code>pdf.ExtractTextFromPage(n)</code> or <code>pdf.ExtractAllText()</code>.</li>
+
+  <li><strong>Replace rasterization</strong>: Map the pixmap pipeline to <code>pdf.RasterizeToImageFiles(pattern, dpi: n)</code>. Remove manual pixmap disposal and DPI matrix calculation.</li>
+
+  <li><strong>Replace metadata access</strong>: Map <code>doc.GetMetadata("info:Title")</code> pattern to <code>pdf.MetaData.Title</code> and equivalent typed properties.</li>
+
+  <li><strong>Remove native binary packaging</strong>: Remove MuPDF shared library files from the deployment package, Docker images, and CI/CD pipeline artifact steps. On Linux, add Chromium system library packages to the container image.</li>
+
+  <li><strong>Remove MuPDF NuGet binding</strong>: Once all replacements compile and tests pass, remove the MuPDF binding NuGet package and any associated native binary NuGet packages.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on MuPDF is technically reasonable</h3>
+
+<p>MuPDF remains technically reasonable when the application's requirements center on high-fidelity PDF rendering to images (MuPDF's rasterization quality is its core strength), when character-level bounding box data is essential to the workflow, or when the open-source licensing model (AGPL or Artifex commercial) aligns with the deployment model and the team is experienced with native interop management. Applications that embed MuPDF as a PDF viewer rendering engine — not as a server-side document processing library — are generally not candidates for this migration.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>Migration is worth scoping when the P/Invoke layer and native binary management are adding ongoing operational friction; when the application's PDF requirements have grown to include operations outside MuPDF's reading-focused scope (HTML generation, form filling, digital signatures, PDF/A compliance, merge/split); when a single managed-code library without native binary distribution would simplify deployment; or when the team needs HTML-to-PDF rendering alongside the existing extraction and rasterization workflow.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>Text extraction and metadata reading are the simplest replacements — the call patterns are nearly identical with method name changes and the removal of native context management. Rasterization replaces a multi-step pixmap pipeline with a single method call. The only operation requiring careful evaluation before migration is per-character bounding box extraction, which has no direct IronPDF equivalent. For teams where plain text extraction is sufficient, the complete migration is bounded and predictable.</p>
+
+<p>In your current MuPDF integration, how many downstream systems consume the extracted text as plain strings versus how many require character-level bounding box coordinates — and has the proportion shifted as those systems have evolved?</p>

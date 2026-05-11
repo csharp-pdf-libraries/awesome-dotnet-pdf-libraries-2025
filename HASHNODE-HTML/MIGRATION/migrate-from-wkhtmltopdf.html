@@ -1,0 +1,904 @@
+<!-- FRONTMATTER
+  title: Migrating from wkhtmltopdf to IronPDF: a .NET team's field guide
+  subtitle: a step-by-step .NET migration guide for 2026
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-wkhtmltopdf/
+  description: wkhtmltopdf has reached end-of-life. This guide walks .NET teams through the migration to IronPDF — API mapping, breaking changes, and a step-by-step checklist.
+  published: False
+-->
+
+<h1>Migrating from wkhtmltopdf to IronPDF: a .NET team's field guide</h1>
+
+<p class="subtitle"><em>a step-by-step .NET migration guide for 2026</em></p>
+
+<h2>Framing</h2>
+
+<p>wkhtmltopdf has been one of the most widely adopted HTML-to-PDF tools in server-side .NET pipelines for over a decade. Its appeal was straightforward: a single binary that accepted HTML or URLs and produced PDF output via the command line, backed by a WebKit engine that produced reasonable output for the HTML of its era. Wrapper libraries like <code>Pechkin</code>, <code>TuesPechkin</code>, <code>DinkToPdf</code>, and <code>Rotativa</code> emerged to give .NET developers a managed API surface over the CLI, and those wrappers became embedded in thousands of ASP.NET applications.</p>
+
+<p>The migration question became urgent in stages. wkhtmltopdf reached end-of-life status — the project is discontinued and no longer receiving maintenance, security patches, or WebKit updates. The rendering engine it embeds is frozen at a version of WebKit that predates modern CSS specifications. Teams that invested in CSS Grid layouts, CSS Variables, web fonts from Google Fonts, or JavaScript-rendered content discovered that wkhtmltopdf silently produced incomplete or incorrect output for those templates. The combination of a frozen, unpatched binary and CSS capability gaps creates both security risk and functional limitation that accumulate over time.</p>
+
+<p>For .NET teams running wkhtmltopdf through wrapper libraries, the migration surface is well-defined: the wrapper is replaced by a managed library, CLI arguments become API properties, and the rendering engine shifts from frozen WebKit to current Chromium. This guide maps that transition in technical detail, covering what changes in the code, what requires attention in the deployment environment, and where teams typically concentrate migration effort.</p>
+
+<h2>What wkhtmltopdf Is Designed to Do</h2>
+
+<p>wkhtmltopdf is a command-line utility that converts HTML files and URLs to PDF using a headless WebKit rendering engine. The binary accepts a source (HTML file path, URL, or stdin) and an output destination (file path or stdout), along with a large set of CLI flags covering paper size, margins, orientation, headers, footers, table of contents, JavaScript execution, and output quality settings. A companion tool, <code>wkhtmltoimage</code>, provides HTML-to-image conversion.</p>
+
+<p>In .NET applications, wkhtmltopdf is almost always accessed through a managed wrapper library rather than directly. <code>DinkToPdf</code> wraps the <code>libwkhtmltox</code> shared library via P/Invoke and exposes a managed API with settings classes. <code>Rotativa</code> wraps the binary via process invocation and integrates with ASP.NET MVC's <code>ActionResult</code> model. <code>TuesPechkin</code> (and its predecessor <code>Pechkin</code>) provided an earlier COM-based wrapper. Each wrapper translates .NET configuration objects into the appropriate CLI arguments or P/Invoke calls. The underlying rendering engine is WebKit, not Chromium — the distinction matters for CSS compatibility, as wkhtmltopdf's WebKit version does not support modern CSS specifications such as CSS Grid, Flexbox, or CSS Variables. JavaScript execution is nominally supported but limited and unreliable for complex scripts.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>IronPDF is a managed .NET library that embeds a Chromium rendering engine. There is no external binary to install, no P/Invoke layer, and no wrapper library intermediary. The <code>ChromePdfRenderer</code> class accepts HTML strings, file paths, and URLs directly and returns a <code>PdfDocument</code> that implements standard .NET <code>IDisposable</code>. All rendering configuration passes through typed <code>ChromePdfRenderOptions</code> properties rather than CLI argument strings.</p>
+
+<p>The rendering engine difference is the most consequential architectural change. <a href="https://ironpdf.com/how-to/rendering-options/">IronPDF's Chromium-based pipeline</a> renders HTML and CSS with full support for Grid, Flexbox, CSS Variables, web fonts, SVG, and JavaScript execution — features that wkhtmltopdf's frozen WebKit handles poorly or not at all. Templates that required layout workarounds for wkhtmltopdf's CSS limitations can be simplified after migration. The Chromium binary is bundled with or downloaded by IronPDF during initialization; on Linux, system dependencies for Chromium must be present, which replaces the wkhtmltopdf binary installation step in deployment scripts.</p>
+
+<p>Post-generation document operations — merging, splitting, password protection, digital signatures, watermarking, PDF/A compliance — are available in the same IronPDF package that handles rendering. Teams currently using a secondary library alongside wkhtmltopdf for these operations may be able to consolidate to a single dependency. The <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split documentation</a> and the rest of IronPDF's API are accessible on a single <code>PdfDocument</code> object without serializing to disk between steps. License initialization is a static call at startup; see the <a href="https://ironpdf.com/how-to/license-keys/">license key configuration guide</a> for key formats and environment-variable patterns.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>Replaces DinkToPdf/Rotativa HTML string conversion</td>
+    </tr>
+    <tr>
+      <td>HTML file to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlFileAsPdf()</code></td>
+      <td>Replaces file-path-based wkhtmltopdf invocation</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderUrlAsPdf()</code></td>
+      <td>Direct mapping; authentication handling differs</td>
+    </tr>
+    <tr>
+      <td>Paper size / margins</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderOptions</code> properties</td>
+      <td>Map from CLI flags / DinkToPdf settings object</td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td>Map from <code>--orientation</code> / <code>ObjectSettings.Orientation</code></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Low–Medium</td>
+      <td><code>HtmlHeaderFooter</code> / <code>TextHeaderFooter</code></td>
+      <td>Token syntax differs from wkhtmltopdf's <code>[page]</code> / <code>[topage]</code></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.EnableJavaScript</code> + <code>WaitFor</code></td>
+      <td>IronPDF JS via Chromium; far more reliable than wkhtmltopdf</td>
+    </tr>
+    <tr>
+      <td>Save to byte array</td>
+      <td>Low</td>
+      <td><code>pdf.BinaryData</code></td>
+      <td>Replaces DinkToPdf's <code>Convert()</code> return value</td>
+    </tr>
+    <tr>
+      <td>Save to file</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td>Direct mapping</td>
+    </tr>
+    <tr>
+      <td>Save to stream</td>
+      <td>Low</td>
+      <td><code>pdf.ToStream()</code></td>
+      <td>Stream-based output</td>
+    </tr>
+    <tr>
+      <td>Background rendering</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PrintBackground</code></td>
+      <td>Maps from <code>--background</code> / <code>PagesBackground</code></td>
+    </tr>
+    <tr>
+      <td>CSS modernization</td>
+      <td>Medium</td>
+      <td>Automatic via Chromium</td>
+      <td>Remove workarounds added for wkhtmltopdf CSS gaps</td>
+    </tr>
+    <tr>
+      <td>Table of contents</td>
+      <td>Medium</td>
+      <td>IronPDF TOC API</td>
+      <td>wkhtmltopdf has built-in TOC; verify IronPDF equivalent</td>
+    </tr>
+    <tr>
+      <td>Wrapper library removal</td>
+      <td>Low</td>
+      <td>Not needed</td>
+      <td>DinkToPdf, Rotativa, TuesPechkin all removed</td>
+    </tr>
+    <tr>
+      <td>Binary / P/Invoke removal</td>
+      <td>Low</td>
+      <td>Not needed</td>
+      <td>libwkhtmltox P/Invoke and native binary setup removed</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>HTML String to PDF (DinkToPdf Pattern)</h3>
+
+<h4>wkhtmltopdf / DinkToPdf — HTML String to PDF</h4>
+
+<p>DinkToPdf wraps <code>libwkhtmltox</code> via P/Invoke and is one of the most common managed wrappers for wkhtmltopdf in ASP.NET Core applications. A <code>HtmlToPdfDocument</code> object is constructed with <code>GlobalSettings</code> and <code>ObjectSettings</code>, and passed to the <code>IConverter</code> service.</p>
+
+<pre><code class="language-csharp">using DinkToPdf;
+using DinkToPdf.Contracts;
+using System;
+
+// DinkToPdf is typically registered as a singleton via DI in Startup / Program.cs
+// services.AddSingleton(typeof(IConverter), new SynchronizedConverter(new PdfTools()));
+
+public class PdfService
+{
+    private readonly IConverter _converter;
+
+    public PdfService(IConverter converter)
+    {
+        _converter = converter;
+    }
+
+    public byte[] ConvertHtmlToPdf(string htmlContent)
+    {
+        var document = new HtmlToPdfDocument
+        {
+            GlobalSettings =
+            {
+                ColorMode   = ColorMode.Color,
+                Orientation = Orientation.Portrait,
+                PaperSize   = PaperKind.A4,
+                Margins     = new MarginSettings
+                {
+                    Top    = 10,
+                    Bottom = 10,
+                    Left   = 10,
+                    Right  = 10,
+                    Unit   = Unit.Millimeters
+                }
+            },
+            Objects =
+            {
+                new ObjectSettings
+                {
+                    PagesCount          = true,
+                    HtmlContent         = htmlContent,
+                    WebSettings         = { DefaultEncoding = &quot;utf-8&quot; },
+                    HeaderSettings      = { FontSize = 9, Right = &quot;Page [page] of [topage]&quot; },
+                    FooterSettings      = { FontSize = 9, Center = &quot;Confidential&quot; }
+                }
+            }
+        };
+
+        return _converter.Convert(document);
+    }
+}</code></pre>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li><code>SynchronizedConverter</code> uses a lock to serialize rendering; concurrency requires careful DI lifetime management</li>
+
+  <li><code>libwkhtmltox</code> native binary must be present and architecture-matched (x64/x86/ARM) at application startup</li>
+
+  <li>WebKit engine does not support CSS Grid, Flexbox, or CSS Variables; templates must use workarounds</li>
+
+  <li>JavaScript execution is unreliable for scripts that perform async operations or DOM manipulation after load</li>
+
+  <li>Linux Docker deployments require the correct native binary and may require additional system library dependencies</li>
+
+  <li><code>[page]</code> and <code>[topage]</code> header/footer tokens are specific to wkhtmltopdf's format</li>
+
+</ul>
+
+<h4>IronPDF — HTML String to PDF</h4>
+
+<p>IronPDF registers <code>ChromePdfRenderer</code> as a scoped or transient service (not singleton, as renderer instances should not be shared across threads). The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers the full options set, and the rendering options documentation details all configuration properties.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;; // Set once at application startup
+
+public class PdfService
+{
+    public byte[] ConvertHtmlToPdf(string htmlContent)
+    {
+        // Create a renderer per call or per scope — do not share across threads
+        using var renderer = new ChromePdfRenderer();
+
+        // Configure rendering options — equivalent to DinkToPdf's GlobalSettings + ObjectSettings
+        renderer.RenderingOptions.PaperSize       = IronPdf.Rendering.PdfPaperSize.A4;
+        renderer.RenderingOptions.PaperOrientation = IronPdf.Rendering.PdfPaperOrientation.Portrait;
+        renderer.RenderingOptions.MarginTop        = 10;
+        renderer.RenderingOptions.MarginBottom     = 10;
+        renderer.RenderingOptions.MarginLeft       = 10;
+        renderer.RenderingOptions.MarginRight      = 10;
+        renderer.RenderingOptions.PrintBackground  = true;
+
+        // HTML header/footer — replaces DinkToPdf's HeaderSettings / FooterSettings
+        renderer.RenderingOptions.TextFooter = new TextHeaderFooter
+        {
+            CenterText = &quot;Confidential&quot;,
+            RightText  = &quot;Page {page} of {total-pages}&quot;,  // note: {page}, not [page]
+            FontSize   = 9
+        };
+
+        // Render HTML string — Chromium engine; CSS Grid, Flexbox, web fonts all supported
+        using var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+
+        return pdf.BinaryData;
+    }
+}</code></pre>
+
+<p>The <code>{page}</code> and <code>{total-pages}</code> token format replaces wkhtmltopdf's <code>[page]</code> and <code>[topage]</code>. <code>ChromePdfRenderer</code> implements <code>IDisposable</code>; using a <code>using</code> block per call is the correct lifetime pattern in a DI context.</p>
+
+<h3>URL to PDF</h3>
+
+<h4>wkhtmltopdf / DinkToPdf — URL to PDF</h4>
+
+<p>DinkToPdf renders URLs by setting <code>ObjectSettings.Page</code> to the target URL rather than providing HTML content directly.</p>
+
+<pre><code class="language-csharp">using DinkToPdf;
+using DinkToPdf.Contracts;
+
+public byte[] ConvertUrlToPdf(string url, IConverter converter)
+{
+    var document = new HtmlToPdfDocument
+    {
+        GlobalSettings =
+        {
+            PaperSize   = PaperKind.A4,
+            Orientation = Orientation.Portrait
+        },
+        Objects =
+        {
+            new ObjectSettings
+            {
+                Page       = url,    // URL instead of HtmlContent
+                LoadSettings =
+                {
+                    // JavaScript delay in milliseconds — unreliable for complex pages
+                    JSDelay = 200
+                }
+            }
+        }
+    };
+
+    return converter.Convert(document);
+}</code></pre>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li><code>JSDelay</code> (a fixed wait in ms) is the only JavaScript wait mechanism; it is fragile for pages with variable load times</li>
+
+  <li>Authenticated pages require cookie strings passed through <code>LoadSettings.CustomHeaders</code> — format is manual</li>
+
+  <li>CSS Grid and modern layout features do not render correctly; JS-heavy pages may produce empty sections</li>
+
+  <li>HTTPS certificates with non-standard CAs may require additional <code>LoadSettings</code> configuration</li>
+
+</ul>
+
+<h4>IronPDF — URL to PDF</h4>
+
+<p>IronPDF's <code>RenderUrlAsPdf()</code> navigates to the URL in Chromium and applies a declarative wait condition before capturing. The <a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF guide</a> covers authentication, custom headers, and wait strategy options.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using System.Collections.Generic;
+
+public byte[] ConvertUrlToPdf(string url)
+{
+    using var renderer = new ChromePdfRenderer();
+
+    // Declarative wait — replaces JSDelay with an intent-based condition
+    renderer.RenderingOptions.WaitFor.NetworkIdle(500);  // verify WaitFor API in current docs
+
+    // Cookie injection for authenticated pages — replaces manual header string construction
+    renderer.RenderingOptions.CustomCookies = new Dictionary&lt;string, string&gt;
+    {
+        { &quot;session&quot;, &quot;your-session-token&quot; }
+    };
+
+    using var pdf = renderer.RenderUrlAsPdf(url);
+
+    return pdf.BinaryData;
+}</code></pre>
+
+<p>The <code>WaitFor.NetworkIdle()</code> condition waits for network activity to settle before capturing — a more reliable signal than a fixed millisecond delay. Verify the exact <code>WaitFor</code> API method names and parameters in current IronPDF documentation.</p>
+
+<h3>Headers and Footers (Rotativa Pattern)</h3>
+
+<h4>wkhtmltopdf / Rotativa — Headers and Footers</h4>
+
+<p>Rotativa integrates with ASP.NET MVC by returning <code>ViewAsPdf</code>, <code>PartialViewAsPdf</code>, and <code>ActionAsPdf</code> action results. Header and footer content is specified via URL (a controller action that returns the header HTML) or via wkhtmltopdf's <code>--header-html</code> / <code>--footer-html</code> flags.</p>
+
+<pre><code class="language-csharp">using Rotativa.AspNetCore;
+using Microsoft.AspNetCore.Mvc;
+
+public class ReportsController : Controller
+{
+    public IActionResult DownloadReport(int reportId)
+    {
+        // Rotativa renders a Razor view as PDF via wkhtmltopdf
+        return new ViewAsPdf(&quot;ReportView&quot;, reportId)
+        {
+            PageSize        = Rotativa.AspNetCore.Options.Size.A4,
+            PageOrientation = Rotativa.AspNetCore.Options.Orientation.Portrait,
+            PageMargins     = new Rotativa.AspNetCore.Options.Margins(10, 10, 10, 10),
+            // Header via a URL to another controller action
+            CustomSwitches  = &quot;--header-url https://example.com/pdf-header --header-spacing 5&quot;
+        };
+    }
+}</code></pre>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Header URL must be accessible from the wkhtmltopdf process context; localhost URLs require special handling</li>
+
+  <li>Header rendering makes a second HTTP request; authentication context may not carry over</li>
+
+  <li><code>CustomSwitches</code> is a raw CLI string — no type safety, changes between wkhtmltopdf versions may silently break</li>
+
+  <li>Rotativa is tightly coupled to MVC's action result model; non-controller usage requires different patterns</li>
+
+</ul>
+
+<h4>IronPDF — Razor View to PDF with Headers</h4>
+
+<p>IronPDF renders Razor views by first rendering the view to an HTML string and then calling <code>RenderHtmlAsPdf()</code>. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> and the <a href="https://ironpdf.com/how-to/headers-and-footers/">headers and footers guide</a> cover this pattern in detail.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.AspNetCore.Mvc.ViewEngines;
+
+// This example renders a Razor view to HTML string, then to PDF with a typed header
+// Inject ICompositeViewEngine and ITempDataProvider via DI as needed
+public async Task&lt;IActionResult&gt; DownloadReport(int reportId, [FromServices] ICompositeViewEngine viewEngine)
+{
+    // Render the Razor view to an HTML string (standard ASP.NET Core technique)
+    var viewResult = viewEngine.FindView(ControllerContext, &quot;ReportView&quot;, false);
+    await using var writer = new System.IO.StringWriter();
+    var viewContext = new ViewContext(
+        ControllerContext,
+        viewResult.View,
+        ViewData,
+        TempData,
+        writer,
+        new HtmlHelperOptions()
+    );
+    await viewResult.View.RenderAsync(viewContext);
+    string html = writer.ToString();
+
+    // Render HTML to PDF with a typed HTML header — no separate HTTP request required
+    using var renderer = new ChromePdfRenderer();
+    renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+    {
+        Height          = 15,
+        HtmlFragment    = &quot;&lt;div style='font-size:9px; padding:0 10px;'&gt;Company Report — Confidential&lt;/div&gt;&quot;,
+        DrawDividerLine = true
+    };
+
+    using var pdf = renderer.RenderHtmlAsPdf(html);
+
+    return File(pdf.BinaryData, &quot;application/pdf&quot;, $&quot;report-{reportId}.pdf&quot;);
+}</code></pre>
+
+<p>The header is defined in C# as an <code>HtmlHeaderFooter</code> object — no separate HTTP request, no <code>CustomSwitches</code> string. The Razor-to-HTML rendering step is standard ASP.NET Core and is independent of the PDF library.</p>
+
+<h3>Merge PDFs</h3>
+
+<h4>wkhtmltopdf — Merge PDFs</h4>
+
+<p>wkhtmltopdf does not natively merge independently generated PDFs. The <code>multi-page</code> mode combines multiple HTML sources into a single PDF render pass, but merging pre-existing PDF files requires a separate library. In DinkToPdf workflows, teams typically use a second library (PDFsharp, iTextSharp) for post-generation merge operations.</p>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Multiple HTML sources in a single render pass share the same page count and header/footer context — useful but not equivalent to merging independently generated PDFs</li>
+
+  <li>Merging pre-existing PDFs (from different sources or generators) requires a second dependency</li>
+
+  <li>Two-library architecture creates separate disposal models and version management concerns</li>
+
+</ul>
+
+<h4>IronPDF — Merge PDFs</h4>
+
+<p>IronPDF's <code>PdfDocument.Merge()</code> combines any set of <code>PdfDocument</code> instances — rendered or loaded from disk — into a single document. The <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split guide</a> covers ordering, page handling, and large-document considerations.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using System.Collections.Generic;
+
+// Render multiple HTML sections as separate PDFs
+using var renderer = new ChromePdfRenderer();
+using var coverPage = renderer.RenderHtmlAsPdf(&quot;&lt;h1&gt;Q4 Report&lt;/h1&gt;&quot;);
+using var bodyPages = renderer.RenderHtmlFileAsPdf(&quot;/input/q4-body.html&quot;);
+using var appendix  = PdfDocument.FromFile(&quot;/input/appendix-pregenerated.pdf&quot;);
+
+// Merge into a single document — no second library required
+using var merged = PdfDocument.Merge(new List&lt;PdfDocument&gt; { coverPage, bodyPages, appendix });
+
+// Save or return bytes
+merged.SaveAs(&quot;/output/q4-report-complete.pdf&quot;);</code></pre>
+
+<p>The merged document is a new <code>PdfDocument</code> instance with its own lifecycle. Input documents remain valid after the merge call and are disposed independently by their own <code>using</code> blocks.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>wkhtmltopdf / DinkToPdf Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>IConverter.Convert(HtmlToPdfDocument)</code></td>
+      <td><code>renderer.RenderHtmlAsPdf(html)</code></td>
+      <td><a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string guide</a></td>
+    </tr>
+    <tr>
+      <td><code>ObjectSettings.HtmlContent</code></td>
+      <td><code>html</code> parameter of <code>RenderHtmlAsPdf()</code></td>
+      <td>Direct mapping</td>
+    </tr>
+    <tr>
+      <td><code>ObjectSettings.Page</code> (URL)</td>
+      <td><code>renderer.RenderUrlAsPdf(url)</code></td>
+      <td>Direct mapping</td>
+    </tr>
+    <tr>
+      <td><code>GlobalSettings.PaperSize</code> (<code>PaperKind.A4</code>)</td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td>Enum-based; verify value names</td>
+    </tr>
+    <tr>
+      <td><code>GlobalSettings.Orientation</code></td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td>Portrait / Landscape enum</td>
+    </tr>
+    <tr>
+      <td><code>MarginSettings.Top/Bottom/Left/Right</code></td>
+      <td><code>RenderingOptions.MarginTop/Bottom/Left/Right</code></td>
+      <td>Verify unit equivalence (mm)</td>
+    </tr>
+    <tr>
+      <td><code>GlobalSettings.ColorMode</code></td>
+      <td><code>RenderingOptions.PrintBackground</code></td>
+      <td>Verify exact mapping</td>
+    </tr>
+    <tr>
+      <td><code>WebSettings.DefaultEncoding</code></td>
+      <td>Handled automatically</td>
+      <td>IronPDF handles encoding internally</td>
+    </tr>
+    <tr>
+      <td><code>HeaderSettings.Right</code> / <code>.Center</code> / <code>.Left</code></td>
+      <td><code>TextHeaderFooter.RightText</code> / <code>CenterText</code> / <code>LeftText</code></td>
+      <td>Typed object replaces settings struct</td>
+    </tr>
+    <tr>
+      <td><code>FooterSettings.*</code></td>
+      <td><code>TextHeaderFooter.*</code> or <code>HtmlHeaderFooter</code></td>
+      <td>Typed object approach</td>
+    </tr>
+    <tr>
+      <td><code>[page]</code> token in header/footer</td>
+      <td><code>{page}</code> token</td>
+      <td>Token syntax change</td>
+    </tr>
+    <tr>
+      <td><code>[topage]</code> token in header/footer</td>
+      <td><code>{total-pages}</code> token</td>
+      <td>Token syntax change</td>
+    </tr>
+    <tr>
+      <td><code>LoadSettings.JSDelay</code></td>
+      <td><code>RenderingOptions.WaitFor.*</code></td>
+      <td>Declarative vs. fixed-delay</td>
+    </tr>
+    <tr>
+      <td><code>LoadSettings.CustomHeaders</code></td>
+      <td><code>RenderingOptions.RequestHeaders</code></td>
+      <td>Verify property name</td>
+    </tr>
+    <tr>
+      <td><code>CustomSwitches</code> (Rotativa raw CLI)</td>
+      <td>Typed <code>RenderingOptions</code> properties</td>
+      <td>Type-safe replacement</td>
+    </tr>
+    <tr>
+      <td><code>ViewAsPdf</code> (Rotativa action result)</td>
+      <td>Render view to HTML, then <code>RenderHtmlAsPdf()</code></td>
+      <td>No Rotativa-equivalent action result in IronPDF</td>
+    </tr>
+    <tr>
+      <td><code>SynchronizedConverter</code> (DI singleton)</td>
+      <td><code>ChromePdfRenderer</code> (transient/scoped)</td>
+      <td>Do not share renderer instances</td>
+    </tr>
+    <tr>
+      <td>Merge via second library</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>Built-in; no second library needed</td>
+    </tr>
+    <tr>
+      <td>P/Invoke to <code>libwkhtmltox</code></td>
+      <td>Not needed</td>
+      <td>IronPDF is fully managed at the call site</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>Discontinued binary — security risk.</strong> wkhtmltopdf is discontinued. The embedded WebKit receives no security patches. Any vulnerability discovered in the WebKit version shipped with wkhtmltopdf will remain unpatched indefinitely. This is the primary migration driver for most teams.</li>
+
+  <li><strong>Header/footer token syntax change.</strong> wkhtmltopdf uses <code>[page]</code>, <code>[topage]</code>, <code>[date]</code>, and <code>[time]</code>. IronPDF uses <code>{page}</code>, <code>{total-pages}</code>, <code>{date}</code>. Every header and footer template must be updated with the new token format.</li>
+
+  <li><strong>DI lifetime change.</strong> DinkToPdf's <code>SynchronizedConverter</code> is registered as a singleton. IronPDF's <code>ChromePdfRenderer</code> should be transient or scoped — one instance per request or per thread. Sharing a renderer instance across concurrent requests is not the recommended pattern. Update DI registrations accordingly.</li>
+
+  <li><strong>Native binary and P/Invoke removal.</strong> DinkToPdf's P/Invoke setup requires the <code>libwkhtmltox</code> native binary on the host, matched to the OS and architecture. This setup code and binary distribution requirement is removed entirely. Deployment scripts that copy or install <code>libwkhtmltox</code> should be updated.</li>
+
+  <li><strong>Wrapper library removal.</strong> <code>DinkToPdf</code>, <code>Rotativa</code>, <code>TuesPechkin</code>, and similar wrapper packages are removed from the NuGet dependency tree. The IronPDF NuGet package replaces them all.</li>
+
+  <li><strong>Namespace change.</strong> All <code>DinkToPdf</code>, <code>Rotativa.AspNetCore</code>, and related namespaces are removed. IronPDF types live under <code>IronPdf</code>. Update all using directives.</li>
+
+  <li><strong><code>ViewAsPdf</code> replacement.</strong> Rotativa's <code>ViewAsPdf</code> action result has no direct IronPDF equivalent. The Razor view must be rendered to an HTML string first (using standard ASP.NET Core view rendering), then passed to <code>RenderHtmlAsPdf()</code>. This is a two-step approach but separates concerns cleanly.</li>
+
+  <li><strong>CSS rendering improvements — template review required.</strong> Modern CSS features now work. Templates that contain workarounds for wkhtmltopdf's CSS Grid or Flexbox limitations may produce different (improved) layouts. Verify all templates after migration and remove workarounds that are no longer needed.</li>
+
+  <li><strong>JavaScript reliability change.</strong> wkhtmltopdf's <code>JSDelay</code> is a fixed wait; pages with variable load times produce inconsistent results. IronPDF's <code>WaitFor</code> API uses declarative conditions. Templates that worked around wkhtmltopdf's JavaScript limitations may now need <code>WaitFor</code> conditions added to handle content that previously was not being captured.</li>
+
+  <li><strong>Linux Chromium dependencies.</strong> The wkhtmltopdf binary has its own system library dependencies on Linux. IronPDF requires Chromium system libraries, which are different in scope. Update Dockerfiles and provisioning scripts.</li>
+
+  <li><strong>License initialization.</strong> IronPDF requires a license key set at startup. wkhtmltopdf has no license management. Add initialization code and manage the key as an environment secret.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature Area</th>
+      <th>wkhtmltopdf</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active maintenance</td>
+      <td>No (discontinued)</td>
+      <td>Yes</td>
+      <td>Primary migration driver</td>
+    </tr>
+    <tr>
+      <td>Security patches</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>wkhtmltopdf WebKit is unpatched</td>
+    </tr>
+    <tr>
+      <td>Commercial support</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>Yes</td>
+      <td>No (commercial)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Via wrapper only</td>
+      <td>Yes (native)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Platform Support</strong></td>
+    </tr>
+    <tr>
+      <td>.NET Framework</td>
+      <td>Via wrapper</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+</td>
+      <td>Via wrapper</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td>Different dependency set</td>
+    </tr>
+    <tr>
+      <td>macOS</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Docker</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td>IronPDF requires Chromium deps</td>
+    </tr>
+    <tr>
+      <td>In-process (no P/Invoke)</td>
+      <td>No (DinkToPdf uses P/Invoke)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering</strong></td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Yes</td>
+      <td><a href="https://ironpdf.com/how-to/html-string-to-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HTML file to PDF</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Limited / unreliable</td>
+      <td>Yes (Chromium)</td>
+      <td>Major gap in wkhtmltopdf</td>
+    </tr>
+    <tr>
+      <td>CSS Grid / Flexbox</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS Variables</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>Limited</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>Partial</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Responsive CSS</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/html-to-pdf-responsive-css/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No (requires second lib)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Yes (token-based)</td>
+      <td>Yes (typed objects / HTML)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Extract text</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Find and replace</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Bookmarks</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Watermarks / stamps</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Table of contents</td>
+      <td>Yes</td>
+      <td>-</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password protection</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Redaction</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>Async API</td>
+      <td>No (sync wrapper)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Parallel processing</td>
+      <td>Via multiple processes</td>
+      <td>Yes (in-process)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Exception-based errors</td>
+      <td>No (exit codes)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom logging</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>License required</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Audit all wkhtmltopdf call sites.</strong> Search for <code>IConverter</code>, <code>HtmlToPdfDocument</code>, <code>ViewAsPdf</code>, <code>PartialViewAsPdf</code>, and <code>TuesPechkin</code> usage. Document each call site's input type (HTML string, URL, Razor view), settings configured, and output handling.</li>
+
+  <li><strong>Map DinkToPdf / Rotativa settings to <code>ChromePdfRenderOptions</code>.</strong> For each call site, list every <code>GlobalSettings</code>, <code>ObjectSettings</code>, <code>HeaderSettings</code>, <code>FooterSettings</code>, and <code>CustomSwitches</code> value used. Identify the corresponding <code>RenderingOptions</code> property. Pay attention to margin units and paper size enum equivalents.</li>
+
+  <li><strong>Remove wrapper NuGet packages.</strong> Uninstall <code>DinkToPdf</code>, <code>Rotativa.AspNetCore</code>, <code>TuesPechkin</code>, and any related packages. Remove <code>libwkhtmltox</code> binary references from the project.</li>
+
+  <li><strong>Add the IronPDF NuGet package.</strong> <code>dotnet add package IronPdf</code>. For Linux container targets, add Chromium dependency installation steps to the Dockerfile.</li>
+
+  <li><strong>Configure the license key.</strong> Add <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> to <code>Program.cs</code> or application startup. Store the key as an environment variable or secrets manager entry. See the <a href="https://ironpdf.com/how-to/license-keys/">license key guide</a>.</li>
+
+  <li><strong>Update DI registration.</strong> Remove <code>SynchronizedConverter</code> singleton registration. Register <code>ChromePdfRenderer</code> as transient if using DI, or instantiate per call with a <code>using</code> block. Do not register as singleton.</li>
+
+  <li><strong>Replace HTML / URL render calls.</strong> Substitute <code>converter.Convert(document)</code> with <code>renderer.RenderHtmlAsPdf(html)</code> or <code>renderer.RenderUrlAsPdf(url)</code>. Update all namespace imports to <code>using IronPdf;</code>.</li>
+
+  <li><strong>Translate headers and footers.</strong> Replace <code>HeaderSettings</code> and <code>FooterSettings</code> structs with <code>TextHeaderFooter</code> or <code>HtmlHeaderFooter</code> objects. Update all token references: <code>[page]</code> → <code>{page}</code>, <code>[topage]</code> → <code>{total-pages}</code>, <code>[date]</code> → <code>{date}</code>.</li>
+
+  <li><strong>Replace Rotativa <code>ViewAsPdf</code> actions.</strong> Render the Razor view to an HTML string using <code>ICompositeViewEngine</code>, then call <code>renderer.RenderHtmlAsPdf(html)</code> and return as <code>File(pdf.BinaryData, "application/pdf", "filename.pdf")</code>.</li>
+
+  <li><strong>Add disposal patterns.</strong> Wrap all <code>ChromePdfRenderer</code> and <code>PdfDocument</code> instances in <code>using</code> blocks. Audit exception handling paths to ensure disposal under failure conditions.</li>
+
+  <li><strong>Review HTML templates.</strong> After migration, test all templates and remove CSS workarounds that were added for wkhtmltopdf's layout engine limitations. CSS Grid, Flexbox, and web fonts now work without workarounds.</li>
+
+  <li><strong>Remove binary deployment steps.</strong> Update Dockerfiles and deployment scripts to remove <code>wkhtmltopdf</code> binary installation. Add IronPDF Chromium dependency installation for Linux targets. Run a full rendering test in the container image before promoting.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<p><strong>When staying on wkhtmltopdf is technically reasonable:</strong> It is not, as a general position. wkhtmltopdf is discontinued, the embedded WebKit receives no security patches, and the CSS compatibility gaps with modern web standards are persistent and unfixable within the library. For applications that are stable, have no security requirements, generate only simple text-heavy documents with no modern CSS, and have no planned platform changes, the practical risk of staying may be low in the short term. But the risk compounds over time with no path to remediation.</p>
+
+<p><strong>Signals that indicate migration is worth prioritizing:</strong> Any security audit that flags unmaintained dependencies is an immediate signal. CSS rendering failures on templates that use Grid, Flexbox, or web fonts are a functional signal. Container platform migrations that surface the binary architecture-matching problem (x86/x64/ARM) are an operational signal. Teams that are actively working around wkhtmltopdf's JavaScript limitation with <code>JSDelay</code> tuning are paying an ongoing maintenance cost that migration eliminates.</p>
+
+<p><strong>What the cutover typically involves at the code level:</strong> The DinkToPdf path is the most mechanical to migrate — <code>IConverter.Convert()</code> becomes <code>renderer.RenderHtmlAsPdf()</code>, settings objects map property-by-property, and token syntax is updated. Rotativa requires slightly more work because <code>ViewAsPdf</code> has no equivalent action result, and Razor view rendering must be explicit. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers both paths. Template review after migration is the non-mechanical work: CSS improvements mean layout changes that require validation, not just a code change.</p>
+
+<p>What has been the most time-consuming aspect of wkhtmltopdf migrations teams have undertaken — the API translation, the template CSS review, or the deployment configuration changes for the new binary dependency?</p>

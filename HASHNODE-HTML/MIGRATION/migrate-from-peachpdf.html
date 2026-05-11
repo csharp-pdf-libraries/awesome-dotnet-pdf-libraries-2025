@@ -1,0 +1,724 @@
+<!-- FRONTMATTER
+  title: Migrating from PeachPDF to IronPDF: what changes, what breaks, what maps
+  subtitle: from install to first PDF — the full migration path
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-peachpdf/
+  description: A focused migration guide for .NET teams replacing PeachPDF with IronPDF — covers the API differences, integration notes, and what to update in your project.
+  published: False
+-->
+
+<h1>Migrating from PeachPDF to IronPDF: what changes, what breaks, what maps</h1>
+
+<p class="subtitle"><em>from install to first PDF — the full migration path</em></p>
+
+<h2>Framing</h2>
+
+<p>PDF generation in .NET has long been served by a fragmented ecosystem of libraries — some commercial, some open-source, some maintained actively and some effectively dormant. Teams re-evaluate their PDF library for a variety of reasons that have little to do with dissatisfaction: a library reaches end-of-life, a new platform target (Linux containers, MAUI, Blazor Server) falls outside the library's support matrix, or a security audit surfaces an unmaintained transitive dependency. In some cases the trigger is simpler: a developer who originally integrated the library has left the team, the license model changed, or the output quality no longer meets a compliance requirement.</p>
+
+<p>Niche PDF libraries occupy an interesting position in this landscape. They are typically lightweight and fast to integrate, and they often solve a narrow problem extremely well. The trade-off is that their feature surface is intentionally constrained, maintenance cadence depends heavily on a small maintainer group, and ecosystem documentation is thinner than that of larger commercial offerings. When a project's requirements outgrow that narrow surface, migration becomes a practical engineering decision rather than a preference.</p>
+
+<p>PeachPDF is one such niche library in the .NET space. Teams considering a move to IronPDF are usually doing so because they need broader format support, more predictable rendering of modern HTML/CSS, or a commercially backed support contract. This guide maps the technical path from PeachPDF to IronPDF at the code level, without advocating for the switch itself.</p>
+
+<h2>What PeachPDF Is Designed to Do</h2>
+
+<p>PeachPDF is a .NET PDF generation library focused on converting HTML content to PDF output. Its architecture centers on an HTML rendering pipeline that parses markup and applies CSS layout rules to produce paginated PDF documents. The integration model is straightforward: the library exposes a small API surface that accepts HTML strings or file paths and returns either a byte array or a stream representing the generated PDF.</p>
+
+<p>The primary use case is server-side document generation — invoices, reports, and formatted correspondence — where the input is already in HTML form and the output needs to be a reasonably faithful PDF rendering of that markup. PeachPDF's install footprint is relatively small, which makes it attractive for microservices and containerized deployments where binary size matters. Note: the library's current maintenance status, supported .NET versions, and latest release should be verified against official documentation and the library's source repository before making migration decisions.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>IronPDF approaches HTML-to-PDF rendering by embedding a Chromium-based rendering engine rather than implementing its own layout engine. This architectural choice means that the rendering pipeline behaves consistently with how a modern browser would display the same HTML and CSS. JavaScript is executed as part of the render cycle, web fonts resolve through standard browser mechanics, and CSS Grid and Flexbox layout behave as a developer would expect from browser testing.</p>
+
+<p>The practical consequence for migration is that <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML-to-PDF rendering in IronPDF</a> produces output that is tightly coupled to Chromium's rendering behavior. Teams moving from a library with a custom layout engine may see layout differences — particularly in edge cases around floats, absolute positioning, or print media queries — that require template adjustments even when the API swap itself is straightforward.</p>
+
+<p>IronPDF's integration model is also broader than a typical niche library. Beyond HTML input, it accepts URLs, DOCX files, images, and Markdown as source formats. Its document operations layer supports merging, splitting, stamping, signing, and password-protecting PDFs after generation. The disposal model follows standard .NET <code>IDisposable</code> patterns: <code>PdfDocument</code> objects should be disposed after use, and the library exposes async rendering paths for <a href="https://ironpdf.com/how-to/async/">high-throughput pipeline scenarios</a>. License activation is handled at application startup via a static call; see the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a> for the precise initialization pattern.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>Direct conceptual mapping; template adjustments may be needed for CSS differences</td>
+    </tr>
+    <tr>
+      <td>HTML file to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlFileAsPdf()</code></td>
+      <td>Path resolution semantics should be verified</td>
+    </tr>
+    <tr>
+      <td>Save to file</td>
+      <td>Low</td>
+      <td><code>PdfDocument.SaveAs()</code></td>
+      <td>Standard file path API</td>
+    </tr>
+    <tr>
+      <td>Save to byte array / stream</td>
+      <td>Low</td>
+      <td><code>PdfDocument.BinaryData</code> / <code>ToStream()</code></td>
+      <td>Check method names in current IronPDF docs</td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderOptions.PaperSize</code> / <code>CustomPaperSize</code></td>
+      <td>IronPDF supports standard and custom sizes</td>
+    </tr>
+    <tr>
+      <td>Page margins</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderOptions</code> margin properties</td>
+      <td>Margin unit semantics may differ</td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Medium</td>
+      <td><code>HtmlHeaderFooter</code> or <code>TextHeaderFooter</code></td>
+      <td>IronPDF uses typed header/footer objects; more flexible than simple string injection</td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Medium</td>
+      <td><code>ChromePdfRenderOptions.EnableJavaScript</code> + <code>WaitFor</code></td>
+      <td>PeachPDF JS support level is -; IronPDF executes JS via Chromium</td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>PeachPDF merge capability -</td>
+    </tr>
+    <tr>
+      <td>Password / encryption</td>
+      <td>Medium</td>
+      <td><code>PdfDocument.SecuritySettings</code></td>
+      <td>Unknown if PeachPDF supports encryption</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>High</td>
+      <td><code>PdfSignature</code> API</td>
+      <td>Unknown if PeachPDF supports signing</td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>High</td>
+      <td><code>PdfDocument.SaveAsPdfA()</code></td>
+      <td>Unknown if PeachPDF supports PDF/A</td>
+    </tr>
+    <tr>
+      <td>Thread safety / concurrency</td>
+      <td>Medium</td>
+      <td>Use separate <code>ChromePdfRenderer</code> instances per thread</td>
+      <td>Concurrency model differences must be tested</td>
+    </tr>
+    <tr>
+      <td>Linux / container deployment</td>
+      <td>Medium</td>
+      <td>IronPDF requires Chromium dependencies on Linux</td>
+      <td>Verify PeachPDF Linux support; IronPDF Docker setup has documented dependency list</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>HTML String to PDF</h3>
+
+<h4>PeachPDF — HTML String to PDF</h4>
+
+<p>PeachPDF's typical API pattern for rendering an HTML string involves instantiating a renderer class, passing HTML content, and retrieving the output as bytes or a file. The exact class and method names should be verified in the library's current documentation.</p>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Rendering engine is not Chromium-based; CSS support may lag behind modern browser behavior</li>
+
+  <li>JavaScript execution support level is - in official documentation</li>
+
+  <li>Async rendering availability is -</li>
+
+</ul>
+
+<h4>IronPDF — HTML String to PDF</h4>
+
+<p>IronPDF renders HTML strings via <code>ChromePdfRenderer</code>, which wraps a Chromium engine and returns a <code>PdfDocument</code> that must be disposed after use. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers the full API including render options, wait-for conditions, and output configuration.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// Initialize license before first use (typically in application startup)
+// IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;;
+
+using var renderer = new ChromePdfRenderer();
+
+// Optional: configure rendering options
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 10;
+renderer.RenderingOptions.MarginBottom = 10;
+
+// Render HTML string to PDF
+using var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;h1&gt;Hello, PDF&lt;/h1&gt;&lt;p&gt;Migration complete.&lt;/p&gt;&quot;);
+
+// Save to file
+pdf.SaveAs(&quot;/output/document.pdf&quot;);
+
+// Or retrieve as byte array
+byte[] pdfBytes = pdf.BinaryData;</code></pre>
+
+<p><code>ChromePdfRenderer</code> is thread-safe for concurrent rendering when each thread holds its own instance. The <code>PdfDocument</code> returned implements <code>IDisposable</code>; wrapping it in a <code>using</code> block prevents native resource leaks.</p>
+
+<h3>HTML File to PDF</h3>
+
+<h4>PeachPDF — HTML File to PDF</h4>
+
+<p>PeachPDF's file-based API accepts a path to an HTML file on disk. Asset resolution (images, stylesheets referenced by relative paths) depends on the library's base URL handling</p>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Base URL resolution for local assets may differ from browser behavior</li>
+
+  <li>No JavaScript execution during render</li>
+
+  <li>File encoding handling</li>
+
+</ul>
+
+<h4>IronPDF — HTML File to PDF</h4>
+
+<p>IronPDF resolves local file paths using the file's directory as the implicit base URL, which means relative stylesheet and image references resolve as expected. The <a href="https://ironpdf.com/how-to/rendering-options/">rendering options guide</a> covers the full set of pre-render configuration available.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using System.IO;
+
+using var renderer = new ChromePdfRenderer();
+
+// Render a local HTML file; relative asset paths resolve against the file's directory
+string htmlFilePath = Path.GetFullPath(&quot;report.html&quot;);
+using var pdf = renderer.RenderHtmlFileAsPdf(htmlFilePath);
+
+pdf.SaveAs(&quot;/output/report.pdf&quot;);</code></pre>
+
+<p>If assets are hosted on a remote base URL, <code>ChromePdfRenderOptions.CustomCssUrl</code> and related properties allow explicit base URL configuration</p>
+
+<h3>Headers and Footers</h3>
+
+<h4>PeachPDF — Headers and Footers</h4>
+
+<p>PeachPDF's header/footer mechanism is - in official documentation. Common patterns in lightweight HTML-to-PDF libraries include injecting header/footer HTML into the template itself using CSS <code>@page</code> rules, or providing a string-substitution API with page number tokens.</p>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li><code>@page</code> CSS-based headers may not render consistently across non-Chromium engines</li>
+
+  <li>Page count tokens and dynamic content often require workarounds</li>
+
+  <li>Per-page conditional headers (e.g., first page different) may not be supported</li>
+
+</ul>
+
+<h4>IronPDF — Headers and Footers</h4>
+
+<p>IronPDF provides typed header/footer objects that are applied after rendering, independent of the HTML template. Both <code>TextHeaderFooter</code> (simple text with tokens) and <code>HtmlHeaderFooter</code> (full HTML markup rendered per page) are supported. The <a href="https://ironpdf.com/how-to/headers-and-footers/">headers and footers guide</a> documents available token substitutions and per-section configuration.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+
+using var renderer = new ChromePdfRenderer();
+
+// Configure an HTML-based footer with page numbering
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    Height = 15,
+    // {page} and {total-pages} are substituted at render time
+    HtmlFragment = &quot;&lt;div style='text-align:right; font-size:10px;'&gt;Page {page} of {total-pages}&lt;/div&gt;&quot;,
+    DrawDividerLine = true
+};
+
+using var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;h1&gt;Annual Report&lt;/h1&gt;&lt;p&gt;Content follows.&lt;/p&gt;&quot;);
+pdf.SaveAs(&quot;/output/report-with-footer.pdf&quot;);</code></pre>
+
+<p>The header/footer is decoupled from the HTML content, which avoids the need for <code>@page</code> CSS workarounds and produces consistent output across page counts that aren't known at template-authoring time.</p>
+
+<h3>Merge PDFs</h3>
+
+<h4>PeachPDF — Merge PDFs</h4>
+
+<p>PeachPDF's merge capability is - in official documentation. Teams using PeachPDF for merge operations may be relying on a secondary library (PdfSharp, iTextSharp) for post-generation document assembly.</p>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Merge support and API surface -</li>
+
+  <li>If merge is not native, migration may simplify the dependency graph by consolidating to a single library</li>
+
+</ul>
+
+<h4>IronPDF — Merge PDFs</h4>
+
+<p>IronPDF's <code>PdfDocument.Merge()</code> static method accepts a collection of <code>PdfDocument</code> instances and returns a new merged document. The <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split guide</a> covers both merge and split operations.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using System.Collections.Generic;
+
+// Load existing PDFs from disk
+using var doc1 = PdfDocument.FromFile(&quot;/input/part1.pdf&quot;);
+using var doc2 = PdfDocument.FromFile(&quot;/input/part2.pdf&quot;);
+using var doc3 = PdfDocument.FromFile(&quot;/input/part3.pdf&quot;);
+
+// Merge into a single document; Merge() returns a new PdfDocument
+using var merged = PdfDocument.Merge(new List&lt;PdfDocument&gt; { doc1, doc2, doc3 });
+
+merged.SaveAs(&quot;/output/merged.pdf&quot;);</code></pre>
+
+<p>Page ordering is determined by the list order. Individual <code>PdfDocument</code> inputs remain valid after the merge call; dispose each one when finished.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>PeachPDF Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Renderer / converter class</td>
+      <td><code>ChromePdfRenderer</code></td>
+      <td>IronPDF's primary rendering entry point</td>
+    </tr>
+    <tr>
+      <td>HTML string input</td>
+      <td><code>renderer.RenderHtmlAsPdf(htmlString)</code></td>
+      <td>Direct mapping</td>
+    </tr>
+    <tr>
+      <td>HTML file input</td>
+      <td><code>renderer.RenderHtmlFileAsPdf(filePath)</code></td>
+      <td>Direct mapping</td>
+    </tr>
+    <tr>
+      <td>URL input</td>
+      <td><code>renderer.RenderUrlAsPdf(url)</code></td>
+      <td>Additional capability not typical in niche libraries</td>
+    </tr>
+    <tr>
+      <td>Output to byte array</td>
+      <td><code>pdf.BinaryData</code></td>
+      <td>Property access; verify property name in current docs</td>
+    </tr>
+    <tr>
+      <td>Output to stream</td>
+      <td><code>pdf.ToStream()</code></td>
+      <td>Verify method name in current docs</td>
+    </tr>
+    <tr>
+      <td>Save to file</td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td>Direct mapping</td>
+    </tr>
+    <tr>
+      <td>Paper size configuration</td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td>Enum-based; custom sizes available</td>
+    </tr>
+    <tr>
+      <td>Margin configuration</td>
+      <td><code>RenderingOptions.Margin*</code> properties</td>
+      <td>Top, Bottom, Left, Right properties</td>
+    </tr>
+    <tr>
+      <td>Header/footer (text)</td>
+      <td><code>TextHeaderFooter</code></td>
+      <td>Token substitution for page numbers, dates</td>
+    </tr>
+    <tr>
+      <td>Header/footer (HTML)</td>
+      <td><code>HtmlHeaderFooter</code></td>
+      <td>Full HTML rendered per page</td>
+    </tr>
+    <tr>
+      <td>JavaScript wait/timeout</td>
+      <td><code>RenderingOptions.WaitFor</code></td>
+      <td>Controls Chromium JS execution timing</td>
+    </tr>
+    <tr>
+      <td>Encryption / passwords</td>
+      <td><code>pdf.SecuritySettings</code></td>
+      <td><a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">Encryption guide</a></td>
+    </tr>
+    <tr>
+      <td>Merge documents</td>
+      <td><code>PdfDocument.Merge(docs)</code></td>
+      <td><a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Merge/split guide</a></td>
+    </tr>
+    <tr>
+      <td>Page count</td>
+      <td><code>pdf.PageCount</code></td>
+      <td>Property access</td>
+    </tr>
+    <tr>
+      <td>Extract text</td>
+      <td><code>pdf.ExtractAllText()</code></td>
+      <td>Unknown if PeachPDF supports extraction</td>
+    </tr>
+    <tr>
+      <td>PDF/A output</td>
+      <td><code>pdf.SaveAsPdfA()</code></td>
+      <td>Unknown if PeachPDF supports PDF/A</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>Rendering engine change.</strong> Moving from PeachPDF's layout engine to Chromium means CSS rendering behavior will differ. Templates that relied on non-standard CSS quirks, custom font fallback behavior, or specific float/clear behavior may produce different layouts and require adjustments.</li>
+
+  <li><strong>Chromium binary dependency.</strong> IronPDF ships with or downloads a Chromium binary. In containerized environments (Docker, Kubernetes) this means the image requires additional Linux dependencies. The IronPDF documentation lists required system packages for Debian/Ubuntu-based images</li>
+
+  <li><strong>Namespace change.</strong> All IronPDF types live under the <code>IronPdf</code> namespace. Any using directives referencing PeachPDF namespaces must be updated.</li>
+
+  <li><strong>License initialization.</strong> IronPDF requires a license key to be set at startup. Deployments that previously required no license management will need to add this initialization step and manage the key as a configuration secret.</li>
+
+  <li><strong>Disposal semantics.</strong> <code>PdfDocument</code> and <code>ChromePdfRenderer</code> implement <code>IDisposable</code>. Code patterns that do not dispose these objects will leak native resources, especially under load. PeachPDF's disposal behavior is -; if it does not use native resources, existing code may not follow dispose patterns and will need updating.</li>
+
+  <li><strong>Thread safety model.</strong> IronPDF recommends creating separate <code>ChromePdfRenderer</code> instances per thread or per request rather than sharing a single instance. Verify the concurrency model documented for the version in use.</li>
+
+  <li><strong>JavaScript execution overhead.</strong> Because IronPDF executes JavaScript via Chromium, render times for HTML that triggers heavy JS (charts, data tables) will be higher than a non-JS rendering path. Async rendering and the <code>WaitFor</code> API provide control over this—see <a href="https://ironpdf.com/how-to/async/">async rendering</a>.</li>
+
+  <li><strong>Missing PeachPDF-specific features.</strong> Any PeachPDF-specific convenience APIs (if they exist) that do not have direct IronPDF equivalents will need to be reimplemented using IronPDF's primitives.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature Area</th>
+      <th>PeachPDF</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active maintenance</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Commercial support</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>-</td>
+      <td>No (commercial)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Platform Support</strong></td>
+    </tr>
+    <tr>
+      <td>.NET Framework</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td>Verify minimum version in IronPDF docs</td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux</td>
+      <td>-</td>
+      <td>Yes (with Chromium deps)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>macOS</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Docker</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td>Requires dependency installation</td>
+    </tr>
+    <tr>
+      <td>Azure / AWS Lambda</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content Creation</strong></td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HTML file to PDF</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS Grid / Flexbox</td>
+      <td>-</td>
+      <td>Yes (via Chromium)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Responsive CSS</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/html-to-pdf-responsive-css/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>DOCX to PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Image to PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Markdown to PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Add/remove pages</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Extract text</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Find and replace text</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Bookmarks</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password protection</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Permission flags</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Redaction</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>Async API</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Parallel processing</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom logging</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Audit current usage.</strong> Enumerate every call site that uses PeachPDF. Categorize by operation (render, save, merge, etc.) to scope the migration surface.</li>
+
+  <li><strong>Swap the NuGet package.</strong> Remove the PeachPDF package reference and add <code>IronPdf</code> via NuGet: <code>dotnet add package IronPdf</code>.</li>
+
+  <li><strong>Configure the license key.</strong> Add <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> to application startup. Store the key in environment configuration, not in source. See the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>Update using directives.</strong> Replace all PeachPDF namespace imports with <code>using IronPdf;</code> and related sub-namespaces as needed.</li>
+
+  <li><strong>Remap rendering calls.</strong> Replace PeachPDF renderer instantiation and render calls with <code>ChromePdfRenderer</code> and the appropriate <code>Render*AsPdf()</code> method.</li>
+
+  <li><strong>Add disposal patterns.</strong> Wrap <code>ChromePdfRenderer</code> and <code>PdfDocument</code> in <code>using</code> blocks or call <code>Dispose()</code> explicitly. Audit all code paths including exception handling.</li>
+
+  <li><strong>Remap output methods.</strong> Update byte array, stream, and file save calls to IronPDF equivalents (<code>BinaryData</code>, <code>ToStream()</code>, <code>SaveAs()</code>).</li>
+
+  <li><strong>Migrate headers/footers.</strong> If PeachPDF headers/footers were CSS <code>@page</code> based, refactor to <code>HtmlHeaderFooter</code> or <code>TextHeaderFooter</code> objects on <code>RenderingOptions</code>.</li>
+
+  <li><strong>Test JavaScript-dependent templates.</strong> If HTML templates use JavaScript (charts, dynamic tables), test render output with IronPDF and adjust <code>WaitFor</code> settings as needed.</li>
+
+  <li><strong>Validate in target deployment environment.</strong> If deploying to Linux or Docker, verify Chromium system dependencies are installed. Run rendering tests in the target container image before promoting to production.</li>
+
+  <li><strong>Compare output PDFs.</strong> Use a visual diff tool or automated acceptance test to compare PeachPDF output against IronPDF output for representative documents. Flag any layout regressions for template adjustment.</li>
+
+  <li><strong>Update logging and monitoring.</strong> IronPDF supports custom logging; configure it to integrate with existing observability infrastructure.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<p>Technically reasonable:</strong> If PeachPDF is actively maintained, its .NET target compatibility covers your deployment platform, and your document generation requirements are limited to basic HTML-to-PDF rendering without complex JavaScript, digital signatures, or compliance formats, there may be no engineering justification for migration, <strong>When staying on PeachPDF is. The existing integration is known, tested, and stable. Switching libraries carries real engineering cost and introduces regression risk that must be weighed against concrete gains.</p>
+
+<p><strong>Signals that indicate migration is worth the engineering effort:</strong> The clearest signals are platform blockers (PeachPDF does not support your target .NET version or OS), rendering correctness issues with modern CSS that cannot be resolved by template changes, and requirements for features (PDF/A compliance, digital signatures, DOCX input, URL rendering) that PeachPDF does not provide. A secondary signal is maintenance risk: if the library has no recent releases and no active issue responses, any future bug—especially a security-relevant one—may go unaddressed.</p>
+
+<p><strong>What the cutover typically involves at the code level:</strong> The rendering call sites are the primary change surface. In typical applications, this is a small number of service or utility classes. The mechanical steps are a NuGet swap, namespace updates, renderer class replacement, disposal pattern addition, and output method remapping. The less mechanical work — template adjustments for CSS rendering differences and deployment environment changes for Chromium dependencies — is where teams typically spend more time. A phased approach that runs both libraries in parallel on a subset of documents, with output comparison, reduces production risk.</p>
+
+<p>What rendering differences, if any, have teams encountered when moving from a custom-layout HTML renderer to a Chromium-based one in production document pipelines?</p>

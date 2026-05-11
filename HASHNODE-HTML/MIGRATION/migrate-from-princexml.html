@@ -1,0 +1,782 @@
+<!-- FRONTMATTER
+  title: Migrating from PrinceXML to IronPDF: from install to production
+  subtitle: architecture differences, breaking changes, and migration patterns
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-princexml/
+  description: API mapping and migration checklist for .NET developers moving from PrinceXML to IronPDF, covering the key differences in PDF generation approach.
+  published: False
+-->
+
+<h1>Migrating from PrinceXML to IronPDF: from install to production</h1>
+
+<p class="subtitle"><em>architecture differences, breaking changes, and migration patterns</em></p>
+
+<h2>Framing</h2>
+
+<p>PDF generation requirements in enterprise .NET applications often start with a clear separation of concerns: design teams produce CSS-heavy HTML/XML templates with precise typographic control, and the rendering engine's job is to faithfully execute those templates into paginated output. Libraries that excel at this — where the emphasis is on CSS Paged Media support, CMYK color handling, and output fidelity — serve a different master than libraries optimized for web-content capture or developer ergonomics.</p>
+
+<p>Teams re-evaluate their rendering stack for a range of reasons: the vendor's pricing model changes at volume, a compliance requirement demands a different output format, a new deployment target (cloud, containerized, managed PaaS) is incompatible with the library's integration model, or the team inherits a codebase and needs to reduce the number of external binary dependencies. In some cases, the driver is simpler — the team wants a single managed .NET library that handles both generation and post-processing without orchestrating an external process.</p>
+
+<p>PrinceXML occupies a specific position in this landscape: it is a high-fidelity CSS-to-PDF renderer with particular strength in print publishing and technical documentation workflows. Teams migrating away from it are typically doing so for operational or commercial reasons rather than because the output quality is insufficient. This guide maps the architectural differences and migration surface for teams moving to IronPDF from PrinceXML, with the goal of providing a technically accurate foundation for that decision.</p>
+
+<h2>What PrinceXML Is Designed to Do</h2>
+
+<p>PrinceXML is a command-line and API-based HTML/XML-to-PDF formatter that implements a substantial subset of CSS Paged Media and CSS Generated Content specifications. Its primary design goal is typographic fidelity: the engine handles complex multi-column layouts, footnotes, running headers derived from document content, CMYK color spaces, OpenType font features, and MathML rendering. These capabilities make it well-suited for technical documentation, academic publishing, regulatory filings, and complex printed-report workflows where print CSS specifications are the authoring language.</p>
+
+<p>The .NET integration model for PrinceXML is wrapper-based: the library exposes a COM interface and a managed wrapper that launches the PrinceXML process, passes input HTML or XML, and captures the output PDF. There is no purely managed .NET implementation; the native binary is required in the deployment environment. This integration pattern means deployment involves installing and managing the PrinceXML binary alongside the .NET application — a consideration in containerized or managed-PaaS environments where external binary dependencies require explicit provisioning. Note: current version support, .NET compatibility, and license model should be verified against PrinceXML's official documentation.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>IronPDF takes a fundamentally different approach to the same rendering problem. Rather than implementing a CSS formatter targeting print specifications, IronPDF wraps a Chromium rendering engine. The rendering pipeline is a browser engine executing the HTML and CSS, and the PDF output is produced through Chromium's print-to-PDF pipeline. The integration model is a managed NuGet package with no separate binary installation step; the Chromium dependency is bundled or downloaded as part of IronPDF's setup.</p>
+
+<p>The CSS support profile that follows from this architecture is the browser's CSS implementation rather than a print-specification-first CSS formatter. CSS Grid, Flexbox, CSS Variables, and modern web fonts are fully supported because Chromium implements them. CSS Paged Media — the W3C specification for paginated output that PrinceXML implements extensively — is supported to the degree that Chromium's print pipeline implements it, which is less complete than PrinceXML's implementation. Teams migrating templates that rely on CSS Paged Media features like <code>@page</code> named pages, <code>prince-flow()</code>, <code>target-counter()</code>, or CMYK color profiles will encounter the highest-effort migration work.</p>
+
+<p>For teams whose templates are standard HTML/CSS without heavy reliance on CSS Paged Media extensions, IronPDF's Chromium pipeline produces <a href="https://ironpdf.com/how-to/pixel-perfect-html-to-pdf/">pixel-accurate rendering</a> of that content. Post-processing operations — merging, stamping, signing, password-protecting — are available natively in the library rather than requiring a separate document manipulation package. The <a href="https://ironpdf.com/how-to/async/">async rendering patterns</a> support high-throughput workloads without the process-launch overhead of a CLI-based tool. License setup is a static startup call; see the <a href="https://ironpdf.com/how-to/license-keys/">license configuration guide</a>.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>Direct mapping; CSS rendering differences may require template review</td>
+    </tr>
+    <tr>
+      <td>HTML file to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlFileAsPdf()</code></td>
+      <td>Path resolution semantics</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderUrlAsPdf()</code></td>
+      <td>PrinceXML also supports URL input; mapping is direct</td>
+    </tr>
+    <tr>
+      <td>XML + XSLT to PDF</td>
+      <td>Medium</td>
+      <td>HTML intermediary + render</td>
+      <td>IronPDF does not accept raw XML; XSLT transform to HTML first, then render</td>
+    </tr>
+    <tr>
+      <td>CSS Paged Media features</td>
+      <td>High</td>
+      <td>Partial—depends on Chromium print CSS support</td>
+      <td><code>@page</code> named pages, prince-flow, target-counter are not supported; templates require redesign</td>
+    </tr>
+    <tr>
+      <td>CMYK color profiles</td>
+      <td>High</td>
+      <td>Not supported</td>
+      <td>IronPDF outputs RGB; CMYK profiles used in print publishing workflows require alternative</td>
+    </tr>
+    <tr>
+      <td>MathML rendering</td>
+      <td>Medium</td>
+      <td>-</td>
+      <td>PrinceXML natively renders MathML; IronPDF support via Chromium</td>
+    </tr>
+    <tr>
+      <td>OpenType font features</td>
+      <td>Medium</td>
+      <td>Partial via Chromium</td>
+      <td>Advanced OpenType features (kerning pairs, ligature tables) depend on Chromium's font rendering</td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.WaitFor</code></td>
+      <td>IronPDF executes JS via Chromium; PrinceXML has limited JS support</td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderOptions.CustomPaperSize</code></td>
+      <td>Direct mapping</td>
+    </tr>
+    <tr>
+      <td>Page margins</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.Margin*</code> properties</td>
+      <td>CSS <code>@page</code> margin may need to be migrated to render options</td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Medium</td>
+      <td><code>HtmlHeaderFooter</code> / <code>TextHeaderFooter</code></td>
+      <td>PrinceXML running headers via CSS require migration to IronPDF's header/footer API</td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>Medium</td>
+      <td><code>pdf.SaveAsPdfA()</code></td>
+      <td>PrinceXML supports PDF/A; IronPDF also supports it</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Medium</td>
+      <td><code>PdfSignature</code> API</td>
+      <td>PrinceXML signing capability</td>
+    </tr>
+    <tr>
+      <td>Process/CLI integration pattern</td>
+      <td>Medium</td>
+      <td>Remove; use managed API</td>
+      <td>PrinceXML runs as an external process; IronPDF is in-process; deployment model changes</td>
+    </tr>
+    <tr>
+      <td>Deployment binary management</td>
+      <td>Medium</td>
+      <td>NuGet-managed</td>
+      <td>PrinceXML requires separate binary installation; IronPDF bundles Chromium via NuGet</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>HTML/XML to PDF via CLI Wrapper</h3>
+
+<h4>PrinceXML — CLI Wrapper Integration in .NET</h4>
+
+<p>PrinceXML's .NET integration typically uses a managed wrapper that launches the <code>prince</code> process, passes input and configuration, and captures output. The core rendering is performed by the native binary. The wrapper API exposes methods for setting input source, configuring options, and retrieving output.</p>
+
+<pre><code class="language-csharp">// PrinceXML .NET wrapper pattern (conceptual
+// Requires PrinceXML binary installed on the host and a reference to the wrapper assembly
+
+// using PrinceXMLLib; // or the wrapper namespace
+
+// var prince = new Prince(&quot;/usr/bin/prince&quot;); // path to prince binary
+// prince.SetJavaScript(true);
+// prince.AddStyleSheet(&quot;/styles/print.css&quot;);
+
+// // Convert HTML file to PDF
+// bool success = prince.Convert(&quot;/input/document.html&quot;, &quot;/output/document.pdf&quot;);
+
+// // Or convert to a stream
+// using var outputStream = new MemoryStream();
+// bool success = prince.ConvertToStream(&quot;/input/document.html&quot;, outputStream);</code></pre>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>External process launch per render; cold-start overhead on every call unless a persistent daemon mode is used</li>
+
+  <li>Binary must be installed and accessible at the path specified; deployment complexity in containers</li>
+
+  <li>License file must be present on the host machine, not in application configuration</li>
+
+  <li>Concurrency is managed by launching multiple processes; no in-process thread management</li>
+
+</ul>
+
+<h4>IronPDF — HTML File to PDF</h4>
+
+<p>IronPDF renders HTML files in-process via Chromium, with no external binary to launch. The <a href="https://ironpdf.com/how-to/html-file-to-pdf/">HTML file to PDF guide</a> covers path resolution and rendering option configuration.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using System.IO;
+
+// IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;; // Set at application startup
+
+using var renderer = new ChromePdfRenderer();
+
+// Configure rendering options (previously set via prince CLI flags)
+renderer.RenderingOptions.PrintBackground = true;
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 15;
+renderer.RenderingOptions.MarginBottom = 15;
+
+// Render HTML file — no external process required
+string inputPath = Path.GetFullPath(&quot;/input/document.html&quot;);
+using var pdf = renderer.RenderHtmlFileAsPdf(inputPath);
+
+// Save to file
+pdf.SaveAs(&quot;/output/document.pdf&quot;);
+
+// Or return as byte array for streaming response
+byte[] pdfBytes = pdf.BinaryData;</code></pre>
+
+<p>The absence of process launch overhead means the first call after application startup is substantially faster than a CLI wrapper approach. Subsequent calls reuse the Chromium engine without re-initialization.</p>
+
+<h3>CSS Paged Media: Running Headers and Named Pages</h3>
+
+<h4>PrinceXML — Running Headers and Named Pages</h4>
+
+<p>One of PrinceXML's distinguishing capabilities is its implementation of CSS Paged Media and Generated Content specifications. Running headers derived from document content (<code>prince-flow()</code>), <code>string-set</code> for capturing content from the document, and named page sequences (<code>@page :left</code>, <code>@page :right</code>, <code>@page chapter</code>) allow sophisticated book-style layouts to be expressed entirely in CSS.</p>
+
+<pre><code class="language-css">/* PrinceXML CSS example — illustrative, not for IronPDF */
+@page {
+    size: A4;
+    margin: 2cm 2.5cm;
+    
+    @top-center {
+        content: string(chapter-title); /* running header from document */
+    }
+    
+    @bottom-center {
+        content: counter(page);
+    }
+}
+
+/* Capture chapter title for running header */
+h1 { string-set: chapter-title content(); }
+
+/* Named page for chapter start */
+.chapter { page: chapter; page-break-before: right; }</code></pre>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li><code>string-set</code>, <code>prince-flow()</code>, <code>target-counter()</code>, and CSS <code>@page</code> named pages are PrinceXML extensions or CSS Paged Media features not implemented in Chromium</li>
+
+  <li>These templates require significant redesign for any Chromium-based renderer, not just IronPDF</li>
+
+  <li>The extent of CSS Paged Media support in Chromium's print pipeline is limited compared to a dedicated formatter</li>
+
+</ul>
+
+<h4>IronPDF — Headers and Footers</h4>
+
+<p>IronPDF's approach to running headers uses <code>HtmlHeaderFooter</code> objects configured on the renderer, rather than CSS page specifications. These are rendered as HTML and applied per page. Page number tokens are substituted at render time. The <a href="https://ironpdf.com/how-to/headers-and-footers/">headers and footers guide</a> and the <a href="https://ironpdf.com/examples/html-headers-and-footers/">HTML headers and footers example</a> cover the available configurations.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+
+using var renderer = new ChromePdfRenderer();
+
+// HTML-based header applied to every page
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    Height = 20,
+    HtmlFragment = @&quot;
+        &lt;div style='display:flex; justify-content:space-between; font-size:11px; padding:0 10px;'&gt;
+            &lt;span&gt;Company Report 2024&lt;/span&gt;
+            &lt;span&gt;{page} / {total-pages}&lt;/span&gt;
+        &lt;/div&gt;&quot;,
+    DrawDividerLine = true
+};
+
+// HTML-based footer
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    Height = 12,
+    HtmlFragment = &quot;&lt;div style='text-align:center; font-size:9px; color:#999;'&gt;Confidential&lt;/div&gt;&quot;
+};
+
+using var pdf = renderer.RenderHtmlFileAsPdf(&quot;/input/report.html&quot;);
+pdf.SaveAs(&quot;/output/report-with-headers.pdf&quot;);</code></pre>
+
+<p>Named page sequences (different header/footer layouts for odd/even pages, chapter-start pages) require structural workarounds in IronPDF — rendering sections separately and merging the resulting PDFs. This is the highest-friction migration pattern for PrinceXML templates that rely on named page specifications.</p>
+
+<h3>PDF/A Compliance Output</h3>
+
+<h4>PrinceXML — PDF/A Output</h4>
+
+<p>PrinceXML supports generating PDF/A-compliant output via command-line flags or API configuration. The extent of PDF/A profile support (PDF/A-1b, PDF/A-2b, PDF/A-3b) should be verified in PrinceXML's current documentation.</p>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>PDF/A compliance requires specific font embedding, color profile, and metadata requirements that the renderer must enforce</li>
+
+  <li>PrinceXML's CMYK color handling interacts with PDF/A color space requirements; verify profile compatibility</li>
+
+  <li>PDF/A-3 (file attachments) capability in PrinceXML</li>
+
+</ul>
+
+<h4>IronPDF — PDF/A Compliance</h4>
+
+<p>IronPDF supports PDF/A output via <code>PdfDocument.SaveAsPdfA()</code>. The <a href="https://ironpdf.com/how-to/pdfa/">PDF/A guide</a> documents the supported profiles and the requirements for producing compliant output, including font embedding and metadata.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+
+using var renderer = new ChromePdfRenderer();
+
+// Render the document
+using var pdf = renderer.RenderHtmlFileAsPdf(&quot;/input/archive-document.html&quot;);
+
+// Save as PDF/A
+pdf.SaveAsPdfA(&quot;/output/document-pdfa.pdf&quot;, IronPdf.Rendering.PdfAVersions.PdfA2B);
+
+// Alternatively, convert an existing PDF to PDF/A
+using var existing = PdfDocument.FromFile(&quot;/input/existing.pdf&quot;);
+existing.SaveAsPdfA(&quot;/output/existing-pdfa.pdf&quot;, IronPdf.Rendering.PdfAVersions.PdfA2B);</code></pre>
+
+<p>Verify exact enum values for PDF/A profiles in current IronPDF documentation. The rendering pipeline must produce valid font embedding and color space information for the PDF/A validation to pass; test compliance output against a PDF/A validator tool before deploying.</p>
+
+<h3>Merging and Post-Processing</h3>
+
+<h4>PrinceXML — Post-Processing</h4>
+
+<p>PrinceXML's scope is HTML/XML-to-PDF rendering. Post-processing operations such as merging, digital signing, and password protection typically require an additional .NET PDF library. Teams running PrinceXML in production often have a two-library stack for this reason.</p>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Round-trip between PrinceXML output and the manipulation library involves file I/O or memory streams</li>
+
+  <li>Two-library versioning and licensing overhead</li>
+
+  <li>No single unified document object model</li>
+
+</ul>
+
+<h4>IronPDF — Merging and Signing</h4>
+
+<p>IronPDF provides merging and signing in the same library as rendering, eliminating the secondary dependency. The <a href="https://ironpdf.com/how-to/signing/">digital signatures guide</a> documents signature field configuration and certificate requirements.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using System.Collections.Generic;
+
+// Render two documents
+using var renderer = new ChromePdfRenderer();
+using var section1 = renderer.RenderHtmlFileAsPdf(&quot;/input/section1.html&quot;);
+using var section2 = renderer.RenderHtmlFileAsPdf(&quot;/input/section2.html&quot;);
+
+// Merge rendered sections
+using var merged = PdfDocument.Merge(new List&lt;PdfDocument&gt; { section1, section2 });
+
+// Apply digital signature
+var signature = new PdfSignature(&quot;/certs/company.pfx&quot;, &quot;pfxPassword&quot;)
+{
+    SigningContact = &quot;reports@example.com&quot;,
+    SigningReason = &quot;Final approval&quot;,
+    SigningLocation = &quot;Chicago&quot;
+};
+
+merged.Sign(signature);
+merged.SaveAs(&quot;/output/final-report-signed.pdf&quot;);</code></pre>
+
+<p>Verify the <code>PdfSignature</code> constructor parameters and property names in current IronPDF documentation. HSM-based signing (where the certificate private key is managed by an external hardware security module) is available; see verify in the IronPDF HSM signing documentation.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>PrinceXML Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>prince.Convert(inputPath, outputPath)</code></td>
+      <td><code>renderer.RenderHtmlFileAsPdf(path)</code> + <code>pdf.SaveAs(path)</code></td>
+      <td>Split into render + save</td>
+    </tr>
+    <tr>
+      <td><code>prince.ConvertToStream(input, stream)</code></td>
+      <td><code>pdf.ToStream()</code> or <code>pdf.BinaryData</code></td>
+      <td>Stream output available</td>
+    </tr>
+    <tr>
+      <td><code>prince.AddStyleSheet(cssPath)</code></td>
+      <td>CSS <code>&lt;link&gt;</code> in HTML, or <code>RenderingOptions</code></td>
+      <td>External CSS is resolved relative to HTML file path</td>
+    </tr>
+    <tr>
+      <td><code>prince.SetJavaScript(true)</code></td>
+      <td><code>RenderingOptions.EnableJavaScript = true</code></td>
+      <td>Verify property name in current docs</td>
+    </tr>
+    <tr>
+      <td><code>prince.SetPDFProfile("PDF/A-1b")</code></td>
+      <td><code>pdf.SaveAsPdfA(path, profile)</code></td>
+      <td>Verify profile enum values</td>
+    </tr>
+    <tr>
+      <td><code>prince.SetEncryptInfo(...)</code></td>
+      <td><code>pdf.SecuritySettings</code></td>
+      <td><a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">Password/permissions guide</a></td>
+    </tr>
+    <tr>
+      <td><code>@page</code> margin CSS</td>
+      <td><code>RenderingOptions.Margin*</code></td>
+      <td>CSS margins partially supported; move explicit values to render options</td>
+    </tr>
+    <tr>
+      <td><code>@page</code> named pages</td>
+      <td>No direct equivalent</td>
+      <td>Requires structural workaround (render sections + merge)</td>
+    </tr>
+    <tr>
+      <td><code>prince-flow()</code> / <code>string-set</code></td>
+      <td>No equivalent</td>
+      <td>CSS Paged Media extension; requires template redesign</td>
+    </tr>
+    <tr>
+      <td><code>target-counter()</code></td>
+      <td>No equivalent</td>
+      <td>CSS Generated Content extension; requires template redesign</td>
+    </tr>
+    <tr>
+      <td>CMYK color output</td>
+      <td>Not supported</td>
+      <td>IronPDF outputs RGB; verify in docs if CMYK needed</td>
+    </tr>
+    <tr>
+      <td>MathML input</td>
+      <td>-</td>
+      <td>Chromium MathML support</td>
+    </tr>
+    <tr>
+      <td><code>prince.AddScript(path)</code></td>
+      <td>Script tag in HTML</td>
+      <td>Inline or externally referenced JS supported</td>
+    </tr>
+    <tr>
+      <td>PDF/UA output</td>
+      <td><code>pdf.SaveAsPdfUA()</code></td>
+      <td><a href="https://ironpdf.com/how-to/pdfua/">PDF/UA guide</a></td>
+    </tr>
+    <tr>
+      <td>Bookmarks from CSS</td>
+      <td><code>pdf.Bookmarks</code> API</td>
+      <td><a href="https://ironpdf.com/how-to/bookmarks/">Bookmarks guide</a></td>
+    </tr>
+    <tr>
+      <td>Metadata via <code>&lt;meta&gt;</code></td>
+      <td><code>pdf.MetaData</code> properties</td>
+      <td><a href="https://ironpdf.com/how-to/metadata/">Metadata guide</a></td>
+    </tr>
+    <tr>
+      <td>Binary path configuration</td>
+      <td>Not required</td>
+      <td>IronPDF manages its own Chromium binary</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>CSS Paged Media gap.</strong> This is the highest-risk migration item. PrinceXML implements CSS Paged Media specifications that Chromium does not. Templates using <code>prince-flow()</code>, <code>string-set</code>, <code>target-counter()</code>, named page sequences, <code>@page :left / :right</code>, and CMYK color spaces will not render correctly in IronPDF without template redesign. Audit all CSS for these constructs before estimating migration effort.</li>
+
+  <li><strong>External process removed.</strong> PrinceXML's .NET integration launches an external process. IronPDF runs in-process. Code that manages the PrinceXML process — binary path configuration, process timeout handling, stderr capture for error detection — is removed, not migrated. This simplifies the integration but requires careful audit to ensure error handling is moved to IronPDF's exception model.</li>
+
+  <li><strong>CMYK color profiles not supported.</strong> IronPDF produces RGB output. Workflows requiring CMYK output for commercial printing cannot be directly migrated to IronPDF.</li>
+
+  <li><strong>MathML rendering.</strong> PrinceXML natively renders MathML. IronPDF's support via Chromium should be verified for the specific MathML constructs in use. Consider converting MathML to MathJax-rendered HTML as a preprocessing step if Chromium's native MathML support is insufficient.</li>
+
+  <li><strong>Namespace and integration model change.</strong> The PrinceXML .NET wrapper namespaces, assembly references, and initialization patterns must be replaced with IronPDF's NuGet package and <code>using IronPdf;</code> imports.</li>
+
+  <li><strong>License model change.</strong> PrinceXML uses a per-server or per-project license managed via a license file on disk. IronPDF uses a key-based license configured in application code or environment configuration. Key management must be updated accordingly.</li>
+
+  <li><strong>Disposal semantics.</strong> <code>ChromePdfRenderer</code> and <code>PdfDocument</code> implement <code>IDisposable</code>. PrinceXML's process-based model has different resource management semantics; ensure all IronPDF objects are properly disposed in <code>using</code> blocks.</li>
+
+  <li><strong>Thread-safety model.</strong> IronPDF recommends per-thread <code>ChromePdfRenderer</code> instances. PrinceXML's process-launch model provides natural isolation. Validate that concurrency patterns are updated appropriately.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature Area</th>
+      <th>PrinceXML</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active maintenance</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td>Verify PrinceXML current version</td>
+    </tr>
+    <tr>
+      <td>Commercial support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>No</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Wrapper only</td>
+      <td>Yes (full library)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Platform Support</strong></td>
+    </tr>
+    <tr>
+      <td>.NET Framework</td>
+      <td>Yes (via wrapper)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+</td>
+      <td>Yes (via wrapper)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>macOS</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Docker</td>
+      <td>Yes (requires binary)</td>
+      <td>Yes (requires Chromium deps)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Managed PaaS</td>
+      <td>Limited (binary install)</td>
+      <td>Yes (NuGet-managed)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering</strong></td>
+    </tr>
+    <tr>
+      <td>HTML to PDF</td>
+      <td>Yes</td>
+      <td><a href="https://ironpdf.com/how-to/html-string-to-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>XML + XSLT to PDF</td>
+      <td>Yes</td>
+      <td>Indirect (transform first)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Limited</td>
+      <td>Yes (Chromium)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS Grid / Flexbox</td>
+      <td>Limited</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS Paged Media</td>
+      <td>Extensive</td>
+      <td>Limited (Chromium)</td>
+      <td>Major gap for print-publishing templates</td>
+    </tr>
+    <tr>
+      <td>CMYK color</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>Critical gap for commercial print workflows</td>
+    </tr>
+    <tr>
+      <td>MathML</td>
+      <td>Yes</td>
+      <td>-</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>OpenType features</td>
+      <td>Yes</td>
+      <td>Partial (Chromium)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No (separate library)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>CSS Paged Media</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Typed objects</a></td>
+      <td>Different model</td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Bookmarks</td>
+      <td>Yes (CSS)</td>
+      <td>Yes (API)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Extract text</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password protection</td>
+      <td>Yes</td>
+      <td><a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td>Verify profile coverage in both</td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Redaction</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>Async API</td>
+      <td>No (process-based)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Parallel processing</td>
+      <td>Yes (multi-process)</td>
+      <td>Yes (in-process)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom logging</td>
+      <td>Via stderr</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Audit CSS for Paged Media dependencies.</strong> Before any code change, search all stylesheets for <code>@page</code> named pages, <code>prince-*</code> properties, <code>string-set</code>, <code>target-counter()</code>, and CMYK color values. This audit determines whether the migration is Low, Medium, or High effort.</li>
+
+  <li><strong>Identify CMYK requirements.</strong> If any output must be CMYK, determine whether RGB output is acceptable for those workflows or whether an alternative rendering path must be maintained.</li>
+
+  <li><strong>Swap the NuGet package.</strong> Add <code>IronPdf</code> via NuGet. Remove or scope the PrinceXML wrapper assembly to non-production targets.</li>
+
+  <li><strong>Configure the license key.</strong> Add <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> to application startup. Remove PrinceXML license file references from deployment configuration. See the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>Remove process-launch code.</strong> Delete PrinceXML binary path configuration, process-launch wrappers, stderr capture, and process timeout handling. Replace with <code>ChromePdfRenderer</code> instantiation.</li>
+
+  <li><strong>Remap render calls.</strong> Replace <code>prince.Convert()</code> and <code>prince.ConvertToStream()</code> calls with <code>ChromePdfRenderer.RenderHtmlFileAsPdf()</code> and appropriate output methods.</li>
+
+  <li><strong>Migrate render options.</strong> Translate PrinceXML CLI flags and API settings to <code>ChromePdfRenderOptions</code> equivalents: paper size, margins, background printing, JavaScript.</li>
+
+  <li><strong>Redesign CSS Paged Media templates.</strong> For templates using <code>prince-flow()</code>, named pages, or <code>string-set</code>, redesign using IronPDF's <code>HtmlHeaderFooter</code> API and section-then-merge patterns. This is the highest-effort step.</li>
+
+  <li><strong>Add disposal patterns.</strong> Wrap <code>ChromePdfRenderer</code> and <code>PdfDocument</code> in <code>using</code> blocks. Audit all code paths including exception and error handling branches.</li>
+
+  <li><strong>Validate PDF/A output.</strong> If PDF/A compliance is required, test <code>SaveAsPdfA()</code> output against a PDF/A validator (e.g., veraPDF) for each document type. Font embedding and color space issues surface here.</li>
+
+  <li><strong>Update container/deployment configuration.</strong> Remove PrinceXML binary installation steps from Dockerfiles and deployment scripts. Add IronPDF's Chromium system dependency installation steps for Linux environments.</li>
+
+  <li><strong>Run visual output comparison.</strong> Render a representative set of production documents with both renderers. Use a visual diff tool to identify layout differences. PrinceXML's CSS Paged Media features are the most likely source of visible differences.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<p><strong>When staying on PrinceXML is technically reasonable:</strong> PrinceXML is the more appropriate tool when the document pipeline's value is derived specifically from CSS Paged Media support — complex multi-column print layouts, running headers driven by document content, named page sequences, footnotes, and CMYK color output for commercial printing. If the templates are authored against the CSS Paged Media specification and the deployment model supports managing an external binary, there is no engineering justification to migrate. The output fidelity for those use cases reflects years of careful CSS formatter implementation that a Chromium-based approach does not replicate.</p>
+
+<p><strong>Signals that indicate migration is worth the engineering effort:</strong> The clearest signals are deployment model friction (containerized or managed-PaaS environments where binary installation is a burden), requirements for modern web CSS (Grid, Flexbox, JavaScript-rendered content) that PrinceXML's formatter handles less completely than a browser engine, and the need for post-processing operations (merge, sign, encrypt) that currently require a second library. Teams whose templates are standard HTML/CSS without significant CSS Paged Media use are the best candidates for migration — the rendering quality difference will be minimal and the operational simplification substantial.</p>
+
+<p><strong>What the cutover typically involves at the code level:</strong> The process-launch wrapper is replaced by <code>ChromePdfRenderer</code> instantiation — a significant simplification in terms of code complexity. Render call sites map directly. The effort concentration is in two areas: CSS template review and remediation for Paged Media features, and deployment configuration updates to replace binary installation with IronPDF's Chromium dependency setup. A phased approach — running both renderers in parallel for a document review period — is particularly advisable here given the CSS rendering differences that PrinceXML-optimized templates will surface.</p>
+
+<p>How have teams that moved from a CSS Paged Media formatter to a Chromium-based renderer handled the template migration, particularly for documents with complex running header and named-page requirements?</p>

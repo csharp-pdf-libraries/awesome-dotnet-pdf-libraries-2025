@@ -1,0 +1,785 @@
+<!-- FRONTMATTER
+  title: Migrating from TX TextControl to IronPDF: step-by-step for .NET developers
+  subtitle: what changes, what breaks, and what maps cleanly
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-textcontrol/
+  description: A complete migration reference for .NET teams moving from TX TextControl to IronPDF — API mapping, licensing differences, and a step-by-step checklist.
+  published: False
+-->
+
+<h1>Migrating from TX TextControl to IronPDF: step-by-step for .NET developers</h1>
+
+<p class="subtitle"><em>what changes, what breaks, and what maps cleanly</em></p>
+
+<h2>Framing</h2>
+
+<p>TX Text Control is a word-processing component suite from Text Control GmbH, providing WYSIWYG document editing controls for WinForms, WPF, and ASP.NET Core, alongside a server-side document processing API. It has been a commercial product since the early 1990s and occupies a specific position in the .NET component ecosystem: applications that need to embed a fully functional, Microsoft Word-compatible document editor — with tracked changes, mail merge, text frames, and form fields — typically inside a desktop or web application.</p>
+
+<p>Teams re-evaluate TX Text Control in two scenarios. The first: the application's document requirements have narrowed to PDF generation and manipulation, and the full word-processing component suite (editor control, WYSIWYG UI, format import/export for DOCX/RTF/HTML) is no longer needed — only the PDF output side. The second: the application is modernizing its PDF generation from a document-model approach (where content is built by manipulating a <code>TXTextControl.ServerTextControl</code> object) to an HTML-first approach (where content is authored as HTML/CSS and rendered to PDF by a Chromium engine). The engineering effort for either transition is High, because TX Text Control's document model is deeply integrated into the content-building code.</p>
+
+<p>This guide covers the migration from TX Text Control's server-side PDF generation to IronPDF for .NET engineers scoping the work. TX Text Control's current product status and exact .NET version support should be verified in official documentation; the product is understood to target modern .NET. The migration effort is High — reflecting the depth of document-model API integration typical in TX Text Control deployments.</p>
+
+<h2>What TX TextControl Is Designed to Do</h2>
+
+<p>TX Text Control offers a word-processing document model for .NET applications. The core component, <code>TXTextControl.ServerTextControl</code>, is a server-side (non-visual) text processing engine that can load, create, and export documents without a UI. The visual components (<code>TXTextControl.WinForms.TextControl</code>, <code>TXTextControl.Web.TextControl</code>) provide WYSIWYG editing surfaces. Documents are manipulated through a rich object model covering text formatting, paragraph properties, tables, text frames, headers, footers, fields (including mail merge fields), tracked changes, and annotations.</p>
+
+<p>PDF export is one of TX Text Control's output formats — the <code>ServerTextControl</code> can export a loaded or programmatically built document to PDF via <code>Save()</code> with a PDF stream type. The library also provides mail merge (template documents with merge fields populated from a data source), form field reading and filling, DOCX/RTF/HTML import and export, and digital signatures on PDF output. The install footprint includes licensed NuGet packages; the exact package structure and pricing model should be verified in official documentation. Primary use cases are document management applications, automated document generation with mail merge, and applications requiring embedded WYSIWYG document editing.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>TX Text Control and IronPDF generate PDFs through different document models. TX Text Control builds a rich document object in memory — loading a DOCX template or constructing content programmatically through its text processing API — and exports that document object to PDF. IronPDF generates PDFs from HTML/CSS rendered by embedded Chromium; existing PDF documents are loaded and manipulated through <code>PdfDocument</code>.</p>
+
+<p>IronPDF's <code>ChromePdfRenderer</code> accepts HTML strings, files, or URLs. For TX Text Control use cases built around loading DOCX templates, IronPDF's <a href="https://ironpdf.com/how-to/docx-to-pdf/">DOCX to PDF guide</a> covers direct DOCX conversion without requiring the document object model. For mail merge workflows, the IronPDF equivalent is an HTML template engine (Razor, Scriban, Fluid) that performs data binding before rendering. Both <code>ChromePdfRenderer</code> and <code>PdfDocument</code> implement <code>IDisposable</code>. License initialization is a one-time startup call; see the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</p>
+
+<p>The critical architectural point is that TX Text Control's richest capabilities — the WYSIWYG editor control, tracked changes, real-time collaboration, and the full OOXML document object model — have no equivalent in IronPDF. IronPDF is a PDF generation and manipulation library, not a word processor or document editor. Teams migrating only the PDF export portion of a TX Text Control integration will find a bounded scope; teams migrating the entire document editing workflow face a much larger architectural change.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Export document to PDF</td>
+      <td>Medium</td>
+      <td><code>renderer.RenderHtmlAsPdf()</code> or DOCX-to-PDF</td>
+      <td>Depends on content source</td>
+    </tr>
+    <tr>
+      <td>Load DOCX template → PDF</td>
+      <td>Low</td>
+      <td><code>PdfDocument.FromDocx()</code> or DOCX-to-PDF</td>
+      <td><a href="https://ironpdf.com/how-to/docx-to-pdf/">DOCX to PDF guide</a></td>
+    </tr>
+    <tr>
+      <td>Mail merge → PDF</td>
+      <td>Medium</td>
+      <td>HTML template engine + <code>RenderHtmlAsPdf()</code></td>
+      <td>Merge fields → template tokens</td>
+    </tr>
+    <tr>
+      <td>Build document programmatically</td>
+      <td>High</td>
+      <td>HTML/CSS + template engine</td>
+      <td>Document model → HTML</td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Medium</td>
+      <td><code>RenderingOptions.HtmlHeader/HtmlFooter</code></td>
+      <td>Token syntax differs</td>
+    </tr>
+    <tr>
+      <td>Page numbers</td>
+      <td>Low</td>
+      <td><code>{page}</code> / <code>{total-pages}</code> tokens</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Tables</td>
+      <td>Low</td>
+      <td>HTML <code>&lt;table&gt;</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Text formatting</td>
+      <td>Low</td>
+      <td>CSS in HTML</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures on PDF</td>
+      <td>Low</td>
+      <td><code>PdfSignature</code> / <code>pdf.Sign()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Form field reading</td>
+      <td>Medium</td>
+      <td><code>pdf.Form.Fields</code></td>
+      <td>AcroForm-based</td>
+    </tr>
+    <tr>
+      <td>Form field filling</td>
+      <td>Low</td>
+      <td><code>pdf.Form.Fields</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Password encryption</td>
+      <td>Low</td>
+      <td><code>pdf.SecuritySettings.*</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>WYSIWYG editor control</td>
+      <td>High</td>
+      <td>Not in IronPDF</td>
+      <td>Separate evaluation required</td>
+    </tr>
+    <tr>
+      <td>Tracked changes</td>
+      <td>High</td>
+      <td>Not in IronPDF</td>
+      <td>TX TextControl differentiator</td>
+    </tr>
+    <tr>
+      <td>RTF / DOCX import</td>
+      <td>Medium</td>
+      <td>Direct DOCX-to-PDF</td>
+      <td>Via IronPDF's DOCX converter</td>
+    </tr>
+    <tr>
+      <td>DOCX export</td>
+      <td>High</td>
+      <td>Not in IronPDF</td>
+      <td>TX TextControl differentiator</td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>Low</td>
+      <td><code>RenderHtmlAsPdfAsync()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>Server-Side Document Build → PDF</h3>
+
+<h4>TX TextControl — Build Document and Export to PDF</h4>
+
+<pre><code class="language-csharp">using TXTextControl;
+using System.IO;
+
+// TX TextControl ServerTextControl — server-side document processing
+// No UI; used for document manipulation and export
+using var tc = new ServerTextControl();
+tc.Create();  // initialize the text control
+
+// Load existing DOCX template
+tc.Load(&quot;templates/invoice-template.docx&quot;, StreamType.WordprocessingML);
+
+// Manipulate content — navigate to merge fields or bookmarks
+// and replace with data values
+// (exact API for field navigation varies
+foreach (TextField field in tc.TextFields)
+{
+    if (field.Name == &quot;CustomerName&quot;)
+        field.Text = &quot;Acme Corp&quot;;
+    if (field.Name == &quot;InvoiceTotal&quot;)
+        field.Text = &quot;$1,599.00&quot;;
+}
+
+// Export to PDF
+using var pdfStream = new MemoryStream();
+tc.Save(pdfStream, BinaryStreamType.AdobePDF);
+byte[] pdfBytes = pdfStream.ToArray();
+File.WriteAllBytes(&quot;invoice.pdf&quot;, pdfBytes);</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li><code>ServerTextControl</code> is <code>IDisposable</code> and requires <code>tc.Create()</code> before use — <code>Dispose()</code> must be called to release unmanaged resources.</li>
+
+  <li>TX Text Control's OOXML-based field model requires navigating a document object hierarchy. The exact API for field access (<code>TextFields</code>, <code>MergeFields</code>, bookmarks) should be verified in current documentation.</li>
+
+  <li><code>ServerTextControl</code> is typically not thread-safe — a new instance per thread or per request is required in web applications. Pooling is complex.</li>
+
+  <li>TX Text Control's PDF export renders the document model's full OOXML fidelity — font rendering, paragraph spacing, text frames, and table cell shading all depend on the text control's internal layout engine.</li>
+
+</ul>
+
+<h4>IronPDF — HTML Template to PDF</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// For templates loaded from DOCX without field editing, use DOCX-to-PDF directly
+// For templates with data binding, convert to HTML template and use RenderHtmlAsPdf
+
+// Option A: Direct DOCX to PDF (for static documents or pre-filled DOCX)
+using var docxPdf = PdfDocument.FromDocx(&quot;templates/invoice-template.docx&quot;);
+docxPdf.SaveAs(&quot;invoice-from-docx.pdf&quot;);
+
+// Option B: HTML template with data binding (replaces mail merge workflow)
+var invoice = new { Customer = &quot;Acme Corp&quot;, Total = &quot;$1,599.00&quot;, Id = 1042 };
+
+string html = $@&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+&lt;style&gt;
+  body {{ font-family: Arial; font-size: 11pt; }}
+  table {{ width: 100%; border-collapse: collapse; }}
+  th, td {{ border: 1px solid #ccc; padding: 6px 10px; }}
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;h1&gt;Invoice #{invoice.Id}&lt;/h1&gt;
+  &lt;p&gt;Customer: {invoice.Customer}&lt;/p&gt;
+  &lt;p&gt;Total: {invoice.Total}&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 15;
+renderer.RenderingOptions.MarginBottom = 15;
+
+// PdfDocument is IDisposable — always use a using block
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs(&quot;invoice.pdf&quot;);</code></pre>
+
+<p>For TX Text Control workflows that load a DOCX and export it unchanged, IronPDF's direct DOCX conversion covers the use case. For workflows that load a DOCX template and populate fields, the IronPDF equivalent is an HTML template with data bound by a .NET template engine. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers all rendering configuration.</p>
+
+<h3>Mail Merge → HTML Template Engine</h3>
+
+<h4>TX TextControl — Mail Merge</h4>
+
+<pre><code class="language-csharp">using TXTextControl;
+using TXTextControl.DocumentServer;
+
+// TX TextControl MailMerge — merge a DOCX template with a data source
+// MailMerge is a separate class in the DocumentServer component
+using var mailMerge = new MailMerge();
+// Attach a ServerTextControl
+mailMerge.TextComponent = new ServerTextControl();
+((ServerTextControl)mailMerge.TextComponent).Create();
+
+// Load DOCX template with merge fields ({{CustomerName}}, etc.)
+mailMerge.LoadTemplate(&quot;templates/letter-template.docx&quot;,
+    DocumentServer.FileFormat.InternalUnicodeFormat);
+
+// Provide data as DataTable, DataSet, or IEnumerable
+var data = new System.Data.DataTable(&quot;Customers&quot;);
+data.Columns.Add(&quot;CustomerName&quot;);
+data.Columns.Add(&quot;Address&quot;);
+data.Rows.Add(&quot;Acme Corp&quot;, &quot;123 Main St&quot;);
+
+// Merge — produces one output per row
+mailMerge.Merge(data, true);
+
+// Export merged document to PDF
+using var output = new MemoryStream();
+((ServerTextControl)mailMerge.TextComponent).Save(
+    output, BinaryStreamType.AdobePDF);
+byte[] pdfBytes = output.ToArray();
+
+// Verify exact API — MailMerge and ServerTextControl disposal
+((ServerTextControl)mailMerge.TextComponent).Dispose();</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>The <code>MailMerge</code> and <code>ServerTextControl</code> lifecycle management is complex</li>
+
+  <li>TX Text Control's merge fields are double-brace <code>{{FieldName}}</code> tokens in DOCX templates — these are OOXML-embedded fields, not plain text.</li>
+
+  <li>Batch merge (one PDF per data row) requires loop management and intermediate stream handling.</li>
+
+</ul>
+
+<h4>IronPDF — HTML Template with Data Binding</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using System.Collections.Generic;
+
+// Mail merge equivalent: HTML template + .NET data binding + RenderHtmlAsPdf
+// One PDF per customer — same loop as TX TextControl batch merge
+
+var customers = new List&lt;(string Name, string Address)&gt;
+{
+    (&quot;Acme Corp&quot;, &quot;123 Main St&quot;),
+    (&quot;Beta Industries&quot;, &quot;456 Oak Ave&quot;)
+};
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 20;
+renderer.RenderingOptions.MarginBottom = 20;
+
+// Render one PDF per customer — async for throughput
+var renderTasks = customers.Select(async c =&gt;
+{
+    string html = $@&quot;
+    &lt;!DOCTYPE html&gt;
+    &lt;html&gt;
+    &lt;body style='font-family: Arial; font-size: 11pt;'&gt;
+      &lt;p&gt;Dear {c.Name},&lt;/p&gt;
+      &lt;p&gt;Address: {c.Address}&lt;/p&gt;
+      &lt;p&gt;Thank you for your business.&lt;/p&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;&quot;;
+
+    using var pdf = await renderer.RenderHtmlAsPdfAsync(html);
+    // Return bytes — PdfDocument is disposed by using block
+    return (Customer: c.Name, Bytes: pdf.BinaryData);
+});
+
+var results = await Task.WhenAll(renderTasks);
+foreach (var result in results)
+    File.WriteAllBytes($&quot;letter-{result.Customer}.pdf&quot;, result.Bytes);</code></pre>
+
+<p>TX Text Control's <code>MailMerge</code> class and DOCX template merge fields are replaced by HTML string construction with C# interpolation (or a template engine for more complex field logic). The async pattern allows parallel rendering of multiple documents — applicable when the batch size warrants it. The <a href="https://ironpdf.com/how-to/async/">async rendering guide</a> covers concurrent rendering patterns.</p>
+
+<h3>PDF Digital Signature</h3>
+
+<h4>TX TextControl — PDF Digital Signature</h4>
+
+<pre><code class="language-csharp">using TXTextControl;
+
+// TX TextControl digital signature on PDF export
+using var tc = new ServerTextControl();
+tc.Create();
+tc.Load(&quot;document.docx&quot;, StreamType.WordprocessingML);
+
+// TX TextControl digital signature configuration
+// Exact API for PdfSignatureSettings varies
+// var sigSettings = new PdfSignatureSettings
+// {
+//     Certificate = new System.Security.Cryptography.X509Certificates
+//         .X509Certificate2(&quot;cert.pfx&quot;, &quot;password&quot;),
+//     Location = &quot;Chicago, IL&quot;,
+//     Reason = &quot;Approved&quot;
+// };
+
+using var pdfStream = new MemoryStream();
+// tc.Save(pdfStream, BinaryStreamType.AdobePDF, sigSettings); // verify</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>Verify the exact signature configuration API in current TX Text Control documentation — it has varied across versions.</li>
+
+  <li>Signature is applied at export time, tied to the PDF generation step.</li>
+
+</ul>
+
+<h4>IronPDF — Digital Signature</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Signing;
+
+// Generate PDF first, then sign — or sign on an existing PDF
+var renderer = new ChromePdfRenderer();
+using var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;html&gt;&lt;body&gt;&lt;p&gt;Document&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+
+var sig = new PdfSignature(&quot;cert.pfx&quot;, &quot;pfx-password&quot;)
+{
+    SigningReason   = &quot;Approved for distribution&quot;,
+    SigningLocation = &quot;Chicago, IL&quot;
+};
+pdf.Sign(sig);
+pdf.SaveAs(&quot;signed-document.pdf&quot;);
+
+// Or sign an existing PDF
+using var existing = PdfDocument.FromFile(&quot;existing.pdf&quot;);
+existing.Sign(sig);
+existing.SaveAs(&quot;existing-signed.pdf&quot;);</code></pre>
+
+<p>IronPDF's <code>PdfSignature</code> and <code>pdf.Sign()</code> replace TX Text Control's export-time signing. The <a href="https://ironpdf.com/how-to/signing/">digital signatures guide</a> covers X.509 certificate configuration, visual signature appearance, and multi-signature documents.</p>
+
+<h3>DOCX to PDF (Direct Conversion)</h3>
+
+<p>For TX Text Control workflows that load a DOCX file and export it to PDF without document model manipulation, IronPDF supports direct DOCX-to-PDF conversion.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// Direct DOCX to PDF — replaces ServerTextControl.Load() + Save(PDF)
+// No document model manipulation required
+
+using var pdf = PdfDocument.FromDocx(&quot;reports/quarterly-report.docx&quot;);
+pdf.SaveAs(&quot;quarterly-report.pdf&quot;);
+
+// Or render to memory
+byte[] pdfBytes = pdf.BinaryData;
+
+// For DOCX files with complex formatting, verify fidelity against
+// TX TextControl output — rendering engines differ</code></pre>
+
+<p>When the TX Text Control integration simply loads a DOCX and exports to PDF without field manipulation, <code>PdfDocument.FromDocx()</code> is the most direct replacement. The <a href="https://ironpdf.com/how-to/docx-to-pdf/">DOCX to PDF guide</a> covers format support and fidelity considerations.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>TX TextControl Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>new ServerTextControl()</code> + <code>tc.Create()</code></td>
+      <td><code>new ChromePdfRenderer()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>tc.Load(path, StreamType.WordprocessingML)</code></td>
+      <td><code>PdfDocument.FromDocx(path)</code></td>
+      <td><a href="https://ironpdf.com/how-to/docx-to-pdf/">DOCX to PDF guide</a></td>
+    </tr>
+    <tr>
+      <td><code>tc.Save(stream, BinaryStreamType.AdobePDF)</code></td>
+      <td><code>renderer.RenderHtmlAsPdf(html)</code> or <code>.FromDocx()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>tc.BinaryData</code> / stream bytes</td>
+      <td><code>pdf.BinaryData</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>TextFields</code> / <code>MergeFields</code> population</td>
+      <td>HTML template engine tokens</td>
+      <td>Data binding model changes</td>
+    </tr>
+    <tr>
+      <td><code>MailMerge.Merge(dataTable, ...)</code></td>
+      <td>Loop + <code>RenderHtmlAsPdfAsync(html)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>PdfSignatureSettings</code> / <code>tc.Save(sig)</code></td>
+      <td><code>new PdfSignature()</code> + <code>pdf.Sign()</code></td>
+      <td><a href="https://ironpdf.com/how-to/signing/">Digital signatures guide</a></td>
+    </tr>
+    <tr>
+      <td>Headers / footers (document sections)</td>
+      <td><code>RenderingOptions.HtmlHeader/HtmlFooter</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page number fields</td>
+      <td><code>{page}</code> / <code>{total-pages}</code> tokens</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>tc.Tables</code></td>
+      <td><code>&lt;table&gt;</code> in HTML</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>tc.Paragraphs</code> / text formatting</td>
+      <td>CSS in HTML</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>tc.FormFields</code> (read/fill)</td>
+      <td><code>pdf.Form.Fields</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>WYSIWYG editor control</td>
+      <td>Not in IronPDF</td>
+      <td>Separate evaluation</td>
+    </tr>
+    <tr>
+      <td>Tracked changes</td>
+      <td>Not in IronPDF</td>
+      <td>TX TextControl differentiator</td>
+    </tr>
+    <tr>
+      <td>DOCX export</td>
+      <td>Not in IronPDF</td>
+      <td>TX TextControl differentiator</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>WYSIWYG editor control not in IronPDF</strong>: TX Text Control's WinForms, WPF, and ASP.NET Core editor controls are not replaceable with IronPDF. If the application embeds a document editor for end-user authoring, this is outside IronPDF's scope.</li>
+
+  <li><strong>Tracked changes not in IronPDF</strong>: TX Text Control's tracked change model has no equivalent. If reviewed documents with tracked changes are a core workflow, this is a potential blocking gap.</li>
+
+  <li><strong>Document model → HTML</strong>: TX Text Control's programmatic document construction (adding paragraphs, tables, text frames via object model) is replaced by HTML/CSS construction. This is architecturally the most significant change.</li>
+
+  <li><strong>Mail merge field tokens</strong>: TX Text Control uses DOCX merge fields embedded in the OOXML format. The HTML template equivalent uses whatever token syntax the chosen template engine provides.</li>
+
+  <li><strong><code>ServerTextControl</code> thread safety</strong>: TX Text Control typically requires a new instance per thread. <code>ChromePdfRenderer</code> is designed to be registered as a singleton in DI.</li>
+
+  <li><strong>DOCX rendering fidelity</strong>: For direct DOCX-to-PDF conversion, verify rendering fidelity between TX Text Control's output and IronPDF's DOCX renderer against all document templates.</li>
+
+  <li><strong><code>PdfDocument</code> is <code>IDisposable</code></strong>: Wrap render results in <code>using</code> blocks. TX Text Control's <code>ServerTextControl</code> is also <code>IDisposable</code> — the disposal pattern is not new, but the call site structure changes.</li>
+
+  <li><strong>Namespace change</strong>: Remove <code>using TXTextControl;</code> and <code>using TXTextControl.DocumentServer;</code>. Replace with <code>using IronPdf;</code>.</li>
+
+  <li><strong>License key required</strong>: Set <code>IronPdf.License.LicenseKey</code> at startup. TX Text Control has its own per-developer licensing — manage both during transition.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>TX TextControl</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active development</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET 10 support</td>
+      <td>Yes (day-zero)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Editing</strong></td>
+    </tr>
+    <tr>
+      <td>WYSIWYG editor (WinForms/WPF)</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>TX differentiator</td>
+    </tr>
+    <tr>
+      <td>WYSIWYG editor (ASP.NET Core)</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Tracked changes</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>TX differentiator</td>
+    </tr>
+    <tr>
+      <td>Real-time collaboration</td>
+      <td>-</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Document Import / Export</strong></td>
+    </tr>
+    <tr>
+      <td>DOCX import</td>
+      <td>Yes</td>
+      <td>Yes (via DOCX-to-PDF)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>DOCX export</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>TX differentiator</td>
+    </tr>
+    <tr>
+      <td>RTF import / export</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HTML import</td>
+      <td>Yes</td>
+      <td>Yes (as HTML-to-PDF source)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF export</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Generation</strong></td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/html-string-to-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS3 / Flexbox / Grid</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Mail Merge</strong></td>
+    </tr>
+    <tr>
+      <td>DOCX mail merge</td>
+      <td>Yes</td>
+      <td>Via HTML template engine</td>
+      <td>Pattern changes</td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Compress PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Forms</strong></td>
+    </tr>
+    <tr>
+      <td>Form field filling</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password encryption</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Yes</td>
+      <td><a href="https://ironpdf.com/how-to/signing/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux / Docker</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Scope the WYSIWYG and tracked changes dependency</strong>: Determine whether the migration covers only server-side PDF generation, or also the editor components and tracked changes. The latter is outside IronPDF's scope and requires separate planning.</li>
+
+  <li><strong>Audit all <code>ServerTextControl</code> and <code>MailMerge</code> usage</strong>: List every <code>tc.Load()</code>, <code>tc.Save(PDF)</code>, field/merge field population, form field access, and signature call.</li>
+
+  <li><strong>Choose the content strategy per call site</strong>: For load-and-export-unchanged DOCX workflows, plan <code>PdfDocument.FromDocx()</code>. For mail merge workflows, plan HTML template + template engine.</li>
+
+  <li><strong>Choose a .NET template engine</strong>: Select the HTML data binding approach for mail merge replacement — string interpolation, Razor, Scriban, or Fluid.</li>
+
+  <li><strong>Install IronPDF via NuGet</strong>: <code>dotnet add package IronPdf</code>.</li>
+
+  <li><strong>Configure the license key at startup</strong>: Set <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> in <code>Program.cs</code>. See the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>Update namespaces</strong>: Remove TX Text Control <code>using</code> directives. Add <code>using IronPdf;</code>.</li>
+
+  <li><strong>Register <code>ChromePdfRenderer</code> in DI</strong>: Add <code>builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;()</code> (singleton is thread-safe, unlike <code>ServerTextControl</code>).</li>
+
+  <li><strong>Replace DOCX-to-PDF paths</strong>: Map <code>tc.Load(docx)</code> + <code>tc.Save(PDF)</code> to <code>PdfDocument.FromDocx(path)</code> where no field manipulation is needed.</li>
+
+  <li><strong>Replace mail merge paths</strong>: Convert DOCX templates to HTML. Replace merge field population with template engine data binding. Wrap <code>PdfDocument</code> in <code>using</code>.</li>
+
+  <li><strong>Replace signature calls</strong>: Map <code>tc.Save(stream, PDF, sigSettings)</code> to <code>new PdfSignature()</code> + <code>pdf.Sign()</code>.</li>
+
+  <li><strong>Rendering fidelity comparison</strong>: Compare IronPDF output against TX Text Control output for all document templates. Adjust HTML/CSS as needed.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on TX TextControl is technically reasonable</h3>
+
+<p>TX Text Control is technically reasonable when the application's core value is WYSIWYG document editing — embedded word-processor controls where end users author or review documents. If tracked changes, real-time collaboration, or inline editing are functional requirements, TX Text Control provides capabilities that have no IronPDF equivalent. It is also appropriate when DOCX export from the application (not just import-to-PDF) is a hard requirement.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>Migration of the PDF generation portion is worth scoping when the application uses TX Text Control exclusively for server-side document-to-PDF conversion and the editor controls are not in the request path; when HTML-first document generation would give the team more flexibility than the document object model; when modern CSS rendering would improve output quality over TX Text Control's OOXML-based layout; or when reducing the licensed component footprint is an architectural objective.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>The bounded migration path is server-side PDF export: <code>ServerTextControl.Load()</code> + <code>Save(PDF)</code> is replaced by <code>PdfDocument.FromDocx()</code> for static DOCX files, and by HTML template + <code>RenderHtmlAsPdf()</code> for data-driven documents. Mail merge is the most involved conversion — DOCX merge field templates become HTML templates with a .NET template engine. For each content path, the rendering fidelity comparison pass confirms layout parity.</p>
+
+<p>In your current TX Text Control integration, what percentage of PDF generation calls involve document model manipulation (field population, table construction, text frames) versus straightforward DOCX-load-and-export — and does that breakdown clarify which migration path is more practical for your specific codebase?</p>

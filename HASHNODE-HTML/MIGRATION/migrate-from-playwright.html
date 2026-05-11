@@ -1,0 +1,821 @@
+<!-- FRONTMATTER
+  title: Migrating from Playwright to IronPDF: a .NET production guide
+  subtitle: what the docs do not cover when switching PDF libraries
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-playwright/
+  description: Replacing Playwright with IronPDF in your .NET stack? This guide covers what changes, what maps directly, and how to complete the switch efficiently.
+  published: False
+-->
+
+<h1>Migrating from Playwright to IronPDF: a .NET production guide</h1>
+
+<p class="subtitle"><em>what the docs do not cover when switching PDF libraries</em></p>
+
+<h2>Framing</h2>
+
+<p>Browser automation frameworks have become a common PDF generation mechanism in .NET projects, often because they were already in use for testing and the PDF capability came effectively for free. Playwright's PDF output — based on Chromium's headless print path — produces high-fidelity results that match browser rendering exactly. For teams already running Playwright in CI for end-to-end tests, adding a <code>Page.PdfAsync()</code> call to a background service appears to be a low-cost incremental step.</p>
+
+<p>The friction typically appears at scale or when operational requirements change. Browser automation frameworks are designed for test orchestration: they manage browser lifecycle, page navigation, and interaction scripting. When used as a production PDF generation service, teams encounter cold-start latency from browser process launching, resource pressure from concurrent page contexts, and a dependency footprint that includes browser binaries sized for full browser support rather than headless rendering. Operational constraints — memory limits in serverless environments, container image size budgets, security policies that restrict subprocess spawning — often drive the re-evaluation.</p>
+
+<p>A secondary migration driver is the mismatch between a testing-oriented API and a document-generation-oriented one. Post-processing operations common in document pipelines — merging, stamping, adding bookmarks, applying password protection, digitally signing — are outside Playwright's scope. Teams building these pipelines alongside Playwright typically add a separate PDF manipulation library anyway, effectively running two separate dependencies for what could be a single library's responsibility.</p>
+
+<h2>What Playwright Is Designed to Do</h2>
+
+<p>Microsoft Playwright for .NET is a browser automation library built for testing and scripting web applications. Its architecture centers on the Playwright protocol, which communicates with browser engines (Chromium, Firefox, WebKit) through a CDP-based or native protocol layer. A test or script launches a browser instance, creates a browser context (an isolated session), opens one or more pages, navigates to URLs or injects content, and interacts with the DOM programmatically.</p>
+
+<p>PDF generation is a secondary feature exposed through <code>Page.PdfAsync()</code> on Chromium contexts only. The call triggers Chromium's print-to-PDF pipeline and returns a byte array containing the generated document. The feature surfaces most of Chromium's print options: paper size, margins, header/footer templates with JavaScript-evaluated page number expressions, scale factor, and background rendering. For teams whose primary use case is capturing a fully authenticated, JavaScript-rendered web page as a PDF, this is a natural fit. The integration model, however, requires a live browser context — browser process, page lifecycle, and navigation — for every PDF generation event, which is the source of most production scaling concerns.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>IronPDF uses a Chromium-based rendering engine, but the integration model differs fundamentally from Playwright's. Rather than exposing a general-purpose browser automation protocol, IronPDF wraps the Chromium rendering pipeline as a managed .NET library with an API surface oriented toward document generation. There is no browser process management surface, no page lifecycle API, and no test scripting capability. The entry point is <code>ChromePdfRenderer</code>, which accepts HTML, a URL, or a file and returns a <code>PdfDocument</code>.</p>
+
+<p>The consequence for production deployments is that resource management is handled by the library rather than by the application. Teams do not launch browser instances, manage browser contexts, or track page disposal. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML to PDF rendering pipeline</a> is invoked as a method call and returns a managed object. Concurrent rendering is handled by creating separate <code>ChromePdfRenderer</code> instances; IronPDF's <a href="https://ironpdf.com/how-to/async/">async and parallel patterns</a> document the recommended approaches for high-throughput workloads.</p>
+
+<p>Beyond rendering, IronPDF provides a full document operations layer that covers the post-processing operations absent from Playwright: merging, splitting, stamping, adding headers and footers, applying passwords, setting permission flags, generating digital signatures, and exporting to PDF/A. Teams migrating from Playwright often find that the migration also eliminates their secondary PDF manipulation dependency. License initialization is a static startup call — see the <a href="https://ironpdf.com/how-to/license-keys/">license configuration guide</a> for environment-specific setup patterns.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderUrlAsPdf()</code></td>
+      <td>Direct conceptual mapping; Playwright navigates a page while IronPDF renders directly</td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>Playwright injects content; IronPDF accepts HTML directly</td>
+    </tr>
+    <tr>
+      <td>Paper size / margins</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderOptions</code> properties</td>
+      <td>Playwright uses <code>PdfOptions</code>; IronPDF uses <code>RenderingOptions</code></td>
+    </tr>
+    <tr>
+      <td>Header/footer (text template)</td>
+      <td>Medium</td>
+      <td><code>TextHeaderFooter</code> or <code>HtmlHeaderFooter</code></td>
+      <td>Playwright uses header/footer HTML strings with JavaScript evaluation; IronPDF uses typed objects with tokens</td>
+    </tr>
+    <tr>
+      <td>JavaScript execution / wait</td>
+      <td>Medium</td>
+      <td><code>RenderingOptions.WaitFor</code></td>
+      <td>Playwright's explicit <code>WaitForSelector</code>, <code>WaitForTimeout</code> must map to IronPDF's <code>WaitFor</code> API</td>
+    </tr>
+    <tr>
+      <td>Authenticated / cookied pages</td>
+      <td>Medium</td>
+      <td><code>RenderingOptions.CustomCookies</code> / <code>LoginCredentials</code></td>
+      <td>Playwright manages full session; IronPDF has cookie and login helpers</td>
+    </tr>
+    <tr>
+      <td>Background rendering</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PrintBackground</code></td>
+      <td>Direct property equivalent</td>
+    </tr>
+    <tr>
+      <td>Scale factor</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.Zoom</code></td>
+      <td>Verify property name in current IronPDF docs</td>
+    </tr>
+    <tr>
+      <td>Save to byte array</td>
+      <td>Low</td>
+      <td><code>pdf.BinaryData</code></td>
+      <td>Playwright returns <code>byte[]</code> from <code>PdfAsync()</code>; IronPDF exposes <code>BinaryData</code> property</td>
+    </tr>
+    <tr>
+      <td>Save to file</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td>Simple path-based save</td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>Outside Playwright's scope; now available natively</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>High</td>
+      <td><code>PdfSignature</code> API</td>
+      <td>Outside Playwright's scope</td>
+    </tr>
+    <tr>
+      <td>Password / encryption</td>
+      <td>Medium</td>
+      <td><code>pdf.SecuritySettings</code></td>
+      <td>Outside Playwright's scope</td>
+    </tr>
+    <tr>
+      <td>Browser instance lifecycle management</td>
+      <td>N/A — removed</td>
+      <td>No equivalent needed</td>
+      <td>IronPDF handles rendering internally; browser lifecycle code can be deleted</td>
+    </tr>
+    <tr>
+      <td>Browser context isolation</td>
+      <td>N/A — removed</td>
+      <td>No equivalent needed</td>
+      <td>IronPDF rendering is isolated by default per render call</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>URL to PDF</h3>
+
+<h4>Playwright — URL to PDF</h4>
+
+<p>Playwright's URL-to-PDF path requires launching a browser, creating a context, opening a page, navigating to the URL (with optional wait conditions), and calling <code>PdfAsync()</code>. The browser process must be running for the full duration and typically requires management across the service lifetime.</p>
+
+<pre><code class="language-csharp">using Microsoft.Playwright;
+using System.Threading.Tasks;
+
+// Playwright approach: full browser lifecycle management required
+var playwright = await Playwright.CreateAsync();
+await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+{
+    Headless = true
+});
+
+await using var context = await browser.NewContextAsync();
+var page = await context.NewPageAsync();
+
+// Navigate and wait for load
+await page.GotoAsync(&quot;https://example.com&quot;, new PageGotoOptions
+{
+    WaitUntil = WaitUntilState.NetworkIdle
+});
+
+// Generate PDF
+byte[] pdfBytes = await page.PdfAsync(new PagePdfOptions
+{
+    Format = &quot;A4&quot;,
+    PrintBackground = true
+});
+
+await browser.CloseAsync();
+playwright.Dispose();</code></pre>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Browser process launch adds cold-start latency (typically hundreds of milliseconds to seconds)</li>
+
+  <li><code>NewContextAsync()</code> per request ensures isolation but increases memory pressure under concurrency</li>
+
+  <li><code>NetworkIdle</code> wait condition is approximate; complex SPAs may require additional explicit waits</li>
+
+  <li>PDF generation is Chromium-only; Firefox and WebKit do not support <code>PdfAsync()</code></li>
+
+</ul>
+
+<h4>IronPDF — URL to PDF</h4>
+
+<p>IronPDF renders URLs directly via <code>ChromePdfRenderer.RenderUrlAsPdf()</code>. There is no browser process to launch or context to manage. The <a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF guide</a> documents network timeout, custom header, and authentication options.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using System;
+
+// IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;; // Set at startup
+
+using var renderer = new ChromePdfRenderer();
+
+// Configure rendering options
+renderer.RenderingOptions.PrintBackground = true;
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// Render URL directly — no browser lifecycle management
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://example.com&quot;);
+
+// Save or return bytes
+pdf.SaveAs(&quot;/output/page.pdf&quot;);
+byte[] pdfBytes = pdf.BinaryData;</code></pre>
+
+<p>Disposal is managed via <code>using</code> blocks. The <code>ChromePdfRenderer</code> instance can be reused across renders within a single thread; create a new instance per thread for concurrent workloads.</p>
+
+<h3>JavaScript Execution and Wait Conditions</h3>
+
+<h4>Playwright — JavaScript and Wait Conditions</h4>
+
+<p>Playwright's wait API is designed for test reliability: <code>WaitForSelectorAsync</code>, <code>WaitForFunctionAsync</code>, <code>WaitForTimeoutAsync</code>, and event-driven waits provide fine-grained control over when to consider a page "ready." These translate directly to the question of when to trigger the PDF print path.</p>
+
+<pre><code class="language-csharp">using Microsoft.Playwright;
+
+var playwright = await Playwright.CreateAsync();
+await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions { Headless = true });
+await using var context = await browser.NewContextAsync();
+var page = await context.NewPageAsync();
+
+await page.GotoAsync(&quot;https://example.com/report&quot;);
+
+// Wait for a specific element that signals the chart has rendered
+await page.WaitForSelectorAsync(&quot;#chart-container.loaded&quot;);
+
+// Or wait for a JS function to return true
+await page.WaitForFunctionAsync(&quot;() =&gt; window.reportReady === true&quot;);
+
+byte[] pdfBytes = await page.PdfAsync();
+await browser.CloseAsync();
+playwright.Dispose();</code></pre>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Wait conditions are evaluated in the browser's JS context, making them powerful but requiring explicit selector knowledge</li>
+
+  <li>Timeouts must be tuned per page; a missed condition causes a timeout exception or a premature render</li>
+
+  <li>No built-in retry logic; calling code must implement retry patterns</li>
+
+</ul>
+
+<h4>IronPDF — JavaScript and Wait Conditions</h4>
+
+<p>IronPDF's <code>WaitFor</code> API on <code>ChromePdfRenderOptions</code> provides equivalent control over when Chromium considers the page ready for capture. The <a href="https://ironpdf.com/how-to/javascript-to-pdf/">JavaScript to PDF guide</a> and the <a href="https://ironpdf.com/how-to/waitfor/">WaitFor guide</a> cover the available wait strategies including element selectors, JavaScript expressions, and fixed delays.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Rendering;
+
+using var renderer = new ChromePdfRenderer();
+
+// Wait for a CSS selector to be present before rendering
+renderer.RenderingOptions.WaitFor.HtmlElementToExist(&quot;#chart-container&quot;);
+
+// Or wait for a JavaScript expression to evaluate to true
+// renderer.RenderingOptions.WaitFor.JavaScript(&quot;window.reportReady === true&quot;, 5000);
+
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://example.com/report&quot;);
+pdf.SaveAs(&quot;/output/report.pdf&quot;);</code></pre>
+
+<p>The <code>WaitFor</code> configuration is set once per <code>ChromePdfRenderer</code> instance and applied to all renders using that instance. For per-render wait conditions, configure a new renderer instance or verify whether per-call overrides are available in the current IronPDF version.</p>
+
+<h3>Authenticated Page Rendering</h3>
+
+<h4>Playwright — Authenticated Page Rendering</h4>
+
+<p>Playwright's authentication model is one of its strongest production features: it supports storing and restoring session state, custom request headers, cookie injection, HTTP authentication, and full page interaction flows for login sequences.</p>
+
+<pre><code class="language-csharp">using Microsoft.Playwright;
+
+var playwright = await Playwright.CreateAsync();
+await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions { Headless = true });
+
+// Create a context with HTTP auth
+await using var context = await browser.NewContextAsync(new BrowserNewContextOptions
+{
+    HttpCredentials = new HttpCredentials { Username = &quot;user&quot;, Password = &quot;pass&quot; }
+});
+
+var page = await context.NewPageAsync();
+await page.GotoAsync(&quot;https://internal.example.com/dashboard&quot;);
+
+// If login form required, automate the login flow
+// await page.FillAsync(&quot;#username&quot;, &quot;user&quot;);
+// await page.FillAsync(&quot;#password&quot;, &quot;pass&quot;);
+// await page.ClickAsync(&quot;#login-button&quot;);
+// await page.WaitForNavigationAsync();
+
+byte[] pdfBytes = await page.PdfAsync();
+await browser.CloseAsync();
+playwright.Dispose();</code></pre>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Full login flow automation is complex to maintain as application UI changes</li>
+
+  <li>Session state storage requires serialization and reuse patterns to avoid re-authenticating per render</li>
+
+  <li>Multi-factor authentication flows cannot be automated without workarounds</li>
+
+</ul>
+
+<h4>IronPDF — Authenticated Page Rendering</h4>
+
+<p>IronPDF supports cookie injection, custom HTTP headers, and a login helper for form-based authentication. The <a href="https://ironpdf.com/how-to/cookies/">cookies and login guide</a> documents the available authentication mechanisms.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Rendering;
+using System.Collections.Generic;
+
+using var renderer = new ChromePdfRenderer();
+
+// Inject session cookies for authenticated rendering
+renderer.RenderingOptions.CustomCookies = new Dictionary&lt;string, string&gt;
+{
+    { &quot;session_token&quot;, &quot;YOUR_SESSION_TOKEN_HERE&quot; },
+    { &quot;auth_cookie&quot;, &quot;YOUR_AUTH_COOKIE_VALUE&quot; }
+};
+
+// Or configure HTTP request headers
+renderer.RenderingOptions.SendHttpRequestHeaders = true;
+renderer.RenderingOptions.RequestHeaders = new Dictionary&lt;string, string&gt;
+{
+    { &quot;Authorization&quot;, &quot;Bearer YOUR_TOKEN&quot; }
+};
+
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://internal.example.com/dashboard&quot;);
+pdf.SaveAs(&quot;/output/dashboard.pdf&quot;);</code></pre>
+
+<p>IronPDF does not replicate Playwright's full browser interaction scripting for login flows. For pages requiring multi-step authentication, obtaining a valid session token/cookie externally (e.g., via an HTTP client) and injecting it is the standard pattern.</p>
+
+<h3>Post-Processing: Merge and Sign</h3>
+
+<h4>Playwright — Post-Processing</h4>
+
+<p>PDF post-processing is outside Playwright's scope. Teams using Playwright for generation and requiring merge, signature, encryption, or compliance output typically add a separate library such as PdfPig, PdfSharp, or iText for this layer.</p>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Two-library dependency management (Playwright + PDF manipulation library)</li>
+
+  <li>Version conflicts, licensing, and maintenance overhead for both libraries</li>
+
+  <li>No unified API; document objects from the generation step must be serialized and reloaded by the manipulation library</li>
+
+</ul>
+
+<h4>IronPDF — Merge and Sign</h4>
+
+<p>IronPDF handles both generation and post-processing in a single library. The <a href="https://ironpdf.com/examples/merge-pdfs/">merge and split guide</a> and <a href="https://ironpdf.com/how-to/signing/">digital signatures guide</a> document the respective APIs.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using System.Collections.Generic;
+
+// --- Merge ---
+using var doc1 = PdfDocument.FromFile(&quot;/input/section1.pdf&quot;);
+using var doc2 = PdfDocument.FromFile(&quot;/input/section2.pdf&quot;);
+using var merged = PdfDocument.Merge(new List&lt;PdfDocument&gt; { doc1, doc2 });
+merged.SaveAs(&quot;/output/combined.pdf&quot;);
+
+// --- Sign (requires a PFX certificate) ---
+using var toSign = PdfDocument.FromFile(&quot;/output/combined.pdf&quot;);
+toSign.Sign(new PdfSignature(&quot;/certs/signing.pfx&quot;, &quot;certPassword&quot;)
+{
+    SigningContact = &quot;documents@example.com&quot;,
+    SigningLocation = &quot;Chicago&quot;,
+    SigningReason = &quot;Approved for distribution&quot;
+});
+toSign.SaveAs(&quot;/output/combined-signed.pdf&quot;);</code></pre>
+
+<p>The <code>Sign()</code> call embeds a cryptographic signature in the PDF. Verify exact <code>PdfSignature</code> constructor parameters in current IronPDF documentation; HSM-based signing is also available if certificate private keys cannot be exposed to the application process.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Playwright Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>Playwright.CreateAsync()</code></td>
+      <td>(none needed)</td>
+      <td>IronPDF has no top-level factory; instantiate <code>ChromePdfRenderer</code> directly</td>
+    </tr>
+    <tr>
+      <td><code>browser.NewContextAsync()</code></td>
+      <td>(none needed)</td>
+      <td>IronPDF rendering is isolated per render call</td>
+    </tr>
+    <tr>
+      <td><code>page.GotoAsync(url)</code></td>
+      <td><code>renderer.RenderUrlAsPdf(url)</code></td>
+      <td>IronPDF combines navigation and render into one call</td>
+    </tr>
+    <tr>
+      <td><code>page.SetContentAsync(html)</code> + <code>PdfAsync()</code></td>
+      <td><code>renderer.RenderHtmlAsPdf(html)</code></td>
+      <td>Direct mapping</td>
+    </tr>
+    <tr>
+      <td><code>PagePdfOptions.Format</code></td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td>Enum vs. string; verify values</td>
+    </tr>
+    <tr>
+      <td><code>PagePdfOptions.Margin</code></td>
+      <td><code>RenderingOptions.Margin*</code></td>
+      <td>Top/Bottom/Left/Right properties</td>
+    </tr>
+    <tr>
+      <td><code>PagePdfOptions.PrintBackground</code></td>
+      <td><code>RenderingOptions.PrintBackground</code></td>
+      <td>Direct mapping</td>
+    </tr>
+    <tr>
+      <td><code>PagePdfOptions.Scale</code></td>
+      <td><code>RenderingOptions.Zoom</code></td>
+      <td>Verify property name in current docs</td>
+    </tr>
+    <tr>
+      <td><code>PagePdfOptions.HeaderTemplate</code></td>
+      <td><code>HtmlHeaderFooter.HtmlFragment</code></td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Headers and footers guide</a></td>
+    </tr>
+    <tr>
+      <td><code>PagePdfOptions.FooterTemplate</code></td>
+      <td><code>HtmlHeaderFooter.HtmlFragment</code></td>
+      <td>Applied to <code>RenderingOptions.HtmlFooter</code></td>
+    </tr>
+    <tr>
+      <td><code>WaitForSelectorAsync(selector)</code></td>
+      <td><code>RenderingOptions.WaitFor.HtmlElementToExist(selector)</code></td>
+      <td>Conceptual mapping; verify API in current docs</td>
+    </tr>
+    <tr>
+      <td><code>WaitForFunctionAsync(expr)</code></td>
+      <td><code>RenderingOptions.WaitFor.JavaScript(expr)</code></td>
+      <td>Verify API in current docs</td>
+    </tr>
+    <tr>
+      <td><code>BrowserNewContextOptions.HttpCredentials</code></td>
+      <td><code>RenderingOptions.NetworkCredentials</code></td>
+      <td>Verify property name in current docs</td>
+    </tr>
+    <tr>
+      <td>Cookie injection via <code>context.AddCookiesAsync()</code></td>
+      <td><code>RenderingOptions.CustomCookies</code> dictionary</td>
+      <td><a href="https://ironpdf.com/how-to/cookies/">Cookies guide</a></td>
+    </tr>
+    <tr>
+      <td>Custom request headers</td>
+      <td><code>RenderingOptions.RequestHeaders</code></td>
+      <td>Verify property in current docs</td>
+    </tr>
+    <tr>
+      <td><code>page.PdfAsync()</code> return <code>byte[]</code></td>
+      <td><code>pdf.BinaryData</code></td>
+      <td>Property vs. async method</td>
+    </tr>
+    <tr>
+      <td>(no equivalent)</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>Available natively in IronPDF</td>
+    </tr>
+    <tr>
+      <td>(no equivalent)</td>
+      <td><code>pdf.SecuritySettings</code></td>
+      <td>Encryption and permissions</td>
+    </tr>
+    <tr>
+      <td>(no equivalent)</td>
+      <td><code>pdf.Sign()</code></td>
+      <td><a href="https://ironpdf.com/how-to/signing/">Digital signatures</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>No browser process management.</strong> Code that manages Playwright browser and context lifecycle — launch options, context settings, resource cleanup — does not map to IronPDF and must be removed. This is a code simplification, not a feature gap, but it requires careful audit to avoid leaving orphaned resource management code.</li>
+
+  <li><strong>Synchronous API surface.</strong> Playwright's API is fully async. IronPDF has async equivalents, but also exposes synchronous methods. Teams moving from <code>await page.PdfAsync()</code> to synchronous calls in async contexts must be careful about <code>async/await</code> misuse (e.g., <code>.Result</code> deadlocks). Use IronPDF's async methods in async contexts.</li>
+
+  <li><strong>Wait condition API differences.</strong> Playwright's wait API is event- and selector-driven and runs in the browser JS context. IronPDF's <code>WaitFor</code> API maps conceptually but is configured as render options rather than as imperative calls. Migration requires translating <code>WaitForSelectorAsync</code> and <code>WaitForFunctionAsync</code> calls into <code>RenderingOptions.WaitFor</code> configuration.</li>
+
+  <li><strong>Login flow automation gap.</strong> Playwright supports full browser interaction scripting for login flows. IronPDF does not. Pages requiring multi-step, form-based authentication must be handled by obtaining a session token via <code>HttpClient</code> or a lightweight Playwright call, then injecting that token into IronPDF rendering. This may represent the highest-effort migration item for applications that authenticate against internal services.</li>
+
+  <li><strong>Header/footer template format difference.</strong> Playwright's <code>HeaderTemplate</code> and <code>FooterTemplate</code> are HTML strings evaluated with specific CSS classes (<code>pageNumber</code>, <code>totalPages</code>, <code>date</code>, <code>title</code>, <code>url</code>). IronPDF's <code>HtmlHeaderFooter</code> uses <code>{page}</code> and <code>{total-pages}</code> tokens. Templates require reformatting.</li>
+
+  <li><strong>Image size and Chromium binary.</strong> IronPDF ships with or downloads a Chromium binary, similar to Playwright. Container image sizes are comparable, but the dependency management model differs. Playwright downloads browser binaries at <code>playwright install</code> time; IronPDF's binary handling is configured via NuGet and initialization options.</li>
+
+  <li><strong>Namespace and package change.</strong> All Playwright types are under <code>Microsoft.Playwright</code>. IronPDF types are under <code>IronPdf</code>. Both the NuGet package and all using directives must be updated.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature Area</th>
+      <th>Playwright (.NET)</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active maintenance</td>
+      <td>Yes (Microsoft)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Commercial support</td>
+      <td>Community / GitHub</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>Yes (MIT)</td>
+      <td>No (commercial)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Platform Support</strong></td>
+    </tr>
+    <tr>
+      <td>.NET Framework</td>
+      <td>Limited</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>macOS</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Docker</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Azure Functions</td>
+      <td>Limited (subprocess constraints)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering</strong></td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Yes (Chromium only)</td>
+      <td><a href="https://ironpdf.com/how-to/url-to-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Yes (via <code>SetContentAsync</code>)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HTML file to PDF</td>
+      <td>Yes (via <code>file://</code> URL)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Yes (full scripting)</td>
+      <td>Yes (render-time execution)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS Grid / Flexbox</td>
+      <td>Yes (Chromium)</td>
+      <td>Yes (Chromium)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Responsive CSS</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>DOCX to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Image to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Markdown to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Add/remove pages</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Yes (template-based)</td>
+      <td>Yes (typed objects)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Extract text</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Find and replace</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Bookmarks</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password protection</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Redaction</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>Async API</td>
+      <td>Yes (primary API)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Parallel processing</td>
+      <td>Yes (multi-context)</td>
+      <td><a href="https://ironpdf.com/how-to/async/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Login / cookie auth</td>
+      <td>Yes (full scripting)</td>
+      <td>Yes (injection-based)</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Map all Playwright PDF call sites.</strong> Identify every location where <code>Page.PdfAsync()</code> is called. Note the options passed (<code>Format</code>, <code>Margin</code>, <code>HeaderTemplate</code>, <code>FooterTemplate</code>, <code>PrintBackground</code>, wait conditions).</li>
+
+  <li><strong>Identify authentication patterns.</strong> For each render site, determine how authentication is handled (cookies, HTTP auth, form login). Form-login flows require a different migration approach.</li>
+
+  <li><strong>Swap NuGet packages.</strong> Remove <code>Microsoft.Playwright</code> (or demote it to test projects only if it is still needed for testing). Add <code>IronPdf</code> via NuGet.</li>
+
+  <li><strong>Configure the license key.</strong> Add <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> to startup. See the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>Replace browser lifecycle code.</strong> Delete or refactor <code>Playwright.CreateAsync()</code>, <code>LaunchAsync()</code>, <code>NewContextAsync()</code>, and <code>NewPageAsync()</code> calls. Replace with <code>ChromePdfRenderer</code> instantiation.</li>
+
+  <li><strong>Remap render calls.</strong> Replace <code>GotoAsync()</code> + <code>PdfAsync()</code> with <code>RenderUrlAsPdf()</code>. Replace <code>SetContentAsync()</code> + <code>PdfAsync()</code> with <code>RenderHtmlAsPdf()</code>.</li>
+
+  <li><strong>Migrate render options.</strong> Translate <code>PagePdfOptions</code> properties to <code>ChromePdfRenderOptions</code> equivalents: paper size, margins, background rendering, scale.</li>
+
+  <li><strong>Migrate wait conditions.</strong> Translate <code>WaitForSelectorAsync</code> and <code>WaitForFunctionAsync</code> calls to <code>RenderingOptions.WaitFor</code> configuration.</li>
+
+  <li><strong>Migrate headers and footers.</strong> Rewrite Playwright HTML header/footer template strings as <code>HtmlHeaderFooter</code> objects, updating page number token syntax.</li>
+
+  <li><strong>Handle authentication.</strong> Inject session cookies via <code>RenderingOptions.CustomCookies</code>. For form-login flows, obtain session tokens via <code>HttpClient</code> and inject. Test authenticated render paths explicitly.</li>
+
+  <li><strong>Add disposal patterns.</strong> Wrap <code>ChromePdfRenderer</code> and <code>PdfDocument</code> in <code>using</code> blocks throughout.</li>
+
+  <li><strong>Run output comparison tests.</strong> Render a representative set of documents with both libraries in parallel. Compare output visually and structurally before decommissioning the Playwright render path.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<p>Technically reasonable:</strong> If the application already runs Playwright for end-to-end testing, the PDF generation volume is low, and the documents being captured are fully authenticated web pages requiring complex session management or multi-step login flows, the cost of migrating may not be justified, <strong>When staying on Playwright is. Playwright's browser scripting model handles authentication scenarios that require more engineering effort to replicate in a dedicated PDF library.</p>
+
+<p><strong>Signals that indicate migration is worth the engineering effort:</strong> The clearest signals are resource pressure from browser process management under concurrent load, the need for post-processing operations (merge, sign, encrypt, PDF/A) that require a second library today, container or serverless deployment constraints around subprocess spawning, and the maintenance burden of treating a testing framework as a production document generation service. Teams that have added a separate PDF manipulation library alongside Playwright are already paying the cost of maintaining two libraries; consolidating to one often simplifies both the dependency graph and the operational surface.</p>
+
+<p><strong>What the cutover typically involves at the code level:</strong> The rendering call sites are typically straightforward to migrate — <code>RenderUrlAsPdf()</code> replaces the <code>GotoAsync()</code> / <code>PdfAsync()</code> pattern directly. The more involved work is in authentication (particularly form-login flows), wait condition translation, and header/footer template rewriting. Browser lifecycle management code is removed entirely. A phased migration that routes a subset of render requests through IronPDF while Playwright remains in place for comparison reduces risk before the full cutover.</p>
+
+<p>What authentication patterns have teams found most challenging to migrate away from Playwright's full browser scripting model, and what approaches resolved them?</p>

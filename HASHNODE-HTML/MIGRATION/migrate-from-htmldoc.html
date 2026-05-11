@@ -1,0 +1,858 @@
+<!-- FRONTMATTER
+  title: Migrating from HTMLDOC to IronPDF: a .NET production guide
+  subtitle: what the docs do not cover when switching PDF libraries
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-wdone-htmldoc/
+  description: A focused migration guide for .NET teams replacing HTMLDOC with IronPDF — covers the API differences, integration notes, and what to update in your project.
+  published: False
+-->
+
+<h1>Migrating from HTMLDOC to IronPDF: a .NET production guide</h1>
+
+<p class="subtitle"><em>what the docs do not cover when switching PDF libraries</em></p>
+
+<h2>Framing</h2>
+
+<p>CLI-based PDF generation tools occupy a common position in legacy .NET server applications. When HTML-to-PDF was first needed, the path of least resistance was often to shell out to a command-line tool already available in the server environment — write a file, launch a process, wait for output, read the result. That approach works, and it tends to stay in place for a long time precisely because it is stable and self-contained. The friction only appears when the surrounding infrastructure changes.</p>
+
+<p>Infrastructure modernization is the most common trigger. Moving from a bare-metal Windows server to Linux containers, adopting CI/CD pipelines with tighter binary dependencies, or migrating to PaaS environments where spawning arbitrary child processes is restricted — each of these exposes the assumptions baked into a shell-out integration. In addition, HTML and CSS have evolved substantially since many CLI tools were authored. Teams generating documents that use CSS Grid, web fonts, SVG graphics, or modern layout patterns often find that an older CLI renderer produces noticeably degraded output that requires progressively more template workarounds to compensate.</p>
+
+<p>HTMLDOC is a long-lived open-source HTML-to-PDF tool maintained at htmldoc.org. Teams that integrated it into .NET applications typically did so via <code>Process.Start()</code> wrappers, writing temporary HTML files to disk and reading back the generated PDF. This guide provides the technical migration path from that integration pattern to IronPDF, which is a managed .NET library rather than an external executable.</p>
+
+<h2>What HTMLDOC Is Designed to Do</h2>
+
+<p>HTMLDOC is an open-source command-line application that converts HTML documents to PDF (and PostScript) output. Its architecture centers on its own internal HTML parser and layout engine — it does not use a browser engine or WebKit. HTMLDOC reads HTML files or URLs from the command line, applies its own CSS and layout processing, and writes PDF output to stdout or a file. It supports a range of output options via CLI flags: paper size, orientation, margins, headers and footers with token substitution, table of contents generation, and basic title page handling.</p>
+
+<p>The .NET integration pattern is process-based: the application creates a temporary HTML file, builds a command-line argument string, calls <code>Process.Start()</code> or equivalent, and reads the resulting PDF from a file path or the process's stdout. There is no managed .NET API surface — all configuration passes through CLI arguments. HTMLDOC's rendering engine predates modern browser layout standards; CSS support is limited compared to Chromium or WebKit, and JavaScript execution is not supported. The tool is actively maintained for correctness and security fixes. Exact current version and .NET platform constraints should be verified against the official HTMLDOC repository.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>IronPDF replaces the external process model entirely. Rather than invoking an executable and marshaling input/output through the filesystem or stdout, <code>ChromePdfRenderer</code> renders HTML in-process using a Chromium engine and returns a managed <code>PdfDocument</code> object. There is no child process to launch, no temporary file management, and no argument-string construction.</p>
+
+<p>The rendering engine is the other significant change. HTMLDOC uses its own parser with limited CSS support and no JavaScript. IronPDF uses Chromium, which means the HTML and CSS rendered in the browser during development is what IronPDF produces in the PDF. Templates that use CSS Grid, Flexbox, CSS Variables, web fonts, SVG, or JavaScript-rendered content (charts, dynamic tables) all work without workarounds. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML to PDF rendering guide</a> documents the full option set for controlling the rendering pipeline, including viewport width, background printing, and wait conditions for JavaScript.</p>
+
+<p>Disposal follows standard .NET <code>IDisposable</code> semantics. <code>ChromePdfRenderer</code> and <code>PdfDocument</code> both implement <code>IDisposable</code>; the recommended pattern is <code>using</code> blocks. This replaces the process lifecycle management — <code>Process.Start()</code>, <code>WaitForExit()</code>, and <code>Process.Dispose()</code> — that an HTMLDOC wrapper requires. License activation is a one-time static call at application startup; the <a href="https://ironpdf.com/how-to/license-keys/">license key setup guide</a> covers key formats and environment-variable approaches.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>HTML file to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlFileAsPdf()</code></td>
+      <td>Replace process launch with managed API call</td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>Eliminates temp file write step</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderUrlAsPdf()</code></td>
+      <td>HTMLDOC supports URL input; direct mapping</td>
+    </tr>
+    <tr>
+      <td>Save to file</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td>Replace stdout/file output management</td>
+    </tr>
+    <tr>
+      <td>Save to byte array / stream</td>
+      <td>Low</td>
+      <td><code>pdf.BinaryData</code> / <code>pdf.ToStream()</code></td>
+      <td>Cleaner than reading back a temp file</td>
+    </tr>
+    <tr>
+      <td>CLI flag → paper size</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td>Map HTMLDOC <code>--size</code> values to IronPDF enum</td>
+    </tr>
+    <tr>
+      <td>CLI flag → margins</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.Margin*</code></td>
+      <td>Map <code>--top</code>, <code>--bottom</code>, <code>--left</code>, <code>--right</code></td>
+    </tr>
+    <tr>
+      <td>CLI flag → orientation</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td>Map <code>--landscape</code> to enum value</td>
+    </tr>
+    <tr>
+      <td>Headers / footers (token-based)</td>
+      <td>Low</td>
+      <td><code>TextHeaderFooter</code> or <code>HtmlHeaderFooter</code></td>
+      <td>HTMLDOC uses <code>--header</code> / <code>--footer</code> tokens; IronPDF uses typed objects</td>
+    </tr>
+    <tr>
+      <td>Table of contents generation</td>
+      <td>Medium</td>
+      <td><code>PdfDocument</code> TOC API</td>
+      <td>HTMLDOC generates TOC automatically; verify IronPDF equivalent</td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.WaitFor</code></td>
+      <td>HTMLDOC does not support JS; IronPDF does via Chromium</td>
+    </tr>
+    <tr>
+      <td>CSS modernization</td>
+      <td>Medium</td>
+      <td>Automatic via Chromium</td>
+      <td>HTMLDOC templates often have workarounds for CSS limitations; remove workarounds after migration</td>
+    </tr>
+    <tr>
+      <td>Process lifecycle management</td>
+      <td>N/A — removed</td>
+      <td>Not needed</td>
+      <td><code>Process.Start()</code>, <code>WaitForExit()</code>, temp file cleanup all removed</td>
+    </tr>
+    <tr>
+      <td>Error handling via exit code</td>
+      <td>Medium</td>
+      <td>Exception-based</td>
+      <td>HTMLDOC signals errors via process exit code; IronPDF throws managed exceptions</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>HTML File to PDF</h3>
+
+<h4>HTMLDOC — HTML File to PDF</h4>
+
+<p>A typical HTMLDOC integration in .NET wraps <code>Process.Start()</code> with argument construction, process management, and output file handling.</p>
+
+<pre><code class="language-csharp">using System;
+using System.Diagnostics;
+using System.IO;
+
+// HTMLDOC integration — process-based pattern
+public static byte[] ConvertHtmlToPdf(string htmlFilePath)
+{
+    // Build a temporary output path
+    var outputPath = Path.Combine(Path.GetTempPath(), $&quot;{Guid.NewGuid()}.pdf&quot;);
+
+    try
+    {
+        // Construct the HTMLDOC command
+        var arguments = $&quot;--continuous --quiet --webpage -f \&quot;{outputPath}\&quot; \&quot;{htmlFilePath}\&quot;&quot;;
+
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName               = &quot;/usr/bin/htmldoc&quot;,   // or path on Windows
+                Arguments              = arguments,
+                RedirectStandardError  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true
+            }
+        };
+
+        process.Start();
+        process.WaitForExit(30_000);   // 30-second timeout
+
+        if (process.ExitCode != 0)
+        {
+            var error = process.StandardError.ReadToEnd();
+            throw new InvalidOperationException($&quot;HTMLDOC failed (exit {process.ExitCode}): {error}&quot;);
+        }
+
+        return File.ReadAllBytes(outputPath);
+    }
+    finally
+    {
+        // Clean up the temp file regardless of success or failure
+        if (File.Exists(outputPath))
+            File.Delete(outputPath);
+    }
+}</code></pre>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Binary path must be correct for every target OS; differs between Windows and Linux</li>
+
+  <li>Temporary file creation requires write permissions; temp directory must be writable in containers</li>
+
+  <li><code>WaitForExit()</code> timeout must be tuned; too short produces silent failures on large documents</li>
+
+  <li>Exit code 0 does not always mean a valid PDF was produced; the output file should be validated</li>
+
+  <li>Concurrent calls create separate processes; memory and CPU pressure scales linearly with concurrency</li>
+
+  <li>JavaScript-dependent HTML content silently produces empty or malformed sections</li>
+
+</ul>
+
+<h4>IronPDF — HTML File to PDF</h4>
+
+<p>IronPDF renders the HTML file in-process with no temporary file management. The <a href="https://ironpdf.com/how-to/html-file-to-pdf/">HTML file to PDF guide</a> documents path handling and base URL resolution for locally referenced assets.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using System.IO;
+
+// IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;; // Set at application startup
+
+using var renderer = new ChromePdfRenderer();
+
+// Configure paper size and margins (previously done via HTMLDOC CLI flags)
+renderer.RenderingOptions.PaperSize        = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop        = 10;
+renderer.RenderingOptions.MarginBottom     = 10;
+renderer.RenderingOptions.MarginLeft       = 10;
+renderer.RenderingOptions.MarginRight      = 10;
+renderer.RenderingOptions.PrintBackground  = true;
+
+// Render the HTML file — no temp file, no process launch
+string inputPath = Path.GetFullPath(&quot;/input/report.html&quot;);
+using var pdf = renderer.RenderHtmlFileAsPdf(inputPath);
+
+// Return as bytes or save to file
+byte[] pdfBytes = pdf.BinaryData;
+// pdf.SaveAs(&quot;/output/report.pdf&quot;);</code></pre>
+
+<p>Relative asset paths (stylesheets, images referenced with <code>../</code> or <code>./</code>) resolve against the HTML file's directory. For assets hosted at a different base URL, configure <code>RenderingOptions.BaseUrl</code></p>
+
+<h3>HTML String to PDF</h3>
+
+<h4>HTMLDOC — HTML String to PDF</h4>
+
+<p>HTMLDOC reads from files or URLs; it does not accept HTML via stdin in its standard usage. Teams generating HTML strings must write the content to a temporary file before invoking HTMLDOC, then clean up after. This adds filesystem I/O and cleanup logic to every render call.</p>
+
+<pre><code class="language-csharp">using System;
+using System.Diagnostics;
+using System.IO;
+
+public static byte[] ConvertHtmlStringToPdf(string html)
+{
+    // HTMLDOC does not accept HTML via stdin in standard usage
+    // Must write to a temp file first
+    var inputPath  = Path.Combine(Path.GetTempPath(), $&quot;{Guid.NewGuid()}.html&quot;);
+    var outputPath = Path.Combine(Path.GetTempPath(), $&quot;{Guid.NewGuid()}.pdf&quot;);
+
+    try
+    {
+        File.WriteAllText(inputPath, html, System.Text.Encoding.UTF8);
+
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName               = &quot;/usr/bin/htmldoc&quot;,
+                Arguments              = $&quot;--continuous --quiet --webpage -f \&quot;{outputPath}\&quot; \&quot;{inputPath}\&quot;&quot;,
+                RedirectStandardError  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true
+            }
+        };
+
+        process.Start();
+        process.WaitForExit(30_000);
+
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException($&quot;HTMLDOC conversion failed (exit {process.ExitCode})&quot;);
+
+        return File.ReadAllBytes(outputPath);
+    }
+    finally
+    {
+        if (File.Exists(inputPath))  File.Delete(inputPath);
+        if (File.Exists(outputPath)) File.Delete(outputPath);
+    }
+}</code></pre>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Two temporary files created per render call; cleanup must handle exceptions at each step</li>
+
+  <li>HTML encoding edge cases (templates with encoding other than UTF-8) require explicit handling</li>
+
+  <li>Concurrent renders multiply temp file creation; high-throughput scenarios can saturate the temp directory</li>
+
+  <li>No base URL available for resolving relative asset references within the string</li>
+
+</ul>
+
+<h4>IronPDF — HTML String to PDF</h4>
+
+<p>IronPDF accepts HTML strings directly with no temp file step. The <a href="https://ironpdf.com/examples/using-html-to-create-a-pdf/">HTML string to PDF examples</a> illustrate the full range of render options available, including inline style, external stylesheet links, and embedded SVG.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+
+using var renderer = new ChromePdfRenderer();
+
+// Accept the HTML string directly — no temp file required
+string html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+  &lt;style&gt;
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h1   { color: #333; }
+    table { border-collapse: collapse; width: 100%; }
+    td, th { border: 1px solid #ccc; padding: 6px; }
+  &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;h1&gt;Monthly Report&lt;/h1&gt;
+  &lt;table&gt;
+    &lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Value&lt;/th&gt;&lt;/tr&gt;
+    &lt;tr&gt;&lt;td&gt;Revenue&lt;/td&gt;&lt;td&gt;$42,000&lt;/td&gt;&lt;/tr&gt;
+    &lt;tr&gt;&lt;td&gt;Expenses&lt;/td&gt;&lt;td&gt;$18,500&lt;/td&gt;&lt;/tr&gt;
+  &lt;/table&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs(&quot;/output/monthly-report.pdf&quot;);</code></pre>
+
+<p>Encoding is handled by the managed API; no explicit UTF-8 write step is required. Base URLs for resolving relative paths within the HTML string can be provided as a second argument to <code>RenderHtmlAsPdf()</code></p>
+
+<h3>Headers and Footers</h3>
+
+<h4>HTMLDOC — Headers and Footers</h4>
+
+<p>HTMLDOC provides <code>--header</code> and <code>--footer</code> CLI flags that accept three-character format strings (left, center, right fields) using tokens such as <code>.</code> (blank), <code>t</code> (title), <code>h</code> (current chapter heading), <code>1</code> (page number), <code>/</code> (last page number), and <code>d</code> (date). These are limited to plain text substitution with no HTML or CSS styling.</p>
+
+<pre><code class="language-csharp">using System.Diagnostics;
+
+// HTMLDOC header/footer via CLI flags
+// --header and --footer accept 3-char format strings: left/center/right
+// Tokens: '.' = blank, '1' = page number, '/' = total pages, 'd' = date, 't' = title
+// Example: center-aligned page number &quot;Page 1 of 5&quot;
+
+var arguments =
+    &quot;--continuous --quiet --webpage &quot; +
+    &quot;--header ..t &quot; +                       // center: document title; left/right blank
+    &quot;--footer .1. &quot; +                       // center: page number; left/right blank
+    &quot;-f \&quot;/output/document.pdf\&quot; &quot; +
+    &quot;\&quot;/input/document.html\&quot;&quot;;
+
+// The output headers/footers are plain text only — no CSS, no fonts, no colors</code></pre>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Three-position fixed format (left/center/right only) with no layout flexibility</li>
+
+  <li>Plain text output only — no font selection, color, or image embedding in headers/footers</li>
+
+  <li>Limited token set; complex header content (conditional sections, logos) is not expressible</li>
+
+  <li>Header/footer font and size are controlled by <code>--headfontname</code>, <code>--headfontsize</code> CLI flags</li>
+
+</ul>
+
+<h4>IronPDF — Headers and Footers</h4>
+
+<p>IronPDF provides typed <code>TextHeaderFooter</code> and <code>HtmlHeaderFooter</code> objects that allow full HTML/CSS header and footer content including images, colors, and dynamic per-page data. The <a href="https://ironpdf.com/how-to/headers-and-footers/">headers and footers guide</a> covers both approaches, and the <a href="https://ironpdf.com/examples/html-headers-and-footers/">HTML headers and footers example</a> shows the HTML approach in detail.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+
+using var renderer = new ChromePdfRenderer();
+
+// HTML header — full HTML/CSS, replaces HTMLDOC's 3-token text header
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    Height       = 18,
+    HtmlFragment = @&quot;
+        &lt;div style='display:flex; justify-content:space-between;
+                    font-family:Arial; font-size:10px; color:#666;
+                    padding:0 10px; border-bottom:1px solid #ccc;'&gt;
+            &lt;span&gt;Confidential — Internal Report&lt;/span&gt;
+            &lt;span&gt;{date}&lt;/span&gt;
+        &lt;/div&gt;&quot;
+};
+
+// Text footer — simpler alternative for plain-text needs
+renderer.RenderingOptions.TextFooter = new TextHeaderFooter
+{
+    CenterText = &quot;Page {page} of {total-pages}&quot;,
+    FontSize   = 9
+};
+
+using var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;h1&gt;Report&lt;/h1&gt;&lt;p&gt;Body content.&lt;/p&gt;&quot;);
+pdf.SaveAs(&quot;/output/report-with-headers.pdf&quot;);</code></pre>
+
+<p>The <code>{page}</code>, <code>{total-pages}</code>, <code>{date}</code>, and related tokens are substituted at render time. Unlike HTMLDOC's fixed three-column layout, <code>HtmlHeaderFooter</code> accepts arbitrary HTML, allowing images, multi-column layouts, and conditional content.</p>
+
+<h3>URL to PDF</h3>
+
+<h4>HTMLDOC — URL to PDF</h4>
+
+<p>HTMLDOC accepts HTTP/HTTPS URLs directly as input arguments. It fetches the page, parses the HTML, and renders it. However, because HTMLDOC does not execute JavaScript, any content rendered client-side — single-page application content, dynamically loaded data, JavaScript-drawn charts — produces an empty or partial render.</p>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>No JavaScript execution; SPAs and JS-rendered content produce empty or partial output</li>
+
+  <li>No session/cookie support for authenticated pages in standard usage</li>
+
+  <li>Redirect handling may differ from browser behavior</li>
+
+  <li>HTMLDOC's CSS support is limited; modern web pages often render poorly</li>
+
+</ul>
+
+<h4>IronPDF — URL to PDF</h4>
+
+<p>IronPDF's URL rendering uses Chromium, so JavaScript-rendered content, CSS animations that resolve to a stable state, and dynamic data loaded via <code>fetch()</code> are all captured. The <a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF guide</a> covers wait conditions, cookie injection for authenticated pages, and request header configuration.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+
+using var renderer = new ChromePdfRenderer();
+
+// Enable JavaScript and wait for network-loaded content to resolve
+renderer.RenderingOptions.EnableJavaScript = true;
+renderer.RenderingOptions.WaitFor.NetworkIdle(500);   // verify WaitFor API in current docs
+
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://example.com/dashboard&quot;);
+pdf.SaveAs(&quot;/output/dashboard-snapshot.pdf&quot;);</code></pre>
+
+<p>For pages behind authentication, inject session cookies via <code>RenderingOptions.CustomCookies</code> or use the login helper</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>HTMLDOC Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>htmldoc ... -f output.pdf input.html</code> (file)</td>
+      <td><code>renderer.RenderHtmlFileAsPdf(path)</code></td>
+      <td><a href="https://ironpdf.com/how-to/html-file-to-pdf/">HTML file to PDF guide</a></td>
+    </tr>
+    <tr>
+      <td><code>htmldoc ... -f output.pdf http://url</code> (URL)</td>
+      <td><code>renderer.RenderUrlAsPdf(url)</code></td>
+      <td>Direct mapping</td>
+    </tr>
+    <tr>
+      <td>HTML string input (via temp file)</td>
+      <td><code>renderer.RenderHtmlAsPdf(html)</code></td>
+      <td>Eliminates temp file step</td>
+    </tr>
+    <tr>
+      <td><code>--size A4</code> / <code>--size Letter</code></td>
+      <td><code>RenderingOptions.PaperSize</code> enum</td>
+      <td>Map HTMLDOC size names to IronPDF enum values</td>
+    </tr>
+    <tr>
+      <td><code>--landscape</code></td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td>Enum: landscape vs. portrait</td>
+    </tr>
+    <tr>
+      <td><code>--top</code>, <code>--bottom</code>, <code>--left</code>, <code>--right</code></td>
+      <td><code>RenderingOptions.MarginTop/Bottom/Left/Right</code></td>
+      <td>Verify unit equivalence (mm vs. points)</td>
+    </tr>
+    <tr>
+      <td><code>--header LCR</code> token string</td>
+      <td><code>HtmlHeaderFooter</code> or <code>TextHeaderFooter</code></td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Headers and footers guide</a></td>
+    </tr>
+    <tr>
+      <td><code>--footer LCR</code> token string</td>
+      <td><code>TextHeaderFooter.CenterText</code> etc.</td>
+      <td>Typed object replaces token string</td>
+    </tr>
+    <tr>
+      <td><code>--no-toc</code> / <code>--toc</code></td>
+      <td>IronPDF TOC API</td>
+      <td>Verify table of contents support in IronPDF docs</td>
+    </tr>
+    <tr>
+      <td><code>--title</code> / title page</td>
+      <td>HTML template for cover page</td>
+      <td>No direct CLI equivalent; use HTML cover page</td>
+    </tr>
+    <tr>
+      <td>Exit code error detection</td>
+      <td>Managed exceptions (<code>try</code>/<code>catch</code>)</td>
+      <td>Replace exit-code checks with exception handling</td>
+    </tr>
+    <tr>
+      <td><code>Process.Start()</code> + <code>WaitForExit()</code></td>
+      <td>Not needed</td>
+      <td>Process lifecycle management removed entirely</td>
+    </tr>
+    <tr>
+      <td>Temp file write/read cycle</td>
+      <td>Not needed</td>
+      <td>In-process rendering; no filesystem I/O required</td>
+    </tr>
+    <tr>
+      <td>Save to file path</td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td>Direct mapping</td>
+    </tr>
+    <tr>
+      <td>Read output as bytes</td>
+      <td><code>pdf.BinaryData</code></td>
+      <td>Property access; no file read required</td>
+    </tr>
+    <tr>
+      <td>JavaScript support</td>
+      <td><code>RenderingOptions.EnableJavaScript</code></td>
+      <td>HTMLDOC does not support JS; IronPDF does</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>Process model removed entirely.</strong> All <code>Process.Start()</code>, <code>WaitForExit()</code>, exit code checking, and stdout/stderr capture code is removed, not migrated. This is a simplification, but every call site that launches HTMLDOC must be identified and refactored.</li>
+
+  <li><strong>Temporary file management removed.</strong> HTMLDOC integrations typically create and delete temporary HTML input and PDF output files. With IronPDF, this filesystem I/O disappears. Review cleanup logic carefully to avoid leaving orphaned temp files after migration.</li>
+
+  <li><strong>CSS rendering differences.</strong> HTMLDOC uses its own layout engine with limited CSS support. Templates authored to work around HTMLDOC's CSS limitations may produce different (often better) output under Chromium. After migration, review templates and remove workarounds that were added specifically for HTMLDOC compatibility.</li>
+
+  <li><strong>JavaScript now executes.</strong> HTMLDOC silently ignores JavaScript. IronPDF executes it via Chromium. If HTML templates contain JavaScript that modifies the DOM or triggers side effects, that JavaScript will run during PDF rendering. Verify that all scripts in render templates are safe to execute in this context.</li>
+
+  <li><strong>Header/footer format change.</strong> HTMLDOC's <code>--header</code> and <code>--footer</code> token strings do not map to IronPDF's <code>TextHeaderFooter</code> or <code>HtmlHeaderFooter</code> objects directly. Each header/footer configuration must be individually translated to an IronPDF <code>*HeaderFooter</code> object with the appropriate token syntax.</li>
+
+  <li><strong>Namespace and package.</strong> HTMLDOC has no .NET namespace. IronPDF types are under <code>IronPdf</code>. Add <code>using IronPdf;</code> to all affected files. The <code>IronPdf</code> NuGet package replaces the binary installation step.</li>
+
+  <li><strong>License initialization.</strong> IronPDF requires a license key set at startup. HTMLDOC requires no license management in the application. Add the initialization call and manage the key as an environment secret.</li>
+
+  <li><strong>Chromium binary dependency.</strong> On Linux, IronPDF requires Chromium system dependencies. Dockerfiles and server provisioning scripts that previously only needed to install the <code>htmldoc</code> binary now need the appropriate Chromium dependency packages.</li>
+
+  <li><strong>Error signaling model.</strong> HTMLDOC communicates errors via process exit codes and stderr. IronPDF throws managed exceptions. Error handling code built around exit code checks must be replaced with <code>try</code>/<code>catch</code> blocks.</li>
+
+  <li><strong>Concurrency model.</strong> HTMLDOC scales by launching multiple processes; each invocation is isolated. IronPDF scales within the managed runtime; create a new <code>ChromePdfRenderer</code> per thread for concurrent workloads. Memory usage per concurrent render is different from the process-per-render model.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature Area</th>
+      <th>HTMLDOC</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active maintenance</td>
+      <td>Yes (open source)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Commercial support</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>No (binary install)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Platform Support</strong></td>
+    </tr>
+    <tr>
+      <td>.NET Framework</td>
+      <td>Via process wrapper</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+</td>
+      <td>Via process wrapper</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td>IronPDF requires Chromium deps</td>
+    </tr>
+    <tr>
+      <td>macOS</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Docker</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td>IronPDF requires dependency install</td>
+    </tr>
+    <tr>
+      <td>In-process (no child process)</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>Key architectural difference</td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering</strong></td>
+    </tr>
+    <tr>
+      <td>HTML file to PDF</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Via temp file</td>
+      <td>Yes</td>
+      <td>No temp file needed with IronPDF</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Yes</td>
+      <td><a href="https://ironpdf.com/how-to/url-to-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>Major functional gap in HTMLDOC</td>
+    </tr>
+    <tr>
+      <td>CSS Grid / Flexbox</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS Variables</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>Limited</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>Limited</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Responsive CSS</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Background printing</td>
+      <td>Limited</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Yes (text tokens)</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Yes</a> (HTML or text)</td>
+      <td>IronPDF model is more flexible</td>
+    </tr>
+    <tr>
+      <td>Table of contents</td>
+      <td>Yes</td>
+      <td>-</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Extract text</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Bookmarks</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Watermarks / stamps</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password protection</td>
+      <td>Limited</td>
+      <td><a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Redaction</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>Async API</td>
+      <td>N/A (process)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Parallel processing</td>
+      <td>Via multiple processes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>Via stdout</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Exception-based error handling</td>
+      <td>No (exit codes)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom logging</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Inventory all HTMLDOC call sites.</strong> Search for <code>Process.Start</code>, <code>htmldoc</code>, and temporary file patterns. Document each call site's input type (file, URL, string), options used, and output handling.</li>
+
+  <li><strong>Map CLI flags to <code>RenderingOptions</code>.</strong> For each HTMLDOC invocation, list the CLI flags used and identify the corresponding <code>ChromePdfRenderOptions</code> property. Pay particular attention to margin units</li>
+
+  <li><strong>Add the IronPDF NuGet package.</strong> <code>dotnet add package IronPdf</code>. No binary installation step is required on Windows; verify Linux dependency setup in IronPDF documentation for container targets.</li>
+
+  <li><strong>Configure the license key.</strong> Add <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> to application startup. Store the key as an environment variable or secrets manager entry. See the <a href="https://ironpdf.com/how-to/license-keys/">license key guide</a>.</li>
+
+  <li><strong>Add <code>using IronPdf;</code> directives.</strong> Update all files that previously contained HTMLDOC process wrapper code.</li>
+
+  <li><strong>Replace process launch code.</strong> For each call site, remove the <code>Process.Start()</code> pattern and replace with a <code>ChromePdfRenderer</code> instantiation and the appropriate <code>Render*AsPdf()</code> call. Remove all temp file creation and deletion logic.</li>
+
+  <li><strong>Migrate render options.</strong> Translate CLI flags to <code>RenderingOptions</code> properties: paper size, orientation, margins, background printing, and JavaScript settings.</li>
+
+  <li><strong>Translate headers and footers.</strong> Rewrite HTMLDOC <code>--header</code> and <code>--footer</code> token strings as <code>HtmlHeaderFooter</code> or <code>TextHeaderFooter</code> objects. Update page number and date token syntax to IronPDF's <code>{page}</code>, <code>{total-pages}</code>, <code>{date}</code> format.</li>
+
+  <li><strong>Update error handling.</strong> Replace exit-code checks with <code>try</code>/<code>catch</code> blocks around <code>Render*AsPdf()</code> calls. Replace stderr capture logic with IronPDF's logging configuration if detailed diagnostics are needed.</li>
+
+  <li><strong>Review HTML templates.</strong> After migration, review all templates for CSS workarounds that were added to accommodate HTMLDOC's limitations. Remove or simplify workarounds now that Chromium renders the templates.</li>
+
+  <li><strong>Update container and deployment configuration.</strong> Add IronPDF Chromium dependency installation to Dockerfiles and deployment scripts. Remove <code>htmldoc</code> binary installation steps.</li>
+
+  <li><strong>Run output comparison.</strong> Generate PDF output from both HTMLDOC and IronPDF for each document type in the system. Compare visually. Expect layout improvements in CSS-heavy sections; investigate any regressions in text-only sections where HTMLDOC and Chromium differ.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<p><strong>When staying on HTMLDOC is technically reasonable:</strong> If the application generates simple, text-heavy documents with minimal CSS, no JavaScript, and the server environment is stable (no containerization plans, no platform migrations), HTMLDOC's process-based integration may be adequate. The open-source and no-license-cost profile is a concrete advantage for projects where commercial library procurement is a friction point.</p>
+
+<p><strong>Signals that indicate migration is worth the engineering effort:</strong> The clearest signals are rendering quality gaps — documents that require modern CSS layouts, web fonts, or JavaScript-rendered content where HTMLDOC's output is inadequate. Platform migration signals are also strong: containerization, managed PaaS deployment, or security policies that restrict child process spawning each make the process-based model increasingly difficult to sustain. Teams that are investing engineering effort in maintaining the process wrapper, handling timeout edge cases, or managing temp file cleanup in high-concurrency scenarios will find that the migration pays for itself through simplified operational code.</p>
+
+<p><strong>What the cutover typically involves at the code level:</strong> The process wrapper code is the primary removal target — <code>Process.Start()</code>, argument construction, exit code handling, and temp file management. The replacement is <code>ChromePdfRenderer</code> and a <code>Render*AsPdf()</code> call, which is mechanically straightforward once CLI flag-to-<code>RenderingOptions</code> mapping is complete. Header/footer translation requires attention because the token formats differ. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML to PDF rendering guide</a> provides a reference for the full option set available to replace HTMLDOC's CLI flags.</p>
+
+<p>What operational patterns — process pool management, temp file quota enforcement, or timeout handling — have teams found most difficult to maintain in production HTMLDOC integrations, and how did those concerns factor into their migration timing?</p>

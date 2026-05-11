@@ -1,0 +1,784 @@
+<!-- FRONTMATTER
+  title: Migrating from PDFSharp to IronPDF: the engineering breakdown
+  subtitle: effort estimation, API mapping, and production considerations
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-pdfsharp/
+  description: API mapping and migration checklist for .NET developers moving from PDFSharp to IronPDF, covering the key differences in PDF generation approach.
+  published: False
+-->
+
+<h1>Migrating from PDFSharp to IronPDF: the engineering breakdown</h1>
+
+<p class="subtitle"><em>effort estimation, API mapping, and production considerations</em></p>
+
+<p># Migrating from PDFSharp to IronPDF: the engineering breakdown</p>
+
+<p>The original version of this article is published at <a href="https://ironsoftware.com/csharp/pdf/blog/migrate-from-pdfsharp/">https://ironsoftware.com/csharp/pdf/blog/migrate-from-pdfsharp/</a>.</p>
+
+<h2>Framing</h2>
+
+<p>.NET teams that adopted PDFSharp often did so because it was freely available, carried no commercial licensing cost, and provided a low-level API that gave direct control over the PDF object model. In greenfield applications, that level of control is sometimes the right tradeoff. Over time, however, the same low-level surface area that makes PDFSharp flexible also means that generating a document with headers, footers, tables, and dynamic content requires a substantial amount of application-level layout code. Teams maintaining such codebases frequently find themselves having built an informal layout engine on top of PDFSharp rather than simply using a PDF library.</p>
+
+<p>Library evaluations tend to restart when one of several conditions arises: the hand-rolled layout engine becomes a maintenance burden as requirements grow, a .NET version migration surfaces compatibility gaps, or a new developer joining the team encounters the custom abstraction layer and struggles to extend it. The question at that point is whether the underlying library still serves the team's needs or whether a different integration model would reduce the total code ownership burden.</p>
+
+<p>PDFSharp and IronPDF represent different positions on the control-vs-abstraction spectrum. Understanding both positions is the prerequisite for making a migration effort estimate that a senior engineering team will trust.</p>
+
+<h2>What PDFSharp Is Designed To Do</h2>
+
+<p>PDFSharp is a low-level .NET library for programmatic PDF creation and manipulation. Its core model is drawing-surface-based: the API provides an <code>XGraphics</code> object against which text, shapes, images, and lines are drawn at explicit coordinates. There is no layout engine; the calling code is responsible for all positioning, font measurement, line wrapping, and page-break logic. PDFSharp also supports reading existing PDF files for limited manipulation operations.</p>
+
+<p>The library is open source (MIT-licensed; verify current license status) and has historically been distributed as a NuGet package, though the exact current maintenance status, last release version, and level of .NET 6/7/8 support should be verified in the official repository before beginning a migration evaluation. PDFSharp is well-suited to applications that need to generate structurally simple PDFs—fixed layouts, certificates, labels, simple forms—where the calling code can fully specify the position of every element without requiring dynamic reflow.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>IronPDF approaches PDF generation from the opposite direction. Rather than exposing a drawing surface, it uses a browser rendering engine (Chromium) to convert HTML and CSS into PDF pages. Layout, typography, text wrapping, responsive behavior, and image scaling are handled by the rendering engine. The application provides HTML markup; the library produces a <code>PdfDocument</code>. This model eliminates most of the custom layout code that PDFSharp-based applications accumulate over time.</p>
+
+<p>The practical consequence is that teams migrating from PDFSharp are not remapping API calls one-for-one; they are replacing drawing-surface code with HTML template authoring. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF pipeline</a> accepts any valid HTML, including inline styles, external stylesheets (via base URL configuration), and JavaScript-rendered content. For teams already maintaining Razor views or T4/Scriban templates for other output formats, the migration often means reusing or adapting existing template infrastructure rather than rewriting from scratch.</p>
+
+<p>IronPDF also provides document operation capabilities—<a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merging, splitting, and page manipulation</a>—that overlap with the subset of PDFSharp functionality teams use for combining documents. These operations are available on <code>PdfDocument</code> objects regardless of how they were originally rendered, which covers both the creation and manipulation use cases in a single library.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Basic PDF creation (fixed layout)</td>
+      <td>High</td>
+      <td>HTML/CSS template + <code>RenderHtmlAsPdf()</code></td>
+      <td>No 1:1 API; layout code becomes HTML</td>
+    </tr>
+    <tr>
+      <td>Drawing text at coordinates</td>
+      <td>High</td>
+      <td>HTML positioning via CSS</td>
+      <td><code>XGraphics.DrawString()</code> has no equivalent; use HTML layout</td>
+    </tr>
+    <tr>
+      <td>Drawing shapes and lines</td>
+      <td>High</td>
+      <td>SVG or CSS borders in HTML</td>
+      <td>Geometric drawing must be reexpressed as HTML/SVG</td>
+    </tr>
+    <tr>
+      <td>Table rendering (manual)</td>
+      <td>Medium</td>
+      <td>HTML <code>&lt;table&gt;</code> element</td>
+      <td>Manual row/height calculations replaced by CSS table layout</td>
+    </tr>
+    <tr>
+      <td>Image embedding</td>
+      <td>Medium</td>
+      <td><code>&lt;img&gt;</code> tag or <code>AddImageToPage()</code> API</td>
+      <td>Both approaches available; HTML is simpler for new documents</td>
+    </tr>
+    <tr>
+      <td>Font selection and measurement</td>
+      <td>High</td>
+      <td>CSS <code>font-family</code> / web fonts</td>
+      <td><code>XFont</code> and <code>XGraphics.MeasureString()</code> have no direct equivalent</td>
+    </tr>
+    <tr>
+      <td>Page size configuration</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td>Enum + custom dimensions</td>
+    </tr>
+    <tr>
+      <td>Multi-page documents</td>
+      <td>Medium</td>
+      <td>CSS page breaks or <code>PdfDocument.Merge()</code></td>
+      <td>Auto-pagination via HTML <code>page-break-before</code>/<code>after</code></td>
+    </tr>
+    <tr>
+      <td>Reading existing PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.FromFile()</code></td>
+      <td>IronPDF supports reading; verify exact operation parity</td>
+    </tr>
+    <tr>
+      <td>Merging multiple PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>Static method; straightforward replacement</td>
+    </tr>
+    <tr>
+      <td>Password protection</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Password</code></td>
+      <td>Direct equivalent</td>
+    </tr>
+    <tr>
+      <td>PDF metadata</td>
+      <td>Low</td>
+      <td><code>PdfDocument.MetaData</code></td>
+      <td>Minor API differences</td>
+    </tr>
+    <tr>
+      <td>Append pages from existing PDF</td>
+      <td>Low</td>
+      <td><code>PdfDocument.AppendPdf()</code></td>
+      <td>Verify method name in current docs</td>
+    </tr>
+    <tr>
+      <td>Custom page margins</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.Margin*</code></td>
+      <td>Millimeter-based</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>Drawing Text (PDFSharp) → HTML Template (IronPDF)</h3>
+
+<h4>PDFSharp — Drawing Text:</h4>
+
+<p>PDFSharp's text rendering requires explicit coordinate specification via <code>XGraphics</code>. A typical pattern:</p>
+
+<pre><code class="language-csharp">using PdfSharp.Pdf;
+using PdfSharp.Drawing;
+
+// Create document and page
+var document = new PdfDocument();
+var page = document.AddPage();
+page.Size = PdfSharp.PageSize.A4;
+
+var gfx = XGraphics.FromPdfPage(page);
+
+// Font must be created explicitly
+var font = new XFont(&quot;Arial&quot;, 14, XFontStyle.Bold);
+var pen = new XPen(XColors.Black, 1);
+
+// Caller is responsible for all coordinates
+gfx.DrawString(&quot;Invoice #12345&quot;, font, XBrushes.Black,
+    new XRect(40, 60, page.Width - 80, 30),
+    XStringFormats.TopLeft);
+
+// Further drawing calls for each element...
+document.Save(&quot;invoice.pdf&quot;);</code></pre>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>Every text element requires coordinate calculation in points; dynamic content forces runtime measurement via <code>XGraphics.MeasureString()</code></li>
+
+  <li>Line wrapping, vertical overflow, and pagination must be implemented manually</li>
+
+  <li>Font availability on the server must be managed explicitly; embedded fonts require additional handling</li>
+
+  <li>Tables, multi-column layouts, and indentation all require geometry calculations in calling code</li>
+
+</ul>
+
+<h4>IronPDF — HTML Template:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// HTML template — layout handled by the CSS engine
+var html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+  &lt;style&gt;
+    body { font-family: Arial, sans-serif; margin: 40px; }
+    .invoice-header { font-size: 18px; font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    td, th { border: 1px solid #ccc; padding: 8px; font-size: 12px; }
+  &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;div class='invoice-header'&gt;Invoice #12345&lt;/div&gt;
+  &lt;table&gt;
+    &lt;tr&gt;&lt;th&gt;Description&lt;/th&gt;&lt;th&gt;Amount&lt;/th&gt;&lt;/tr&gt;
+    &lt;tr&gt;&lt;td&gt;Consulting&lt;/td&gt;&lt;td&gt;$1,200.00&lt;/td&gt;&lt;/tr&gt;
+  &lt;/table&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 20;
+renderer.RenderingOptions.MarginBottom = 20;
+
+// Render — layout engine handles all positioning
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs(&quot;invoice.pdf&quot;);</code></pre>
+
+<p>The shift from coordinate-based to HTML-based authoring is the largest conceptual change in this migration. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers base URL configuration for resolving external stylesheets and images—necessary when templates reference shared asset files rather than embedding everything inline.</p>
+
+<h3>Table Rendering</h3>
+
+<h4>PDFSharp — Manual Table Rendering:</h4>
+
+<p>Table rendering in PDFSharp is entirely manual: the calling code computes row heights based on measured text, draws cell borders using <code>XGraphics.DrawRectangle()</code>, clips text to cell bounds, and handles column widths as constants or derived values. Page break logic for multi-page tables must be implemented explicitly.</p>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>Row height calculation requires <code>MeasureString()</code> for each cell to handle wrapping</li>
+
+  <li>Borders, padding, and background fills are separate drawing calls per cell</li>
+
+  <li>Multi-page tables need explicit page break detection and header row repetition logic</li>
+
+  <li>Changes to column count or content type require updates to the coordinate calculation code</li>
+
+</ul>
+
+<h4>IronPDF — HTML Table:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// Dynamic table generation with standard C# string building
+var rows = new System.Text.StringBuilder();
+foreach (var item in lineItems)
+{
+    // HTML escaping omitted for brevity — use proper encoding in production
+    rows.Append($&quot;&lt;tr&gt;&lt;td&gt;{item.Description}&lt;/td&gt;&lt;td&gt;{item.Quantity}&lt;/td&gt;&lt;td&gt;{item.Price:C}&lt;/td&gt;&lt;/tr&gt;&quot;);
+}
+
+var html = $@&quot;
+&lt;html&gt;&lt;head&gt;&lt;style&gt;
+  table {{ width:100%; border-collapse:collapse; }}
+  th, td {{ border:1px solid #999; padding:6px 10px; font-size:11px; }}
+  th {{ background:#f5f5f5; }}
+  tr {{ page-break-inside: avoid; }}
+&lt;/style&gt;&lt;/head&gt;
+&lt;body&gt;
+  &lt;table&gt;
+    &lt;tr&gt;&lt;th&gt;Description&lt;/th&gt;&lt;th&gt;Qty&lt;/th&gt;&lt;th&gt;Price&lt;/th&gt;&lt;/tr&gt;
+    {rows}
+  &lt;/table&gt;
+&lt;/body&gt;&lt;/html&gt;&quot;;
+
+var renderer = new ChromePdfRenderer();
+// Repeat headers across page breaks via CSS — no manual logic needed
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs(&quot;line-items.pdf&quot;);</code></pre>
+
+<p>HTML tables handle multi-page pagination, header repetition (via <code>&lt;thead&gt;</code> with appropriate CSS), and cell content wrapping automatically. The <a href="https://ironpdf.com/how-to/html-to-pdf-page-breaks/">page breaks guide</a> covers the full set of CSS page break properties available for controlling how tables and other elements split across pages.</p>
+
+<h3>Merging and Splitting PDFs</h3>
+
+<h4>PDFSharp — Merge:</h4>
+
+<p>PDFSharp provides <code>PdfDocument</code> import functionality that allows pages from one document to be appended to another. The pattern typically involves opening each source document, iterating pages, and importing them into the target document.</p>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>Imported documents must be opened with an <code>Open</code> mode that permits modification</li>
+
+  <li>Page count bookkeeping must be maintained manually when merging many documents</li>
+
+  <li>Error handling around source document corruption or encryption must be explicit</li>
+
+</ul>
+
+<h4>IronPDF — Merge and Split:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// Merge: static method accepting IEnumerable&lt;PdfDocument&gt;
+using var docA = PdfDocument.FromFile(&quot;report-part1.pdf&quot;);
+using var docB = PdfDocument.FromFile(&quot;report-part2.pdf&quot;);
+
+using var merged = PdfDocument.Merge(docA, docB);
+merged.SaveAs(&quot;report-complete.pdf&quot;);
+
+// Split: extract a page range into a new document
+using var source = PdfDocument.FromFile(&quot;large-report.pdf&quot;);
+using var excerpt = source.CopyPages(0, 4); // pages 0–4 inclusive
+excerpt.SaveAs(&quot;report-excerpt.pdf&quot;);</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split guide</a> covers the full set of overloads including merging from file paths, streams, and byte arrays. For large document sets, the guide includes notes on memory management when merging many documents in a loop—relevant when migrating batch processing pipelines that previously used PDFSharp's append pattern.</p>
+
+<h3>Digital Signatures</h3>
+
+<h4>PDFSharp — Digital Signatures:</h4>
+
+<p>PDFSharp's built-in support for digital signatures is limited; verify the current state in official documentation. Some teams using PDFSharp for signed document workflows use PDFSharp in combination with a separate signing library or post-processing step.</p>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>Verify which signature standards (CAdES, PAdES) are supported natively</li>
+
+  <li>Certificate management and chain validation may require external tooling</li>
+
+  <li>Timestamp authority integration may not be available natively</li>
+
+</ul>
+
+<h4>IronPDF — Digital Signatures:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Signing;
+
+using var pdf = PdfDocument.FromFile(&quot;document-to-sign.pdf&quot;);
+
+// Sign using a .pfx certificate file
+var signature = new PdfSignature(&quot;certificate.pfx&quot;, &quot;certPassword&quot;);
+signature.SigningContact = &quot;signing@example.com&quot;;
+signature.SigningLocation = &quot;Chicago, IL&quot;;
+signature.SigningReason = &quot;Document approval&quot;;
+
+pdf.Sign(signature);
+pdf.SaveAs(&quot;document-signed.pdf&quot;);</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/signing/">digital signatures guide</a> covers certificate sources including X.509 objects, file-based PFX, and HSM integration for environments where private keys cannot leave hardware security modules.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>PDFSharp Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>new PdfDocument()</code></td>
+      <td><code>new ChromePdfRenderer()</code> then <code>RenderHtmlAsPdf()</code></td>
+      <td>Fundamental model difference</td>
+    </tr>
+    <tr>
+      <td><code>document.AddPage()</code></td>
+      <td>Automatic (HTML pagination)</td>
+      <td>Pages created by layout engine</td>
+    </tr>
+    <tr>
+      <td><code>XGraphics.FromPdfPage()</code></td>
+      <td>Not applicable</td>
+      <td>Drawing surface model has no equivalent</td>
+    </tr>
+    <tr>
+      <td><code>XGraphics.DrawString()</code></td>
+      <td>HTML text nodes / CSS</td>
+      <td>All text is HTML content</td>
+    </tr>
+    <tr>
+      <td><code>XGraphics.DrawRectangle()</code></td>
+      <td>CSS <code>border</code>, <code>background-color</code></td>
+      <td>Geometric drawing becomes CSS</td>
+    </tr>
+    <tr>
+      <td><code>XFont</code></td>
+      <td>CSS <code>font-family</code>, web fonts</td>
+      <td>See <a href="https://ironpdf.com/how-to/manage-fonts/">font management</a></td>
+    </tr>
+    <tr>
+      <td><code>XGraphics.MeasureString()</code></td>
+      <td>Not applicable</td>
+      <td>Browser engine measures text internally</td>
+    </tr>
+    <tr>
+      <td><code>PdfDocument.Open()</code> (read)</td>
+      <td><code>PdfDocument.FromFile()</code></td>
+      <td>Reading existing PDFs supported</td>
+    </tr>
+    <tr>
+      <td><code>PdfDocument.Save()</code></td>
+      <td><code>PdfDocument.SaveAs()</code></td>
+      <td>Minor method name difference</td>
+    </tr>
+    <tr>
+      <td><code>PdfDocument.PageCount</code></td>
+      <td><code>PdfDocument.PageCount</code></td>
+      <td>Direct equivalent</td>
+    </tr>
+    <tr>
+      <td><code>PdfDocument.AddPage(importedPage)</code></td>
+      <td><code>PdfDocument.Merge()</code> or <code>AppendPdf()</code></td>
+      <td>Static merge or instance append</td>
+    </tr>
+    <tr>
+      <td>Page size constant (A4, Letter)</td>
+      <td><code>RenderingOptions.PaperSize</code> enum</td>
+      <td>Enum-based selection</td>
+    </tr>
+    <tr>
+      <td>Custom page orientation</td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td>Landscape/portrait</td>
+    </tr>
+    <tr>
+      <td>Password protect</td>
+      <td><code>PdfDocument.SecuritySettings</code> → <code>PdfDocument.Password</code></td>
+      <td>- exact property path</td>
+    </tr>
+    <tr>
+      <td>PDF metadata (author, title)</td>
+      <td><code>PdfDocument.MetaData.Author</code> etc.</td>
+      <td>- exact property names</td>
+    </tr>
+    <tr>
+      <td>Image on page</td>
+      <td><code>&lt;img&gt;</code> tag in HTML or <code>AddImageToPage()</code></td>
+      <td>HTML approach preferred for new documents</td>
+    </tr>
+    <tr>
+      <td><code>PdfOutline</code> (bookmarks)</td>
+      <td><code>PdfDocument</code> bookmarks API</td>
+      <td>- API surface</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>No coordinate-based drawing API.</strong> This is the largest conceptual break. Code that calls <code>XGraphics.DrawString()</code>, <code>DrawRectangle()</code>, <code>DrawLine()</code>, or <code>DrawImage()</code> with explicit point coordinates has no direct equivalent in IronPDF. All such code must be reexpressed as HTML/CSS, which is a redesign task rather than a refactoring task.</li>
+
+  <li><strong>Font management changes completely.</strong> PDFSharp's <code>XFont</code> takes a font family name and style; fonts must be installed on the host system or embedded explicitly. IronPDF uses CSS <code>font-family</code> declarations with the Chromium engine handling font resolution. Web font loading via CSS <code>@font-face</code> is supported; see the font management documentation for details.</li>
+
+  <li><strong>Disposal semantics are new.</strong> PDFSharp's <code>PdfDocument</code> should be disposed, and most examples use <code>Save()</code> followed by disposal—but the library does not enforce disposal via <code>IDisposable</code> as prominently as IronPDF does. IronPDF's <code>PdfDocument</code> should always be wrapped in <code>using</code>.</li>
+
+  <li><strong>Text measurement is not exposed.</strong> Applications using <code>XGraphics.MeasureString()</code> to compute layout dimensions—for pagination logic, dynamic column widths, or word wrapping—have no equivalent API to call. The browser engine manages all of this internally. Layout logic dependent on text measurement must be refactored to use CSS-driven layout.</li>
+
+  <li><strong>Platform binary dependencies.</strong> IronPDF ships native Chromium binaries per platform. Docker images built on minimal base images (Alpine, distroless) may lack the shared library dependencies required. Test container builds early.</li>
+
+  <li><strong>No low-level PDF object access by default.</strong> PDFSharp's <code>PdfDocument.Internals</code> provides access to raw PDF dictionaries and objects. IronPDF exposes a <a href="https://ironpdf.com/how-to/access-pdf-dom-object/">PDF DOM access API</a>; verify whether the level of access required by the application is available.</li>
+
+  <li><strong>XPS support.</strong> PDFSharp includes MigraDoc and XPS-related functionality in some distributions. IronPDF has no equivalent for XPS output; verify whether the application uses those features.</li>
+
+  <li><strong>License key required.</strong> IronPDF is a commercial library. PDFSharp is open source. Budget for license cost and provisioning in the migration plan.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>PDFSharp</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Current maintenance status</td>
+      <td>-</td>
+      <td>Actively maintained</td>
+      <td>Check PDFSharp GitHub for recent activity</td>
+    </tr>
+    <tr>
+      <td>License</td>
+      <td>Open source (MIT</td>
+      <td>Commercial</td>
+      <td>Significant difference in cost model</td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Support</strong></td>
+    </tr>
+    <tr>
+      <td>Commercial support</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Community support</td>
+      <td>GitHub Issues</td>
+      <td>GitHub Issues</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Documentation</td>
+      <td>Moderate</td>
+      <td>Comprehensive</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content Creation</strong></td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>Core architectural difference</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Drawing API (coordinate-based)</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>PDFSharp strength; IronPDF uses HTML</td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS layout engine</td>
+      <td>No</td>
+      <td>Yes (Chromium)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Responsive CSS</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/html-to-pdf-responsive-css/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts / icon fonts</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>DOCX to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Markdown to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Image to PDF</td>
+      <td>Yes (limited)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>Limited</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Add/remove pages</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Headers and footers API</a></td>
+      <td>Manual (drawing)</td>
+      <td>Yes</td>
+      <td>IronPDF provides a first-class API</td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Bookmarks</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Find and replace text</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Redaction</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Annotations</td>
+      <td>Limited</td>
+      <td>-</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password protection</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Permissions model</td>
+      <td>Limited</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Limited</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HSM signing</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/pdfa/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development & Maintenance</strong></td>
+    </tr>
+    <tr>
+      <td>.NET Framework support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Docker support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td>Chromium binary adds image size</td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/async/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Thread safety</td>
+      <td>Partial</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Low-level PDF object access</td>
+      <td>Yes (<code>Internals</code>)</td>
+      <td>Partial</td>
+      <td>Refer to the official documentation</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Inventory all <code>XGraphics</code> usage.</strong> Every call to <code>XGraphics.DrawString()</code>, <code>DrawRectangle()</code>, <code>DrawLine()</code>, <code>DrawImage()</code>, and <code>MeasureString()</code> represents layout code that must be reimplemented as HTML/CSS. This is typically the largest scope item in a PDFSharp migration.</li>
+
+  <li><strong>Identify documents that are rendered vs. manipulated.</strong> PDFSharp is often used for both creating PDFs from scratch and manipulating existing files (appending pages, reading content). Separate these use cases; the migration path differs for each.</li>
+
+  <li><strong>Create HTML templates for each document type.</strong> For each distinct document layout currently driven by <code>XGraphics</code> drawing code, author an equivalent HTML template. Prioritize templates by document complexity and business criticality.</li>
+
+  <li><strong>Install the IronPDF NuGet package.</strong> Run <code>dotnet add package IronPdf</code>. Verify that the runtime identifier (RID) for each target environment is covered by the package's native binary set.</li>
+
+  <li><strong>Configure the license key.</strong> Set up the IronPDF license before first use. See the <a href="https://ironpdf.com/how-to/license-keys/">license key setup guide</a> for configuration approaches compatible with environment-variable-based secret management.</li>
+
+  <li><strong>Replace document creation call sites.</strong> Substitute <code>new PdfDocument()</code> + <code>XGraphics</code> drawing calls with <code>new ChromePdfRenderer()</code> + <code>RenderHtmlAsPdf(template)</code>. Pass a <code>BaseUrlOrPath</code> when templates reference external CSS or images.</li>
+
+  <li><strong>Replace merge and split operations.</strong> Map PDFSharp page import patterns to <code>PdfDocument.Merge()</code> and <code>CopyPages()</code>. Update all disposal patterns to use <code>using</code>.</li>
+
+  <li><strong>Remap metadata and security settings.</strong> Port any <code>PdfDocument</code> metadata assignments (author, title, subject) and password/permissions settings to the IronPDF equivalents; verify exact property names in current documentation.</li>
+
+  <li><strong>Update digital signature workflows.</strong> If the application signs PDFs, port certificate loading and signing calls to IronPDF's <code>PdfSignature</code> API. Validate signed output with a PDF validator.</li>
+
+  <li><strong>Test container / server builds.</strong> Build Docker images for all target environments and verify that the Chromium binary dependencies are met. Add required system packages to the Dockerfile if needed.</li>
+
+  <li><strong>Run visual regression tests.</strong> Compare rendered output between the old and new implementations. Pixel-perfect fidelity is unlikely (different rendering engines), but layout, content accuracy, and page structure should be verified.</li>
+
+  <li><strong>Remove PDFSharp package references.</strong> Once all call sites have been migrated and tested, remove PDFSharp from the project's NuGet dependencies to eliminate any accidental continued use.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on PDFSharp is technically reasonable</h3>
+
+<p>PDFSharp is a reasonable choice for teams whose PDF requirements center on coordinate-based document assembly: fixed-layout certificates, labels, simple forms, or documents where the structure is entirely static and the layout is unlikely to change. The open source license eliminates commercial cost and procurement process. If the existing codebase has mature, well-tested drawing code and the document layouts are stable, the disruption of migration may not be justified. Teams with strong PDF object model expertise who need low-level access to PDF internals will also find PDFSharp's <code>Internals</code> API harder to replicate.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>The migration signal is clearest when PDFSharp-based code has grown a large, hand-maintained layout engine: text wrapping loops, pagination calculations, manual table geometry, font measurement utilities. Each of those components represents maintenance surface that disappears when the rendering engine handles layout. Teams targeting new document types that are HTML-friendly—reports with complex tables, invoices with variable line items, HTML-exported content—find the template authoring model significantly more productive than the drawing model. If the team already authors HTML templates for email or web output, the skill set transfers directly. Platform migration (moving to Linux, deploying to containers, targeting .NET 8) is also a natural inflection point to evaluate whether the drawing-based model continues to serve the team's needs.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>The migration is not a refactoring exercise—it is a partial rewrite of the document generation layer. The code structure changes from procedural drawing code to template authoring plus a short rendering call. Teams that budget for this as a rewrite rather than a mapping task tend to produce cleaner results. The merge, split, and document manipulation operations translate more mechanically and can often be migrated without redesign. Security settings, metadata, and output format options are similarly low-effort remappings.</p>
+
+<p>When your team has evaluated migrating from a low-level drawing API to an HTML-based rendering model, which document types proved most challenging to re-express as HTML templates, and what strategies helped?</p>

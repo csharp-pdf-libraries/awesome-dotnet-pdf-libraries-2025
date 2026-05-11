@@ -1,0 +1,921 @@
+<!-- FRONTMATTER
+  title: Migrating from Gotenberg to IronPDF: the engineering breakdown
+  subtitle: effort estimation, API mapping, and production considerations
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-gotenberg/
+  description: Replacing Gotenberg with IronPDF in your .NET stack? This guide covers what changes, what maps directly, and how to complete the switch efficiently.
+  published: False
+-->
+
+<h1>Migrating from Gotenberg to IronPDF: the engineering breakdown</h1>
+
+<p class="subtitle"><em>effort estimation, API mapping, and production considerations</em></p>
+
+<h2>Framing</h2>
+
+<p>Containerized document conversion services represent one of the more pragmatic architectural patterns in document generation: run a self-hosted HTTP service that wraps a headless browser, send it HTML over HTTP, receive PDF bytes back. This approach keeps PDF generation concerns entirely separate from the application, avoids native binary dependencies in the application host, and gives infrastructure teams a single service to scale independently. Gotenberg is one of the most widely deployed implementations of this pattern in the self-hosted ecosystem.</p>
+
+<p>Teams re-evaluate this architecture for several reasons. The HTTP round-trip adds latency that is often acceptable for low-volume generation but becomes measurable in high-throughput pipelines. The separate service introduces a network dependency — failure modes include service unavailability, timeouts, and network partitions that do not exist in an in-process rendering library. Infrastructure cost and operational overhead (deploying, monitoring, and maintaining a separate container) add up for teams that are otherwise not operating microservice infrastructure. And for applications that need to perform post-render PDF operations (merge multiple rendered PDFs, apply digital signatures, fill forms, add watermarks), the Gotenberg model requires receiving bytes over HTTP and then feeding them into a separate manipulation library — increasing the dependency count.</p>
+
+<p>This guide is for .NET engineers evaluating or executing a migration from Gotenberg to IronPDF. The migration is classified as Low effort because both systems use Chromium under the hood for HTML rendering — rendering output is highly consistent — and the conceptual operation (HTML in, PDF out) is identical. The migration work is essentially replacing HTTP client calls with in-process method calls and updating the request/response handling to work with managed .NET objects rather than <code>byte[]</code> from HTTP.</p>
+
+<h2>What Gotenberg Is Designed to Do</h2>
+
+<p>Gotenberg is an open-source, self-hosted HTTP API server for document conversion. It runs as a Docker container and exposes HTTP endpoints that accept document content (HTML, Office files, PDFs, images) and return converted output. The HTML-to-PDF conversion endpoint wraps Chromium in headless mode — the same rendering engine used by IronPDF. Gotenberg also includes a LibreOffice integration for Office-format conversions (DOCX, XLSX, etc. to PDF). The product status and last release should be verified at the project's GitHub repository; Gotenberg is actively maintained as of the training data for this article.</p>
+
+<p>In a .NET application, Gotenberg is used by constructing multipart/form-data HTTP requests containing the HTML content, CSS files, assets, and configuration, sending those requests to the Gotenberg container via <code>HttpClient</code>, and processing the returned PDF bytes. The .NET integration layer is entirely custom — there is no official .NET SDK for Gotenberg, though community packages exist. Configuration is passed as HTTP headers or form fields rather than as API calls. Gotenberg does not provide an API for PDF manipulation after rendering — merge, sign, form-fill, and encrypt operations require a separate library in the .NET application.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>The architectural difference between Gotenberg and IronPDF is the boundary between the application and the rendering engine. In the Gotenberg pattern, the rendering engine runs in a separate Docker container and is accessed over HTTP. In IronPDF, the rendering engine runs in-process within the .NET application. Both use Chromium for HTML-to-PDF rendering, so the output fidelity is comparable — the same HTML and CSS renders consistently in both systems.</p>
+
+<p>IronPDF's two central types are <code>ChromePdfRenderer</code> (rendering) and <code>PdfDocument</code> (manipulation). <code>ChromePdfRenderer</code> accepts an HTML string, an HTML file path, or a URL, and returns a <code>PdfDocument</code> implementing <code>IDisposable</code>. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers the full rendering configuration — paper size, margins, CSS media type, JavaScript execution, and web font handling — which replaces Gotenberg's HTTP header configuration. The <a href="https://ironpdf.com/how-to/rendering-options/">rendering options reference</a> covers all available rendering parameters in detail. License initialization is a one-time startup call via <code>IronPdf.License.LicenseKey</code>; see the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</p>
+
+<p>The operational shift from Gotenberg to IronPDF removes the external HTTP dependency, eliminates network latency from the generation path, and consolidates rendering and manipulation into a single library. It introduces a different set of operational concerns: IronPDF on Linux requires Chromium system library packages in the application container (rather than running in a separate Chromium container), and memory usage for the Chromium process is shared with the application rather than isolated in a separate service.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>Both Chromium; rendering output is consistent</td>
+    </tr>
+    <tr>
+      <td>HTML file to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlFileAsPdf()</code></td>
+      <td>Gotenberg: multipart form with index.html</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderUrlAsPdf()</code></td>
+      <td>Gotenberg: <code>/forms/chromium/convert/url</code> endpoint</td>
+    </tr>
+    <tr>
+      <td>Paper size</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td>Gotenberg: <code>paperWidth</code> / <code>paperHeight</code> headers</td>
+    </tr>
+    <tr>
+      <td>Margins</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.Margin*</code></td>
+      <td>Gotenberg: <code>marginTop</code> etc. headers (inches)</td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td>Gotenberg: <code>landscape</code> header</td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Low</td>
+      <td>Chromium; <code>WaitFor</code> for timing</td>
+      <td>Gotenberg: <code>waitDelay</code> / <code>waitForExpression</code></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Medium</td>
+      <td><code>RenderingOptions.HtmlHeader/HtmlFooter</code></td>
+      <td>Gotenberg uses separate HTML files</td>
+    </tr>
+    <tr>
+      <td>Asset / resource handling</td>
+      <td>Medium</td>
+      <td><code>RenderingOptions.BaseUrl</code></td>
+      <td>Gotenberg bundles assets as multipart; IronPDF uses BaseUrl</td>
+    </tr>
+    <tr>
+      <td>DOCX/XLSX to PDF</td>
+      <td>Medium</td>
+      <td><code>pdf.DocxToPdf()</code> / separate conversion</td>
+      <td>Gotenberg uses LibreOffice; IronPDF uses different approach</td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>Not in Gotenberg scope — in-process only</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Low</td>
+      <td><code>PdfSignature</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>Form filling</td>
+      <td>Low</td>
+      <td><code>pdf.Form.Fields</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAsPdfA()</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>Network latency removed</td>
+      <td>N/A</td>
+      <td>In-process rendering</td>
+      <td>Key operational change</td>
+    </tr>
+    <tr>
+      <td>HTTP error handling removed</td>
+      <td>N/A</td>
+      <td>.NET exception handling</td>
+      <td>Replace <code>HttpResponseMessage.EnsureSuccessStatusCode()</code></td>
+    </tr>
+    <tr>
+      <td>Webhook / async HTTP pattern</td>
+      <td>Medium</td>
+      <td><code>RenderHtmlAsPdfAsync()</code></td>
+      <td>Replace with native async</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>HTML String to PDF</h3>
+
+<h4>Gotenberg — HTML String to PDF via HTTP</h4>
+
+<pre><code class="language-csharp">using System.Net.Http;
+using System.Net.Http.Headers;
+
+// Gotenberg is called via HTTP multipart/form-data
+// No official .NET SDK — all configuration is via HTTP headers and form fields
+
+public class GotenbergPdfService
+{
+    private readonly HttpClient _httpClient;
+    private readonly string _gotenbergBaseUrl;
+
+    public GotenbergPdfService(HttpClient httpClient, string gotenbergBaseUrl)
+    {
+        _httpClient = httpClient;
+        _gotenbergBaseUrl = gotenbergBaseUrl; // e.g., &quot;http://gotenberg:3000&quot;
+    }
+
+    public async Task&lt;byte[]&gt; ConvertHtmlToPdfAsync(string html)
+    {
+        using var content = new MultipartFormDataContent();
+
+        // Gotenberg requires an index.html file in the multipart form
+        var indexHtmlContent = new StringContent(html);
+        indexHtmlContent.Headers.ContentType =
+            new MediaTypeHeaderValue(&quot;text/html&quot;);
+        content.Add(indexHtmlContent, &quot;files&quot;, &quot;index.html&quot;);
+
+        // Paper size: A4 (8.27 x 11.69 inches — Gotenberg uses inches)
+        content.Add(new StringContent(&quot;8.27&quot;), &quot;paperWidth&quot;);
+        content.Add(new StringContent(&quot;11.69&quot;), &quot;paperHeight&quot;);
+
+        // Margins in inches
+        content.Add(new StringContent(&quot;0.5&quot;), &quot;marginTop&quot;);
+        content.Add(new StringContent(&quot;0.5&quot;), &quot;marginBottom&quot;);
+        content.Add(new StringContent(&quot;0.5&quot;), &quot;marginLeft&quot;);
+        content.Add(new StringContent(&quot;0.5&quot;), &quot;marginRight&quot;);
+
+        // JavaScript execution wait — milliseconds (Gotenberg: waitDelay)
+        content.Add(new StringContent(&quot;500ms&quot;), &quot;waitDelay&quot;);
+
+        var endpoint = $&quot;{_gotenbergBaseUrl}/forms/chromium/convert/html&quot;;
+        using var response = await _httpClient.PostAsync(endpoint, content);
+
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadAsByteArrayAsync();
+    }
+}</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>Gotenberg's API is stateless HTTP — every call must include all configuration as form fields or headers. There is no persistent renderer state.</li>
+
+  <li>Paper dimensions are specified in inches (Gotenberg uses Chromium's print options, which accept <code>paperWidth</code>/<code>paperHeight</code> in inches). IronPDF uses millimeters — convert: <code>mm = inches × 25.4</code>. A 0.5 inch margin is 12.7mm.</li>
+
+  <li>HTML assets (CSS files, images, fonts) must be bundled into the multipart form as additional files when they are referenced relative to the HTML. Alternatively, assets must be served at absolute URLs.</li>
+
+  <li>Gotenberg's <code>waitDelay</code> accepts duration strings ("500ms", "2s") — map these to <code>RenderingOptions.WaitFor.RenderDelay()</code> in milliseconds.</li>
+
+  <li>HTTP timeouts, retry logic, circuit breakers, and DNS resolution are failure modes in the Gotenberg path with no equivalent in IronPDF's in-process model.</li>
+
+  <li>Gotenberg returns <code>application/pdf</code> bytes directly in the response body — no response object model.</li>
+
+</ul>
+
+<h4>IronPDF — HTML String to PDF In-Process</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// ChromePdfRenderer is stateful and reusable — register as singleton in DI
+var renderer = new ChromePdfRenderer();
+
+// Configuration replaces Gotenberg's multipart form fields
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 12.7;    // 0.5 inches in mm
+renderer.RenderingOptions.MarginBottom = 12.7;
+renderer.RenderingOptions.MarginLeft = 12.7;
+renderer.RenderingOptions.MarginRight = 12.7;
+renderer.RenderingOptions.WaitFor.RenderDelay(500); // 500ms JS wait
+
+string html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+&lt;style&gt;body { font-family: Arial, sans-serif; }&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;h1&gt;Invoice #1042&lt;/h1&gt;
+  &lt;p&gt;Total: $1,599.00&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+// PdfDocument is IDisposable — use a using block
+using var pdf = renderer.RenderHtmlAsPdf(html);
+byte[] pdfBytes = pdf.BinaryData;
+
+// Or save directly:
+// pdf.SaveAs(&quot;invoice.pdf&quot;);</code></pre>
+
+<p>The inch-to-millimeter conversion is the most common source of subtle layout differences when migrating from Gotenberg. Multiply Gotenberg's inch values by 25.4 to get IronPDF millimeter equivalents. Full rendering configuration is documented in the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a>.</p>
+
+<h3>URL to PDF</h3>
+
+<h4>Gotenberg — URL to PDF</h4>
+
+<pre><code class="language-csharp">using System.Net.Http;
+
+public async Task&lt;byte[]&gt; ConvertUrlToPdfAsync(string url)
+{
+    using var content = new MultipartFormDataContent();
+
+    // Gotenberg URL rendering uses the /forms/chromium/convert/url endpoint
+    // The URL is passed as a form field, not as the request URL
+    content.Add(new StringContent(url), &quot;url&quot;);
+
+    content.Add(new StringContent(&quot;8.27&quot;), &quot;paperWidth&quot;);
+    content.Add(new StringContent(&quot;11.69&quot;), &quot;paperHeight&quot;);
+
+    // Wait for a specific DOM element before capturing (Gotenberg: waitForExpression)
+    content.Add(new StringContent(
+        &quot;document.querySelector('.dashboard-loaded') !== null&quot;),
+        &quot;waitForExpression&quot;);
+
+    var endpoint = $&quot;{_gotenbergBaseUrl}/forms/chromium/convert/url&quot;;
+    using var response = await _httpClient.PostAsync(endpoint, content);
+    response.EnsureSuccessStatusCode();
+
+    return await response.Content.ReadAsByteArrayAsync();
+}</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>Gotenberg's <code>waitForExpression</code> accepts a JavaScript expression that evaluates to a truthy value when the page is ready. This maps to IronPDF's <code>RenderingOptions.WaitFor.JavaScriptExpression()</code> or element-based wait conditions.</li>
+
+  <li>Cookie injection for authenticated URLs requires custom HTTP headers in the Gotenberg request</li>
+
+  <li>Gotenberg's <code>failOnConsoleExceptions</code> flag raises HTTP errors on JavaScript console exceptions — this behavior must be evaluated against the target URL before migration.</li>
+
+</ul>
+
+<h4>IronPDF — URL to PDF</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// Replace Gotenberg's waitForExpression with IronPDF's WaitFor conditions
+renderer.RenderingOptions.WaitFor.HtmlElement(&quot;.dashboard-loaded&quot;);
+
+// Cookie injection for authenticated URLs
+renderer.RenderingOptions.CustomCookies =
+    new System.Collections.Generic.Dictionary&lt;string, string&gt;
+    {
+        { &quot;session_id&quot;, &quot;your-session-token&quot; }
+    };
+
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://app.example.com/dashboard&quot;);
+byte[] pdfBytes = pdf.BinaryData;</code></pre>
+
+<p>IronPDF's <code>WaitFor</code> API supports element-based, expression-based, network-idle, and fixed-delay wait conditions — more granular than Gotenberg's <code>waitDelay</code>/<code>waitForExpression</code>. The <a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF guide</a> covers cookie injection and wait condition configuration.</p>
+
+<h3>Headers and Footers</h3>
+
+<h4>Gotenberg — Headers and Footers</h4>
+
+<pre><code class="language-csharp">using System.Net.Http;
+using System.Net.Http.Headers;
+
+public async Task&lt;byte[]&gt; ConvertWithHeaderFooterAsync(string html)
+{
+    using var content = new MultipartFormDataContent();
+
+    // Main content
+    var indexContent = new StringContent(html);
+    indexContent.Headers.ContentType = new MediaTypeHeaderValue(&quot;text/html&quot;);
+    content.Add(indexContent, &quot;files&quot;, &quot;index.html&quot;);
+
+    // Gotenberg header/footer are separate HTML files in the multipart form
+    // They use Chromium's special page header/footer HTML contract
+    string headerHtml = @&quot;&lt;!DOCTYPE html&gt;
+&lt;html&gt;&lt;head&gt;
+&lt;style&gt;html { font-size: 9px; font-family: Arial; }&lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+&lt;span class='title'&gt;&lt;/span&gt; — Page &lt;span class='pageNumber'&gt;&lt;/span&gt;
+of &lt;span class='totalPages'&gt;&lt;/span&gt;
+&lt;/body&gt;&lt;/html&gt;&quot;;
+
+    var headerContent = new StringContent(headerHtml);
+    headerContent.Headers.ContentType = new MediaTypeHeaderValue(&quot;text/html&quot;);
+    content.Add(headerContent, &quot;files&quot;, &quot;header.html&quot;);
+
+    string footerHtml = @&quot;&lt;!DOCTYPE html&gt;
+&lt;html&gt;&lt;head&gt;
+&lt;style&gt;html { font-size: 8px; font-family: Arial; }&lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+&lt;span style='text-align:center;'&gt;CONFIDENTIAL&lt;/span&gt;
+&lt;/body&gt;&lt;/html&gt;&quot;;
+
+    var footerContent = new StringContent(footerHtml);
+    footerContent.Headers.ContentType = new MediaTypeHeaderValue(&quot;text/html&quot;);
+    content.Add(footerContent, &quot;files&quot;, &quot;footer.html&quot;);
+
+    content.Add(new StringContent(&quot;true&quot;), &quot;printBackground&quot;);
+
+    var endpoint = $&quot;{_gotenbergBaseUrl}/forms/chromium/convert/html&quot;;
+    using var response = await _httpClient.PostAsync(endpoint, content);
+    response.EnsureSuccessStatusCode();
+
+    return await response.Content.ReadAsByteArrayAsync();
+}</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>Gotenberg follows Chromium's PDF print header/footer contract: the header and footer HTML files use <code>&lt;span class='pageNumber'&gt;</code>, <code>&lt;span class='totalPages'&gt;</code>, <code>&lt;span class='pageLabel'&gt;</code>, and <code>&lt;span class='title'&gt;</code> CSS classes for injected values.</li>
+
+  <li>Font size in Gotenberg header/footer HTML must be set on the <code>html</code> element in points — the root font size affects all relative units in the header/footer template.</li>
+
+  <li>Header and footer HTML files are bundled as separate files in the multipart form alongside the main index.html.</li>
+
+</ul>
+
+<h4>IronPDF — Headers and Footers</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Editing;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// IronPDF's HtmlHeaderFooter is configured on the renderer
+// Token syntax: {page} and {total-pages} replace Gotenberg's span classes
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    Height = 15,  // mm
+    HtmlFragment = &quot;&lt;div style='font-size:9px; font-family:Arial; &quot; +
+                   &quot;display:flex; justify-content:space-between; padding:0 12px;'&gt;&quot; +
+                   &quot;&lt;span&gt;&lt;/span&gt;&quot; +
+                   &quot;&lt;span&gt;Page {page} of {total-pages}&lt;/span&gt;&lt;/div&gt;&quot;,
+    DrawDividerLine = true
+};
+
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    Height = 10,
+    HtmlFragment = &quot;&lt;div style='font-size:8px; font-family:Arial; &quot; +
+                   &quot;text-align:center;'&gt;CONFIDENTIAL&lt;/div&gt;&quot;
+};
+
+string html = &quot;&lt;html&gt;&lt;body&gt;&lt;p&gt;Document body.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;;
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs(&quot;document-with-headers.pdf&quot;);</code></pre>
+
+<p>The token syntax change is the most common source of silent header/footer rendering bugs during migration. Gotenberg uses Chromium's span class injection (<code>&lt;span class='pageNumber'&gt;</code>) while IronPDF uses its own token format (<code>{page}</code>, <code>{total-pages}</code>). Full header/footer configuration is in the <a href="https://ironpdf.com/how-to/headers-and-footers/">headers and footers guide</a>.</p>
+
+<h3>Async in ASP.NET Core (Replacing HTTP Client Pattern)</h3>
+
+<h4>Gotenberg — ASP.NET Core Controller</h4>
+
+<pre><code class="language-csharp">using System.Net.Http;
+using System.Net.Http.Headers;
+using Microsoft.AspNetCore.Mvc;</code></pre>
+
+<p>[ApiController] [Route("reports")] public class ReportController : ControllerBase { private readonly HttpClient _httpClient; private readonly string _gotenbergUrl;</p>
+
+<p>public ReportController(IHttpClientFactory factory) { _httpClient = factory.CreateClient("gotenberg"); _gotenbergUrl = "http://gotenberg:3000"; }</p>
+
+<p>[HttpGet("{id}/pdf")] public async Task<IActionResult> GetReport(int id) { string html = await BuildReportHtmlAsync(id);</p>
+
+<p>using var content = new MultipartFormDataContent(); var htmlContent = new StringContent(html); htmlContent.Headers.ContentType = new MediaTypeHeaderValue("text/html"); content.Add(htmlContent, "files", "index.html");</p>
+
+<p>content.Add(new StringContent("8.27"), "paperWidth"); content.Add(new StringContent("11.69"), "paperHeight");</p>
+
+<p>// Network call to Gotenberg container — adds latency and failure mode using var response = await _httpClient.PostAsync( $"{_gotenbergUrl}/forms/chromium/convert/html", content);</p>
+
+<p>response.EnsureSuccessStatusCode();</p>
+
+<p>byte[] pdfBytes = await response.Content.ReadAsByteArrayAsync(); return File(pdfBytes, "application/pdf", $"report-{id}.pdf"); }</p>
+
+<p>private Task<string> BuildReportHtmlAsync(int id) => Task.FromResult($"<html><body><h1>Report {id}</h1></body></html>"); }</p>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>The HTTP round-trip to Gotenberg adds network latency to every PDF generation request. Under concurrent load, this latency compounds.</li>
+
+  <li><code>HttpClient</code> configuration (timeouts, retry policies, circuit breakers) is part of the operational surface area that does not exist with in-process rendering.</li>
+
+  <li><code>IHttpClientFactory</code> is the correct pattern for <code>HttpClient</code> lifetime management in ASP.NET Core — do not use <code>new HttpClient()</code> directly.</li>
+
+  <li>The multipart form construction is boilerplate that repeats across every call site.</li>
+
+</ul>
+
+<h4>IronPDF — ASP.NET Core Controller</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using Microsoft.AspNetCore.Mvc;</code></pre>
+
+<p>[ApiController] [Route("reports")] public class ReportController : ControllerBase { private readonly ChromePdfRenderer _renderer;</p>
+
+<p>// ChromePdfRenderer injected as singleton — configured once in Program.cs public ReportController(ChromePdfRenderer renderer) { _renderer = renderer; }</p>
+
+<p>[HttpGet("{id}/pdf")] public async Task<IActionResult> GetReport(int id) { string html = await BuildReportHtmlAsync(id);</p>
+
+<p>// In-process rendering — no HTTP call, no network dependency using var pdf = await _renderer.RenderHtmlAsPdfAsync(html);</p>
+
+<p>return File(pdf.BinaryData, "application/pdf", $"report-{id}.pdf"); }</p>
+
+<p>private Task<string> BuildReportHtmlAsync(int id) => Task.FromResult($"<html><body><h1>Report {id}</h1></body></html>"); }</p>
+
+<p>// In Program.cs: // builder.Services.AddSingleton<ChromePdfRenderer>(sp => // { //     var r = new ChromePdfRenderer(); //     r.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4; //     r.RenderingOptions.MarginTop = 12.7; //     // ... configure once //     return r; // }); ```</p>
+
+<p>The ASP.NET Core controller shrinks significantly — the multipart form construction, <code>HttpClient</code> call, and response handling are replaced by a single awaited render call. <code>RenderHtmlAsPdfAsync</code> is genuinely async with no <code>Task.Run()</code> wrapper needed. The <a href="https://ironpdf.com/how-to/async/">async rendering guide</a> covers concurrency and parallel batch generation.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Gotenberg Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>POST <code>/forms/chromium/convert/html</code></td>
+      <td><code>renderer.RenderHtmlAsPdf(html)</code></td>
+      <td>In-process; no HTTP</td>
+    </tr>
+    <tr>
+      <td>POST <code>/forms/chromium/convert/url</code></td>
+      <td><code>renderer.RenderUrlAsPdf(url)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>files: index.html</code> (multipart)</td>
+      <td>HTML string arg</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>paperWidth</code> / <code>paperHeight</code> (inches)</td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td><strong>Unit change: inches → mm</strong> (×25.4)</td>
+    </tr>
+    <tr>
+      <td><code>marginTop/Bottom/Left/Right</code> (inches)</td>
+      <td><code>RenderingOptions.Margin*</code> (mm)</td>
+      <td><strong>Unit change: inches → mm</strong></td>
+    </tr>
+    <tr>
+      <td><code>landscape: true</code></td>
+      <td><code>RenderingOptions.PaperOrientation = Landscape</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>waitDelay: 500ms</code></td>
+      <td><code>RenderingOptions.WaitFor.RenderDelay(500)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>waitForExpression: "..."</code></td>
+      <td><code>RenderingOptions.WaitFor.JavaScriptExpression("...")</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>files: header.html</code> (multipart)</td>
+      <td><code>RenderingOptions.HtmlHeader</code></td>
+      <td>Token syntax changes</td>
+    </tr>
+    <tr>
+      <td><code>files: footer.html</code> (multipart)</td>
+      <td><code>RenderingOptions.HtmlFooter</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>&lt;span class='pageNumber'&gt;</code></td>
+      <td><code>{page}</code> token</td>
+      <td><strong>Syntax changed</strong></td>
+    </tr>
+    <tr>
+      <td><code>&lt;span class='totalPages'&gt;</code></td>
+      <td><code>{total-pages}</code> token</td>
+      <td><strong>Syntax changed</strong></td>
+    </tr>
+    <tr>
+      <td><code>printBackground: true</code></td>
+      <td><code>RenderingOptions.PrintBackground = true</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>preferCssPageSize: true</code></td>
+      <td><code>RenderingOptions.CssMediaType = Print</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Response <code>byte[]</code></td>
+      <td><code>pdf.BinaryData</code></td>
+      <td><a href="https://ironpdf.com/how-to/pdf-memory-stream/">Memory stream guide</a></td>
+    </tr>
+    <tr>
+      <td>Save to file</td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>LibreOffice DOCX→PDF endpoint</td>
+      <td><code>PdfDocument.FromFile()</code> on pre-converted PDF</td>
+      <td>IronPDF has DOCX→PDF</td>
+    </tr>
+    <tr>
+      <td><code>HttpClient</code> / retry policy</td>
+      <td>.NET exception handling</td>
+      <td>Network removed; handle .NET exceptions</td>
+    </tr>
+    <tr>
+      <td>No PDF manipulation</td>
+      <td><code>PdfDocument.Merge()</code>, <code>PdfSignature</code>, forms</td>
+      <td>New capabilities in-process</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>Inch-to-millimeter unit conversion</strong>: Gotenberg's paper dimensions and margins are configured in inches (following Chromium's print API). IronPDF uses millimeters. Convert: <code>mm = inches × 25.4</code>. A common value: 1 inch = 25.4mm, 0.5 inches = 12.7mm. This is a silent layout difference if not converted.</li>
+
+  <li><strong>Header/footer token syntax</strong>: Gotenberg's headers and footers use Chromium's span class injection (<code>&lt;span class='pageNumber'&gt;</code>, <code>&lt;span class='totalPages'&gt;</code>). IronPDF uses <code>{page}</code> and <code>{total-pages}</code> token strings. Old tokens render as literal text in IronPDF.</li>
+
+  <li><strong><code>PdfDocument</code> is <code>IDisposable</code></strong>: Gotenberg returns <code>byte[]</code> from HTTP — no disposal needed. IronPDF returns <code>PdfDocument</code>, which implements <code>IDisposable</code>. Every render call must produce a <code>PdfDocument</code> in a <code>using</code> block.</li>
+
+  <li><strong>Network error handling removed</strong>: All <code>HttpResponseMessage.EnsureSuccessStatusCode()</code> calls, <code>HttpRequestException</code> handlers, timeout configurations, and retry policies related to the Gotenberg HTTP call are removed. Replace with <code>try/catch</code> around render calls for IronPDF exceptions.</li>
+
+  <li><strong>Asset handling changes</strong>: Gotenberg bundles CSS files, images, and fonts as multipart form parts. IronPDF uses <code>RenderingOptions.BaseUrl</code> to resolve relative references to a base URL, or assets must be embedded in the HTML as base64 data URIs.</li>
+
+  <li><strong>No <code>IHttpClientFactory</code> needed</strong>: The DI registration for the Gotenberg <code>HttpClient</code> (named or typed) is removed. Replace with <code>builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;()</code>.</li>
+
+  <li><strong><code>waitDelay</code> string format</strong>: Gotenberg accepts duration strings ("500ms", "2s"). IronPDF's <code>WaitFor.RenderDelay()</code> accepts an integer in milliseconds.</li>
+
+  <li><strong>LibreOffice conversions</strong>: Gotenberg's LibreOffice integration (DOCX, XLSX, PPT → PDF) uses LibreOffice, not Chromium. IronPDF's equivalent document conversion capabilities should be verified in official documentation. This is the one Gotenberg capability area where the migration path is not a direct equivalent.</li>
+
+  <li><strong>Container image changes</strong>: The application's Docker image no longer needs to reference or connect to a Gotenberg container. Instead, add the Chromium system library packages to the application container. Verify required packages in IronPDF's Linux deployment guide.</li>
+
+  <li><strong>License key required</strong>: <code>IronPdf.License.LicenseKey</code> must be set before any render call. Gotenberg is open-source with no license key requirement. Omitting IronPDF's key produces watermarked output.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>Gotenberg</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active development</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td>Verify Gotenberg release status at GitHub</td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>Yes</td>
+      <td>No (commercial)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET support</td>
+      <td>N/A (HTTP API)</td>
+      <td>Yes</td>
+      <td>Gotenberg has no .NET SDK</td>
+    </tr>
+    <tr>
+      <td>Docker deployment</td>
+      <td>Yes (required)</td>
+      <td>Optional</td>
+      <td>IronPDF in-process; Docker optional</td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering</strong></td>
+    </tr>
+    <tr>
+      <td>HTML string rendering</td>
+      <td>Yes (via HTTP)</td>
+      <td>Yes (in-process)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL rendering</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Yes (Chromium)</td>
+      <td><a href="https://ironpdf.com/how-to/javascript-to-pdf/">Yes</a></td>
+      <td>Both Chromium</td>
+    </tr>
+    <tr>
+      <td>CSS3 / Flexbox / Grid</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Responsive CSS</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>Yes (async HTTP)</td>
+      <td><a href="https://ironpdf.com/how-to/async/">Yes</a></td>
+      <td>IronPDF: in-process async</td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content & Layout</strong></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Yes (HTML files)</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Yes</a></td>
+      <td>Token syntax differs</td>
+    </tr>
+    <tr>
+      <td>Custom margins</td>
+      <td>Yes (inches)</td>
+      <td>Yes (mm)</td>
+      <td>Unit conversion required</td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes (inches)</td>
+      <td>Yes (mm or enum)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page numbers</td>
+      <td>Yes (<code>pageNumber</code> class)</td>
+      <td>Yes (<code>{page}</code> token)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Format Conversions</strong></td>
+    </tr>
+    <tr>
+      <td>DOCX → PDF</td>
+      <td>Yes (LibreOffice)</td>
+      <td>Yes</td>
+      <td>IronPDF method differs</td>
+    </tr>
+    <tr>
+      <td>XLSX → PDF</td>
+      <td>Yes (LibreOffice)</td>
+      <td>-</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Image → PDF</td>
+      <td>Yes (via endpoint)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF → image</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Markdown → PDF</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Add / remove pages</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Compress PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Forms</strong></td>
+    </tr>
+    <tr>
+      <td>Fill PDF forms</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Create PDF forms</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password encryption</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Permission flags</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Operational</strong></td>
+    </tr>
+    <tr>
+      <td>Network latency</td>
+      <td>Yes (per request)</td>
+      <td>None</td>
+      <td>Key operational difference</td>
+    </tr>
+    <tr>
+      <td>External service required</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>In-process rendering</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Memory isolation</td>
+      <td>Yes (separate container)</td>
+      <td>Shared with app</td>
+      <td>Different trade-off</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Audit all Gotenberg HTTP call sites</strong>: List every <code>HttpClient.PostAsync()</code> call to Gotenberg, its configuration (paper size, margins, wait conditions, header/footer files), and its downstream usage of the returned bytes.</li>
+
+  <li><strong>Convert paper and margin values from inches to millimeters</strong>: For each <code>paperWidth</code>, <code>paperHeight</code>, <code>marginTop</code>, <code>marginBottom</code>, <code>marginLeft</code>, <code>marginRight</code> value in current Gotenberg calls, multiply by 25.4 to get the <code>RenderingOptions</code> equivalent in mm.</li>
+
+  <li><strong>Install IronPDF via NuGet</strong>: <code>dotnet add package IronPdf</code>.</li>
+
+  <li><strong>Configure the license key at startup</strong>: Set <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> in <code>Program.cs</code> before any render call. See the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>Register <code>ChromePdfRenderer</code> in DI</strong>: Add a singleton registration in <code>Program.cs</code> with the renderer configured using the converted <code>RenderingOptions</code> values from step 2. Remove the <code>IHttpClientFactory</code> registration for the Gotenberg client.</li>
+
+  <li><strong>Replace <code>HttpClient.PostAsync()</code> calls</strong>: For each Gotenberg call site, replace the multipart form construction, HTTP send, and <code>ReadAsByteArrayAsync()</code> with <code>renderer.RenderHtmlAsPdf(html)</code> or <code>await renderer.RenderHtmlAsPdfAsync(html)</code>. Wrap <code>PdfDocument</code> in a <code>using</code> block.</li>
+
+  <li><strong>Update header/footer templates</strong>: Replace <code>&lt;span class='pageNumber'&gt;</code> with <code>{page}</code> and <code>&lt;span class='totalPages'&gt;</code> with <code>{total-pages}</code> in all header/footer HTML fragments. Move these fragments from separate multipart files to <code>RenderingOptions.HtmlHeader/HtmlFooter</code>.</li>
+
+  <li><strong>Update asset references</strong>: Replace multipart file bundling for CSS/images with a <code>RenderingOptions.BaseUrl</code> pointing to the asset server, or embed assets as base64 data URIs in the HTML.</li>
+
+  <li><strong>Map wait conditions</strong>: Replace <code>waitDelay: "500ms"</code> with <code>RenderingOptions.WaitFor.RenderDelay(500)</code>. Replace <code>waitForExpression</code> with <code>RenderingOptions.WaitFor.JavaScriptExpression("...")</code>.</li>
+
+  <li><strong>Remove HTTP error handling</strong>: Delete <code>EnsureSuccessStatusCode()</code>, <code>HttpRequestException</code> catch blocks, and timeout/retry policies specific to Gotenberg. Add <code>try/catch</code> for IronPDF's rendering exceptions.</li>
+
+  <li><strong>Update container configuration</strong>: Remove the Gotenberg container from <code>docker-compose.yml</code> or infrastructure definitions. Add Chromium system library packages to the application container image. Verify required packages for the Linux distribution in use.</li>
+
+  <li><strong>Verify LibreOffice conversion paths</strong>: If Gotenberg's LibreOffice endpoints (DOCX/XLSX → PDF) are in use, verify IronPDF's equivalent document conversion capability and test with representative files.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on Gotenberg is technically reasonable</h3>
+
+<p>Gotenberg is technically reasonable when the deployment architecture already has infrastructure investment in separate document processing services, when memory isolation between the application and the Chromium rendering process is a hard requirement (Gotenberg in its own container keeps OOM conditions from affecting the application), when the team's operational expertise is in container orchestration rather than library management, or when LibreOffice-based Office document conversion is a first-class requirement with no acceptable .NET alternative. Organizations that have built reliable, monitored Gotenberg infrastructure with established health checks and horizontal scaling have a working system with low pressure to change.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>Migration is worth scoping when Gotenberg's HTTP latency is measurable in high-throughput generation pipelines; when the separate container creates operational overhead disproportionate to the application's scale; when the application needs post-render PDF manipulation (merge, sign, form-fill, encrypt) and is currently routing PDF bytes through a second manipulation library; when the team wants to simplify the deployment surface by reducing external service dependencies; or when Gotenberg's lack of .NET SDK is creating boilerplate that accumulates across call sites.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>For a typical ASP.NET Core application with 5–20 Gotenberg call sites, the migration reduces to: inch-to-mm conversion for configuration values, multipart form construction → <code>RenderingOptions</code> property assignment, <code>HttpClient.PostAsync()</code> → <code>renderer.RenderHtmlAsPdfAsync()</code>, <code>ReadAsByteArrayAsync()</code> → <code>pdf.BinaryData</code>, and header/footer token syntax updates. The DI registration changes from a named <code>HttpClient</code> to a singleton <code>ChromePdfRenderer</code>. Error handling changes from HTTP status codes to .NET exceptions. A developer familiar with both systems can typically complete the API swap in a day; the rendering comparison pass (validating output parity, particularly for complex CSS or JavaScript-driven templates) requires additional time proportional to template complexity.</p>
+
+<p>In your current Gotenberg deployment, how much of the HTTP latency, retry complexity, and container operational overhead has accumulated — and is that overhead now larger than the effort of the migration itself?</p>

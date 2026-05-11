@@ -1,0 +1,730 @@
+<!-- FRONTMATTER
+  title: Migrating from Rotativa to IronPDF: step-by-step for .NET developers
+  subtitle: what changes, what breaks, and what maps cleanly
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-rotativa/
+  description: Quick migration reference for .NET developers moving from Rotativa to IronPDF — API mapping, key differences, and a concise migration checklist.
+  published: False
+-->
+
+<h1>Migrating from Rotativa to IronPDF: step-by-step for .NET developers</h1>
+
+<p class="subtitle"><em>what changes, what breaks, and what maps cleanly</em></p>
+
+<h2>Framing</h2>
+
+<p>Rotativa has been a widely adopted solution for PDF generation in ASP.NET MVC applications since it was released by Giorgio Bozio. Its appeal is architectural elegance within the MVC pattern: instead of managing HTML construction and PDF conversion as separate steps, Rotativa allows a controller action to return a <code>ViewAsPdf</code> result that renders an existing Razor view to PDF and streams it to the browser in a single line. For teams already invested in Razor views for their web UI, this reuse of view templates for PDF output was a significant convenience.</p>
+
+<p>The technical foundation underneath Rotativa is wkhtmltopdf — an open-source command-line tool that uses a QtWebKit rendering engine. wkhtmltopdf is no longer under active development, and its WebKit rendering engine has not tracked modern CSS standards for several years. Teams that have invested in modern CSS — Flexbox layouts, CSS Grid, custom properties (<code>--variables</code>), advanced <code>calc()</code> expressions, or web fonts from CDN sources — often find that their Razor views render correctly in the browser but produce layout anomalies or degraded output when processed by Rotativa's wkhtmltopdf engine. The maintenance gap between the browser's CSS capabilities and wkhtmltopdf's has widened steadily.</p>
+
+<p>This guide covers the migration from Rotativa (including Rotativa.AspNetCore) to IronPDF for .NET engineers evaluating or executing the switch. Rotativa is actively maintained, but the wkhtmltopdf dependency means it inherits all of wkhtmltopdf's rendering limitations and binary packaging requirements. The migration is classified as Low effort at the code level — the controller integration pattern changes, but the Razor views themselves remain usable.</p>
+
+<h2>What Rotativa Is Designed to Do</h2>
+
+<p>Rotativa is an ASP.NET MVC/Core library that integrates HTML-to-PDF conversion directly into the MVC action result pipeline. Its primary feature is the ability to return PDF output from a controller action using the same Razor views used for HTML rendering — <code>ViewAsPdf</code> renders a Razor view to PDF, <code>PartialViewAsPdf</code> renders a partial view, <code>ActionAsPdf</code> invokes another controller action and converts its output, and <code>UrlAsPdf</code> converts a URL. The library bundles and invokes wkhtmltopdf as a subprocess, passing the rendered HTML through it.</p>
+
+<p>Rotativa.AspNetCore is the ASP.NET Core version. The install footprint includes the NuGet package and the wkhtmltopdf native binary (or its installation on the server). Configuration is done at startup via <code>RotativaConfiguration.Setup()</code> pointing to the wkhtmltopdf binary location. Per-render options (paper size, margins, orientation, headers, footers) are passed as constructor arguments to the <code>ViewAsPdf</code> result class. The primary use case is invoice generation, report download, and document export directly from existing ASP.NET MVC views.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>Rotativa and IronPDF both convert HTML to PDF, but their integration models differ fundamentally. Rotativa is a framework integration layer — it hooks into ASP.NET's action result pipeline to capture rendered Razor views and pipe them through wkhtmltopdf. IronPDF is a PDF library — it generates PDFs from HTML strings, files, or URLs via an injected <code>ChromePdfRenderer</code>, and the PDF result is then returned from the controller using standard <code>File()</code> result types.</p>
+
+<p>IronPDF uses embedded Chromium for rendering — the same engine as Chrome and Edge — which means full CSS3 support including Flexbox, Grid, CSS variables, and modern web font loading. The <a href="https://ironpdf.com/how-to/html-to-pdf-responsive-css/">responsive CSS guide</a> covers how Chromium handles print media queries and modern layouts. IronPDF's <code>ChromePdfRenderer</code> is injectable as a singleton and is called explicitly in the action method. The resulting <code>PdfDocument</code> implements <code>IDisposable</code> and is returned to the browser via <code>File(pdf.BinaryData, "application/pdf", filename)</code>. License initialization is a one-time startup call; see the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</p>
+
+<p>The shift from Rotativa to IronPDF requires making the PDF rendering step explicit in the controller — calling the renderer rather than returning a result that handles rendering implicitly. The Razor view content is obtained by rendering the view to an HTML string first, then passing that string to IronPDF. This is slightly more verbose but provides clearer control over the render pipeline and removes the wkhtmltopdf subprocess dependency.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>ViewAsPdf</code> — Razor view to PDF</td>
+      <td>Medium</td>
+      <td>Render view to HTML string → <code>RenderHtmlAsPdf()</code></td>
+      <td>Explicit view rendering required</td>
+    </tr>
+    <tr>
+      <td><code>PartialViewAsPdf</code> — partial view</td>
+      <td>Medium</td>
+      <td>Render partial to string → <code>RenderHtmlAsPdf()</code></td>
+      <td>Same pattern</td>
+    </tr>
+    <tr>
+      <td><code>UrlAsPdf</code> — URL to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderUrlAsPdf()</code></td>
+      <td>Direct equivalent</td>
+    </tr>
+    <tr>
+      <td>Paper size</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td>Rotativa: <code>PageSize</code> enum</td>
+    </tr>
+    <tr>
+      <td>Margins</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.Margin*</code></td>
+      <td>Both in mm</td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Medium</td>
+      <td><code>RenderingOptions.HtmlHeader/HtmlFooter</code></td>
+      <td>Token syntax differs</td>
+    </tr>
+    <tr>
+      <td><code>--custom-args</code> wkhtmltopdf flags</td>
+      <td>Medium</td>
+      <td>Individual <code>RenderingOptions.*</code></td>
+      <td>Evaluate each flag</td>
+    </tr>
+    <tr>
+      <td>wkhtmltopdf binary management</td>
+      <td>Low</td>
+      <td>Eliminated (Windows)</td>
+      <td>Linux: Chromium libs</td>
+    </tr>
+    <tr>
+      <td>CSS Flexbox / Grid</td>
+      <td>Low</td>
+      <td>Supported fully</td>
+      <td>wkhtmltopdf does not support</td>
+    </tr>
+    <tr>
+      <td>Web fonts from CDN</td>
+      <td>Low</td>
+      <td>Supported fully</td>
+      <td>wkhtmltopdf had SSL issues</td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>Low</td>
+      <td><code>RenderHtmlAsPdfAsync()</code></td>
+      <td>Rotativa: sync subprocess</td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Low</td>
+      <td><code>PdfSignature</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAsPdfA()</code></td>
+      <td>New capability</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>ViewAsPdf → Render View to HTML String + IronPDF</h3>
+
+<h4>Rotativa — ViewAsPdf in MVC Controller</h4>
+
+<pre><code class="language-csharp">using Rotativa.AspNetCore;
+using Microsoft.AspNetCore.Mvc;</code></pre>
+
+<p>[Route("invoices")] public class InvoiceController : Controller { // Rotativa.AspNetCore — return ViewAsPdf directly from action // Rotativa renders the Razor view by calling the MVC view engine internally // then pipes the rendered HTML through wkhtmltopdf subprocess [HttpGet("{id}/pdf")] public IActionResult GetInvoicePdf(int id) { var model = GetInvoiceModel(id);</p>
+
+<p>// ViewAsPdf renders "Invoice" view with model and returns PDF stream // Configuration: PageSize, PageMargins, PageOrientation as constructor args return new ViewAsPdf("Invoice", model) { PageSize = Rotativa.AspNetCore.Options.Size.A4, PageMargins = new Rotativa.AspNetCore.Options.Margins(10, 10, 10, 10), PageOrientation = Rotativa.AspNetCore.Options.Orientation.Portrait, FileName = $"invoice-{id}.pdf", // wkhtmltopdf custom arguments — each must be individually evaluated CustomSwitches = "--disable-smart-shrinking --no-stop-slow-scripts" }; }</p>
+
+<p>private object GetInvoiceModel(int id) => new { Id = id, Customer = "Acme Corp", Total = 1599.00m }; }</p>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li><code>ViewAsPdf</code> implicitly invokes the MVC view engine to render the Razor view, then calls wkhtmltopdf. This implicit rendering is replaced by explicit view-to-string rendering in the IronPDF pattern.</li>
+
+  <li><code>CustomSwitches</code> passes raw wkhtmltopdf CLI flags. Each flag must be individually evaluated for IronPDF equivalents — most are no longer needed because Chromium's defaults are more capable than wkhtmltopdf's.</li>
+
+  <li>wkhtmltopdf uses QtWebKit rendering — Flexbox, CSS Grid, CSS variables, and modern web fonts do not render correctly.</li>
+
+  <li><code>PageMargins</code> uses millimeters — the same unit as IronPDF, so no conversion is required.</li>
+
+  <li>Rotativa renders synchronously from the request thread — no async support.</li>
+
+</ul>
+
+<h4>IronPDF — Explicit View-to-HTML-to-PDF</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using Microsoft.AspNetCore.Mvc;</code></pre>
+
+<p>[Route("invoices")] public class InvoiceController : Controller { private readonly ChromePdfRenderer _renderer; private readonly IRazorViewRenderer _viewRenderer; // see DI setup below</p>
+
+<p>public InvoiceController(ChromePdfRenderer renderer, IRazorViewRenderer viewRenderer) { _renderer = renderer; _viewRenderer = viewRenderer; }</p>
+
+<p>[HttpGet("{id}/pdf")] public async Task<IActionResult> GetInvoicePdf(int id) { var model = GetInvoiceModel(id);</p>
+
+<p>// Step 1: Render the Razor view to an HTML string string html = await _viewRenderer.RenderViewToStringAsync("Invoice", model);</p>
+
+<p>// Step 2: Convert HTML to PDF with IronPDF using var pdf = await _renderer.RenderHtmlAsPdfAsync(html);</p>
+
+<p>// Step 3: Return the PDF bytes as a file download return File(pdf.BinaryData, "application/pdf", $"invoice-{id}.pdf"); }</p>
+
+<p>private object GetInvoiceModel(int id) => new { Id = id, Customer = "Acme Corp", Total = 1599.00m }; }</p>
+
+<p>The <code>IRazorViewRenderer</code> helper renders a Razor view to an HTML string before passing it to IronPDF. A standard implementation using ASP.NET Core's <code>IRazorViewEngine</code> and <code>ITemplateRenderer</code> from the <code>Razor.Templating.Engine</code> NuGet package, or a custom implementation, handles this step. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers IronPDF's rendering configuration. IronPDF's Chromium engine supports all modern CSS — remove any <code>@media print</code> workarounds added specifically for wkhtmltopdf compatibility.</p>
+
+<h3>UrlAsPdf → RenderUrlAsPdf</h3>
+
+<h4>Rotativa — UrlAsPdf</h4>
+
+<pre><code class="language-csharp">using Rotativa.AspNetCore;
+using Microsoft.AspNetCore.Mvc;</code></pre>
+
+<p>[Route("reports")] public class ReportController : Controller { [HttpGet("{id}/pdf")] public IActionResult GetReportPdf(int id) { // UrlAsPdf fetches the URL using wkhtmltopdf's own HTTP request // The URL must be accessible from the server — same-site works if // wkhtmltopdf is configured with the correct base URL return new UrlAsPdf($"https://app.example.com/reports/{id}") { PageSize = Rotativa.AspNetCore.Options.Size.A4, PageOrientation = Rotativa.AspNetCore.Options.Orientation.Portrait }; } }</p>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>wkhtmltopdf's URL fetch operates in its own process with its own HTTP stack — session cookies are not automatically forwarded from the ASP.NET request. Authenticated pages require cookie forwarding via <code>CustomSwitches</code>.</li>
+
+  <li>wkhtmltopdf may encounter SSL certificate errors on internal HTTPS URLs.</li>
+
+</ul>
+
+<h4>IronPDF — RenderUrlAsPdf</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using Microsoft.AspNetCore.Mvc;</code></pre>
+
+<p>[Route("reports")] public class ReportController : Controller { private readonly ChromePdfRenderer _renderer;</p>
+
+<p>public ReportController(ChromePdfRenderer renderer) { _renderer = renderer; }</p>
+
+<p>[HttpGet("{id}/pdf")] public async Task<IActionResult> GetReportPdf(int id) { // Configure cookies from the current request context for authenticated URLs _renderer.RenderingOptions.CustomCookies = new System.Collections.Generic.Dictionary<string, string> { { "session_id", Request.Cookies["session_id"] ?? string.Empty } };</p>
+
+<p>using var pdf = await _renderer.RenderUrlAsPdfAsync( $"https://app.example.com/reports/{id}");</p>
+
+<p>return File(pdf.BinaryData, "application/pdf", $"report-{id}.pdf"); } }</p>
+
+<p>IronPDF renders URLs in-process — session cookies from the ASP.NET request context can be forwarded directly. The <a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF guide</a> covers cookie injection and JavaScript wait conditions.</p>
+
+<h3>Custom wkhtmltopdf Switches → RenderingOptions</h3>
+
+<h4>Rotativa — CustomSwitches</h4>
+
+<pre><code class="language-csharp">// Rotativa CustomSwitches — raw wkhtmltopdf CLI flags
+// These must be individually evaluated during migration
+return new ViewAsPdf(&quot;Report&quot;, model)
+{
+    PageSize = Rotativa.AspNetCore.Options.Size.A4,
+    // Common wkhtmltopdf flags and their migration notes:
+    CustomSwitches =
+        &quot;--disable-smart-shrinking &quot; +  // Chromium: not needed
+        &quot;--no-stop-slow-scripts &quot; +     // Chromium: default behavior
+        &quot;--javascript-delay 2000 &quot; +    // IronPDF: WaitFor.RenderDelay(2000)
+        &quot;--load-error-handling ignore &quot; // IronPDF: no equivalent flag needed
+};</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>Every <code>CustomSwitches</code> flag must be individually evaluated. Most are wkhtmltopdf-specific workarounds not needed with Chromium.</li>
+
+  <li><code>--javascript-delay N</code> → <code>RenderingOptions.WaitFor.RenderDelay(N)</code> in milliseconds.</li>
+
+  <li><code>--disable-smart-shrinking</code> is a wkhtmltopdf-specific scaling behavior — not applicable to Chromium, can be removed.</li>
+
+  <li><code>--header-html</code> and <code>--footer-html</code> flags → <code>RenderingOptions.HtmlHeader</code> and <code>RenderingOptions.HtmlFooter</code>.</li>
+
+</ul>
+
+<h4>IronPDF — RenderingOptions</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 15;
+renderer.RenderingOptions.MarginBottom = 15;
+
+// JavaScript wait replaces --javascript-delay
+renderer.RenderingOptions.WaitFor.RenderDelay(2000); // 2000 ms
+
+// Other common mappings:
+// --no-stop-slow-scripts   → Chromium default, no config needed
+// --disable-smart-shrinking → Chromium has no equivalent, not needed
+// --viewport-size WxH      → RenderingOptions.ViewPortWidth / ViewPortHeight
+// --zoom F                 → RenderingOptions.Zoom
+// --user-style-sheet path  → Inline CSS in the HTML template
+
+using var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;html&gt;&lt;body&gt;&lt;p&gt;Content&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+pdf.SaveAs(&quot;output.pdf&quot;);</code></pre>
+
+<p>Evaluate every <code>CustomSwitches</code> flag against the <a href="https://ironpdf.com/how-to/rendering-options/">rendering options reference</a> to find the <code>RenderingOptions</code> equivalent. Most wkhtmltopdf-specific flags have either a direct <code>RenderingOptions</code> equivalent or are unnecessary with Chromium's more capable defaults.</p>
+
+<h3>Headers and Footers</h3>
+
+<h4>Rotativa — Headers and Footers</h4>
+
+<pre><code class="language-csharp">// Rotativa headers and footers — passed as HTML file paths to wkhtmltopdf
+// wkhtmltopdf page number tokens: [page] and [toPage]
+return new ViewAsPdf(&quot;Invoice&quot;, model)
+{
+    PageSize = Rotativa.AspNetCore.Options.Size.A4,
+    // Rotativa passes HTML file paths to wkhtmltopdf --header-html / --footer-html
+    // The HTML files use wkhtmltopdf's substitution tokens
+    CustomSwitches = &quot;--header-html /app/templates/header.html &quot; +
+                     &quot;--footer-html /app/templates/footer.html&quot;
+    // header.html contains: &lt;span class='page'&gt;&lt;/span&gt; of &lt;span class='topage'&gt;&lt;/span&gt;
+    // or: Page [page] of [toPage]  (depends on wkhtmltopdf version)
+};</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>Rotativa's headers/footers are passed as HTML files via <code>CustomSwitches</code>. IronPDF uses inline <code>HtmlHeaderFooter.HtmlFragment</code> strings — no separate HTML files.</li>
+
+  <li>wkhtmltopdf page number injection uses <code>&lt;span class='page'&gt;</code> / <code>&lt;span class='topage'&gt;</code> JavaScript substitution, or <code>[page]</code> / <code>[toPage]</code> tokens depending on implementation. Both must be replaced with IronPDF's <code>{page}</code> / <code>{total-pages}</code>.</li>
+
+</ul>
+
+<h4>IronPDF — Headers and Footers</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Editing;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 20;
+renderer.RenderingOptions.MarginBottom = 15;
+
+// IronPDF inline HTML fragments — no external files needed
+// Token syntax: {page} and {total-pages}
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    Height = 12,
+    HtmlFragment = &quot;&lt;div style='font-size:9px; font-family:Arial; &quot; +
+                   &quot;text-align:right; padding:0 12px;'&gt;Invoice — Acme Corp&lt;/div&gt;&quot;,
+    DrawDividerLine = true
+};
+
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    Height = 10,
+    HtmlFragment = &quot;&lt;div style='font-size:8px; font-family:Arial; &quot; +
+                   &quot;text-align:center;'&gt;Page {page} of {total-pages}&lt;/div&gt;&quot;
+};
+
+using var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;html&gt;&lt;body&gt;&lt;p&gt;Invoice content&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+pdf.SaveAs(&quot;invoice.pdf&quot;);</code></pre>
+
+<p>Replace external HTML file references in <code>CustomSwitches</code> with inline <code>HtmlFragment</code> strings. Update all wkhtmltopdf page number tokens (<code>[page]</code>/<code>[toPage]</code> or <code>&lt;span class='page'&gt;</code>) to IronPDF's <code>{page}</code> and <code>{total-pages}</code>. The <a href="https://ironpdf.com/how-to/headers-and-footers/">headers and footers guide</a> covers all available options.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Rotativa Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>new ViewAsPdf(viewName, model)</code></td>
+      <td>Render view to string → <code>renderer.RenderHtmlAsPdf(html)</code></td>
+      <td><a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a></td>
+    </tr>
+    <tr>
+      <td><code>new UrlAsPdf(url)</code></td>
+      <td><code>renderer.RenderUrlAsPdf(url)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>new ActionAsPdf(action, routeValues)</code></td>
+      <td>Render action HTML → <code>RenderHtmlAsPdf()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>PageSize = Size.A4</code></td>
+      <td><code>RenderingOptions.PaperSize = PdfPaperSize.A4</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>PageOrientation = Orientation.Portrait</code></td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>PageMargins(t, r, b, l)</code> mm</td>
+      <td><code>RenderingOptions.Margin*</code> mm</td>
+      <td>Same unit</td>
+    </tr>
+    <tr>
+      <td><code>FileName = "name.pdf"</code></td>
+      <td><code>return File(pdf.BinaryData, ..., "name.pdf")</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>CustomSwitches</code> (wkhtmltopdf flags)</td>
+      <td>Individual <code>RenderingOptions.*</code></td>
+      <td><a href="https://ironpdf.com/how-to/rendering-options/">Rendering options reference</a></td>
+    </tr>
+    <tr>
+      <td><code>--javascript-delay N</code></td>
+      <td><code>RenderingOptions.WaitFor.RenderDelay(N)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>--header-html path</code></td>
+      <td><code>RenderingOptions.HtmlHeader.HtmlFragment</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>--footer-html path</code></td>
+      <td><code>RenderingOptions.HtmlFooter.HtmlFragment</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>[page]</code> / <code>[toPage]</code> tokens</td>
+      <td><code>{page}</code> / <code>{total-pages}</code></td>
+      <td><strong>Syntax change</strong></td>
+    </tr>
+    <tr>
+      <td><code>&lt;span class='page'&gt;</code> token</td>
+      <td><code>{page}</code></td>
+      <td><strong>Syntax change</strong></td>
+    </tr>
+    <tr>
+      <td>wkhtmltopdf binary</td>
+      <td>Eliminated (Windows)</td>
+      <td>Linux: Chromium libs</td>
+    </tr>
+    <tr>
+      <td><code>RotativaConfiguration.Setup()</code></td>
+      <td><code>IronPdf.License.LicenseKey = "..."</code></td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>Implicit rendering → explicit view-to-string</strong>: Rotativa's <code>ViewAsPdf</code> renders the Razor view implicitly. IronPDF requires rendering the view to an HTML string first. Add a <code>IRazorViewRenderer</code> (or equivalent) helper service and inject it alongside <code>ChromePdfRenderer</code>.</li>
+
+  <li><strong><code>[page]</code> / <code>[toPage]</code> / <code>&lt;span class='page'&gt;</code> tokens</strong>: Any of these wkhtmltopdf page number injection patterns must be replaced with IronPDF's <code>{page}</code> and <code>{total-pages}</code>. Old tokens render as literal text without error — a silent rendering bug.</li>
+
+  <li><strong>CSS Flexbox / Grid now supported</strong>: Templates that used float-based fallbacks for wkhtmltopdf compatibility can be updated to modern CSS. This is an improvement but requires review.</li>
+
+  <li><strong>Web fonts now load reliably</strong>: Base64 font workarounds and local font fallbacks added for wkhtmltopdf can be removed.</li>
+
+  <li><strong><code>CustomSwitches</code> removed</strong>: Every wkhtmltopdf CLI flag must be individually evaluated. Most have <code>RenderingOptions</code> equivalents or are no longer needed.</li>
+
+  <li><strong>wkhtmltopdf binary removal</strong>: Remove the wkhtmltopdf binary from deployment packages, Docker images, and CI/CD artifacts. Remove <code>RotativaConfiguration.Setup()</code> from startup. On Linux, add Chromium system library packages.</li>
+
+  <li><strong><code>ActionAsPdf</code> has no direct equivalent</strong>: <code>ActionAsPdf</code> invokes another controller action to get HTML content. The IronPDF equivalent requires either rendering the action's view to a string, or fetching the action's output URL and using <code>RenderUrlAsPdf()</code>.</li>
+
+  <li><strong><code>PdfDocument</code> is <code>IDisposable</code></strong>: Rotativa returned the file stream implicitly. IronPDF returns <code>PdfDocument</code> — wrap in <code>using</code> and access bytes via <code>pdf.BinaryData</code>.</li>
+
+  <li><strong>Namespace change</strong>: Remove <code>using Rotativa.AspNetCore;</code>. Replace with <code>using IronPdf;</code>.</li>
+
+  <li><strong>License key required</strong>: Rotativa is open-source. IronPDF requires <code>IronPdf.License.LicenseKey</code> at startup.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>Rotativa / Rotativa.AspNetCore</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active development</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td>Verify last Rotativa release</td>
+    </tr>
+    <tr>
+      <td>.NET Framework support</td>
+      <td>Yes</td>
+      <td>4.6.2+</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+ support</td>
+      <td>Yes (Rotativa.AspNetCore)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Rendering engine</td>
+      <td>wkhtmltopdf (QtWebKit)</td>
+      <td>Chromium</td>
+      <td>Key CSS difference</td>
+    </tr>
+    <tr>
+      <td>Native binary required</td>
+      <td>Yes (wkhtmltopdf)</td>
+      <td>No (Windows)</td>
+      <td>Linux: Chromium libs</td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering</strong></td>
+    </tr>
+    <tr>
+      <td>Razor view to PDF</td>
+      <td>Yes (ViewAsPdf)</td>
+      <td>Via view-to-string helper</td>
+      <td>Explicit step in IronPDF</td>
+    </tr>
+    <tr>
+      <td>HTML string rendering</td>
+      <td>No (not directly)</td>
+      <td><a href="https://ironpdf.com/how-to/html-string-to-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL rendering</td>
+      <td>Yes (UrlAsPdf)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Limited (unreliable)</td>
+      <td>Yes</td>
+      <td>Chromium: fully supported</td>
+    </tr>
+    <tr>
+      <td>CSS3 / Flexbox / Grid</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>Key difference</td>
+    </tr>
+    <tr>
+      <td>Web fonts (CDN)</td>
+      <td>Unreliable</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>Partial</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content & Layout</strong></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Yes (HTML files via flags)</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Yes</a></td>
+      <td>IronPDF: inline fragments</td>
+    </tr>
+    <tr>
+      <td>Custom margins</td>
+      <td>Yes (mm)</td>
+      <td>Yes (mm)</td>
+      <td>Same unit</td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page numbers</td>
+      <td>Yes ([page]/[toPage])</td>
+      <td>Yes ({page}/{total-pages})</td>
+      <td>Token syntax differs</td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Compress PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Watermarking</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Forms</strong></td>
+    </tr>
+    <tr>
+      <td>Fill PDF forms</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password encryption</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/pdfa/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>MVC action result integration</td>
+      <td>Yes (ViewAsPdf)</td>
+      <td>No (explicit render)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async API</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux support</td>
+      <td>Yes (wkhtmltopdf binary)</td>
+      <td>Yes (Chromium libs)</td>
+      <td>Different dep profile</td>
+    </tr>
+    <tr>
+      <td>Docker / container</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Audit all Rotativa result types</strong>: List every <code>ViewAsPdf</code>, <code>PartialViewAsPdf</code>, <code>UrlAsPdf</code>, and <code>ActionAsPdf</code> usage. Note <code>CustomSwitches</code> flags and header/footer HTML file references.</li>
+
+  <li><strong>Add a Razor-to-string rendering helper</strong>: Implement or install a service that renders a Razor view to an HTML string (e.g., using <code>IRazorViewEngine</code> and <code>ICompositeViewEngine</code>, or the <code>Razor.Templating.Engine</code> NuGet package). Register it in DI.</li>
+
+  <li><strong>Evaluate CSS templates</strong>: Review Razor views used for PDF generation. Identify float-based layout workarounds added for wkhtmltopdf. Plan modernization to Flexbox/Grid.</li>
+
+  <li><strong>Install IronPDF via NuGet</strong>: <code>dotnet add package IronPdf</code>.</li>
+
+  <li><strong>Configure the license key at startup</strong>: Set <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> and remove <code>RotativaConfiguration.Setup()</code>. See the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>Register <code>ChromePdfRenderer</code> in DI</strong>: Add <code>builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;()</code> with <code>RenderingOptions</code> configured once.</li>
+
+  <li><strong>Replace <code>ViewAsPdf</code> actions</strong>: For each action, change to: (1) render view to HTML string, (2) <code>await _renderer.RenderHtmlAsPdfAsync(html)</code>, (3) <code>return File(pdf.BinaryData, "application/pdf", filename)</code>. Wrap <code>PdfDocument</code> in <code>using</code>.</li>
+
+  <li><strong>Replace <code>UrlAsPdf</code> actions</strong>: Map to <code>_renderer.RenderUrlAsPdfAsync(url)</code>. Forward session cookies if needed.</li>
+
+  <li><strong>Update header/footer HTML</strong>: Move HTML from external files to <code>HtmlHeaderFooter.HtmlFragment</code>. Update page number token syntax.</li>
+
+  <li><strong>Evaluate <code>CustomSwitches</code> flags</strong>: Map each flag to a <code>RenderingOptions</code> property or confirm it is no longer needed with Chromium.</li>
+
+  <li><strong>Remove wkhtmltopdf binary</strong>: Remove from deployment artifacts, Docker images, and CI/CD build steps. Add Chromium system library packages on Linux.</li>
+
+  <li><strong>Remove Rotativa NuGet package</strong>: Once all replacements compile and rendering tests pass, remove <code>Rotativa.AspNetCore</code>.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on Rotativa is technically reasonable</h3>
+
+<p>Rotativa is technically reasonable when the development team's primary concern is simplicity of integration within the MVC action result pattern — returning <code>ViewAsPdf</code> in one line is genuinely convenient. If the HTML templates are designed to work within wkhtmltopdf's CSS limitations (float-based layouts, no Flexbox, system fonts only), the rendering output is acceptable, and there is no need for post-render manipulation, staying on Rotativa is defensible as long as it remains maintained.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>Migration is worth scoping when wkhtmltopdf's CSS limitations are creating rendering problems in modern templates; when web font loading failures are causing production issues; when JavaScript-rendered content is unreliable; when the team needs async rendering under concurrent load; when post-render operations (merge, sign, encrypt) require an additional library alongside Rotativa; or when the wkhtmltopdf binary is complicating deployment across multiple platforms.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>The most significant structural change is moving from Rotativa's implicit view rendering to an explicit view-to-string step followed by <code>RenderHtmlAsPdf()</code>. Once a shared view renderer helper is in place, the per-controller changes are consistent and systematic. The <code>CustomSwitches</code> flag evaluation is a one-time analysis. Header/footer token syntax updates and template CSS modernization are the primary template-level work items, both of which improve the template quality as a side effect.</p>
+
+<p>In your current Rotativa integration, how many <code>ViewAsPdf</code> results rely on CSS that was intentionally constrained for wkhtmltopdf compatibility — and how much template simplification would be available if those constraints were lifted for a Chromium-based renderer?</p>

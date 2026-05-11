@@ -1,0 +1,813 @@
+<!-- FRONTMATTER
+  title: Migrating from SSRS to IronPDF: what changes, what breaks, what maps
+  subtitle: from install to first PDF — the full migration path
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-ssrs/
+  description: Everything .NET developers need when migrating from SSRS to IronPDF — API surface mapping, breaking changes, and a practical migration checklist.
+  published: False
+-->
+
+<h1>Migrating from SSRS to IronPDF: what changes, what breaks, what maps</h1>
+
+<p class="subtitle"><em>from install to first PDF — the full migration path</em></p>
+
+<p># Migrating from SSRS to IronPDF: what changes, what breaks, what maps</p>
+
+<p>The original version of this article is published at <a href="https://ironsoftware.com/csharp/pdf/blog/migrate-from-ssrs/">https://ironsoftware.com/csharp/pdf/blog/migrate-from-ssrs/</a>.</p>
+
+<h2>Framing</h2>
+
+<p>SQL Server Reporting Services has been the default choice for PDF report generation in Microsoft-stack organizations for over two decades. Its tight integration with SQL Server, Active Directory, and the broader Microsoft BI ecosystem made it the path of least resistance for teams that needed parameterized reports, scheduled delivery, and centralized management. For many organizations, SSRS was not actively chosen so much as inherited—already running on an on-premises server, already serving dozens of report consumers, already integrated into the enterprise data infrastructure.</p>
+
+<p>Re-evaluation of SSRS typically surfaces as part of larger modernization efforts rather than isolated PDF library decisions. Migration to cloud infrastructure (Azure, AWS) that makes SSRS's Windows Server dependency a cost or operational concern, moves away from SQL Server toward alternative data sources, adoption of microservice architectures where a centralized report server is an architectural mismatch, or the need for more dynamic document generation—where the rendered PDF content is driven by application logic rather than a declarative report definition—are the conditions teams most often cite when assessing SSRS alternatives.</p>
+
+<p>IronPDF is not a reporting platform replacement in the SSRS sense. It does not provide a report designer, a report catalog, subscription delivery, or a web portal for report consumers. It is a PDF rendering and manipulation library for use within .NET applications. This distinction is the foundation of an honest migration scoping discussion: teams moving from SSRS to IronPDF are not swapping one server for another—they are taking ownership of data retrieval, layout, and delivery that SSRS previously handled, and bringing that logic into their application tier.</p>
+
+<h2>What SSRS Is Designed To Do</h2>
+
+<p>SQL Server Reporting Services is a server-based reporting platform that generates paginated reports (RDL-format report definitions) from one or more data sources, delivers them in various formats including PDF, Excel, and Word, and offers a web-based portal for report browsing, scheduling, and subscription management. Reports are authored using SQL Server Data Tools (SSDT) or Report Builder, which produce RDL XML files defining data queries, layout, parameters, and expressions.</p>
+
+<p>SSRS's architecture is service-based: the Report Server Windows Service processes report execution requests, connects to configured data sources, evaluates RDL layout definitions, and renders output to the requested format. The PDF rendering extension is built into the platform. Client applications interact with SSRS via the Report Server Web Service (SOAP API), the newer REST API (ReportingService2010 and later</p>
+
+<h2>Architectural Differences</h2>
+
+<p>IronPDF's integration model has no analog in the SSRS architecture. There is no separate server, no report catalog, no RDL format, and no designer tool. A .NET application that uses IronPDF generates PDFs in-process: the application fetches data, builds an HTML template (or assembles a document via the manipulation API), and calls the renderer. The result is a <code>PdfDocument</code> object that can be saved, streamed to an HTTP response, attached to an email, or further processed—all within the same application process.</p>
+
+<p>This in-process model places responsibility for data retrieval and template logic squarely in the application. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF rendering pipeline</a> accepts any valid HTML; a team migrating SSRS reports typically implements an HTML templating layer (Razor, Scriban, Handlebars.NET, or simple string interpolation for straightforward layouts) that replaces RDL's expression language and tablix layout model. CSS handles pagination, headers, footers, and page numbering at the template level.</p>
+
+<p><code>PdfDocument</code> and <code>ChromePdfRenderer</code> both implement <code>IDisposable</code>. In a web application context, each rendering call should instantiate a <code>ChromePdfRenderer</code> (or reuse a shared, thread-safe instance) and wrap the returned <code>PdfDocument</code> in a <code>using</code> block. There is no equivalent to SSRS session management, subscription queuing, or report server caching—teams that relied on those features must implement analogous capabilities in the application tier if needed. The <a href="https://ironpdf.com/how-to/rendering-options/">rendering options reference</a> covers the full configuration surface for paper size, margins, JavaScript behavior, and CSS media type selection.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Tablix (table/matrix) layout</td>
+      <td>High</td>
+      <td>HTML <code>&lt;table&gt;</code> / CSS grid in template</td>
+      <td>No RDL equivalent; must be reimplemented in HTML</td>
+    </tr>
+    <tr>
+      <td>Report parameters</td>
+      <td>High</td>
+      <td>Application-level parameters passed to template</td>
+      <td>SSRS parameter UI must be rebuilt in calling application</td>
+    </tr>
+    <tr>
+      <td>Data retrieval (dataset/datasource)</td>
+      <td>High</td>
+      <td>Application-layer data access; not in PDF library</td>
+      <td>Data queries move to application code</td>
+    </tr>
+    <tr>
+      <td>Pagination (page breaks)</td>
+      <td>Medium</td>
+      <td>CSS <code>page-break-before/after</code> in HTML</td>
+      <td>Mostly automatic via Chromium; complex tablix breaks need testing</td>
+    </tr>
+    <tr>
+      <td>Headers and footers with page numbers</td>
+      <td>Medium</td>
+      <td><code>RenderingOptions.TextHeader/Footer</code> or HTML headers</td>
+      <td>Similar capability; different configuration API</td>
+    </tr>
+    <tr>
+      <td>Drillthrough / interactive features</td>
+      <td>High</td>
+      <td>Not applicable</td>
+      <td>Interactive SSRS features have no PDF equivalent</td>
+    </tr>
+    <tr>
+      <td>Subreports</td>
+      <td>High</td>
+      <td>Include rendered HTML or merge sub-documents</td>
+      <td>No subreport concept; compose in application layer</td>
+    </tr>
+    <tr>
+      <td>Subscriptions / scheduled delivery</td>
+      <td>High</td>
+      <td>Application-scheduled task + IronPDF render</td>
+      <td>Must be built in the application tier</td>
+    </tr>
+    <tr>
+      <td>Report catalog / web portal</td>
+      <td>High</td>
+      <td>Not applicable</td>
+      <td>Separate concern; not a PDF library feature</td>
+    </tr>
+    <tr>
+      <td>ReportViewer control replacement</td>
+      <td>High</td>
+      <td>Separate viewer component required</td>
+      <td>IronPDF has no UI component</td>
+    </tr>
+    <tr>
+      <td>PDF export from existing RDL</td>
+      <td>N/A</td>
+      <td>RDL has no direct equivalent</td>
+      <td>RDL must be redesigned as HTML template</td>
+    </tr>
+    <tr>
+      <td>Digital signatures on output</td>
+      <td>Medium</td>
+      <td><code>PdfSignature</code> + <code>PdfDocument.Sign()</code></td>
+      <td>SSRS PDF output is unsigned by default</td>
+    </tr>
+    <tr>
+      <td>PDF/A archival output</td>
+      <td>Medium</td>
+      <td><code>PdfDocument.SaveAsPdfA()</code></td>
+      <td>Verify conformance level</td>
+    </tr>
+    <tr>
+      <td>Merge multiple reports</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>Once PDFs are generated, merge is straightforward</td>
+    </tr>
+    <tr>
+      <td>Stream PDF to HTTP response</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Stream</code> + response write</td>
+      <td>Standard ASP.NET pattern</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>Parameterized Report to PDF</h3>
+
+<h4>SSRS — Parameterized Report Execution via Web Service:</h4>
+
+<p>SSRS report execution with parameters is invoked through the Report Server Web Service. A .NET application calls <code>ExecuteReport</code> with a parameter array and receives a byte array of the rendered PDF.</p>
+
+<pre><code class="language-csharp">// SSRS parameterized report execution — conceptual outline
+// Verify exact endpoint, binding, and method names in current SSRS documentation
+using System.Net;
+
+// ReportExecutionService is a generated SOAP proxy
+// var svc = new ReportExecutionServiceSoapClient(...);
+// svc.ClientCredentials.Windows.ClientCredential = CredentialCache.DefaultNetworkCredentials;
+
+// var parameters = new ParameterValue[]
+// {
+//     new ParameterValue { Name = &quot;StartDate&quot;, Value = &quot;2025-01-01&quot; },
+//     new ParameterValue { Name = &quot;Region&quot;, Value = &quot;North&quot; }
+// };
+
+// byte[] reportBytes = svc.Render(
+//     reportPath: &quot;/Reports/SalesReport&quot;,
+//     format: &quot;PDF&quot;,
+//     parameters: parameters,
+//     ...
+// );
+
+// System.IO.File.WriteAllBytes(&quot;output.pdf&quot;, reportBytes);</code></pre>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>The calling application must have network access to the Report Server endpoint</li>
+
+  <li>Windows Authentication or Basic Auth must be configured and matched between client and server</li>
+
+  <li>SOAP proxy classes must be regenerated if the SSRS version changes</li>
+
+  <li>Report execution timeout is server-configured; long-running data queries may cause client timeouts</li>
+
+  <li>Error details from rendering failures are surfaced through SOAP faults, which require specific fault handling</li>
+
+</ul>
+
+<h4>IronPDF — Parameterized HTML Template to PDF:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// Data retrieval is the application's responsibility
+// Example: fetch report data from a repository
+var reportData = await salesRepository.GetSalesDataAsync(
+    startDate: new DateTime(2025, 1, 1),
+    region: &quot;North&quot;);
+
+// Build HTML from data using a templating approach
+// Razor, Scriban, or simple string interpolation — team's choice
+var htmlBuilder = new System.Text.StringBuilder();
+htmlBuilder.Append(@&quot;
+    &lt;!DOCTYPE html&gt;&lt;html&gt;&lt;head&gt;
+    &lt;style&gt;
+        body { font-family: Arial, sans-serif; font-size: 11px; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #4472C4; color: white; padding: 6px; }
+        td { border: 1px solid #ddd; padding: 5px; }
+        .total { font-weight: bold; background: #f0f0f0; }
+    &lt;/style&gt;&lt;/head&gt;&lt;body&gt;&quot;);
+
+htmlBuilder.Append($&quot;&lt;h2&gt;Sales Report — {reportData.Region}&lt;/h2&gt;&quot;);
+htmlBuilder.Append($&quot;&lt;p&gt;Period: {reportData.StartDate:yyyy-MM-dd} to {reportData.EndDate:yyyy-MM-dd}&lt;/p&gt;&quot;);
+htmlBuilder.Append(&quot;&lt;table&gt;&lt;tr&gt;&lt;th&gt;Product&lt;/th&gt;&lt;th&gt;Units&lt;/th&gt;&lt;th&gt;Revenue&lt;/th&gt;&lt;/tr&gt;&quot;);
+
+foreach (var row in reportData.Lines)
+{
+    htmlBuilder.Append($&quot;&lt;tr&gt;&lt;td&gt;{row.Product}&lt;/td&gt;&lt;td&gt;{row.Units}&lt;/td&gt;&lt;td&gt;{row.Revenue:C}&lt;/td&gt;&lt;/tr&gt;&quot;);
+}
+
+htmlBuilder.Append(&quot;&lt;/table&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.Letter;
+renderer.RenderingOptions.MarginTop = 20;
+renderer.RenderingOptions.MarginBottom = 20;
+
+using var pdf = renderer.RenderHtmlAsPdf(htmlBuilder.ToString());
+pdf.SaveAs($&quot;SalesReport_{reportData.Region}_{DateTime.Today:yyyyMMdd}.pdf&quot;);</code></pre>
+
+<p>The application now owns the data access, the template logic, and the rendering call. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers base URL configuration for templates referencing external CSS files or shared image assets like company logos.</p>
+
+<h3>Headers, Footers, and Page Numbers</h3>
+
+<h4>SSRS — Report Headers and Footers:</h4>
+
+<p>SSRS RDL defines report headers and footers in the report definition file. Header/footer items are placed using a visual designer, and page number expressions (<code>=Globals!PageNumber</code> and <code>=Globals!TotalPages</code>) are embedded in text boxes. Headers and footers render on every page of the paginated report automatically.</p>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>Header/footer content is defined in RDL XML, not in application code; changes require updating the RDL file and redeploying to the report server</li>
+
+  <li>The visual designer constrains layout to predefined items (text boxes, images, lines)</li>
+
+  <li>Expressions use SSRS's VBA-like expression language, which does not transfer to any .NET templating model</li>
+
+  <li>First-page header suppression and section-specific footers require conditional expressions in RDL</li>
+
+</ul>
+
+<h4>IronPDF — Headers and Footers:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Engines.Chrome;
+
+var renderer = new ChromePdfRenderer();
+
+// Text-based header with company name centered
+renderer.RenderingOptions.TextHeader = new TextHeaderFooter
+{
+    CenterText = &quot;ACME Corporation — Confidential&quot;,
+    DrawDividerLine = true,
+    FontSize = 9
+};
+
+// Footer with date on left and page numbers on right
+renderer.RenderingOptions.TextFooter = new TextHeaderFooter
+{
+    LeftText = &quot;Generated: {date}&quot;,
+    RightText = &quot;Page {page} of {total-pages}&quot;,
+    DrawDividerLine = true,
+    FontSize = 8
+};
+
+using var pdf = renderer.RenderHtmlAsPdf(reportHtml);
+pdf.SaveAs(&quot;report-with-headers.pdf&quot;);</code></pre>
+
+<p>For headers and footers that require HTML content—company logos, styled typography, multi-column layouts—IronPDF supports HTML-based header and footer objects. The <a href="https://ironpdf.com/how-to/headers-and-footers/">headers and footers guide</a> covers text tokens for dynamic values (<code>{page}</code>, <code>{total-pages}</code>, <code>{date}</code>), HTML variants, and per-first-page suppression.</p>
+
+<h3>Delivering PDF via ASP.NET HTTP Response</h3>
+
+<h4>SSRS — URL Access PDF Delivery:</h4>
+
+<p>SSRS URL Access allows a browser or server-side application to request a report rendered to PDF via an HTTP GET to the report server. The response is a PDF byte stream.</p>
+
+<pre><code class="language-csharp">// SSRS URL Access — server-side consumption conceptual outline
+// Verify current URL format in SSRS documentation for your version
+using System.Net.Http;
+
+// URL Access format (varies by SSRS version):
+// https://reportserver/reportserver?
+//   /Reports/SalesReport&amp;rs:Format=PDF&amp;StartDate=2025-01-01
+
+// var client = new HttpClient();
+// client.DefaultRequestHeaders.Authorization = ...;
+// var pdfBytes = await client.GetByteArrayAsync(reportUrl);
+// return File(pdfBytes, &quot;application/pdf&quot;, &quot;report.pdf&quot;);</code></pre>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>The web application server must have network access to the SSRS report server</li>
+
+  <li>URL Access requires authentication (Windows Integrated, Forms, or Basic</li>
+
+  <li>Report parameter values are embedded in the URL query string; URL encoding must be handled correctly for special characters</li>
+
+  <li>PDF size is determined by SSRS; no application-level control over rendering options</li>
+
+</ul>
+
+<h4>IronPDF — Stream PDF to ASP.NET Response:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using Microsoft.AspNetCore.Mvc;</code></pre>
+
+<p>[ApiController] [Route("reports")] public class ReportController : ControllerBase { [HttpGet("sales")] public async Task<IActionResult> GetSalesReport( [FromQuery] DateTime startDate, [FromQuery] string region) { // Fetch data and build HTML template var html = await BuildSalesReportHtmlAsync(startDate, region);</p>
+
+<p>var renderer = new ChromePdfRenderer(); renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.Letter;</p>
+
+<p>using var pdf = renderer.RenderHtmlAsPdf(html);</p>
+
+<p>// Stream the PDF bytes directly to the response var pdfBytes = pdf.BinaryData; return File(pdfBytes, "application/pdf", $"SalesReport_{region}_{startDate:yyyyMMdd}.pdf"); }</p>
+
+<p>private async Task<string> BuildSalesReportHtmlAsync(DateTime startDate, string region) { // Data access and template assembly here return "<html>...</html>"; // simplified } }</p>
+
+<p>This pattern places the report controller entirely within the ASP.NET application, eliminating the dependency on a separate report server. The application is responsible for authentication on its own endpoints using standard ASP.NET middleware—no separate SSRS authentication configuration to maintain.</p>
+
+<h3>Multi-Report Merge</h3>
+
+<h4>SSRS — Combining Multiple Reports:</h4>
+
+<p>SSRS does not natively support merging multiple report outputs into a single PDF at the server level. Organizations that need combined output—a cover page from one report definition appended to a data report—typically download both PDFs and combine them with a separate tool or library.</p>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>SSRS produces individual report outputs per execution; document assembly requires out-of-band processing</li>
+
+  <li>No API for server-side report concatenation in standard SSRS</li>
+
+  <li>Timing coordination between multiple report executions can be complex for parameterized, long-running reports</li>
+
+</ul>
+
+<h4>IronPDF — Merge Multiple Generated PDFs:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.Letter;
+
+// Generate each section in-process
+using var coverPage = renderer.RenderHtmlAsPdf(coverPageHtml);
+using var dataSection = renderer.RenderHtmlAsPdf(dataSectionHtml);
+using var appendixSection = renderer.RenderHtmlAsPdf(appendixHtml);
+
+// Merge into single document
+using var fullReport = PdfDocument.Merge(coverPage, dataSection, appendixSection);
+fullReport.SaveAs(&quot;combined-report.pdf&quot;);</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split guide</a> covers merging from streams and byte arrays as well as from <code>PdfDocument</code> instances, which is useful when combining in-process renders with externally sourced PDF files.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>SSRS Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>RDL report definition</td>
+      <td>HTML template</td>
+      <td>No equivalent format; full redesign required</td>
+    </tr>
+    <tr>
+      <td>Report Designer (SSDT)</td>
+      <td>HTML/CSS editor (any)</td>
+      <td>No visual designer in IronPDF</td>
+    </tr>
+    <tr>
+      <td>Report Server Web Service</td>
+      <td>Not applicable</td>
+      <td>In-process; no server endpoint</td>
+    </tr>
+    <tr>
+      <td><code>ExecuteReport()</code> (SOAP)</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>Application calls renderer directly</td>
+    </tr>
+    <tr>
+      <td>Report parameters</td>
+      <td>Method parameters / template variables</td>
+      <td>Passed in application code</td>
+    </tr>
+    <tr>
+      <td>Dataset / DataSource</td>
+      <td>Application data access layer</td>
+      <td>Data retrieval moves to application</td>
+    </tr>
+    <tr>
+      <td>Tablix (table layout)</td>
+      <td>HTML <code>&lt;table&gt;</code> in template</td>
+      <td>Reimplemented in HTML/CSS</td>
+    </tr>
+    <tr>
+      <td>Report expressions (<code>=Fields!...</code>)</td>
+      <td>Template engine variables</td>
+      <td>Razor, Scriban, or string interpolation</td>
+    </tr>
+    <tr>
+      <td>Page header (RDL)</td>
+      <td><code>RenderingOptions.TextHeader</code> / HtmlHeader</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Headers and footers API</a></td>
+    </tr>
+    <tr>
+      <td>Page footer (RDL)</td>
+      <td><code>RenderingOptions.TextFooter</code> / HtmlFooter</td>
+      <td>Token-based page numbers</td>
+    </tr>
+    <tr>
+      <td><code>=Globals!PageNumber</code></td>
+      <td><code>{page}</code> token in footer text</td>
+      <td>Syntax differs</td>
+    </tr>
+    <tr>
+      <td>Subreport</td>
+      <td>Partial HTML include or <code>PdfDocument.Merge()</code></td>
+      <td>No native subreport concept</td>
+    </tr>
+    <tr>
+      <td>Report subscriptions</td>
+      <td>Application-scheduled task</td>
+      <td>Implement in application tier</td>
+    </tr>
+    <tr>
+      <td>Report catalog / portal</td>
+      <td>Not applicable</td>
+      <td>Separate concern</td>
+    </tr>
+    <tr>
+      <td>URL Access delivery</td>
+      <td>ASP.NET controller + <code>pdf.BinaryData</code></td>
+      <td>Standard HTTP response pattern</td>
+    </tr>
+    <tr>
+      <td>ReportViewer control</td>
+      <td>Not applicable (no viewer component)</td>
+      <td>Separate viewer component needed</td>
+    </tr>
+    <tr>
+      <td>PDF export format option</td>
+      <td>Default output of render call</td>
+      <td>All render calls produce PDF</td>
+    </tr>
+    <tr>
+      <td>SSRS authentication</td>
+      <td>ASP.NET authentication middleware</td>
+      <td>No separate auth config</td>
+    </tr>
+    <tr>
+      <td>Report caching</td>
+      <td>Application-level caching</td>
+      <td>IronPDF has no built-in cache</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>RDL is not portable.</strong> Every SSRS report definition must be redesigned as an HTML template. There is no automated conversion from RDL to HTML; the data queries, layout definitions, and expressions must be reconstructed in the application tier. Treat each report as a new development task proportional to its complexity.</li>
+
+  <li><strong>Data access responsibility shifts entirely.</strong> SSRS handles data source connections and query execution as part of report processing. After migration, the application is responsible for all data retrieval before calling the renderer. Audit all report datasets and their associated queries; these become application-layer data access methods.</li>
+
+  <li><strong>No report portal.</strong> If end users currently browse and run reports through the SSRS web portal, that interface must be replaced. Typical approaches include a custom report catalog page in the application, a link-based report trigger system, or an embedded iframe pointing to rendered PDFs in blob storage. None of these come from IronPDF.</li>
+
+  <li><strong>No built-in scheduling.</strong> SSRS subscriptions and scheduled report delivery must be reimplemented using application-level schedulers (Hangfire, Quartz.NET, Azure Functions timer triggers). The PDF rendering call is straightforward; the scheduling infrastructure is the engineering work.</li>
+
+  <li><strong>Chromium binary dependencies on Linux.</strong> IronPDF ships platform-specific Chromium binaries. Linux container deployments require system packages for Chromium operation. Minimal base images will fail without these dependencies added to the Dockerfile.</li>
+
+  <li><strong>Disposal is mandatory.</strong> Every <code>PdfDocument</code> object must be disposed. SSRS delivers a byte array; there is no disposal concern in that model. The shift to <code>IDisposable</code>-based objects requires systematic use of <code>using</code> blocks.</li>
+
+  <li><strong>Interactive report features do not translate.</strong> SSRS supports drillthrough actions, toggle visibility, sorting, and document map navigation in its HTML rendering. None of these interactive features exist in a static PDF. If report consumers rely on interactive features, assess whether the use case genuinely requires a PDF or whether a web-based report UI would serve better.</li>
+
+  <li><strong>Thread safety in high-throughput scenarios.</strong> <code>ChromePdfRenderer</code> is thread-safe; however, the Chromium engine carries memory overhead per render. Refer to the official documentation the recommended pattern for high-concurrency rendering (shared renderer vs. per-request instantiation) to avoid resource exhaustion under load.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>SSRS</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Current maintenance status</td>
+      <td>Active</td>
+      <td>Actively maintained</td>
+      <td>Verify Power BI Report Server overlap</td>
+    </tr>
+    <tr>
+      <td>License</td>
+      <td>SQL Server license / Windows Server</td>
+      <td>Commercial (.NET library)</td>
+      <td>Fundamentally different cost model</td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>No</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Support</strong></td>
+    </tr>
+    <tr>
+      <td>Commercial support</td>
+      <td>Microsoft</td>
+      <td>Iron Software</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Community support</td>
+      <td>Microsoft forums</td>
+      <td>GitHub Issues</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Documentation</td>
+      <td>Extensive</td>
+      <td>Comprehensive</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content Creation</strong></td>
+    </tr>
+    <tr>
+      <td>HTML to PDF</td>
+      <td>Via RDL render</td>
+      <td>Yes (Chromium)</td>
+      <td>IronPDF uses Chromium</td>
+    </tr>
+    <tr>
+      <td>Parameterized reports</td>
+      <td>Yes (RDL params)</td>
+      <td>Via application code</td>
+      <td>Application owns parameters</td>
+    </tr>
+    <tr>
+      <td>Report designer</td>
+      <td>Yes (SSDT/Report Builder)</td>
+      <td>No</td>
+      <td>No visual designer</td>
+    </tr>
+    <tr>
+      <td>JavaScript in output</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Tablix / matrix layout</td>
+      <td>Yes (RDL tablix)</td>
+      <td>HTML table in template</td>
+      <td>Redesign required</td>
+    </tr>
+    <tr>
+      <td>Charts</td>
+      <td>Yes (built-in)</td>
+      <td>Via HTML/JS charting library</td>
+      <td>e.g. Chart.js in HTML template</td>
+    </tr>
+    <tr>
+      <td>Subreports</td>
+      <td>Yes</td>
+      <td>Via HTML composition / merge</td>
+      <td>No native subreport concept</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>DOCX to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Markdown to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No (out-of-band)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Text extraction</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Form filling</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Find and replace</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Redaction</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Annotations</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Watermark / stamp</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Headers and footers API</a></td>
+      <td>RDL-level</td>
+      <td>Yes</td>
+      <td>API-level in IronPDF</td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>PDF password protection</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HSM signing</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/pdfa/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development & Maintenance</strong></td>
+    </tr>
+    <tr>
+      <td>.NET Framework support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+</td>
+      <td>Limited</td>
+      <td>Yes</td>
+      <td>SSRS has Windows Server dependency</td>
+    </tr>
+    <tr>
+      <td>Linux support</td>
+      <td>No (Windows Server only)</td>
+      <td>Yes</td>
+      <td>Architecture difference</td>
+    </tr>
+    <tr>
+      <td>Docker support</td>
+      <td>Complex (Windows containers)</td>
+      <td>Yes (Linux containers)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>No (server install)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>N/A (server-async)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Report subscriptions / scheduling</td>
+      <td>Yes (built-in)</td>
+      <td>No (application-level)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web portal for end users</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Embedded viewer (ReportViewer)</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Catalog all SSRS reports.</strong> List every report definition in use: name, data sources, parameter definitions, estimated complexity (simple list, tablix, matrix, chart-heavy). This inventory drives the effort estimate for template development.</li>
+
+  <li><strong>Assess interactive feature dependencies.</strong> For each report, determine whether end users rely on interactive SSRS features (drillthrough, toggle visibility, document map). These do not translate to PDF; some may require a separate web-based report UI to replace.</li>
+
+  <li><strong>Plan the scheduling and delivery replacement.</strong> If subscriptions or scheduled delivery are in use, define the application-tier scheduler before beginning PDF rendering work. Hangfire, Quartz.NET, and Azure Functions timer triggers are common approaches.</li>
+
+  <li><strong>Install the IronPDF NuGet package.</strong> Run <code>dotnet add package IronPdf</code>. Verify runtime identifier coverage for all target environments.</li>
+
+  <li><strong>Configure the license key.</strong> Set the IronPDF license key at application startup. See the <a href="https://ironpdf.com/how-to/license-keys/">license key setup guide</a> for configuration options compatible with secret management practices.</li>
+
+  <li><strong>Migrate data access to the application tier.</strong> For each SSRS dataset, implement a corresponding data access method in the application (repository, service, or query object). Validate that the query results match SSRS dataset output.</li>
+
+  <li><strong>Develop HTML templates for each report type.</strong> Convert each RDL report definition to an HTML/CSS template. Begin with the simplest reports (single-table lists) and work toward complex matrix and chart reports. Validate output against SSRS reference output.</li>
+
+  <li><strong>Implement headers, footers, and page numbers.</strong> Configure <code>RenderingOptions.TextHeader</code> and <code>TextFooter</code> or HTML header/footer objects for reports that require company branding, report titles, and page number tokens.</li>
+
+  <li><strong>Implement the report delivery mechanism.</strong> For on-demand reports, implement the ASP.NET controller or service that accepts parameters, renders the PDF, and streams the response. For scheduled reports, implement the scheduler and delivery integration (email, blob storage, file share).</li>
+
+  <li><strong>Replace the ReportViewer control if present.</strong> If the application embeds a ReportViewer control in ASP.NET WebForms or WinForms, source and integrate a replacement PDF viewer component for the end-user display scenario.</li>
+
+  <li><strong>Test PDF output across all report types.</strong> Validate layout, pagination, data accuracy, header/footer content, and file size across the full report catalog. Use a representative sample of real data to surface layout edge cases.</li>
+
+  <li><strong>Decommission SSRS infrastructure.</strong> After all reports have been migrated and validated, schedule the SSRS server for decommission. Update monitoring, backup, and operational runbooks to remove SSRS-specific items.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on SSRS is technically reasonable</h3>
+
+<p>SSRS remains a practical choice for organizations whose reporting workload fits the platform's strengths: paginated reports from SQL Server data sources, centralized report delivery via subscriptions, end-user self-service through the web portal, and integration with Power BI Report Server as a modernized successor. If the report catalog is large, the end users are accustomed to the SSRS portal, the data sources are primarily SQL Server, and the organization is not moving away from Windows Server infrastructure, the migration cost is substantial and the benefit may not justify it. SSRS's visual designer also represents a real productivity advantage for authoring complex tablix layouts that would take significantly longer to implement in HTML/CSS templates.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>Migration makes sense when the infrastructure context changes in ways that make SSRS's architecture a burden: cloud deployment that requires Linux containers, microservice architectures where a centralized report server is an operational outlier, or adoption of non-SQL Server data sources that SSRS cannot connect to natively. Teams generating PDFs as part of application workflows—invoice generation, document assembly, contract production—often find that SSRS's report-centric model is a poor fit for programmatic PDF generation needs, and that an in-process library handles those use cases more directly. If the SSRS server has become a maintenance liability (aging Windows Server OS, outdated SQL Server instance, unclear ownership), that operational risk is a concrete migration signal.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>The code-level work is larger than a typical library migration because the application must absorb responsibilities that SSRS previously owned: data retrieval, template logic, scheduling, and delivery. The PDF rendering call itself is straightforward; the surrounding infrastructure is the effort. Teams that approach the migration in phases—stand up the rendering capability first with one or two simple reports, then migrate report-by-report while SSRS remains available, then decommission—tend to manage risk better than teams that attempt a full cutover. The rendering quality of Chromium-based HTML output is generally high for well-structured templates; the engineering investment is in building those templates and the data access layer that feeds them.</p>
+
+<p>How does your team's current report catalog break down between simple parameterized lists and complex matrix or chart-heavy reports, and how does that ratio influence whether a phased or full-cutover migration strategy makes more sense?</p>

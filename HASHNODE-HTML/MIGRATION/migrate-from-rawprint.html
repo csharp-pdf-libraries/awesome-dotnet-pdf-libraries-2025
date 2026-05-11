@@ -1,0 +1,763 @@
+<!-- FRONTMATTER
+  title: Migrating from RawPrint to IronPDF: a .NET engineering guide
+  subtitle: API mapping, gotchas, and a migration checklist
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-rawprint/
+  description: RawPrint has reached end-of-life. This guide walks .NET teams through the migration to IronPDF — API mapping, breaking changes, and a step-by-step checklist.
+  published: False
+-->
+
+<h1>Migrating from RawPrint to IronPDF: a .NET engineering guide</h1>
+
+<p class="subtitle"><em>API mapping, gotchas, and a migration checklist</em></p>
+
+<h2>Framing</h2>
+
+<p>Largely invisible to web application developers but critical to a specific class of line-of-business applications: point-of-sale terminals, shipping label printers, receipt systems, warehouse inventory tools, and any workflow where documents must reach a physical printer without the intermediary of a print dialog, libraries oriented around raw printer communication occupy a niche that is. In the .NET ecosystem, these libraries typically wrap the Windows spooler API or send raw printer control language (PCL, ESC/P, ZPL) directly to a print queue.</p>
+
+<p>When these libraries reach end-of-life, the migration question is more complex than a simple API swap. Teams must evaluate whether their underlying requirement was "print a document" or "generate a document," because the answer determines the category of replacement. Libraries designed for programmatic PDF generation are not direct substitutes for raw print spooler wrappers — they solve adjacent problems with meaningful overlap but also genuine gaps.</p>
+
+<p>RawPrint is a library in this category that appears to have been discontinued. When a library is discontinued and targets a legacy framework version, the migration calculus shifts: the question is no longer whether to migrate but how quickly, and toward what. This guide maps what is known about RawPrint's purpose, where IronPDF's capabilities intersect and diverge, and what a migration looks like for teams whose primary need is document generation for distribution.</p>
+
+<h2>What RawPrint Is Designed to Do</h2>
+
+<p>RawPrint is a .NET library built to send raw data directly to a Windows printer, bypassing the standard GDI print pipeline. Its primary use case is sending pre-formatted printer command streams — typically in PCL, ESC/P, PostScript, or ZPL — directly to a print spooler queue without the operating system applying any transformation. This is important in contexts where the printer has its own rendering engine and the application must deliver exact byte sequences: label printers, receipt printers, and some industrial document printers operate this way.</p>
+
+<p>The library targets .NET Framework 4.0. It is distributed as a NuGet package. Its integration model is low-level: the developer provides a stream or byte array containing the raw printer language data, specifies a printer name, and the library delivers that data to the Windows print spooler using the appropriate Win32 API calls (<code>OpenPrinter</code>, <code>StartDocPrinter</code>, <code>WritePrinter</code>). RawPrint does not generate documents, render HTML, or produce PDF. It is a transport mechanism for data that has already been rendered elsewhere. Verify current package status and documentation — the library appears to have been discontinued and official documentation may be unavailable.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>IronPDF and RawPrint address different layers of the document pipeline, which makes this migration more architectural than technical. RawPrint operates at the delivery layer: it takes already-rendered printer data and submits it to a print queue. IronPDF operates at the generation layer: it takes HTML source and produces a PDF document object that can be saved, streamed, signed, encrypted, or submitted for printing through the operating system's PDF printing subsystem.</p>
+
+<p>For teams whose workflow is: <em>generate a print-ready byte stream → deliver to printer</em>, migrating to IronPDF changes both steps. The generation step moves to HTML-to-PDF rendering via Chromium. The delivery step — submitting to a physical printer — is handled through the operating system's print infrastructure, which can accept PDF files from .NET using <code>System.Printing</code> or <code>PrintDocument</code>. IronPDF itself does not include a print spooler API; it produces PDF documents.</p>
+
+<p>Where the architectures do intersect is in PDF as an intermediate format. Many printer workflows that previously sent raw PCL streams are now redesigned to generate PDF (a more portable and archivable format) and then print that PDF via the OS spooler. IronPDF's <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML to PDF pipeline</a> with <a href="https://ironpdf.com/how-to/rendering-options/">rendering options</a> for paper size, margins, and DPI is well-suited to this pattern. The resulting PDF can be saved, archived, emailed, or submitted for printing — which is a capability expansion relative to raw print-only workflows.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Send raw bytes to printer</td>
+      <td>High</td>
+      <td>Not applicable</td>
+      <td>IronPDF does not wrap the print spooler</td>
+    </tr>
+    <tr>
+      <td>Generate a document for printing</td>
+      <td>Medium</td>
+      <td><code>RenderHtmlAsPdf()</code> + OS print API</td>
+      <td>Requires adding an HTML authoring step</td>
+    </tr>
+    <tr>
+      <td>Produce a receipt-style document</td>
+      <td>Medium</td>
+      <td>HTML/CSS narrow-width layout</td>
+      <td>Custom paper size for receipt dimensions</td>
+    </tr>
+    <tr>
+      <td>Generate a shipping label</td>
+      <td>Medium</td>
+      <td>HTML/CSS label template</td>
+      <td>Verify label printer PDF support</td>
+    </tr>
+    <tr>
+      <td>Send ZPL / ESC/P commands</td>
+      <td>High</td>
+      <td>Not applicable</td>
+      <td>Printer command languages are outside IronPDF's scope</td>
+    </tr>
+    <tr>
+      <td>Output to memory stream</td>
+      <td>Low</td>
+      <td><code>pdf.Stream</code></td>
+      <td>Standard .NET MemoryStream</td>
+    </tr>
+    <tr>
+      <td>Output to byte array</td>
+      <td>Low</td>
+      <td><code>pdf.BinaryData</code></td>
+      <td>Direct equivalent for downstream consumption</td>
+    </tr>
+    <tr>
+      <td>Save to file</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td>Straightforward</td>
+    </tr>
+    <tr>
+      <td>Add document metadata</td>
+      <td>Low</td>
+      <td><code>pdf.MetaData</code></td>
+      <td>IronPDF exposes structured metadata</td>
+    </tr>
+    <tr>
+      <td>Encrypt / password-protect output</td>
+      <td>Low (not in RawPrint)</td>
+      <td><code>pdf.Password</code></td>
+      <td>New capability available after migration</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Low (not in RawPrint)</td>
+      <td><code>PdfSignature</code> API</td>
+      <td>New capability available after migration</td>
+    </tr>
+    <tr>
+      <td>Archive print output as PDF/A</td>
+      <td>Unknown (not in RawPrint)</td>
+      <td><code>SaveAsPdfA()</code></td>
+      <td>New capability for archival workflows</td>
+    </tr>
+    <tr>
+      <td>Cross-platform support</td>
+      <td>Unknown (Windows-only)</td>
+      <td>Yes (Linux, macOS)</td>
+      <td>IronPDF is cross-platform</td>
+    </tr>
+    <tr>
+      <td>.NET 6+ compatibility</td>
+      <td>No (Framework 4.0)</td>
+      <td>Yes</td>
+      <td>Core migration driver</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>Sending Raw Data to a Printer</h3>
+
+<h4>RawPrint — Raw Print Submission</h4>
+
+<p>RawPrint's core function is submitting a raw data stream to a Windows print queue. The following conceptual outline reflects the typical pattern; verify against any surviving documentation or source code.</p>
+
+<pre><code class="language-csharp">// Conceptual pattern
+// RawPrint is discontinued; official documentation may be unavailable.
+
+// Step 1: Prepare the raw printer data (PCL, ZPL, ESC/P, PostScript, etc.)
+//         This data has been formatted elsewhere — RawPrint is only the transport.
+byte[] rawPrinterData = BuildRawPrinterData(); // Returns pre-formatted bytes
+
+// Step 2: Identify the target printer by name
+string printerName = &quot;\\\\PrintServer\\LabelPrinter01&quot;;
+
+// Step 3: Submit via RawPrint (API names
+// RawPrint.RawPrinterHelper.SendBytesToPrinter(printerName, rawPrinterData);</code></pre>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Windows-only; depends on Win32 print spooler APIs.</li>
+
+  <li>No document generation — data must already be in a printer-ready format.</li>
+
+  <li>The application is responsible for generating correct PCL/ZPL/ESC/P command sequences.</li>
+
+  <li>No concept of PDF, HTML, or cross-platform operation.</li>
+
+  <li>.NET Framework 4.0 target; incompatible with modern .NET SDK-style projects without compatibility shims.</li>
+
+</ul>
+
+<h4>IronPDF — Generating a Document for Printing</h4>
+
+<p>IronPDF generates a PDF from HTML. Printing that PDF to a physical printer is handled by the operating system using standard .NET printing APIs. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML to PDF guide</a> covers the rendering side; OS printing is handled separately.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using System;
+using System.Diagnostics; // For OS-level print via Process
+
+License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+var renderer = new ChromePdfRenderer();
+
+// Configure for a typical label or receipt layout
+// Adjust paper size to match physical label dimensions
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.Custom;
+renderer.RenderingOptions.CustomPaperWidth = 101.6; // mm — 4-inch label
+renderer.RenderingOptions.CustomPaperHeight = 152.4; // mm — 6-inch label
+renderer.RenderingOptions.MarginTop = 3;
+renderer.RenderingOptions.MarginBottom = 3;
+renderer.RenderingOptions.MarginLeft = 3;
+renderer.RenderingOptions.MarginRight = 3;
+
+// Build HTML for the label/receipt content
+var html = @&quot;
+&lt;html&gt;
+&lt;head&gt;
+&lt;style&gt;
+  body { font-family: Arial, sans-serif; font-size: 11px; margin: 0; padding: 0; }
+  .barcode { font-family: 'Free 3 of 9', monospace; font-size: 32px; }
+  .label-header { font-weight: bold; font-size: 13px; }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;div class='label-header'&gt;ACME LOGISTICS&lt;/div&gt;
+  &lt;div&gt;Order: #1042318&lt;/div&gt;
+  &lt;div&gt;Ship To: 123 Main St, Springfield, IL 62701&lt;/div&gt;
+  &lt;div class='barcode'&gt;*1042318*&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+using var pdf = renderer.RenderHtmlAsPdf(html);
+
+// Option A: Save and open with OS default PDF viewer / printer
+var tempPath = System.IO.Path.GetTempFileName() + &quot;.pdf&quot;;
+pdf.SaveAs(tempPath);
+// Process.Start(new ProcessStartInfo(tempPath) { UseShellExecute = true });
+
+// Option B: Use pdf.BinaryData for downstream handling (email, archive, print API)
+byte[] pdfBytes = pdf.BinaryData;</code></pre>
+
+<h3>Generating a Receipt-Style Narrow Document</h3>
+
+<h4>RawPrint — Receipt Generation</h4>
+
+<p>Receipt generation in a RawPrint context typically involves constructing ESC/P or similar thermal printer command sequences manually, then submitting them via the print spooler.</p>
+
+<pre><code class="language-csharp">// Conceptual outline — RawPrint sends pre-built ESC/P data
+// ESC/P command sequences must be built by the application
+
+var receiptData = new System.Text.StringBuilder();
+// Initialize printer (ESC @ = initialize)
+receiptData.Append(&quot;\x1B\x40&quot;);
+// Center align (ESC a 1)
+receiptData.Append(&quot;\x1B\x61\x01&quot;);
+// Bold on (ESC E 1)
+receiptData.Append(&quot;\x1B\x45\x01&quot;);
+receiptData.AppendLine(&quot;RECEIPT&quot;);
+// Bold off
+receiptData.Append(&quot;\x1B\x45\x00&quot;);
+receiptData.AppendLine(&quot;Item 1........$10.00&quot;);
+receiptData.AppendLine(&quot;Item 2........$15.00&quot;);
+receiptData.AppendLine(&quot;-------------------&quot;);
+receiptData.AppendLine(&quot;Total.........$25.00&quot;);
+// Cut paper (ESC i)
+receiptData.Append(&quot;\x1D\x56\x41&quot;);
+
+byte[] rawBytes = System.Text.Encoding.ASCII.GetBytes(receiptData.ToString());
+// RawPrint.RawPrinterHelper.SendBytesToPrinter(&quot;ThermalPrinter&quot;, rawBytes);</code></pre>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>ESC/P command construction is tedious and printer-model-specific.</li>
+
+  <li>No visual preview — output can only be verified on the physical printer.</li>
+
+  <li>Character encoding must match printer expectations exactly.</li>
+
+</ul>
+
+<h4>IronPDF — Receipt-Style Document</h4>
+
+<p>IronPDF generates a receipt-style PDF that can be printed, archived, emailed, or displayed in a preview UI. Custom paper sizes are supported. See the <a href="https://ironpdf.com/how-to/custom-paper-size/">custom paper size guide</a> for narrow receipt dimensions.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using System;
+
+License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+var renderer = new ChromePdfRenderer();
+
+// 80mm thermal receipt width
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.Custom;
+renderer.RenderingOptions.CustomPaperWidth = 80;  // mm
+renderer.RenderingOptions.CustomPaperHeight = 200; // mm — adjust dynamically
+renderer.RenderingOptions.MarginTop = 5;
+renderer.RenderingOptions.MarginBottom = 5;
+renderer.RenderingOptions.MarginLeft = 3;
+renderer.RenderingOptions.MarginRight = 3;
+
+var html = @&quot;
+&lt;html&gt;
+&lt;head&gt;
+&lt;style&gt;
+  body { font-family: monospace; font-size: 10px; width: 100%; text-align: center; }
+  .total { font-weight: bold; border-top: 1px solid #000; margin-top: 4px; padding-top: 4px; }
+  table { width: 100%; }
+  td.amount { text-align: right; }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;div&gt;&lt;strong&gt;RECEIPT&lt;/strong&gt;&lt;/div&gt;
+  &lt;table&gt;
+    &lt;tr&gt;&lt;td&gt;Item 1&lt;/td&gt;&lt;td class='amount'&gt;$10.00&lt;/td&gt;&lt;/tr&gt;
+    &lt;tr&gt;&lt;td&gt;Item 2&lt;/td&gt;&lt;td class='amount'&gt;$15.00&lt;/td&gt;&lt;/tr&gt;
+  &lt;/table&gt;
+  &lt;div class='total'&gt;Total: $25.00&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs(&quot;receipt.pdf&quot;);</code></pre>
+
+<h3>Memory Stream Output</h3>
+
+<h4>RawPrint — Memory Stream Output</h4>
+
+<p>RawPrint is designed to submit data to a physical printer, not to produce in-memory document objects. Memory stream output is not a primary use case. If raw print data needs to be stored, it is typically buffered as a byte array before submission.</p>
+
+<pre><code class="language-csharp">// No direct memory stream API in RawPrint
+// Raw bytes are prepared and submitted; no PdfDocument-equivalent object
+byte[] rawData = BuildRawPrinterData();
+// Store or submit rawData directly — no document object model</code></pre>
+
+<h4>IronPDF — Memory Stream Output</h4>
+
+<p>IronPDF can output to a <code>MemoryStream</code> directly, suitable for HTTP responses, message bus payloads, or in-memory processing. The <a href="https://ironpdf.com/how-to/pdf-memory-stream/">PDF memory stream guide</a> covers both saving to and loading from streams.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using System;
+using System.IO;
+
+License.LicenseKey = Environment.GetEnvironmentVariable(&quot;IRONPDF_LICENSE_KEY&quot;);
+
+var renderer = new ChromePdfRenderer();
+
+using var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;p&gt;Document content.&lt;/p&gt;&quot;);
+
+// Option A: Get MemoryStream directly
+MemoryStream pdfStream = pdf.Stream;
+
+// Option B: Get byte array
+byte[] pdfBytes = pdf.BinaryData;
+
+// Example: return as HTTP response in ASP.NET Core
+// return File(pdfBytes, &quot;application/pdf&quot;, &quot;document.pdf&quot;);</code></pre>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>RawPrint Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>SendBytesToPrinter(printerName, data)</code></td>
+      <td>Not applicable</td>
+      <td>IronPDF generates documents; OS handles print submission</td>
+    </tr>
+    <tr>
+      <td>Raw byte stream input</td>
+      <td>HTML string input</td>
+      <td>Source format changes entirely</td>
+    </tr>
+    <tr>
+      <td>Printer name targeting</td>
+      <td>OS print API (<code>PrintDocument</code>)</td>
+      <td>Outside IronPDF's scope</td>
+    </tr>
+    <tr>
+      <td>Win32 spooler wrapper</td>
+      <td>Not applicable</td>
+      <td>IronPDF is cross-platform; no Win32 dependency</td>
+    </tr>
+    <tr>
+      <td>PCL/ZPL/ESC/P command stream</td>
+      <td>HTML/CSS document template</td>
+      <td>Different document description language</td>
+    </tr>
+    <tr>
+      <td>No document object model</td>
+      <td><code>PdfDocument</code></td>
+      <td>IronPDF produces an inspectable, manipulable document</td>
+    </tr>
+    <tr>
+      <td>No save-to-file API</td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>No in-memory output</td>
+      <td><code>pdf.Stream</code>, <code>pdf.BinaryData</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>No encryption API</td>
+      <td><a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">Password/permissions guide</a></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>No signature API</td>
+      <td><code>PdfSignature</code> API</td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>No metadata API</td>
+      <td><code>pdf.MetaData</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>No merge API</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>.NET Framework 4.0 target</td>
+      <td>.NET 4.6.2+, .NET 6+</td>
+      <td>IronPDF supports modern and legacy .NET</td>
+    </tr>
+    <tr>
+      <td>Windows-only</td>
+      <td>Cross-platform</td>
+      <td>IronPDF supports Linux and macOS</td>
+    </tr>
+    <tr>
+      <td>NuGet package</td>
+      <td>NuGet package</td>
+      <td>Same distribution mechanism</td>
+    </tr>
+    <tr>
+      <td>Discontinued</td>
+      <td>Active</td>
+      <td>Verify current IronPDF release</td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td><a href="https://ironpdf.com/how-to/custom-paper-size/">Custom paper size guide</a></td>
+      <td>Label and receipt dimensions supported</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>Fundamentally different scope</strong>: RawPrint sends pre-rendered data to a printer. IronPDF generates PDF documents. If the core requirement is raw spooler access for PCL/ZPL/ESC/P printing, IronPDF does not replace that capability. Teams must evaluate whether their requirement can be re-expressed as PDF generation.</li>
+
+  <li><strong>No Windows spooler integration</strong>: IronPDF has no equivalent to <code>OpenPrinter</code> / <code>WritePrinter</code> Win32 API wrappers. Submitting the generated PDF to a physical printer requires a separate mechanism — typically <code>System.Printing.PrintQueue</code>, <code>PrintDocument</code>, or a shell invocation.</li>
+
+  <li><strong>Thermal and label printers</strong>: Some thermal printers accept PDF via their host software or OS driver. Others expect specific command languages (ZPL, ESC/P). If the target printer does not support PDF input, IronPDF cannot bridge that gap. Verify printer firmware and driver capabilities before committing to a PDF-based architecture.</li>
+
+  <li><strong>Document authoring requirement</strong>: RawPrint assumes document rendering happens elsewhere. Migrating to IronPDF means taking on HTML/CSS authoring for document templates. This is a scope addition, not just a dependency swap.</li>
+
+  <li><strong>Cross-platform printer access</strong>: On Linux and macOS, the Windows spooler APIs that RawPrint wraps do not exist. IronPDF's cross-platform PDF generation, combined with CUPS or platform-equivalent printing infrastructure, enables cross-platform print workflows that were not possible with RawPrint.</li>
+
+  <li><strong>Framework upgrade</strong>: RawPrint targets .NET Framework 4.0. IronPDF supports .NET Framework 4.6.2+ and modern .NET SDK targets. If the host application is also on .NET Framework 4.0, a framework upgrade may be a prerequisite.</li>
+
+  <li><strong>No namespace migration path</strong>: There is no type-for-type namespace mapping. This is an architectural change, not a refactor. Plan accordingly.</li>
+
+  <li><strong>Testing</strong>: RawPrint workflows are difficult to test without physical hardware. IronPDF output can be tested programmatically — rendered PDFs can be inspected, diff'd, or verified via text extraction. Migration may improve testability of the document pipeline overall.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature Area</th>
+      <th>RawPrint</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Maintenance status</td>
+      <td>Discontinued</td>
+      <td>Active</td>
+      <td>Migration driver</td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>-</td>
+      <td>Commercial</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET 4.0 support</td>
+      <td>Yes</td>
+      <td>No (.NET 4.6.2 minimum)</td>
+      <td>Framework upgrade required</td>
+    </tr>
+    <tr>
+      <td>.NET 6+ support</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content Creation</strong></td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>JavaScript rendering</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/javascript-to-pdf/">Yes</a></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Via printer command</td>
+      <td><a href="https://ironpdf.com/how-to/custom-paper-size/">Yes</a></td>
+      <td>IronPDF uses mm dimensions</td>
+    </tr>
+    <tr>
+      <td>Receipt/label layouts</td>
+      <td>Via ESC/P or ZPL</td>
+      <td>Yes (HTML/CSS)</td>
+      <td>Different authoring model</td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Generates PDF output</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>Core capability difference</td>
+    </tr>
+    <tr>
+      <td>Save to file</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Save to memory stream</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Add/remove pages</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page numbering</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Bookmarks</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Table of contents</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF compression</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>PDF passwords</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Permission restrictions</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/signing/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Redaction</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Metadata</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development & Maintenance</strong></td>
+    </tr>
+    <tr>
+      <td>Async support</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Parallel rendering</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Cross-platform</td>
+      <td>No (Windows-only)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux support</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Docker support</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Physical printer submission</td>
+      <td>Yes (Windows spooler)</td>
+      <td>No (delegate to OS)</td>
+      <td>RawPrint's core capability</td>
+    </tr>
+    <tr>
+      <td>ZPL / PCL / ESC/P support</td>
+      <td>Yes (pass-through)</td>
+      <td>No</td>
+      <td>Out of scope for IronPDF</td>
+    </tr>
+    <tr>
+      <td>Official support</td>
+      <td>None (discontinued)</td>
+      <td>Commercial</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Assess the printer requirement</strong>: Determine whether the target printer can accept PDF input via its OS driver or host software. If not, IronPDF-based migration may require an intermediate PDF-to-printer-language conversion step.</li>
+
+  <li><strong>Remove RawPrint NuGet dependency</strong>: Remove the <code>RawPrint</code> package reference from your <code>.csproj</code>. Run <code>dotnet restore</code>.</li>
+
+  <li><strong>Add IronPDF</strong>: Install <code>IronPdf</code> via NuGet. Verify platform-specific package requirements in the current <a href="https://ironpdf.com/docs/">IronPDF documentation</a>.</li>
+
+  <li><strong>Configure the license key</strong>: Add <code>IronPdf.License.LicenseKey = Environment.GetEnvironmentVariable("IRONPDF_LICENSE_KEY");</code> to your application startup.</li>
+
+  <li><strong>Upgrade .NET target if required</strong>: RawPrint targets .NET Framework 4.0. If your project has not already been upgraded, you will need to target at least .NET Framework 4.6.2 or a modern .NET SDK version to use IronPDF. Factor framework upgrade work into the migration estimate.</li>
+
+  <li><strong>Design HTML document templates</strong>: Build HTML/CSS equivalents for each print document format (receipts, labels, reports). Configure <code>RenderingOptions.CustomPaperWidth</code> and <code>CustomPaperHeight</code> to match physical label or receipt dimensions.</li>
+
+  <li><strong>Implement PDF generation</strong>: Replace raw byte construction with <code>ChromePdfRenderer.RenderHtmlAsPdf(html)</code>. Use <code>pdf.BinaryData</code> or <code>pdf.Stream</code> for any downstream byte handling that previously received raw printer data.</li>
+
+  <li><strong>Implement print submission</strong>: Add OS-level print submission logic if physical printing is required. On Windows, <code>System.Printing.PrintQueue</code> or <code>Process.Start</code> with a PDF print verb are common approaches. This is outside IronPDF but is the replacement for the spooler submission that RawPrint provided.</li>
+
+  <li><strong>Validate on target printers</strong>: Test the PDF output on each physical printer in the environment. Confirm that paper size, margin, and font rendering match the previous output. Label printers in particular may require dimension fine-tuning.</li>
+
+  <li><strong>Add archival and compliance features if applicable</strong>: If the migration unlocks new requirements (archive print history as PDF/A, apply digital signatures to documents), implement those capabilities using IronPDF's security and compliance APIs.</li>
+
+  <li><strong>Update test coverage</strong>: Add automated tests that render each document template and verify output. PDF text extraction can be used to validate data fields; visual comparison tools can validate layout.</li>
+
+  <li><strong>Remove platform-specific Win32 assumptions</strong>: Audit the codebase for other direct Win32 print API calls that may have been used alongside RawPrint. These may also need to be replaced or wrapped for cross-platform compatibility.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on RawPrint is technically reasonable</h3>
+
+<p>RawPrint is discontinued, which means staying on it is only reasonable as a short-term deferral strategy, not a long-term position. The clearest case for short-term deferral is when the application is already scheduled for replacement, when the printer infrastructure is locked to command-language formats (ZPL, ESC/P) that require a raw submission path regardless, or when a framework migration is a prerequisite that needs to be scoped separately. In all of these cases, the dependency on RawPrint introduces ongoing risk that should be tracked explicitly.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>Migration urgency is higher than for active libraries because the discontinued status means no security patches, no .NET compatibility updates, and no community support. The most compelling signals for accelerating migration are: the host application targeting modern .NET (which RawPrint cannot support), a requirement for cross-platform or containerized deployment, an expanding document scope that now includes archival, signing, or compliance requirements, or the emergence of printer hardware that accepts PDF natively.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>This migration is architectural rather than mechanical. The removal of RawPrint is straightforward; what replaces it requires new work. Teams will need to: (a) build HTML/CSS templates for each print document type, (b) integrate <code>ChromePdfRenderer</code> for PDF generation, and (c) implement OS-level print submission for any workflows that must drive a physical printer. The first item is where the majority of the effort lies. Teams with existing web templates (Razor views, HTML invoice templates) for the same document types can often reuse that work. Teams whose documents exist only as ESC/P or ZPL command streams must rebuild templates from scratch. The resulting PDF-based pipeline typically has better testability, broader format support, and a path to compliance features that were unavailable with a raw-print-only approach.</p>
+
+<p><em>For teams that have transitioned from raw-print workflows to PDF-based document pipelines — how did you handle printers that required command-language input rather than PDF?</em></p>

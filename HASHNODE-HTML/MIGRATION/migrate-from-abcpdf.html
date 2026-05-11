@@ -1,0 +1,847 @@
+<!-- FRONTMATTER
+  title: Migrating from ABCpdf to IronPDF: a .NET engineering guide
+  subtitle: API mapping, gotchas, and a migration checklist
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-abcpdf/
+  description: A practical migration reference for .NET developers switching from ABCpdf to IronPDF — API mapping, rendering differences, and a migration checklist.
+  published: False
+-->
+
+<h1>Migrating from ABCpdf to IronPDF: a .NET engineering guide</h1>
+
+<p class="subtitle"><em>API mapping, gotchas, and a migration checklist</em></p>
+
+<h2>Framing</h2>
+
+<p>PDF generation in .NET has historically involved a narrow field of commercial libraries, each with distinct rendering philosophies, licensing models, and API surface areas. Teams periodically re-evaluate their PDF stack for a range of reasons: a library reaching end-of-life, a shift in .NET target framework requirements, changes in rendering fidelity expectations, or a need to consolidate dependencies across a polyglot codebase. These evaluations are rarely triggered by a single failure — they tend to accumulate over time as workarounds pile up or as application requirements drift away from what the chosen library was originally designed to handle.</p>
+
+<p>ABCpdf occupies a defined segment of that landscape. It has been commercially available for many years, accumulates a meaningful install base in enterprise .NET environments, and its v13.x line updated in January 2026 signals continued active maintenance. Teams running ABCpdf-based workloads today are typically doing so on deliberately stable infrastructure, which means that any migration decision carries non-trivial regression risk and deserves careful scoping before any code changes begin.</p>
+
+<p>This guide is structured for .NET engineers who have been asked to evaluate or execute a migration from ABCpdf to IronPDF. It covers architectural differences, an effort-graded operation mapping, concrete code comparisons, a breaking-change inventory, and a checklist-level cutover plan. It is intended to remain useful regardless of whether the migration is ultimately approved.</p>
+
+<h2>What ABCpdf Is Designed to Do</h2>
+
+<p>ABCpdf is a .NET PDF library produced by WebSupergoo. Its primary capability is HTML-to-PDF rendering backed by a Chromium-based engine, combined with a document manipulation API that covers merge, split, stamping, form-filling, and text extraction. The library targets .NET Framework 2.0 and later, and it installs via NuGet. Version 13.4.1, released January 2026, is the current stable release.</p>
+
+<p>The integration model follows a Doc object pattern: callers instantiate a <code>Doc</code> object, configure rendering properties, add content (HTML string, URL, or file path), and then save or export the resulting PDF. The object holds mutable state across operations, so a single <code>Doc</code> instance can accumulate pages from multiple sources before being serialized. Cleanup is handled through explicit <code>Clear()</code> calls or by disposing the Doc object. The primary use case is not publicly documented, but the library is commonly cited in enterprise reporting, invoice generation, and document automation contexts that require faithful HTML rendering.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>IronPDF also uses a Chromium-based rendering engine and targets the same core problem space — turning HTML, CSS, and JavaScript into production-quality PDFs within .NET applications. The architectural differences are concentrated in how the two libraries structure their API surface and manage object lifetimes.</p>
+
+<p>IronPDF's main entry point for rendering is the <code>IronPdf.ChromePdfRenderer</code> class. Rather than a stateful document object that accumulates content, the renderer is configured once and then called to produce discrete <code>PdfDocument</code> instances per render operation. Each <code>PdfDocument</code> implements <code>IDisposable</code> and should be wrapped in a <code>using</code> block. This is a meaningful departure from ABCpdf's mutable <code>Doc</code> model: multi-source documents in IronPDF are assembled by rendering each source independently and then merging the resulting <code>PdfDocument</code> objects via the <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split API</a>, rather than by appending to a single stateful object.</p>
+
+<p>IronPDF installs as a NuGet package and resolves its Chromium dependency automatically. There is no separate binary download step on Windows. On Linux and macOS, additional system dependencies may be required depending on the host environment</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>Direct functional equivalent; rendering options differ in naming</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderUrlAsPdf()</code></td>
+      <td>Both use Chromium; JS execution behavior may differ slightly</td>
+    </tr>
+    <tr>
+      <td>Local HTML file to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlFileAsPdf()</code></td>
+      <td>File path handling; verify base URL resolution behavior</td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>ABCpdf uses Doc append model; IronPDF uses explicit merge call</td>
+    </tr>
+    <tr>
+      <td>Split / extract pages</td>
+      <td>Low</td>
+      <td><code>PdfDocument.CopyPages()</code></td>
+      <td>API differs; logic is straightforward to port</td>
+    </tr>
+    <tr>
+      <td>Add headers/footers</td>
+      <td>Medium</td>
+      <td><code>ChromePdfRenderOptions.HtmlHeader</code> / <code>HtmlFooter</code></td>
+      <td>ABCpdf header model differs; HTML-based approach in IronPDF</td>
+    </tr>
+    <tr>
+      <td>Fill PDF forms</td>
+      <td>Medium</td>
+      <td><code>PdfDocument.Form.Fields</code></td>
+      <td>Field access API differs; test all field types</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Medium</td>
+      <td><code>PdfSignature</code> API</td>
+      <td>Certificate and timestamp handling should be verified</td>
+    </tr>
+    <tr>
+      <td>Stamping text/images</td>
+      <td>Medium</td>
+      <td><code>IronPdf.Stamping.*</code></td>
+      <td>Coordinate systems and units may differ</td>
+    </tr>
+    <tr>
+      <td>Text extraction</td>
+      <td>Medium</td>
+      <td><code>PdfDocument.ExtractAllText()</code></td>
+      <td>Accuracy depends on source PDF structure</td>
+    </tr>
+    <tr>
+      <td>Encryption / passwords</td>
+      <td>Medium</td>
+      <td><code>PdfDocument.SecuritySettings</code></td>
+      <td>Permission flag mapping may not be 1:1</td>
+    </tr>
+    <tr>
+      <td>Watermarking</td>
+      <td>Medium</td>
+      <td><code>IronPdf.Stamping.WatermarkStamper</code></td>
+      <td>Opacity, positioning model differs</td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance output</td>
+      <td>High</td>
+      <td><code>PdfDocument.SaveAsPdfA()</code></td>
+      <td>Conformance level options differ; refer to the official documentation</td>
+    </tr>
+    <tr>
+      <td>Custom fonts / web fonts</td>
+      <td>Medium</td>
+      <td>Chromium resolves fonts; verify font availability on server</td>
+      <td>Both depend on system/Chromium font resolution</td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>Low</td>
+      <td><code>RenderHtmlAsPdfAsync()</code></td>
+      <td>IronPDF async is idiomatic <code>Task</code>-based</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>HTML String to PDF</h3>
+
+<h4>ABCpdf — HTML String to PDF</h4>
+
+<pre><code class="language-csharp">using WebSupergoo.ABCpdf13;
+
+// ABCpdf uses a mutable Doc object pattern
+var doc = new Doc();
+doc.HtmlOptions.Engine = EngineType.Chrome;
+doc.HtmlOptions.Media = MediaType.Screen;
+
+// Add HTML content — AddImageHtml returns an ID used for multi-page rendering
+int id = doc.AddImageHtml(&quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;p&gt;Content here.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+
+// Loop to add additional pages if content overflows
+while (true)
+{
+    doc.FrameRect();
+    if (!doc.Chainable(id)) break;
+    doc.Page = doc.AddPage();
+    id = doc.AddImageToChain(id);
+}
+
+doc.Save(&quot;output.pdf&quot;);
+doc.Clear(); // Explicit cleanup required</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>The <code>AddImageHtml</code> / <code>AddImageToChain</code> chaining pattern is unique to ABCpdf and has no direct equivalent.</li>
+
+  <li><code>doc.HtmlOptions</code> exposes Chromium-specific settings (viewport, media type, JS timeout) that must be re-mapped.</li>
+
+  <li><code>doc.Clear()</code> must be called explicitly or the native resources are not freed.</li>
+
+  <li>Multi-page rendering requires the chain loop; IronPDF handles pagination automatically.</li>
+
+</ul>
+
+<h4>IronPDF — HTML String to PDF</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// Configure once; renderer is reusable across calls
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 15;
+renderer.RenderingOptions.MarginBottom = 15;
+
+// RenderHtmlAsPdf returns a PdfDocument — wrap in using for deterministic cleanup
+using var pdf = renderer.RenderHtmlAsPdf(
+    &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;p&gt;Content here.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;
+);
+
+pdf.SaveAs(&quot;output.pdf&quot;);
+// PdfDocument is disposed at end of using block — no manual Clear() needed</code></pre>
+
+<p>IronPDF paginates the rendered HTML automatically according to the configured paper size and margins. Full rendering option documentation is available in the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> and the <a href="https://ironpdf.com/how-to/rendering-options/">rendering options reference</a>.</p>
+
+<h3>URL to PDF</h3>
+
+<h4>ABCpdf — URL to PDF</h4>
+
+<pre><code class="language-csharp">using WebSupergoo.ABCpdf13;
+
+var doc = new Doc();
+doc.HtmlOptions.Engine = EngineType.Chrome;
+doc.HtmlOptions.AddLinks = true;
+
+// AddImageUrl fetches and renders the remote page
+int id = doc.AddImageUrl(&quot;https://example.com/report&quot;);
+
+while (true)
+{
+    doc.FrameRect();
+    if (!doc.Chainable(id)) break;
+    doc.Page = doc.AddPage();
+    id = doc.AddImageToChain(id);
+}
+
+doc.Save(&quot;output.pdf&quot;);
+doc.Clear();</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li><code>HtmlOptions.AddLinks</code> controls hyperlink retention; verify equivalent in IronPDF.</li>
+
+  <li>Network timeouts and authentication for protected URLs require separate configuration.</li>
+
+  <li>The same chain-loop pattern applies as with HTML string rendering.</li>
+
+</ul>
+
+<h4>IronPDF — URL to PDF</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// RenderUrlAsPdf fetches the URL and renders with the Chromium engine
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://example.com/report&quot;);
+
+pdf.SaveAs(&quot;output.pdf&quot;);</code></pre>
+
+<p>IronPDF's URL rendering supports JavaScript-heavy pages, custom HTTP headers, and login cookies — details in the <a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF guide</a>. For pages requiring authentication, request headers and cookies can be set on <code>RenderingOptions</code> before the call.</p>
+
+<h3>Merging PDFs</h3>
+
+<h4>ABCpdf — Merging PDFs</h4>
+
+<pre><code class="language-csharp">using WebSupergoo.ABCpdf13;
+
+// ABCpdf appends pages from a second document into the first Doc object
+var doc = new Doc();
+doc.Read(&quot;document1.pdf&quot;);
+
+var doc2 = new Doc();
+doc2.Read(&quot;document2.pdf&quot;);
+
+// Append all pages from doc2 into doc
+for (int i = 1; i &lt;= doc2.PageCount; i++)
+{
+    doc.PageNumber = doc.AddPage(); // Add new page to target doc
+    // Copy page content from source
+}
+
+doc.Save(&quot;merged.pdf&quot;);
+doc.Clear();
+doc2.Clear();</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>ABCpdf's merge approach is page-by-page append into a mutable Doc; this is error-prone if page indices are miscalculated.</li>
+
+  <li>Content fidelity (fonts, embedded resources) during copy should be validated on representative samples.</li>
+
+  <li>Both Doc objects must be explicitly cleared.</li>
+
+</ul>
+
+<h4>IronPDF — Merging PDFs</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// Load both source documents
+using var pdf1 = PdfDocument.FromFile(&quot;document1.pdf&quot;);
+using var pdf2 = PdfDocument.FromFile(&quot;document2.pdf&quot;);
+
+// Merge returns a new PdfDocument containing all pages in order
+using var merged = PdfDocument.Merge(pdf1, pdf2);
+
+merged.SaveAs(&quot;merged.pdf&quot;);
+// All three PdfDocument objects are disposed at end of using blocks</code></pre>
+
+<p>The <code>PdfDocument.Merge()</code> method accepts a params array of <code>PdfDocument</code> objects, so N-way merges are a single call. Splitting by page range is covered in the <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split documentation</a>.</p>
+
+<h3>Adding Headers and Footers</h3>
+
+<h4>ABCpdf — Headers and Footers</h4>
+
+<p>ABCpdf's header and footer model is typically implemented by rendering header/footer content as page elements using stamp or HTML overlay techniques. The exact API varies by version</p>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>Headers/footers are not a declarative first-class setting; they require post-processing per page.</li>
+
+  <li>Page number tokens and dynamic content require manual interpolation.</li>
+
+  <li>Approach is sensitive to page margin configuration.</li>
+
+</ul>
+
+<h4>IronPDF — Headers and Footers</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Editing;
+
+var renderer = new ChromePdfRenderer();
+
+// HtmlHeaderFooter supports full HTML/CSS, including dynamic tokens
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    Height = 20,  // millimeters
+    HtmlFragment = &quot;&lt;div style='font-size:9px; color:#555;'&gt;&quot; +
+                   &quot;Confidential — Page {page} of {total-pages}&lt;/div&gt;&quot;,
+    DrawDividerLine = true
+};
+
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    Height = 15,
+    HtmlFragment = &quot;&lt;div style='font-size:8px; text-align:center;'&gt;&quot; +
+                   &quot;Generated {date}&lt;/div&gt;&quot;
+};
+
+using var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;html&gt;&lt;body&gt;&lt;p&gt;Body content.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+pdf.SaveAs(&quot;with-header-footer.pdf&quot;);</code></pre>
+
+<p>IronPDF's header/footer system supports <code>{page}</code>, <code>{total-pages}</code>, <code>{date}</code>, and <code>{time}</code> tokens out of the box. Full options and HTML examples are in the <a href="https://ironpdf.com/how-to/headers-and-footers/">headers and footers guide</a>.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>ABCpdf Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>Doc</code> object</td>
+      <td><code>ChromePdfRenderer</code> + <code>PdfDocument</code></td>
+      <td>Renderer is stateless; PdfDocument holds the result</td>
+    </tr>
+    <tr>
+      <td><code>doc.AddImageHtml(html)</code></td>
+      <td><code>renderer.RenderHtmlAsPdf(html)</code></td>
+      <td>No chain loop needed</td>
+    </tr>
+    <tr>
+      <td><code>doc.AddImageUrl(url)</code></td>
+      <td><code>renderer.RenderUrlAsPdf(url)</code></td>
+      <td>Both Chromium-backed</td>
+    </tr>
+    <tr>
+      <td><code>doc.AddImageToChain(id)</code></td>
+      <td>Not applicable</td>
+      <td>IronPDF paginates automatically</td>
+    </tr>
+    <tr>
+      <td><code>doc.FrameRect()</code></td>
+      <td>Not applicable</td>
+      <td>Pagination is internal</td>
+    </tr>
+    <tr>
+      <td><code>doc.HtmlOptions.Engine</code></td>
+      <td>Chromium is the only engine</td>
+      <td>No engine selection needed</td>
+    </tr>
+    <tr>
+      <td><code>doc.HtmlOptions.Media</code></td>
+      <td><code>RenderingOptions.CssMediaType</code></td>
+      <td>Screen vs Print mode</td>
+    </tr>
+    <tr>
+      <td><code>doc.HtmlOptions.BrowserWidth</code></td>
+      <td><code>RenderingOptions.ViewportWidth</code></td>
+      <td>Units may differ</td>
+    </tr>
+    <tr>
+      <td><code>doc.Save(path)</code></td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td>Straightforward</td>
+    </tr>
+    <tr>
+      <td><code>doc.GetData()</code></td>
+      <td><code>pdf.Stream.ToArray()</code> or <code>pdf.BinaryData</code></td>
+      <td>Byte array export</td>
+    </tr>
+    <tr>
+      <td><code>doc.AddPage()</code></td>
+      <td>Not directly needed; use <code>PdfDocument.Merge()</code></td>
+      <td>Different assembly model</td>
+    </tr>
+    <tr>
+      <td><code>doc.PageCount</code></td>
+      <td><code>pdf.PageCount</code></td>
+      <td>Same semantics</td>
+    </tr>
+    <tr>
+      <td><code>doc.Form</code></td>
+      <td><code>pdf.Form.Fields</code></td>
+      <td>Form field access differs; verify field type handling</td>
+    </tr>
+    <tr>
+      <td><code>doc.SetInfo(…)</code></td>
+      <td><code>pdf.MetaData.*</code></td>
+      <td>Metadata property names differ</td>
+    </tr>
+    <tr>
+      <td><code>doc.Encryption</code></td>
+      <td><code>pdf.SecuritySettings</code></td>
+      <td>Permission flags differ</td>
+    </tr>
+    <tr>
+      <td><code>doc.AddImageFile(path)</code></td>
+      <td><code>renderer.RenderHtmlFileAsPdf(path)</code></td>
+      <td>HTML file rendering</td>
+    </tr>
+    <tr>
+      <td><code>doc.Append(doc2)</code></td>
+      <td><code>PdfDocument.Merge(pdf1, pdf2)</code></td>
+      <td>Explicit merge call</td>
+    </tr>
+    <tr>
+      <td><code>doc.DeletePage(n)</code></td>
+      <td><code>pdf.RemovePage(n)</code></td>
+      <td><a href="https://ironpdf.com/how-to/add-copy-delete-pages-pdf/">Add/copy/delete pages</a></td>
+    </tr>
+    <tr>
+      <td><code>doc.ExtractText()</code></td>
+      <td><code>pdf.ExtractAllText()</code></td>
+      <td>Accuracy varies by PDF structure</td>
+    </tr>
+    <tr>
+      <td><code>doc.Stamp(…)</code></td>
+      <td><code>IronPdf.Stamping.*</code></td>
+      <td><a href="https://ironpdf.com/how-to/stamp-text-image/">Stamp text/image guide</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>Disposal model</strong>: ABCpdf uses <code>doc.Clear()</code> for cleanup; IronPDF uses <code>IDisposable</code> / <code>using</code> blocks on <code>PdfDocument</code>. Porting without adding <code>using</code> statements will cause memory and resource leaks.</li>
+
+  <li><strong>No chain loop</strong>: The <code>AddImageHtml</code> / <code>AddImageToChain</code> / <code>Chainable</code> pattern has no equivalent. All rendering in IronPDF produces a complete multi-page PDF in a single call.</li>
+
+  <li><strong>Namespace changes</strong>: ABCpdf lives under <code>WebSupergoo.ABCpdf13.<em></code>; IronPDF lives under <code>IronPdf.</em></code>. A project-wide namespace search-and-replace is required before compilation.</li>
+
+  <li><strong><code>Doc</code> is not <code>PdfDocument</code></strong>: The stateful <code>Doc</code> aggregation pattern must be replaced with a render-then-merge workflow. Code that appends to a <code>Doc</code> in a loop must be restructured.</li>
+
+  <li><strong>Rendering options naming</strong>: <code>HtmlOptions</code> properties in ABCpdf do not map 1:1 to <code>RenderingOptions</code> in IronPDF. Each option (viewport width, CSS media type, JS timeout) needs individual verification.</li>
+
+  <li><strong>Page coordinate systems</strong>: ABCpdf uses PDF user-space coordinates (points, origin bottom-left); IronPDF stamping uses a similar system but verify units and origin for any positional stamping code.</li>
+
+  <li><strong>Thread safety</strong>: <code>ChromePdfRenderer</code> instances should not be shared across threads without verification. Creating a renderer per operation or per request is the documented safe pattern.</li>
+
+  <li><strong>Linux/macOS dependencies</strong>: IronPDF's Chromium dependency on non-Windows platforms requires system libraries (libglib, libnss, etc.). Containerized deployments must account for this in the base image</li>
+
+  <li><strong>License initialization order</strong>: <code>IronPdf.License.LicenseKey</code> must be set before the first render call. Late initialization causes a watermark to appear on output. See the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>PDF/A output</strong>: ABCpdf's PDF/A support and IronPDF's <code>SaveAsPdfA()</code> target different conformance levels by default</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>ABCpdf v13.4.1</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active development</td>
+      <td>Yes (Jan 2026)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Framework support</td>
+      <td>2.0+</td>
+      <td>4.6.2+</td>
+      <td>Verify current minimum in official documentation</td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+ support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering Engine</strong></td>
+    </tr>
+    <tr>
+      <td>Chromium-based engine</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HTML string rendering</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL rendering</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Local HTML file rendering</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Yes</td>
+      <td><a href="https://ironpdf.com/how-to/javascript-to-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS3 support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Responsive CSS</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/html-to-pdf-responsive-css/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/webfonts-webicons/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/SVGs/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content Creation</strong></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Yes</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom margins</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page numbers</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Bookmarks</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Table of contents</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Add / remove pages</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation / rotation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Compress PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Watermarking</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Stamping (text/image)</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Annotations</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Find and replace text</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Extract text</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Extract images</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Forms</strong></td>
+    </tr>
+    <tr>
+      <td>Fill PDF forms</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Create PDF forms</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password encryption</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Permission flags</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HSM signing</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF redaction</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF sanitize</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>Async API</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Parallel processing</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom logging</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Docker / container support</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Audit current ABCpdf usage</strong>: Enumerate all <code>Doc</code>, <code>HtmlOptions</code>, <code>AddImageHtml</code>, <code>AddImageToChain</code>, and <code>Chainable</code> call sites. Document every option being set on <code>HtmlOptions</code> — these all need mapping.</li>
+
+  <li><strong>Install IronPDF via NuGet</strong>: <code>dotnet add package IronPdf</code>. Remove the ABCpdf NuGet reference only after the new implementation compiles and passes tests.</li>
+
+  <li><strong>Configure the license key</strong>: Add <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> to application startup — <code>Program.cs</code>, <code>Startup.cs</code>, or equivalent — before any render calls. Refer to the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>Update namespaces</strong>: Replace <code>using WebSupergoo.ABCpdf13;</code> with <code>using IronPdf;</code> and <code>using IronPdf.Rendering;</code> as needed. Expect compilation errors to guide the remaining work.</li>
+
+  <li><strong>Replace rendering calls</strong>: Swap <code>doc.AddImageHtml(html)</code> + chain loop → <code>renderer.RenderHtmlAsPdf(html)</code>. Swap <code>doc.AddImageUrl(url)</code> → <code>renderer.RenderUrlAsPdf(url)</code>. Remove all <code>AddImageToChain</code>, <code>Chainable</code>, and <code>FrameRect</code> calls.</li>
+
+  <li><strong>Remap rendering options</strong>: For each <code>doc.HtmlOptions.<em></code> property, find the corresponding <code>RenderingOptions.</em></code> property. Prioritize: paper size, margins, viewport width, CSS media type, JS timeout, and any custom headers/footers.</li>
+
+  <li><strong>Update disposal pattern</strong>: Replace <code>doc.Clear()</code> calls with <code>using var pdf = ...</code> blocks. Ensure every <code>PdfDocument</code> and <code>ChromePdfRenderer</code> that is not singleton is wrapped in a <code>using</code> statement.</li>
+
+  <li><strong>Replace document assembly code</strong>: Any code that loops appending pages to a <code>Doc</code> must be refactored to render each source independently, then call <code>PdfDocument.Merge()</code>.</li>
+
+  <li><strong>Validate security and form features</strong>: Re-test password protection, permission flags, and form-fill operations explicitly — these API surfaces differ and the differences may not surface as compile-time errors.</li>
+
+  <li><strong>Run regression tests against known-good PDFs</strong>: Compare output visually and structurally (page count, font rendering, image fidelity) against reference PDFs produced by ABCpdf. Automate this comparison if volume justifies it.</li>
+
+  <li><strong>Test on all deployment targets</strong>: If the application runs on Linux or in Docker, validate the IronPDF Chromium dependency resolution in those environments before promoting to production.</li>
+
+  <li><strong>Remove ABCpdf NuGet reference</strong>: Once all tests pass, remove the ABCpdf package reference and perform a final build and test pass.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on ABCpdf is technically reasonable</h3>
+
+<p>ABCpdf is actively maintained, with a January 2026 release, and teams on stable .NET Framework deployments with working PDF generation workflows have limited technical motivation to migrate. If the existing ABCpdf integration covers the required feature set and the cost of regression risk outweighs the benefit of standardization, staying is a defensible choice. The library's Chromium-based engine means rendering fidelity is broadly comparable for standard HTML/CSS content.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>Migration becomes worth scoping when any of these conditions are present: the application is moving to a .NET version or deployment platform (Linux, container) where ABCpdf support is uncertain or limited; the team needs features that ABCpdf does not expose (HSM signing, PDF/UA, advanced async patterns); or the organization is consolidating its third-party dependency portfolio and prefers a library with a unified API across PDF, OCR, XL, and barcode processing.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>The most labor-intensive part of the migration is eliminating the <code>Doc</code> mutation pattern and the <code>AddImageHtml</code>/<code>AddImageToChain</code> chain loop. Once those are replaced with <code>ChromePdfRenderer.RenderHtmlAsPdf()</code> and <code>PdfDocument.Merge()</code>, the remaining work — options remapping, disposal pattern updates, namespace changes — is mechanical. A medium-complexity ABCpdf integration typically requires two to five engineering days to port and validate, assuming representative regression test cases exist before the migration begins.</p>
+
+<p>What aspects of the ABCpdf rendering configuration has your team found most difficult to replicate in other libraries?</p>

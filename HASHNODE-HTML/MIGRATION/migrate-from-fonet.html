@@ -1,0 +1,922 @@
+<!-- FRONTMATTER
+  title: Migrating from FO.NET to IronPDF: the .NET migration reference
+  subtitle: technical depth for .NET teams evaluating a PDF library switch
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-fonet/
+  description: A migration reference for .NET teams moving off FO.NET: what maps to IronPDF, what changes at the API level, and how to complete the switch.
+  published: False
+-->
+
+<h1>Migrating from FO.NET to IronPDF: the .NET migration reference</h1>
+
+<p class="subtitle"><em>technical depth for .NET teams evaluating a PDF library switch</em></p>
+
+<h2>Framing</h2>
+
+<p>XSL-FO (XSL Formatting Objects) was the W3C's answer to document generation in the early 2000s. The pipeline is declarative: an XSLT stylesheet transforms source XML data into an XSL-FO document, and an FO processor renders that document to PDF. For organizations that had already invested in XML-based document pipelines — publishing systems, regulated reporting, documentation toolchains — XSL-FO represented a standards-compliant, vendor-neutral approach to PDF generation. Libraries like FO.NET brought this pipeline into .NET applications without requiring a Java-based FO processor.</p>
+
+<p>That landscape has changed significantly. XSL-FO has not received a W3C specification update since 2006. The browser ecosystem's evolution toward HTML5 and CSS3 made HTML/CSS the dominant language for document layout, and Chromium-based PDF renderers have made that language available server-side with high fidelity. Teams maintaining XSL-FO pipelines today are typically doing so because the pipeline was built when it was the right architectural choice and has not been revisited since — not because XSL-FO offers ongoing advantages over HTML/CSS for the same use cases.</p>
+
+<p>FO.NET specifically is a .NET port of the Apache FOP (Formatting Objects Processor) project. It has been discontinued for a significant period — the last release should be verified, but the library has not received active maintenance in many years and does not support modern .NET targets. This guide is for .NET engineers evaluating or executing a migration from FO.NET (or any XSL-FO-based pipeline) to IronPDF. The migration is classified as Low effort at the code level — the FO.NET API surface is small and the IronPDF replacement calls are straightforward — but Medium-to-High in total effort because the XSL-FO document definitions and XSLT transformations must be redesigned as HTML/CSS templates.</p>
+
+<h2>What FO.NET Is Designed to Do</h2>
+
+<p>FO.NET is a discontinued .NET library that implements a subset of the XSL-FO 1.0 specification. It is a port of the Apache FOP project and processes XSL-FO XML documents to produce PDF output. The library is not an HTML renderer — it has no Chromium engine, no CSS parser, and no HTML input capability. It reads XSL-FO XML (typically produced by running an XSLT transformation over source XML data) and renders the declared formatting objects — blocks, inlines, tables, lists, page sequences — to PDF according to the XSL-FO specification.</p>
+
+<p>The last release version and any .NET Framework version support should be verified in official documentation or the project repository, but FO.NET is known to have last been actively maintained targeting .NET Framework 2.x or 3.x and does not support .NET Core, .NET 5, or later targets. The install footprint is a managed .NET assembly with no native binary dependencies — which is architecturally consistent with other Apache FOP ports. The primary use case is document generation in systems already structured around XML data and XSLT transformations, where an XSL-FO pipeline was the natural fit at the time of adoption.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>FO.NET and IronPDF approach document generation from fundamentally different starting points. FO.NET processes XSL-FO XML — a declarative, XML-native document description language — and renders it to PDF through a rules-based formatting engine. IronPDF renders HTML/CSS through an embedded Chromium engine. Both produce PDF output, but the input format, the authoring workflow, and the toolchain are entirely different.</p>
+
+<p>In the FO.NET pipeline, a typical call sequence involves feeding an XSL-FO stream to the processor and receiving a PDF output stream. IronPDF's equivalent is passing an HTML string to <code>ChromePdfRenderer.RenderHtmlAsPdf()</code> and receiving a <code>PdfDocument</code>. The key architectural implication is that migrating from FO.NET does not require migrating an API — it requires replacing the document definition format. The XSL-FO templates and associated XSLT transformations must become HTML/CSS templates with C# data binding. This is where the migration effort concentrates.</p>
+
+<p>IronPDF's <code>PdfDocument</code> implements <code>IDisposable</code> and must be wrapped in a <code>using</code> block. FO.NET produces output by writing to a <code>Stream</code> — disposal follows the stream's lifecycle. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers IronPDF's rendering configuration including paper size, margins, headers/footers, and JavaScript execution. License initialization is a one-time startup call via <code>IronPdf.License.LicenseKey</code>; see the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>XSL-FO to PDF conversion</td>
+      <td>High</td>
+      <td>HTML/CSS template + <code>ChromePdfRenderer</code></td>
+      <td>FO templates must be redesigned as HTML/CSS</td>
+    </tr>
+    <tr>
+      <td>XSLT transformation step</td>
+      <td>High</td>
+      <td>C# data binding to HTML template</td>
+      <td>XSLT pipeline replaced by C# templating (Razor, Scriban, etc.)</td>
+    </tr>
+    <tr>
+      <td>Output to stream</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAs()</code> / <code>pdf.BinaryData</code></td>
+      <td>FO.NET writes to <code>Stream</code>; IronPDF returns <code>PdfDocument</code></td>
+    </tr>
+    <tr>
+      <td>Page size configuration</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td>FO.NET uses <code>fo:simple-page-master</code> in XML</td>
+    </tr>
+    <tr>
+      <td>Margin configuration</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.MarginTop/Bottom/Left/Right</code></td>
+      <td>Both in mm equivalents</td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Medium</td>
+      <td><code>RenderingOptions.HtmlHeader/HtmlFooter</code></td>
+      <td>FO.NET uses <code>fo:static-content</code> regions</td>
+    </tr>
+    <tr>
+      <td>Page numbering</td>
+      <td>Low</td>
+      <td><code>{page}</code> / <code>{total-pages}</code> tokens</td>
+      <td>FO.NET uses <code>fo:page-number</code> formatting objects</td>
+    </tr>
+    <tr>
+      <td>Tables</td>
+      <td>Medium</td>
+      <td>HTML <code>&lt;table&gt;</code> in CSS</td>
+      <td>FO.NET tables have explicit column widths and keep-together semantics</td>
+    </tr>
+    <tr>
+      <td>Running headers (repeating table headers)</td>
+      <td>Medium</td>
+      <td>CSS <code>thead</code> with <code>display:table-header-group</code></td>
+      <td>FO.NET uses <code>fo:table-header</code></td>
+    </tr>
+    <tr>
+      <td>Merge / split PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>Not in FO.NET scope</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Low</td>
+      <td><code>PdfSignature</code></td>
+      <td>Not in FO.NET scope</td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAsPdfA()</code></td>
+      <td>Not in FO.NET scope</td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+ support</td>
+      <td>Low</td>
+      <td>Supported</td>
+      <td>FO.NET does not support modern .NET</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>FO-to-PDF Pipeline (Full Pattern)</h3>
+
+<h4>FO.NET — XSL-FO to PDF</h4>
+
+<pre><code class="language-csharp">using System.IO;
+using System.Xml;
+using Fonet; // FO.NET assembly
+
+// FO.NET processes XSL-FO XML and writes PDF to a stream
+// The XSL-FO XML is typically the output of an XSLT transformation over source data
+
+// Step 1: Produce the XSL-FO XML from source data via XSLT
+// (XSLT transformation using System.Xml.Xsl.XslCompiledTransform — not shown)
+// Result: foXml contains valid XSL-FO markup
+
+string foXml = ProduceFoXmlFromData(GetInvoiceData());
+
+// Step 2: Feed XSL-FO to FO.NET processor and write PDF to stream
+using var outputStream = new MemoryStream();
+
+// FonetDriver is the FO.NET entry point
+// in official documentation as the API is sparse and not widely documented
+var driver = FonetDriver.Make();
+driver.CloseOnExit = true;
+
+using var foReader = new XmlTextReader(new StringReader(foXml));
+driver.Render(foReader, outputStream);
+
+byte[] pdfBytes = outputStream.ToArray();
+
+// ---
+
+static string ProduceFoXmlFromData(object data)
+{
+    // XSLT transformation produces XSL-FO XML from source data
+    // This step (XslCompiledTransform) must be replaced along with FO.NET
+    return @&quot;&lt;?xml version='1.0'?&gt;
+&lt;fo:root xmlns:fo='http://www.w3.org/1999/XSL/Format'&gt;
+  &lt;fo:layout-master-set&gt;
+    &lt;fo:simple-page-master master-name='A4'
+        page-width='210mm' page-height='297mm'
+        margin-top='20mm' margin-bottom='20mm'
+        margin-left='15mm' margin-right='15mm'&gt;
+      &lt;fo:region-body margin-top='25mm' margin-bottom='20mm'/&gt;
+      &lt;fo:region-before extent='20mm'/&gt;
+      &lt;fo:region-after extent='15mm'/&gt;
+    &lt;/fo:simple-page-master&gt;
+  &lt;/fo:layout-master-set&gt;
+  &lt;fo:page-sequence master-reference='A4'&gt;
+    &lt;fo:static-content flow-name='xsl-region-before'&gt;
+      &lt;fo:block font-size='9pt' text-align='right'&gt;Invoice Header&lt;/fo:block&gt;
+    &lt;/fo:static-content&gt;
+    &lt;fo:static-content flow-name='xsl-region-after'&gt;
+      &lt;fo:block font-size='8pt' text-align='center'&gt;
+        Page &lt;fo:page-number/&gt; of &lt;fo:page-number-citation ref-id='last-page'/&gt;
+      &lt;/fo:block&gt;
+    &lt;/fo:static-content&gt;
+    &lt;fo:flow flow-name='xsl-region-body'&gt;
+      &lt;fo:block font-size='18pt' font-weight='bold'&gt;Invoice #1042&lt;/fo:block&gt;
+      &lt;fo:block id='last-page'/&gt;
+    &lt;/fo:flow&gt;
+  &lt;/fo:page-sequence&gt;
+&lt;/fo:root&gt;&quot;;
+}
+
+static object GetInvoiceData() =&gt; new { };</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>FO.NET's <code>FonetDriver</code> API is minimal</li>
+
+  <li>XSL-FO XML must be valid according to the XSL-FO 1.0 specification. FO.NET implements a subset; unsupported formatting objects are silently skipped or may throw.</li>
+
+  <li>The XSLT transformation step (producing FO XML from data XML) is a separate concern — both the XSLT transformation and the FO processing must be replaced during migration.</li>
+
+  <li>FO.NET does not support .NET Core or any .NET 5+ target. Applications must remain on .NET Framework to continue using FO.NET.</li>
+
+  <li>Error handling and logging in FO.NET are minimal — rendering failures may produce empty or truncated PDFs without a meaningful exception.</li>
+
+</ul>
+
+<h4>IronPDF — HTML/CSS Equivalent</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Editing;
+
+// The XSL-FO pipeline is replaced by:
+// 1. An HTML/CSS template (replaces the XSL-FO document definition)
+// 2. C# data binding (replaces the XSLT transformation)
+// 3. IronPDF rendering (replaces FO.NET processing)
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 25;    // Matches fo:region-body margin-top (25mm)
+renderer.RenderingOptions.MarginBottom = 20;
+renderer.RenderingOptions.MarginLeft = 15;
+renderer.RenderingOptions.MarginRight = 15;
+
+// fo:static-content (header region) → HtmlHeaderFooter
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    Height = 12,
+    HtmlFragment = &quot;&lt;div style='font-size:9pt; text-align:right; font-family:Arial;'&gt;&quot; +
+                   &quot;Invoice Header&lt;/div&gt;&quot;,
+    DrawDividerLine = false
+};
+
+// fo:region-after with fo:page-number → HtmlFooter with {page} tokens
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    Height = 10,
+    HtmlFragment = &quot;&lt;div style='font-size:8pt; text-align:center; font-family:Arial;'&gt;&quot; +
+                   &quot;Page {page} of {total-pages}&lt;/div&gt;&quot;
+};
+
+// fo:flow (body content) → HTML body, built from data in C#
+var invoiceData = GetInvoiceData();
+string html = BuildInvoiceHtml(invoiceData);
+
+using var pdf = renderer.RenderHtmlAsPdf(html);
+byte[] pdfBytes = pdf.BinaryData;
+
+static object GetInvoiceData() =&gt;
+    new { Number = &quot;1042&quot;, CustomerName = &quot;Acme Corp&quot;, Total = 1599.00m };
+
+static string BuildInvoiceHtml(dynamic data) =&gt; $@&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+&lt;style&gt;
+  body {{ font-family: Arial, sans-serif; font-size: 11pt; }}
+  h1 {{ font-size: 18pt; font-weight: bold; }}
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;h1&gt;Invoice #{data.Number}&lt;/h1&gt;
+  &lt;p&gt;Customer: {data.CustomerName}&lt;/p&gt;
+  &lt;p&gt;&lt;strong&gt;Total: {data.Total:C}&lt;/strong&gt;&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;</code></pre>
+
+<p>The FO.NET pipeline's three distinct steps (source data → XSLT → XSL-FO → FO.NET → PDF) compress to two in IronPDF: data binding to HTML in C#, and HTML rendering to PDF. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers rendering configuration. For documents with complex multi-page table layouts, the <a href="https://ironpdf.com/how-to/html-to-pdf-page-breaks/">page breaks guide</a> covers CSS <code>page-break-<em></code> and <code>break-</em></code> properties that replace XSL-FO's <code>keep-together</code> and <code>break-before</code> attributes.</p>
+
+<h3>Tables with Repeating Headers</h3>
+
+<h4>FO.NET — Tables with fo:table-header</h4>
+
+<pre><code class="language-xml">&lt;!-- XSL-FO table with repeating header across pages --&gt;
+&lt;!-- This markup is embedded in the fo:flow of the XSL-FO document --&gt;
+
+&lt;fo:table table-layout=&quot;fixed&quot; width=&quot;100%&quot;&gt;
+  &lt;fo:table-column column-width=&quot;60mm&quot;/&gt;
+  &lt;fo:table-column column-width=&quot;40mm&quot;/&gt;
+  &lt;fo:table-column column-width=&quot;30mm&quot;/&gt;
+
+  &lt;!-- fo:table-header repeats on each page automatically --&gt;
+  &lt;fo:table-header&gt;
+    &lt;fo:table-row background-color=&quot;#eeeeee&quot;&gt;
+      &lt;fo:table-cell padding=&quot;3mm&quot; border=&quot;0.5pt solid black&quot;&gt;
+        &lt;fo:block font-weight=&quot;bold&quot;&gt;Description&lt;/fo:block&gt;
+      &lt;/fo:table-cell&gt;
+      &lt;fo:table-cell padding=&quot;3mm&quot; border=&quot;0.5pt solid black&quot;&gt;
+        &lt;fo:block font-weight=&quot;bold&quot;&gt;Qty&lt;/fo:block&gt;
+      &lt;/fo:table-cell&gt;
+      &lt;fo:table-cell padding=&quot;3mm&quot; border=&quot;0.5pt solid black&quot;&gt;
+        &lt;fo:block font-weight=&quot;bold&quot;&gt;Amount&lt;/fo:block&gt;
+      &lt;/fo:table-cell&gt;
+    &lt;/fo:table-row&gt;
+  &lt;/fo:table-header&gt;
+
+  &lt;fo:table-body&gt;
+    &lt;!-- Data rows generated by XSLT for-each --&gt;
+    &lt;fo:table-row&gt;
+      &lt;fo:table-cell padding=&quot;3mm&quot;&gt;
+        &lt;fo:block&gt;Consulting Services&lt;/fo:block&gt;
+      &lt;/fo:table-cell&gt;
+      &lt;fo:table-cell padding=&quot;3mm&quot;&gt;
+        &lt;fo:block&gt;10&lt;/fo:block&gt;
+      &lt;/fo:table-cell&gt;
+      &lt;fo:table-cell padding=&quot;3mm&quot;&gt;
+        &lt;fo:block&gt;$1,500.00&lt;/fo:block&gt;
+      &lt;/fo:table-cell&gt;
+    &lt;/fo:table-row&gt;
+  &lt;/fo:table-body&gt;
+&lt;/fo:table&gt;</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>XSL-FO column widths are explicit and expressed in absolute units (mm, pt, percentage). HTML CSS <code>table-layout: fixed</code> with explicit <code>width</code> on <code>&lt;col&gt;</code> or <code>&lt;td&gt;</code> elements provides equivalent control.</li>
+
+  <li><code>fo:table-header</code> repeats automatically on each page. The HTML/CSS equivalent is <code>&lt;thead&gt;</code> with <code>display: table-header-group</code> — supported in Chromium's PDF rendering.</li>
+
+  <li>XSL-FO <code>keep-together.within-page="always"</code> (preventing row splits across pages) has no direct CSS equivalent; <code>page-break-inside: avoid</code> on <code>&lt;tr&gt;</code> is the closest approximation and behavior varies.</li>
+
+</ul>
+
+<h4>IronPDF — HTML Table with Repeating Header</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 15;
+renderer.RenderingOptions.MarginBottom = 15;
+
+string html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+&lt;style&gt;
+  body { font-family: Arial, sans-serif; font-size: 11pt; }
+  table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+  col.desc  { width: 60%; }
+  col.qty   { width: 20%; }
+  col.amt   { width: 20%; }
+  /* thead repeats automatically on each page in Chromium PDF rendering */
+  thead tr  { background: #eee; }
+  th, td    { padding: 4px 8px; border: 0.5pt solid #aaa; }
+  /* Attempt to keep rows intact — behavior varies */
+  tbody tr  { page-break-inside: avoid; }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;table&gt;
+    &lt;colgroup&gt;
+      &lt;col class='desc'/&gt;&lt;col class='qty'/&gt;&lt;col class='amt'/&gt;
+    &lt;/colgroup&gt;
+    &lt;thead&gt;
+      &lt;tr&gt;&lt;th&gt;Description&lt;/th&gt;&lt;th&gt;Qty&lt;/th&gt;&lt;th&gt;Amount&lt;/th&gt;&lt;/tr&gt;
+    &lt;/thead&gt;
+    &lt;tbody&gt;
+      &lt;tr&gt;&lt;td&gt;Consulting Services&lt;/td&gt;&lt;td&gt;10&lt;/td&gt;&lt;td&gt;$1,500.00&lt;/td&gt;&lt;/tr&gt;
+      &lt;!-- Additional rows populated from C# data binding --&gt;
+    &lt;/tbody&gt;
+  &lt;/table&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs(&quot;invoice-table.pdf&quot;);</code></pre>
+
+<p>Chromium's PDF rendering repeats <code>&lt;thead&gt;</code> automatically on each page. Column widths are expressed as CSS percentages or absolute lengths. The <a href="https://ironpdf.com/how-to/html-to-pdf-page-breaks/">page breaks guide</a> covers <code>page-break-inside</code>, <code>break-before</code>, and CSS fragmentation behavior in detail.</p>
+
+<h3>Page Sequence Configuration</h3>
+
+<h4>FO.NET — Page Layout via fo:simple-page-master</h4>
+
+<pre><code class="language-xml">&lt;!-- XSL-FO page layout definition — replaces CSS @page and RenderingOptions --&gt;
+&lt;fo:layout-master-set&gt;
+  &lt;fo:simple-page-master
+      master-name=&quot;letter-landscape&quot;
+      page-width=&quot;279mm&quot;
+      page-height=&quot;216mm&quot;
+      margin-top=&quot;15mm&quot;
+      margin-bottom=&quot;15mm&quot;
+      margin-left=&quot;20mm&quot;
+      margin-right=&quot;20mm&quot;&gt;
+    &lt;fo:region-body margin-top=&quot;20mm&quot; margin-bottom=&quot;15mm&quot;/&gt;
+    &lt;fo:region-before extent=&quot;20mm&quot;/&gt;
+    &lt;fo:region-after extent=&quot;15mm&quot;/&gt;
+  &lt;/fo:simple-page-master&gt;
+&lt;/fo:layout-master-set&gt;
+
+&lt;fo:page-sequence master-reference=&quot;letter-landscape&quot;&gt;
+  &lt;!-- page content here --&gt;
+&lt;/fo:page-sequence&gt;</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li><code>fo:simple-page-master</code> encodes page dimensions, orientation, and all margin regions in the document definition itself. In IronPDF, this configuration moves entirely to <code>RenderingOptions</code> properties set on the renderer before the render call.</li>
+
+  <li>Multiple page masters (e.g., first page differently sized, subsequent pages normal) require <code>fo:page-sequence-master</code> in XSL-FO. The HTML/CSS equivalent uses CSS <code>@page :first</code> and <code>@page</code> selectors; verify Chromium's support for these in <code>PrintCssMediaType</code> mode.</li>
+
+  <li>FO.NET's page dimensions accept any XSL-FO unit (mm, cm, in, pt, px). IronPDF's <code>RenderingOptions.PaperSize</code> accepts enum values or a <code>PdfCustomPaperSize</code> for non-standard sizes.</li>
+
+</ul>
+
+<h4>IronPDF — Page Layout via RenderingOptions</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// All fo:simple-page-master configuration maps to RenderingOptions properties
+var renderer = new ChromePdfRenderer();
+
+// Letter landscape: 279mm × 216mm
+renderer.RenderingOptions.CustomPaperSizeInMillimeters(279, 216);
+renderer.RenderingOptions.PaperOrientation = IronPdf.Rendering.PdfPaperOrientation.Landscape;
+
+// Margins (outer page margins — equivalent to fo:simple-page-master margin-*)
+renderer.RenderingOptions.MarginTop = 15;    // mm
+renderer.RenderingOptions.MarginBottom = 15;
+renderer.RenderingOptions.MarginLeft = 20;
+renderer.RenderingOptions.MarginRight = 20;
+
+// Region-before (header) and region-after (footer) → HtmlHeaderFooter
+renderer.RenderingOptions.HtmlHeader = new IronPdf.Editing.HtmlHeaderFooter
+{
+    Height = 15,  // Equivalent to region-before extent
+    HtmlFragment = &quot;&lt;div style='font-size:9pt;'&gt;Header content&lt;/div&gt;&quot;
+};
+
+using var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;html&gt;&lt;body&gt;&lt;p&gt;Body&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+pdf.SaveAs(&quot;letter-landscape.pdf&quot;);</code></pre>
+
+<p>Custom paper sizes are documented in the <a href="https://ironpdf.com/how-to/custom-paper-size/">custom paper size guide</a>. Landscape orientation, page rotation, and per-page orientation changes are covered in the <a href="https://ironpdf.com/how-to/page-orientation-rotation/">page orientation guide</a>.</p>
+
+<h3>Multi-Column Layouts</h3>
+
+<h4>FO.NET — Multi-Column via fo:region-body</h4>
+
+<pre><code class="language-xml">&lt;!-- XSL-FO multi-column layout using column-count on fo:region-body --&gt;
+&lt;fo:simple-page-master master-name=&quot;two-column&quot;
+    page-width=&quot;210mm&quot; page-height=&quot;297mm&quot;
+    margin=&quot;15mm&quot;&gt;
+  &lt;fo:region-body column-count=&quot;2&quot; column-gap=&quot;8mm&quot;/&gt;
+&lt;/fo:simple-page-master&gt;</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>XSL-FO multi-column layout is declared at the page master level — the entire body flows in two (or more) columns. HTML/CSS uses <code>column-count</code> on the body or a container element.</li>
+
+  <li>XSL-FO column balance (balancing the last page's columns) uses <code>fox:column-fill="balance"</code> (Apache extension). CSS uses <code>column-fill: balance</code>.</li>
+
+  <li>Column spans in XSL-FO require <code>span="all"</code> on a block. HTML/CSS uses <code>column-span: all</code>.</li>
+
+</ul>
+
+<h4>IronPDF — HTML/CSS Multi-Column Layout</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 15;
+renderer.RenderingOptions.MarginLeft = 15;
+renderer.RenderingOptions.MarginRight = 15;
+renderer.RenderingOptions.MarginBottom = 15;
+
+// CSS column-count replaces fo:region-body column-count
+string html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+&lt;style&gt;
+  body { font-family: Arial, sans-serif; font-size: 10pt; }
+  h1   { column-span: all; font-size: 16pt; margin-bottom: 12px; }
+  .content {
+    column-count: 2;
+    column-gap: 8mm;
+    column-fill: balance;
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;h1&gt;Newsletter Title&lt;/h1&gt;
+  &lt;div class='content'&gt;
+    &lt;p&gt;First column content flows here automatically...&lt;/p&gt;
+    &lt;p&gt;Text continues and wraps to the second column...&lt;/p&gt;
+  &lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs(&quot;two-column.pdf&quot;);</code></pre>
+
+<p>CSS multi-column layout is fully supported by Chromium. Behavior for <code>column-span</code>, <code>column-fill</code>, and column breaks should be validated against the specific Chromium version embedded in IronPDF, as edge cases in fragmentation behavior vary.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>FO.NET / XSL-FO Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>FonetDriver.Make()</code></td>
+      <td><code>new ChromePdfRenderer()</code></td>
+      <td>FO.NET driver → IronPDF renderer instance</td>
+    </tr>
+    <tr>
+      <td><code>driver.Render(reader, stream)</code></td>
+      <td><code>renderer.RenderHtmlAsPdf(html)</code></td>
+      <td>Input format changes: XSL-FO XML → HTML</td>
+    </tr>
+    <tr>
+      <td><code>fo:simple-page-master</code></td>
+      <td><code>RenderingOptions.PaperSize</code> + <code>Margin*</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>fo:region-body</code> margins</td>
+      <td><code>RenderingOptions.MarginTop/Bottom/Left/Right</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>fo:region-before</code> (header)</td>
+      <td><code>RenderingOptions.HtmlHeader</code></td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Headers and footers guide</a></td>
+    </tr>
+    <tr>
+      <td><code>fo:region-after</code> (footer)</td>
+      <td><code>RenderingOptions.HtmlFooter</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>fo:page-number</code></td>
+      <td><code>{page}</code> token</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>fo:page-number-citation</code> (total)</td>
+      <td><code>{total-pages}</code> token</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>fo:block</code></td>
+      <td><code>&lt;div&gt;</code>, <code>&lt;p&gt;</code>, <code>&lt;h*&gt;</code> HTML elements</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>fo:inline</code></td>
+      <td><code>&lt;span&gt;</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>fo:table</code> / <code>fo:table-column</code></td>
+      <td><code>&lt;table&gt;</code> / <code>&lt;col&gt;</code> / CSS <code>table-layout:fixed</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>fo:table-header</code></td>
+      <td><code>&lt;thead&gt;</code></td>
+      <td>Repeats on each page in Chromium</td>
+    </tr>
+    <tr>
+      <td><code>fo:table-body</code></td>
+      <td><code>&lt;tbody&gt;</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>fo:list-block</code> / <code>fo:list-item</code></td>
+      <td><code>&lt;ul&gt;</code> / <code>&lt;ol&gt;</code> / <code>&lt;li&gt;</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>fo:external-graphic</code></td>
+      <td><code>&lt;img&gt;</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>column-count</code> on region-body</td>
+      <td>CSS <code>column-count</code> on container</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>XSLT transformation step</td>
+      <td>C# data binding to HTML template</td>
+      <td>Razor, Scriban, Fluid, or string interpolation</td>
+    </tr>
+    <tr>
+      <td>Output stream (from <code>driver.Render</code>)</td>
+      <td><code>pdf.BinaryData</code> / <code>pdf.SaveAs()</code></td>
+      <td><a href="https://ironpdf.com/how-to/pdf-memory-stream/">Memory stream guide</a></td>
+    </tr>
+    <tr>
+      <td>No manipulation API</td>
+      <td><code>PdfDocument.Merge()</code>, <code>PdfSignature</code>, etc.</td>
+      <td>New capabilities after migration</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>Input format is entirely different</strong>: FO.NET accepts XSL-FO XML. IronPDF accepts HTML. There is no automated conversion between XSL-FO and HTML — every document template must be redesigned. This is the dominant effort item, even though the FO.NET API call itself is trivial to replace.</li>
+
+  <li><strong>XSLT transformation step is also replaced</strong>: A typical FO.NET pipeline runs XSLT over source XML to produce XSL-FO XML, then feeds that to FO.NET. Both the XSLT transformation and the FO.NET call must be replaced. The new approach uses C# templating (Razor, Scriban, Fluid, or string interpolation) to produce HTML from a C# data model.</li>
+
+  <li><strong>FO.NET does not support modern .NET</strong>: FO.NET targets .NET Framework 2.x/3.x. It cannot be used in .NET Core, .NET 5, or later projects. This is typically the forcing function for migration rather than an optional improvement.</li>
+
+  <li><strong><code>PdfDocument</code> is <code>IDisposable</code></strong>: FO.NET writes to a <code>Stream</code> you provide; no disposal is required on FO.NET's part. IronPDF's <code>RenderHtmlAsPdf()</code> returns a <code>PdfDocument</code> that implements <code>IDisposable</code>. Every <code>PdfDocument</code> must be in a <code>using</code> block.</li>
+
+  <li><strong>Error handling changes</strong>: FO.NET's error behavior on malformed XSL-FO is inconsistent — it may produce truncated output without a meaningful exception. IronPDF throws typed .NET exceptions for rendering failures and provides structured logging via <code>IronPdf.Logging</code>. Update error handling and alerting accordingly.</li>
+
+  <li><strong>Namespace replacement</strong>: Remove all FO.NET using directives. Replace with <code>using IronPdf;</code>. Compile errors guide the remaining work.</li>
+
+  <li><strong>License key required</strong>: <code>IronPdf.License.LicenseKey</code> must be set at startup before any render call. FO.NET is open-source with no license key requirement. Omitting IronPDF's key produces watermarked output.</li>
+
+  <li><strong>Column widths change from absolute to relative</strong>: XSL-FO tables express column widths in absolute units (mm, pt). HTML tables work best with relative widths (percentages) when targeting variable-width containers — but in PDF rendering, the page width is fixed, so absolute units (<code>px</code> or <code>mm</code> via CSS) are also viable.</li>
+
+  <li><strong>Multi-page table header behavior</strong>: XSL-FO's <code>fo:table-header</code> repeats on every page by specification. HTML's <code>&lt;thead&gt;</code> behavior in PDF rendering depends on the rendering engine. In Chromium (IronPDF), <code>&lt;thead&gt;</code> repeats correctly — but test with large tables to confirm.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>FO.NET</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active development</td>
+      <td>Discontinued</td>
+      <td>Yes</td>
+      <td>FO.NET has not been maintained for years</td>
+    </tr>
+    <tr>
+      <td>.NET Framework support</td>
+      <td>Yes (legacy, 2.x/3.x)</td>
+      <td>4.6.2+</td>
+      <td>FO.NET targets very old .NET Framework</td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+ support</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>Critical gap for modern .NET</td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>Yes (Apache FOP port)</td>
+      <td>No (commercial)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Input Format</strong></td>
+    </tr>
+    <tr>
+      <td>HTML input</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>XSL-FO input</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL input</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering</strong></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/javascript-to-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS3 / modern web</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>Partial</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content & Layout</strong></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Yes (fo:static-content)</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Yes</a></td>
+      <td>Different model</td>
+    </tr>
+    <tr>
+      <td>Multi-column layout</td>
+      <td>Yes (fo:region-body)</td>
+      <td>Yes (CSS)</td>
+      <td>Different specification</td>
+    </tr>
+    <tr>
+      <td>Page numbers</td>
+      <td>Yes (fo:page-number)</td>
+      <td>Yes (<code>{page}</code> token)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Total pages</td>
+      <td>Yes (fo:page-number-citation)</td>
+      <td>Yes (<code>{total-pages}</code> token)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Bookmarks</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Table of contents</td>
+      <td>Via XSL-FO constructs</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Compress PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Watermarking</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Forms</strong></td>
+    </tr>
+    <tr>
+      <td>Fill PDF forms</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password encryption</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>Yes (write to Stream)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom logging</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux support</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Docker / container</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Inventory all XSL-FO templates and XSLT stylesheets</strong>: List every FO template in use, the XSLT transformations that produce them, the source XML data structure, and the document output characteristics (paper size, columns, header/footer content). This inventory is the template redesign scope.</li>
+
+  <li><strong>Select a C# HTML templating approach</strong>: Choose how HTML will be generated from data — Razor (compile-time validated, IntelliSense), Scriban (runtime-editable, Liquid-like), Fluid (Liquid, open source), or C# string interpolation (simple templates). This replaces the XSLT transformation step.</li>
+
+  <li><strong>Redesign FO templates as HTML/CSS</strong>: For each FO template, produce an HTML/CSS equivalent. Use <code>fo:simple-page-master</code> dimensions to set <code>RenderingOptions</code> values. Convert <code>fo:table</code> to HTML <code>&lt;table&gt;</code>. Convert <code>fo:static-content</code> regions to <code>HtmlHeaderFooter</code>. Validate each template in Chrome before testing with IronPDF.</li>
+
+  <li><strong>Install IronPDF via NuGet</strong>: <code>dotnet add package IronPdf</code>. Do not remove FO.NET references until replacement code is functional.</li>
+
+  <li><strong>Configure the license key at startup</strong>: Set <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> in <code>Program.cs</code> or application startup. See the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>Replace <code>FonetDriver.Render()</code> calls</strong>: For each FO.NET conversion call, replace with <code>renderer.RenderHtmlAsPdf(html)</code>. Wrap <code>PdfDocument</code> in a <code>using</code> block. Access bytes via <code>pdf.BinaryData</code> or save via <code>pdf.SaveAs()</code>.</li>
+
+  <li><strong>Map <code>fo:simple-page-master</code> to <code>RenderingOptions</code></strong>: Paper width/height → <code>PaperSize</code> or <code>CustomPaperSizeInMillimeters()</code>. Margins → <code>Margin*</code> properties. Orientation → <code>PaperOrientation</code>.</li>
+
+  <li><strong>Map <code>fo:static-content</code> regions to <code>HtmlHeaderFooter</code></strong>: Replace <code>fo:region-before</code> content with <code>RenderingOptions.HtmlHeader</code>. Replace <code>fo:region-after</code> content with <code>RenderingOptions.HtmlFooter</code>. Update page number syntax: <code>fo:page-number</code> → <code>{page}</code>, <code>fo:page-number-citation</code> → <code>{total-pages}</code>.</li>
+
+  <li><strong>Test multi-page table behavior</strong>: Render documents with large tables and verify that <code>&lt;thead&gt;</code> repeats on each page and that <code>page-break-inside: avoid</code> on rows behaves as expected.</li>
+
+  <li><strong>Remove FO.NET and XSLT dependencies</strong>: Once all templates are ported and output is validated, remove FO.NET assembly references and XSLT transformation code. Remove any XML document model code that existed solely to produce FO XML.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on FO.NET is technically reasonable</h3>
+
+<p>FO.NET is not technically reasonable for any new development. The library is discontinued, does not support modern .NET targets, and has no active maintenance path. The only case for staying on FO.NET is a .NET Framework application with stable, rarely-changed PDF output requirements that is not planning a runtime migration and where the cost of template redesign outweighs the risk of operating on unsupported tooling. This is a shrinking set of applications.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>The clearest signal is a .NET runtime migration — any application moving from .NET Framework to .NET Core, .NET 5, 6, 7, 8, or later cannot use FO.NET at all. Beyond that, migration is worth prioritizing when XSL-FO templates are difficult to maintain by the current team (few developers retain active XSL-FO expertise), when template changes require an XSLT specialist rather than a web developer, or when new document requirements involve modern CSS features that XSL-FO cannot express.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>The FO.NET code change itself is trivial — a handful of <code>FonetDriver</code> calls replaced with <code>ChromePdfRenderer</code> calls. The real work is in two other places: template redesign (FO XML → HTML/CSS, proportional to the number and complexity of document types) and data pipeline replacement (XSLT → C# templating, proportional to transformation complexity). For organizations with a small number of document types and simple data bindings, the migration is achievable in one to two focused sprints. For organizations with many document types and complex XSLT stylesheets, a phased migration — one document type at a time — is typically the lower-risk path.</p>
+
+<p>In your current FO.NET pipeline, how many distinct FO templates are actively in use — and of those, what proportion involve complex features like multi-column layout or conditional page masters that will require careful HTML/CSS equivalents?</p>

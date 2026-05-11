@@ -1,0 +1,861 @@
+<!-- FRONTMATTER
+  title: Migrating from FastReport to IronPDF: API mapping and migration checklist
+  subtitle: before-and-after code, risk assessment, and a migration checklist
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-wdone-fastreport/
+  description: Switching your .NET codebase from FastReport to IronPDF? This guide covers API equivalents, integration patterns, and the key decisions before going live.
+  published: False
+-->
+
+<h1>Migrating from FastReport to IronPDF: API mapping and migration checklist</h1>
+
+<p class="subtitle"><em>before-and-after code, risk assessment, and a migration checklist</em></p>
+
+<p># Migrating from FastReport to IronPDF: API mapping and migration checklist</p>
+
+<p>The original version of this article is published at <a href="https://ironsoftware.com/csharp/pdf/blog/migrate-from-wdone-fastreport/">https://ironsoftware.com/csharp/pdf/blog/migrate-from-wdone-fastreport/</a>.</p>
+
+<h2>Framing</h2>
+
+<p>Report-generation libraries occupy a different position in the .NET PDF ecosystem than general-purpose PDF manipulation libraries. They offer a designer-based workflow: a report template (usually in a proprietary XML format) is authored visually, bound to a data source at runtime, and rendered to PDF or another output format by a report engine. The appeal is that non-developer stakeholders can modify report layouts without touching application code, and complex banded layouts—headers, data bands, group footers, page totals—are handled by the engine rather than by application logic.</p>
+
+<p>FastReport is a long-established .NET report engine in this category, with versions spanning WinForms, ASP.NET, and .NET Core environments. Teams that adopted it typically did so when the reporting requirements were data-centric and layout-complex, and when the visual designer was a key productivity tool for the team or its business stakeholders. Migration conversations arise when platform requirements shift—Linux container deployment, .NET 6+ targets, microservice architectures—or when the team's document generation needs have evolved beyond the report-generation model toward HTML-template-driven workflows that are more natural for web-centric teams.</p>
+
+<p>The high migration effort designation for this transition reflects the depth of the FastReport integration rather than the complexity of any individual API. Teams often have large report template catalogs, data binding configurations that span multiple data sources, and custom expressions embedded in template files. Understanding the full scope of that integration is the essential first step.</p>
+
+<h2>What FastReport Is Designed To Do</h2>
+
+<p>FastReport is a report engine that generates paginated reports from banded templates bound to application data. Its architecture centers on an <code>frx</code> report template file (an XML format) that defines bands—report header, page header, data band, group header/footer, page footer, report summary—along with the objects placed within each band: text labels, data fields, images, charts, barcodes, and sub-reports. At runtime, the application loads a template, passes data objects (typically <code>DataSet</code>, <code>DataTable</code>, or custom objects), and calls the engine to execute the report, which iterates over the data and produces a paginated output document.</p>
+
+<p>FastReport distributions include a visual report designer (either as a standalone tool or embeddable in a WinForms or WPF application) that allows templates to be edited without recompiling the application. The engine supports exporting to PDF, HTML, Excel, RTF, and other formats. FastReport has separate product editions targeting .NET Framework, .NET Core, and ASP.NET Core; verify the current supported .NET versions, licensing model, and product naming in the official FastReport documentation, as the product family has evolved over time.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>IronPDF generates PDFs from HTML rather than from banded report templates. There is no report designer, no <code>frx</code> file format, and no concept of data bands. The application is responsible for constructing HTML output from its data—using a templating engine such as Razor, Scriban, Handlebars.NET, or direct string construction—and then passing that HTML to <code>ChromePdfRenderer</code>. The Chromium engine handles all layout, pagination, and typography.</p>
+
+<p>This is a meaningful architectural shift. In FastReport, the template is an artifact separate from the code; in an IronPDF workflow, the template is either a Razor view, a template file consumed by a templating library, or code that builds HTML strings. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF pipeline</a> covers the core rendering call; the <a href="https://ironpdf.com/how-to/rendering-options/">rendering options reference</a> covers paper size, margins, CSS media type, JavaScript behavior, and header/footer configuration.</p>
+
+<p>Disposal semantics are explicit: <code>PdfDocument</code> and <code>ChromePdfRenderer</code> implement <code>IDisposable</code> and should be wrapped in <code>using</code> blocks. FastReport's <code>Report</code> object also requires explicit disposal (it implements <code>IDisposable</code>); teams familiar with FastReport's disposal requirements will find IronPDF's model conceptually similar, though the specific call sites differ. IronPDF does not provide a visual designer or a data binding layer; those responsibilities shift entirely to the application.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Banded report layout (header/data/footer bands)</td>
+      <td>High</td>
+      <td>HTML template with CSS sections</td>
+      <td>No band concept; layout redesigned in HTML</td>
+    </tr>
+    <tr>
+      <td>Report template (frx file)</td>
+      <td>High</td>
+      <td>HTML template file</td>
+      <td>No format equivalent; full redesign</td>
+    </tr>
+    <tr>
+      <td>Data binding (DataSet / DataTable)</td>
+      <td>High</td>
+      <td>Application-layer template data injection</td>
+      <td>Data passed to template via C# code, not engine binding</td>
+    </tr>
+    <tr>
+      <td>Group headers / footers</td>
+      <td>High</td>
+      <td>CSS + HTML sectioning</td>
+      <td>Must be implemented in template logic</td>
+    </tr>
+    <tr>
+      <td>Page totals and running aggregates</td>
+      <td>High</td>
+      <td>Application-layer calculation before render</td>
+      <td>No in-engine expression evaluation</td>
+    </tr>
+    <tr>
+      <td>Report designer (visual edit)</td>
+      <td>High</td>
+      <td>Not applicable</td>
+      <td>No designer in IronPDF</td>
+    </tr>
+    <tr>
+      <td>Sub-reports</td>
+      <td>Medium</td>
+      <td>Partial HTML include or merge</td>
+      <td>No native sub-report concept</td>
+    </tr>
+    <tr>
+      <td>Cross-tab / matrix layout</td>
+      <td>High</td>
+      <td>HTML <code>&lt;table&gt;</code></td>
+      <td>Must be built in template</td>
+    </tr>
+    <tr>
+      <td>Charts in reports</td>
+      <td>Medium</td>
+      <td>HTML/JS charting library (Chart.js etc.)</td>
+      <td>No built-in chart objects</td>
+    </tr>
+    <tr>
+      <td>Barcodes in reports</td>
+      <td>Medium</td>
+      <td>HTML/JS or image generation</td>
+      <td>No built-in barcode objects</td>
+    </tr>
+    <tr>
+      <td>Page headers and footers</td>
+      <td>Medium</td>
+      <td><code>RenderingOptions.TextHeader/Footer</code></td>
+      <td>Similar capability; different API</td>
+    </tr>
+    <tr>
+      <td>PDF export format</td>
+      <td>Low</td>
+      <td>Default IronPDF output</td>
+      <td>All renders produce PDF</td>
+    </tr>
+    <tr>
+      <td>Digital signatures on output</td>
+      <td>Low</td>
+      <td><code>PdfSignature</code> + <code>PdfDocument.Sign()</code></td>
+      <td>FastReport PDF output unsigned by default</td>
+    </tr>
+    <tr>
+      <td>PDF/A archival output</td>
+      <td>Medium</td>
+      <td><code>PdfDocument.SaveAsPdfA()</code></td>
+      <td>Verify conformance level</td>
+    </tr>
+    <tr>
+      <td>Merge generated PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>After generation, merge is straightforward</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>Data-Bound Report to PDF</h3>
+
+<h4>FastReport — Data-Bound Report Execution:</h4>
+
+<p>FastReport renders a report by loading an <code>frx</code> template, registering data sources, and calling the render method. The engine handles iteration over data rows and band placement.</p>
+
+<pre><code class="language-csharp">// FastReport — data-bound report to PDF
+// Requires: FastReport.Net or FastReport.Core NuGet package
+using FastReport;
+using FastReport.Export.Pdf;
+
+// Load report template from file
+using var report = new Report();
+report.Load(&quot;SalesReport.frx&quot;);
+
+// Register data — DataTable, DataSet, or business object
+// report.RegisterData(dataTable, &quot;SalesData&quot;);
+// Alternatively, pass via Report.Dictionary.RegisterData
+report.Dictionary.RegisterData(salesDataTable, &quot;SalesData&quot;);
+
+// Prepare (execute data binding and layout engine)
+report.Prepare();
+
+// Export to PDF
+var pdfExport = new PDFExport();
+pdfExport.OpenAfterExport = false;
+report.Export(pdfExport, &quot;output.pdf&quot;);
+// Report implements IDisposable; using block handles disposal</code></pre>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>The <code>frx</code> template must be deployed alongside the application; template changes require a new deployment unless the designer is embedded in the application</li>
+
+  <li>Data binding requires matching registered data source names exactly to the names referenced in the template bands</li>
+
+  <li>Running totals, group aggregates, and cross-band expressions are evaluated by the engine; logic is in the template, not in application code</li>
+
+  <li>Report execution is synchronous; async rendering requires wrapping in <code>Task.Run()</code></li>
+
+</ul>
+
+<h4>IronPDF — Data-Bound HTML Template to PDF:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using System.Text;
+
+// Application is responsible for data retrieval
+// (previously handled by FastReport data binding)
+var salesData = await salesRepository.GetSalesDataAsync(reportParams);
+
+// Build HTML using any templating approach — Razor, Scriban, or string building
+// This example uses StringBuilder for clarity; Razor/Scriban is preferred for complex layouts
+var html = new StringBuilder();
+html.Append(@&quot;
+&lt;!DOCTYPE html&gt;&lt;html&gt;&lt;head&gt;
+&lt;style&gt;
+  body { font-family: Arial, sans-serif; font-size: 11px; margin: 30px; }
+  h2 { color: #1a3c5e; border-bottom: 1px solid #ccc; padding-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th { background: #1a3c5e; color: white; padding: 6px 8px; text-align: left; }
+  td { border-bottom: 1px solid #eee; padding: 5px 8px; }
+  .subtotal { font-weight: bold; background: #f5f5f5; }
+  .grand-total { font-weight: bold; background: #dce6f1; }
+&lt;/style&gt;&lt;/head&gt;&lt;body&gt;&quot;);
+
+html.Append($&quot;&lt;h2&gt;Sales Report — {salesData.Period}&lt;/h2&gt;&quot;);
+html.Append(&quot;&lt;table&gt;&lt;tr&gt;&lt;th&gt;Region&lt;/th&gt;&lt;th&gt;Product&lt;/th&gt;&lt;th&gt;Units&lt;/th&gt;&lt;th&gt;Revenue&lt;/th&gt;&lt;/tr&gt;&quot;);
+
+// Group aggregates calculated in C# before template render
+foreach (var group in salesData.LinesByRegion)
+{
+    foreach (var line in group.Lines)
+    {
+        html.Append($&quot;&lt;tr&gt;&lt;td&gt;{group.Region}&lt;/td&gt;&lt;td&gt;{line.Product}&lt;/td&gt;&quot; +
+                    $&quot;&lt;td&gt;{line.Units}&lt;/td&gt;&lt;td&gt;{line.Revenue:C}&lt;/td&gt;&lt;/tr&gt;&quot;);
+    }
+    // Group subtotal — calculated in application, not in template engine
+    html.Append($&quot;&lt;tr class='subtotal'&gt;&lt;td colspan='2'&gt;{group.Region} Subtotal&lt;/td&gt;&quot; +
+                $&quot;&lt;td&gt;{group.TotalUnits}&lt;/td&gt;&lt;td&gt;{group.TotalRevenue:C}&lt;/td&gt;&lt;/tr&gt;&quot;);
+}
+
+html.Append($&quot;&lt;tr class='grand-total'&gt;&lt;td colspan='2'&gt;Grand Total&lt;/td&gt;&quot; +
+            $&quot;&lt;td&gt;{salesData.GrandTotalUnits}&lt;/td&gt;&lt;td&gt;{salesData.GrandTotalRevenue:C}&lt;/td&gt;&lt;/tr&gt;&quot;);
+html.Append(&quot;&lt;/table&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.Letter;
+renderer.RenderingOptions.MarginTop = 20;
+renderer.RenderingOptions.MarginBottom = 20;
+
+using var pdf = renderer.RenderHtmlAsPdf(html.ToString());
+pdf.SaveAs($&quot;SalesReport_{salesData.Period}.pdf&quot;);</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers base URL configuration for templates that reference external CSS files or shared image assets. The key difference from FastReport's model is that aggregation logic—running totals, group subtotals, cross-band calculations—is now computed in application code before the HTML is constructed, rather than in template expressions evaluated by the report engine.</p>
+
+<h3>Page Headers and Footers</h3>
+
+<h4>FastReport — Page Headers and Footers:</h4>
+
+<p>FastReport templates define a <code>PageHeaderBand</code> and <code>PageFooterBand</code> that render at the top and bottom of every page. Objects within these bands can reference page number globals (<code>[Page#]</code>, <code>[TotalPages#]</code>) using FastReport's expression syntax.</p>
+
+<pre><code class="language-csharp">// FastReport header/footer are defined in the frx template XML, not in C# code.
+// The template designer places text objects with expressions:
+// - &quot;[Page#] of [TotalPages#]&quot; for page numbers
+// - &quot;[Date]&quot; for the report date
+// These expressions are evaluated at render time by the FastReport engine.
+// In C#, no additional code is needed for headers/footers if defined in the template.
+
+// However, dynamic header content (e.g., report title based on runtime data)
+// can be set via report parameters:
+using FastReport;
+
+using var report = new Report();
+report.Load(&quot;ReportWithHeader.frx&quot;);
+// Set a parameter that the header band text object references
+report.Parameters.FindByName(&quot;ReportTitle&quot;).Value = &quot;Q3 Sales Summary&quot;;
+report.Dictionary.RegisterData(data, &quot;SalesData&quot;);
+report.Prepare();
+// Export as before...</code></pre>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>Header/footer content is primarily controlled in the template, not in C#; changing header text requires designer access or direct XML editing of the <code>frx</code> file</li>
+
+  <li>Multi-line, image-containing, or complex-layout headers require drawing objects in the designer</li>
+
+  <li>Per-section headers (different header content for different report sections) require conditional band expressions</li>
+
+</ul>
+
+<h4>IronPDF — Page Headers and Footers:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Engines.Chrome;
+
+var renderer = new ChromePdfRenderer();
+
+// Text header with company name and dynamic date
+renderer.RenderingOptions.TextHeader = new TextHeaderFooter
+{
+    CenterText = &quot;ACME Corporation — Quarterly Sales Report&quot;,
+    DrawDividerLine = true,
+    FontSize = 9
+};
+
+// Footer with left-aligned date and right-aligned page numbers
+renderer.RenderingOptions.TextFooter = new TextHeaderFooter
+{
+    LeftText = &quot;Generated: {date}&quot;,
+    RightText = &quot;Page {page} of {total-pages}&quot;,
+    DrawDividerLine = true,
+    FontSize = 8
+};
+
+using var pdf = renderer.RenderHtmlAsPdf(reportHtml);
+pdf.SaveAs(&quot;report-with-headers.pdf&quot;);</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/headers-and-footers/">headers and footers guide</a> covers HTML-based header and footer objects for scenarios requiring logos, multi-column layout, or styled typography in headers and footers—capabilities that go beyond the text token model shown above.</p>
+
+<h3>Streaming PDF via ASP.NET</h3>
+
+<h4>FastReport — ASP.NET Core PDF Export:</h4>
+
+<p>FastReport has ASP.NET Core integration packages that allow report generation within an MVC controller. The report is executed and exported to a memory stream, then returned as a file response.</p>
+
+<pre><code class="language-csharp">// FastReport ASP.NET Core — conceptual outline
+// Verify exact package name and API for the ASP.NET Core edition
+using FastReport;
+using FastReport.Export.Pdf;
+using Microsoft.AspNetCore.Mvc;</code></pre>
+
+<p>[ApiController] public class ReportController : ControllerBase { [HttpGet("monthly-report")] public IActionResult GetMonthlyReport([FromQuery] string period) { using var report = new Report(); report.Load("MonthlyReport.frx"); // Register data, set parameters... report.Prepare();</p>
+
+<p>using var stream = new System.IO.MemoryStream(); var pdfExport = new PDFExport(); report.Export(pdfExport, stream); stream.Position = 0;</p>
+
+<p>return File(stream.ToArray(), "application/pdf", $"Report_{period}.pdf"); } }</p>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li><code>PDFExport</code> and <code>Report</code> both require disposal; ensure using blocks are correctly structured around the memory stream</li>
+
+  <li>The <code>frx</code> file must be accessible from the web application's file system; deployment packaging must include template files</li>
+
+  <li>Report execution is CPU-intensive; under concurrent load, thread-pool exhaustion can occur without careful async design</li>
+
+</ul>
+
+<h4>IronPDF — ASP.NET Core PDF Response:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using Microsoft.AspNetCore.Mvc;</code></pre>
+
+<p>[ApiController] [Route("reports")] public class ReportController : ControllerBase { private readonly ISalesRepository _salesRepository;</p>
+
+<p>public ReportController(ISalesRepository salesRepository) { _salesRepository = salesRepository; }</p>
+
+<p>[HttpGet("monthly")] public async Task<IActionResult> GetMonthlyReport([FromQuery] string period) { // Data retrieval — application's responsibility var data = await _salesRepository.GetMonthlyDataAsync(period);</p>
+
+<p>// HTML template construction (ideally via injected template engine) var html = BuildReportHtml(data);</p>
+
+<p>var renderer = new ChromePdfRenderer(); renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4; renderer.RenderingOptions.MarginTop = 20; renderer.RenderingOptions.MarginBottom = 20;</p>
+
+<p>// Async render — does not block thread pool using var pdf = await renderer.RenderHtmlAsPdfAsync(html);</p>
+
+<p>return File(pdf.BinaryData, "application/pdf", $"Report_{period}.pdf"); }</p>
+
+<p>private string BuildReportHtml(MonthlyData data) { // Template construction here return $"<html><body><h1>{data.Period} Report</h1></body></html>"; } }</p>
+
+<p>The async rendering API keeps request threads free while Chromium processes the render. This pattern replaces FastReport's synchronous export call with an awaitable operation, which improves throughput under concurrent load without the thread-pool management overhead of <code>Task.Run()</code> wrappers.</p>
+
+<h3>Digital Signatures on Report Output</h3>
+
+<h4>FastReport — Signing PDF Export:</h4>
+
+<p>FastReport's PDF export includes options for applying digital signatures to the generated output. The exact API depends on the edition and version; refer to the official documentation.</p>
+
+<pre><code class="language-csharp">// FastReport PDF signing — conceptual outline
+// Verify exact PDFExport properties in current documentation
+using FastReport;
+using FastReport.Export.Pdf;
+
+using var report = new Report();
+report.Load(&quot;Document.frx&quot;);
+report.Prepare();
+
+var pdfExport = new PDFExport();
+// Digital signature properties
+// pdfExport.Certificate = new X509Certificate2(&quot;cert.pfx&quot;, &quot;password&quot;);
+// pdfExport.Signed = true;
+
+report.Export(pdfExport, &quot;signed-output.pdf&quot;);</code></pre>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>Signature configuration is on the export object, not on a post-processing step; the signature is applied during render</li>
+
+  <li>Certificate management and hardware security module (HSM) support</li>
+
+  <li>Signing options are coupled to the export configuration; changing the certificate requires changing export configuration</li>
+
+</ul>
+
+<h4>IronPDF — Digital Signatures:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Signing;
+
+// Generate the report PDF first
+var renderer = new ChromePdfRenderer();
+using var pdf = renderer.RenderHtmlAsPdf(reportHtml);
+
+// Apply signature as a post-render step — decoupled from generation
+var signature = new PdfSignature(&quot;certificate.pfx&quot;, &quot;certPassword&quot;)
+{
+    SigningContact = &quot;approver@example.com&quot;,
+    SigningLocation = &quot;Chicago, IL&quot;,
+    SigningReason = &quot;Report certified&quot;
+};
+
+pdf.Sign(signature);
+pdf.SaveAs(&quot;certified-report.pdf&quot;);</code></pre>
+
+<p>Signatures are applied after rendering, which decouples certificate management from template configuration. The <a href="https://ironpdf.com/how-to/signing/">digital signatures guide</a> covers visible and invisible signature variants; for environments with hardware-backed certificates, the <a href="https://ironpdf.com/how-to/signing-pdf-with-hsm/">HSM signing guide</a> describes the integration approach.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>FastReport Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>new Report()</code></td>
+      <td><code>new ChromePdfRenderer()</code></td>
+      <td>Renderer is the entry point</td>
+    </tr>
+    <tr>
+      <td><code>report.Load("template.frx")</code></td>
+      <td>HTML template (string, file, or URL)</td>
+      <td>No equivalent template format</td>
+    </tr>
+    <tr>
+      <td><code>report.Dictionary.RegisterData()</code></td>
+      <td>Application-layer data injection to template</td>
+      <td>Data passed via template variables</td>
+    </tr>
+    <tr>
+      <td>Report parameters</td>
+      <td>Template variables / method parameters</td>
+      <td>Set in application code before render</td>
+    </tr>
+    <tr>
+      <td><code>report.Prepare()</code></td>
+      <td><code>renderer.RenderHtmlAsPdf()</code></td>
+      <td>Single-step render</td>
+    </tr>
+    <tr>
+      <td><code>PDFExport</code> / <code>report.Export()</code></td>
+      <td><code>PdfDocument.SaveAs()</code> or <code>BinaryData</code></td>
+      <td>Export is implicit in render result</td>
+    </tr>
+    <tr>
+      <td><code>PageHeaderBand</code></td>
+      <td><code>RenderingOptions.TextHeader</code> / HtmlHeader</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Headers and footers guide</a></td>
+    </tr>
+    <tr>
+      <td><code>PageFooterBand</code></td>
+      <td><code>RenderingOptions.TextFooter</code> / HtmlFooter</td>
+      <td>Token-based <code>{page}</code>, <code>{total-pages}</code></td>
+    </tr>
+    <tr>
+      <td><code>DataBand</code> (repeating rows)</td>
+      <td>HTML <code>&lt;tr&gt;</code> loop in template</td>
+      <td>Application builds the rows</td>
+    </tr>
+    <tr>
+      <td><code>GroupHeaderBand</code> / <code>GroupFooterBand</code></td>
+      <td>HTML section + application aggregation</td>
+      <td>Group logic in application code</td>
+    </tr>
+    <tr>
+      <td><code>ReportSummaryBand</code></td>
+      <td>Bottom of HTML template</td>
+      <td>Grand totals calculated in application</td>
+    </tr>
+    <tr>
+      <td><code>[Page#]</code> / <code>[TotalPages#]</code> expressions</td>
+      <td><code>{page}</code> / <code>{total-pages}</code> tokens</td>
+      <td>Syntax differs</td>
+    </tr>
+    <tr>
+      <td><code>[Date]</code> expression</td>
+      <td><code>{date}</code> token</td>
+      <td>Syntax differs</td>
+    </tr>
+    <tr>
+      <td>Sub-report object</td>
+      <td>Partial HTML include or <code>PdfDocument.Merge()</code></td>
+      <td>No native sub-report concept</td>
+    </tr>
+    <tr>
+      <td>Chart object</td>
+      <td>HTML/JS charting library (inline)</td>
+      <td>Rendered by Chromium JS engine</td>
+    </tr>
+    <tr>
+      <td>Barcode object</td>
+      <td>HTML barcode library or image</td>
+      <td>- IronPDF barcode support</td>
+    </tr>
+    <tr>
+      <td><code>PDFExport.Certificate</code> (signing)</td>
+      <td><code>PdfSignature</code> + <code>PdfDocument.Sign()</code></td>
+      <td>Post-render step</td>
+    </tr>
+    <tr>
+      <td><code>PDFExport.Compressed</code></td>
+      <td><code>PdfDocument.CompressImages()</code></td>
+      <td>- exact method</td>
+    </tr>
+    <tr>
+      <td>Multi-page output</td>
+      <td>Automatic via CSS pagination</td>
+      <td>Page breaks via CSS <code>page-break-*</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>No template format.</strong> Every FastReport <code>frx</code> template must be redesigned as an HTML template. There is no migration tool, no automated converter, and no format bridge. Treat each template as a new development task whose effort scales with the template's complexity. Templates with many bands, nested sub-reports, and complex expressions take longer than simple list reports.</li>
+
+  <li><strong>Data binding moves to the application.</strong> FastReport's data binding layer—<code>RegisterData</code>, dataset traversal, field references in expressions—is replaced by application code that fetches data and passes it to the template engine. This is a meaningful shift: running totals, group aggregates, and cross-band calculations that FastReport evaluates automatically must be computed in C# before HTML construction.</li>
+
+  <li><strong>No visual designer.</strong> Stakeholders who currently modify report layouts using the FastReport designer need a new workflow after migration. HTML/CSS templates in source control, accessible to developers, replace the designer. For organizations with non-developer report editors, this is a significant process change.</li>
+
+  <li><strong>Report expressions do not transfer.</strong> FastReport's expression language (<code>[DataSource.Field]</code>, <code>[Page#]</code>, built-in functions like <code>Sum()</code>, <code>Avg()</code>) has no equivalent in IronPDF. All expression logic must be reimplemented in application code or a template engine.</li>
+
+  <li><strong>Chromium binary dependencies.</strong> IronPDF ships native Chromium binaries. Linux container deployments require system packages for Chromium. This is a new deployment consideration.</li>
+
+  <li><strong><code>Report</code> disposal pattern similarity.</strong> FastReport's <code>Report</code> implements <code>IDisposable</code>. IronPDF's <code>PdfDocument</code> and <code>ChromePdfRenderer</code> also implement <code>IDisposable</code>. Teams familiar with the FastReport disposal pattern should apply the same discipline to IronPDF objects, but note that the specific objects requiring disposal are different.</li>
+
+  <li><strong>Async model.</strong> FastReport report execution is synchronous; IronPDF provides both synchronous and async rendering methods. ASP.NET Core applications should prefer <code>RenderHtmlAsPdfAsync()</code> to avoid blocking request threads.</li>
+
+  <li><strong>License key required.</strong> IronPDF requires a license key configured at startup. FastReport also has licensing requirements; migration includes provisioning the new license and removing the old one.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>FastReport</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Current maintenance status</td>
+      <td>Active</td>
+      <td>Actively maintained</td>
+      <td>Verify FastReport latest version</td>
+    </tr>
+    <tr>
+      <td>License</td>
+      <td>Commercial</td>
+      <td>Commercial</td>
+      <td>Both commercial</td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>No</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Support</strong></td>
+    </tr>
+    <tr>
+      <td>Commercial support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Community support</td>
+      <td>Forum / GitHub</td>
+      <td>GitHub Issues</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Documentation</td>
+      <td>Comprehensive</td>
+      <td>Comprehensive</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content Creation</strong></td>
+    </tr>
+    <tr>
+      <td>Banded report templates</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>FastReport differentiator</td>
+    </tr>
+    <tr>
+      <td>Visual report designer</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>Significant FastReport advantage</td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Data-bound template execution</td>
+      <td>Yes (built-in)</td>
+      <td>Via application code</td>
+      <td>Architecture difference</td>
+    </tr>
+    <tr>
+      <td>JavaScript in rendering</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS layout engine</td>
+      <td>No (banded)</td>
+      <td>Yes (Chromium)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>DOCX to PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Markdown to PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Sub-reports</td>
+      <td>Yes</td>
+      <td>Partial (merge/compose)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Charts (built-in)</td>
+      <td>Yes</td>
+      <td>No (use JS library)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Barcodes (built-in)</td>
+      <td>Yes</td>
+      <td>-</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Text extraction</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Form creation/filling</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Find and replace</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Redaction</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Annotations</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Watermark / stamp</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Headers and footers API</a></td>
+      <td>Band-based</td>
+      <td>API-based</td>
+      <td>Different model</td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password protection</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HSM signing</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/pdfa/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development & Maintenance</strong></td>
+    </tr>
+    <tr>
+      <td>.NET Framework support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Docker support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Thread safety</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Inventory the full template catalog.</strong> List every <code>frx</code> file in production. For each, record: band count, data source count, sub-report references, expression complexity, chart and barcode usage. This inventory is the foundation for the effort estimate.</li>
+
+  <li><strong>Categorize templates by migration complexity.</strong> Simple list reports with one data band are Low effort. Reports with multiple groups, running totals, sub-reports, charts, or complex expressions are High effort. Allocate development time accordingly.</li>
+
+  <li><strong>Plan data access migration.</strong> For each report's data sources, design corresponding data access methods in the application layer. FastReport's <code>RegisterData</code> pattern of passing <code>DataTable</code> or <code>DataSet</code> objects maps to service or repository methods that return typed objects or DTOs.</li>
+
+  <li><strong>Choose a templating engine.</strong> Select the HTML templating approach for new report templates: Razor (if already in use in the application), Scriban, Handlebars.NET, or direct string building. Consistency across templates reduces maintenance overhead.</li>
+
+  <li><strong>Install the IronPDF NuGet package.</strong> Run <code>dotnet add package IronPdf</code>. Verify runtime identifier coverage.</li>
+
+  <li><strong>Configure the license key.</strong> Set the IronPDF license key at application startup before any rendering calls. See the <a href="https://ironpdf.com/how-to/license-keys/">license key setup guide</a> for configuration options.</li>
+
+  <li><strong>Develop and validate HTML templates, report by report.</strong> Begin with the simplest reports. For each, implement the data access method, author the HTML template, and validate output against the FastReport reference. Proceed to more complex reports after simple ones are confirmed.</li>
+
+  <li><strong>Implement aggregation and grouping logic.</strong> All FastReport expression-based calculations (group subtotals, running totals, grand totals) must be implemented as application-level computations before the HTML template is constructed. Write and unit-test this logic independently of the rendering.</li>
+
+  <li><strong>Configure headers and footers.</strong> Replace <code>PageHeaderBand</code> and <code>PageFooterBand</code> with <code>RenderingOptions.TextHeader/Footer</code> or HTML header/footer objects. Map FastReport expression tokens to IronPDF's <code>{page}</code>, <code>{total-pages}</code>, <code>{date}</code> equivalents.</li>
+
+  <li><strong>Port signature and security configurations.</strong> If reports are currently signed or encrypted via <code>PDFExport</code> configuration, implement equivalent <code>PdfSignature</code> and <code>SecuritySettings</code> code as post-render steps on the <code>PdfDocument</code>.</li>
+
+  <li><strong>Update ASP.NET integration.</strong> Replace FastReport export streams with <code>pdf.BinaryData</code> returned to <code>FileContentResult</code>. Switch synchronous report execution to async render calls (<code>RenderHtmlAsPdfAsync()</code>).</li>
+
+  <li><strong>Decommission FastReport dependencies.</strong> After all templates are migrated and tested in production, remove the FastReport NuGet packages. Update deployment manifests to remove <code>frx</code> template file distribution requirements.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on FastReport is technically reasonable</h3>
+
+<p>FastReport remains a technically sound choice when the visual designer is a meaningful part of the team's workflow—particularly when report layout changes are made by non-developers who rely on the designer to modify templates without touching application code. The banded layout model is well-suited for complex paginated data reports with group headers, running totals, sub-reports, and built-in chart objects that would require significant HTML authoring effort to reproduce. If the template catalog is large, stable, and business-critical, and the current .NET version support is adequate, the migration cost is high relative to the operational risk of a large-scale template rewrite. FastReport's built-in chart and barcode objects are also genuine capabilities that require additional dependencies (charting libraries, barcode generators) to replicate in an HTML-based workflow.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>Migration becomes compelling when the team's development workflow is already HTML-centric—using Razor for web views, maintaining CSS design systems, building HTML email templates—and the FastReport model sits outside that workflow as an island. Teams that find themselves writing bridge code between application data models and FastReport's <code>DataSet</code>-centric binding model often accumulate technical debt in that layer. If the application is moving to Linux containers or a .NET version where the specific FastReport edition is not supported, that is a hard technical driver. Similarly, when the requirement has evolved from "generate a paginated data report" to "generate a richly formatted HTML document with some tabular data," the HTML rendering model is a more natural fit.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>The code-level migration has two distinct workstreams. The first is data plumbing: replacing FastReport's data binding with application-layer data access and passing results to a template engine. The second is template development: translating each <code>frx</code> band layout into an HTML/CSS template. The first workstream is mechanical and predictable; the second scales with the complexity of the template catalog. Teams that execute the migration report-by-report—keeping FastReport active for unmigrated reports while new HTML templates are developed and validated—tend to manage risk better than teams that attempt a simultaneous cutover of the entire catalog.</p>
+
+<p>As you evaluate this migration, how does the ratio of simple list reports to complex grouped/aggregated reports in your catalog affect your assessment of the total development effort?</p>

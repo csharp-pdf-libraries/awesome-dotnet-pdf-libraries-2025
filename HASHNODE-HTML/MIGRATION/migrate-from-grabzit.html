@@ -1,0 +1,805 @@
+<!-- FRONTMATTER
+  title: Migrating from GrabzIt to IronPDF: API mapping and migration checklist
+  subtitle: before-and-after code, risk assessment, and a migration checklist
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-grabzit/
+  description: Quick migration reference for .NET developers moving from GrabzIt to IronPDF — API mapping, key differences, and a concise migration checklist.
+  published: False
+-->
+
+<h1>Migrating from GrabzIt to IronPDF: API mapping and migration checklist</h1>
+
+<p class="subtitle"><em>before-and-after code, risk assessment, and a migration checklist</em></p>
+
+<h2>Framing</h2>
+
+<p>Cloud-based document generation APIs occupy a distinct niche in the .NET PDF landscape. Rather than shipping a rendering engine alongside the application, these services handle all rendering infrastructure on their end — the application sends content, receives a file back, and pays per request or per volume. GrabzIt is one of the more established services in this space, providing screenshot and PDF capture from URLs and HTML via an HTTP API with official .NET client SDKs. Teams choose this model to eliminate deployment concerns: no native binaries, no Chromium dependencies, no infrastructure to maintain.</p>
+
+<p>Re-evaluation of cloud PDF services follows familiar patterns. Per-request pricing that was negligible at low volume becomes visible as document generation scales. Sending HTML content containing business data to a third-party service raises data residency and confidentiality questions that grow harder to navigate under regulations like GDPR or sector-specific compliance requirements. Network round-trips add latency that compounds under concurrent load, and service availability becomes a dependency in the application's reliability calculus. When any of these factors tip past a threshold, teams begin evaluating whether an in-process rendering library would better serve the application's current operating model.</p>
+
+<p>This guide covers the migration from GrabzIt to IronPDF for .NET engineers evaluating or executing the switch. GrabzIt's .NET SDK targets .NET Standard 2.0, making it compatible across .NET Framework and .NET Core / .NET 5+ targets. IronPDF also supports .NET Standard 2.0 and above. The migration is classified as Low effort because both systems use Chromium for HTML rendering — output fidelity is highly consistent — and the conceptual operation (HTML in, PDF out) is identical. The migration work is replacing SDK API calls with in-process renderer calls and updating how results are handled.</p>
+
+<h2>What GrabzIt Is Designed to Do</h2>
+
+<p>GrabzIt is a commercial cloud service providing web capture capabilities: URL screenshots, HTML-to-image conversion, HTML-to-PDF conversion, web scraping, and video capture. Its .NET SDK (<code>GrabzIt.Client</code> on NuGet) wraps GrabzIt's HTTP API, handling authentication, request construction, and result retrieval. The .NET Standard 2.0 target makes the SDK compatible with both .NET Framework and modern .NET runtimes. The install footprint should be verified in official documentation, but the managed SDK has no native binary dependencies — all rendering work happens on GrabzIt's cloud infrastructure.</p>
+
+<p>The PDF-specific workflow in GrabzIt's .NET SDK involves creating a <code>GrabzItClient</code> with API credentials, calling <code>HTMLToPDF()</code> or <code>URLToPDF()</code> with options, and either saving to disk or retrieving bytes. GrabzIt's options model covers paper size, orientation, margins, page breaks, and JavaScript delay. The service handles Chromium rendering on its own servers and returns the completed PDF. GrabzIt's architecture is entirely asynchronous — results can be retrieved via callback URL or polled. The primary use case should be verified in official documentation, but GrabzIt is typically used for web archiving, report generation from URLs, and HTML-to-PDF export where infrastructure simplicity is the priority.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>GrabzIt and IronPDF share Chromium as the rendering engine — the same HTML and CSS that GrabzIt renders in its cloud infrastructure, IronPDF renders in-process in the application. The architectural difference is the boundary: GrabzIt renders remotely and the application receives bytes over HTTP; IronPDF renders locally and the application works with a <code>PdfDocument</code> object directly.</p>
+
+<p>IronPDF's two primary types are <code>ChromePdfRenderer</code> (for rendering HTML to PDF) and <code>PdfDocument</code> (for the resulting document and all manipulation operations). Both implement <code>IDisposable</code>. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers the full rendering configuration — paper size, margins, CSS media type, JavaScript execution, and web font handling — which replaces GrabzIt's <code>HTMLToPDFOptions</code>. The <a href="https://ironpdf.com/how-to/rendering-options/">rendering options reference</a> covers all available rendering parameters. License initialization is a one-time startup call via <code>IronPdf.License.LicenseKey</code>; see the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</p>
+
+<p>The shift from GrabzIt to IronPDF removes the network dependency entirely, changes the failure mode from HTTP errors to .NET exceptions, and makes post-render PDF operations (merge, sign, form-fill, encrypt) available without an additional library. It introduces a different operational consideration: IronPDF on Linux requires Chromium system library packages in the application container, whereas GrabzIt's managed SDK has no binary dependencies.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>Both Chromium; output fidelity consistent</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderUrlAsPdf()</code></td>
+      <td>GrabzIt: <code>URLToPDF()</code>; IronPDF: in-process</td>
+    </tr>
+    <tr>
+      <td>Paper size</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td>GrabzIt uses <code>PDFPageSize</code> enum</td>
+    </tr>
+    <tr>
+      <td>Orientation</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Margins</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.Margin*</code></td>
+      <td>Unit convention should be verified</td>
+    </tr>
+    <tr>
+      <td>JavaScript wait</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.WaitFor.RenderDelay()</code></td>
+      <td>GrabzIt: <code>BrowserWidth</code>, <code>JavaScriptTime</code> options</td>
+    </tr>
+    <tr>
+      <td>Save to file</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td>GrabzIt: <code>SaveTo(path)</code></td>
+    </tr>
+    <tr>
+      <td>Get as byte array</td>
+      <td>Low</td>
+      <td><code>pdf.BinaryData</code></td>
+      <td>GrabzIt: <code>GetResult()</code> returns <code>byte[]</code></td>
+    </tr>
+    <tr>
+      <td>Async / callback model</td>
+      <td>Medium</td>
+      <td><code>RenderHtmlAsPdfAsync()</code></td>
+      <td>GrabzIt uses polling or webhook callbacks</td>
+    </tr>
+    <tr>
+      <td>Screenshots / image capture</td>
+      <td>High</td>
+      <td>Not in IronPDF</td>
+      <td>GrabzIt screenshot capability not available</td>
+    </tr>
+    <tr>
+      <td>Web scraping</td>
+      <td>High</td>
+      <td>Not in IronPDF</td>
+      <td>GrabzIt scraping capability not available</td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Low</td>
+      <td><code>PdfSignature</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAsPdfA()</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>Data residency</td>
+      <td>N/A</td>
+      <td>In-process — data never leaves app</td>
+      <td>Key architectural change</td>
+    </tr>
+    <tr>
+      <td>Network dependency removed</td>
+      <td>N/A</td>
+      <td>In-process rendering</td>
+      <td>HTTP errors replaced by .NET exceptions</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>HTML String to PDF</h3>
+
+<h4>GrabzIt — HTML String to PDF</h4>
+
+<pre><code class="language-csharp">using GrabzIt;
+using GrabzIt.Parameters;
+
+// GrabzItClient requires API key credentials
+// Keys are obtained from the GrabzIt account dashboard
+var grabzIt = new GrabzItClient(&quot;YOUR_APPLICATION_KEY&quot;, &quot;YOUR_APPLICATION_SECRET&quot;);
+
+// Configure PDF options
+var options = new HTMLToPDFOptions
+{
+    Format = PDFPageSize.A4,
+    Orientation = PDFPageOrientation.Portrait,
+    // Margins in mm
+    MarginTop = 10,
+    MarginBottom = 10,
+    MarginLeft = 10,
+    MarginRight = 10,
+    // Allow JavaScript to execute before capture
+    JavaScriptTime = 500  // milliseconds
+};
+
+string html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;h1&gt;Invoice #1042&lt;/h1&gt;
+  &lt;p&gt;Total: $1,599.00&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+// HTMLToPDF configures the capture request
+grabzIt.HTMLToPDF(html, options);
+
+// SaveTo sends the request to GrabzIt's cloud and saves the result
+// This is a synchronous blocking call — waits for the cloud render to complete
+grabzIt.SaveTo(&quot;invoice.pdf&quot;);</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li><code>GrabzItClient</code> requires API credentials (<code>applicationKey</code>, <code>applicationSecret</code>) obtained from the GrabzIt dashboard. Remove all credential management code during migration.</li>
+
+  <li><code>SaveTo()</code> sends the configured request to GrabzIt's cloud infrastructure and blocks until the result is received. Under concurrent load, multiple threads each block on separate HTTP round-trips.</li>
+
+  <li><code>GetResult()</code> retrieves the PDF as a <code>byte[]</code> without saving to disk — the in-memory equivalent of <code>SaveTo()</code>.</li>
+
+  <li>All rendering happens on GrabzIt's servers — the HTML content is transmitted over the network, raising data handling considerations.</li>
+
+  <li>GrabzIt also supports a callback/webhook model for non-blocking async capture</li>
+
+</ul>
+
+<h4>IronPDF — HTML String to PDF</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// ChromePdfRenderer is stateful and reusable — register as singleton in DI
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.PaperOrientation = IronPdf.Rendering.PdfPaperOrientation.Portrait;
+renderer.RenderingOptions.MarginTop = 10;     // millimeters
+renderer.RenderingOptions.MarginBottom = 10;
+renderer.RenderingOptions.MarginLeft = 10;
+renderer.RenderingOptions.MarginRight = 10;
+renderer.RenderingOptions.WaitFor.RenderDelay(500); // 500ms JavaScript wait
+
+string html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;h1&gt;Invoice #1042&lt;/h1&gt;
+  &lt;p&gt;Total: $1,599.00&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+// PdfDocument is IDisposable — always use a using block
+using var pdf = renderer.RenderHtmlAsPdf(html);
+
+// Access bytes or save directly
+byte[] pdfBytes = pdf.BinaryData;         // equivalent to GrabzIt's GetResult()
+pdf.SaveAs(&quot;invoice.pdf&quot;);                // equivalent to GrabzIt's SaveTo()</code></pre>
+
+<p>The credential removal is the first structural change — <code>GrabzItClient</code> construction with API keys is replaced by a <code>ChromePdfRenderer</code> instance with no credentials. Full rendering configuration is in the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a>. Verify GrabzIt's margin unit (mm or points) against the existing configuration before mapping to IronPDF's millimeter-based <code>Margin*</code> properties.</p>
+
+<h3>URL to PDF</h3>
+
+<h4>GrabzIt — URL to PDF</h4>
+
+<pre><code class="language-csharp">using GrabzIt;
+using GrabzIt.Parameters;
+
+var grabzIt = new GrabzItClient(&quot;YOUR_APPLICATION_KEY&quot;, &quot;YOUR_APPLICATION_SECRET&quot;);
+
+var options = new URLToPDFOptions
+{
+    Format = PDFPageSize.A4,
+    // Wait for JavaScript to execute before capture
+    WaitForElement = &quot;.report-loaded&quot;,  // CSS selector
+    // Custom cookies for authenticated pages
+    // Cookies = &quot;session=abc123&quot;,       // verify property name and format
+};
+
+// URLToPDF captures the live URL via GrabzIt's cloud infrastructure
+grabzIt.URLToPDF(&quot;https://reports.example.com/dashboard&quot;, options);
+byte[] pdfBytes = grabzIt.GetResult();</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>GrabzIt's URL capture uses its own cloud Chromium instances to fetch and render the target URL. Authentication cookies must be passed in the request options</li>
+
+  <li><code>WaitForElement</code> (or equivalent property</li>
+
+  <li>The target URL must be publicly accessible from GrabzIt's servers (or the application must provide authentication credentials). URLs behind corporate VPNs or local networks are not accessible.</li>
+
+  <li><code>GetResult()</code> returns <code>null</code> if the capture fails — check for null before using the byte array.</li>
+
+</ul>
+
+<h4>IronPDF — URL to PDF</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// WaitFor element replaces GrabzIt's WaitForElement option
+renderer.RenderingOptions.WaitFor.HtmlElement(&quot;.report-loaded&quot;);
+
+// Cookie injection for authenticated URLs
+renderer.RenderingOptions.CustomCookies =
+    new System.Collections.Generic.Dictionary&lt;string, string&gt;
+    {
+        { &quot;session&quot;, &quot;abc123&quot; }
+    };
+
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://reports.example.com/dashboard&quot;);
+byte[] pdfBytes = pdf.BinaryData;</code></pre>
+
+<p>Unlike GrabzIt's cloud fetch, IronPDF's URL rendering runs the Chromium engine in-process — the application server must be able to reach the target URL directly. URLs behind authentication can be handled via cookie injection rather than requiring the URL to be publicly accessible. The <a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF guide</a> covers cookie injection, custom headers, and all <code>WaitFor</code> conditions.</p>
+
+<h3>Async in ASP.NET Core</h3>
+
+<h4>GrabzIt — Blocking ASP.NET Core Integration</h4>
+
+<pre><code class="language-csharp">using GrabzIt;
+using GrabzIt.Parameters;
+using Microsoft.AspNetCore.Mvc;</code></pre>
+
+<p>[ApiController] [Route("reports")] public class ReportController : ControllerBase { [HttpGet("{id}/pdf")] public IActionResult GetReport(int id) { // GrabzIt's SDK uses a synchronous blocking model // Direct use in an async ASP.NET Core action blocks the thread pool var grabzIt = new GrabzItClient( "YOUR_APPLICATION_KEY", "YOUR_APPLICATION_SECRET");</p>
+
+<p>grabzIt.HTMLToPDF( $"<html><body><h1>Report {id}</h1></body></html>", new HTMLToPDFOptions { Format = PDFPageSize.A4 });</p>
+
+<p>byte[] pdfBytes = grabzIt.GetResult();</p>
+
+<p>if (pdfBytes == null) return StatusCode(503, "PDF generation failed");</p>
+
+<p>return File(pdfBytes, "application/pdf", $"report-{id}.pdf"); } }</p>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li><code>GrabzItClient.GetResult()</code> is synchronous and blocks until the HTTP round-trip to GrabzIt's servers completes. In an ASP.NET Core controller, this blocks a thread for the duration of the network call.</li>
+
+  <li><code>GrabzItClient</code> is typically instantiated per-request when using inline credentials</li>
+
+  <li><code>GetResult()</code> returns <code>null</code> on failure — production code must null-check before using the result.</li>
+
+  <li>Creating a new <code>GrabzItClient</code> per request carries initialization overhead; consider whether a shared instance is safe.</li>
+
+</ul>
+
+<h4>IronPDF — Async ASP.NET Core Integration</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using Microsoft.AspNetCore.Mvc;</code></pre>
+
+<p>[ApiController] [Route("reports")] public class ReportController : ControllerBase { private readonly ChromePdfRenderer _renderer;</p>
+
+<p>// Singleton renderer injected via DI — configured once in Program.cs public ReportController(ChromePdfRenderer renderer) { _renderer = renderer; }</p>
+
+<p>[HttpGet("{id}/pdf")] public async Task<IActionResult> GetReport(int id) { string html = $"<html><body><h1>Report {id}</h1></body></html>";</p>
+
+<p>// RenderHtmlAsPdfAsync is genuinely async — no blocking using var pdf = await _renderer.RenderHtmlAsPdfAsync(html);</p>
+
+<p>return File(pdf.BinaryData, "application/pdf", $"report-{id}.pdf"); } }</p>
+
+<p>// Program.cs registration: // builder.Services.AddSingleton<ChromePdfRenderer>(sp => { //     var r = new ChromePdfRenderer(); //     r.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4; //     return r; // });</p>
+
+<p><code>RenderHtmlAsPdfAsync</code> is genuinely async — it does not block the thread pool waiting on a network call. The per-request <code>GrabzItClient</code> instantiation pattern is replaced by a singleton <code>ChromePdfRenderer</code> registered in DI. The <a href="https://ironpdf.com/how-to/async/">async rendering guide</a> covers concurrent rendering patterns and batch generation.</p>
+
+<h3>Post-Render PDF Operations (New Capability)</h3>
+
+<p>GrabzIt returns bytes — all post-render operations require a separate PDF manipulation library in the .NET application. With IronPDF, the same <code>PdfDocument</code> instance returned by the renderer exposes the full manipulation API.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Signing;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// Render section PDFs from individual HTML templates
+using var section1 = renderer.RenderHtmlAsPdf(
+    &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 1&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+using var section2 = renderer.RenderHtmlAsPdf(
+    &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 2&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+using var section3 = renderer.RenderHtmlAsPdf(
+    &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Section 3&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+
+// Merge all sections into a single document
+using var merged = PdfDocument.Merge(section1, section2, section3);
+
+// Apply a digital signature to the merged document
+var signature = new PdfSignature(&quot;cert.pfx&quot;, &quot;pfx-password&quot;)
+{
+    SigningReason = &quot;Approved for distribution&quot;,
+    SigningContact = &quot;approver@example.com&quot;
+};
+merged.Sign(signature);
+
+merged.SaveAs(&quot;signed-report.pdf&quot;);</code></pre>
+
+<p>Post-render operations like multi-section merge and digital signatures previously required a separate PDF library to process GrabzIt's byte output. With IronPDF, these operations are available on the <code>PdfDocument</code> directly. The <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split guide</a> and <a href="https://ironpdf.com/how-to/signing/">digital signatures guide</a> cover these operations.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>GrabzIt Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>new GrabzItClient(appKey, appSecret)</code></td>
+      <td><code>new ChromePdfRenderer()</code></td>
+      <td>No credentials — remove key management</td>
+    </tr>
+    <tr>
+      <td><code>grabzIt.HTMLToPDF(html, options)</code></td>
+      <td><code>renderer.RenderHtmlAsPdf(html)</code></td>
+      <td>In-process; no HTTP call</td>
+    </tr>
+    <tr>
+      <td><code>grabzIt.URLToPDF(url, options)</code></td>
+      <td><code>renderer.RenderUrlAsPdf(url)</code></td>
+      <td>URL must be reachable from app server</td>
+    </tr>
+    <tr>
+      <td><code>grabzIt.SaveTo(path)</code></td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>grabzIt.GetResult()</code> → <code>byte[]</code></td>
+      <td><code>pdf.BinaryData</code></td>
+      <td>Returns <code>null</code> in GrabzIt on failure</td>
+    </tr>
+    <tr>
+      <td><code>HTMLToPDFOptions.Format</code></td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>HTMLToPDFOptions.Orientation</code></td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>HTMLToPDFOptions.Margin*</code></td>
+      <td><code>RenderingOptions.Margin*</code></td>
+      <td>Verify unit convention</td>
+    </tr>
+    <tr>
+      <td><code>HTMLToPDFOptions.JavaScriptTime</code></td>
+      <td><code>RenderingOptions.WaitFor.RenderDelay(ms)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>URLToPDFOptions.WaitForElement</code></td>
+      <td><code>RenderingOptions.WaitFor.HtmlElement(selector)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Cookie injection</td>
+      <td><code>RenderingOptions.CustomCookies</code></td>
+      <td><a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF guide</a></td>
+    </tr>
+    <tr>
+      <td>Callback / webhook async model</td>
+      <td><code>await RenderHtmlAsPdfAsync()</code></td>
+      <td><a href="https://ironpdf.com/how-to/async/">Async guide</a></td>
+    </tr>
+    <tr>
+      <td>No post-render manipulation</td>
+      <td><code>PdfDocument.Merge()</code>, <code>PdfSignature</code>, etc.</td>
+      <td>New capabilities</td>
+    </tr>
+    <tr>
+      <td>Cloud render (remote)</td>
+      <td>In-process render (local)</td>
+      <td>Data residency change</td>
+    </tr>
+    <tr>
+      <td>Screenshot capability</td>
+      <td>Not in IronPDF</td>
+      <td>Separate evaluation required</td>
+    </tr>
+    <tr>
+      <td>Web scraping capability</td>
+      <td>Not in IronPDF</td>
+      <td>Separate evaluation required</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>Credential removal</strong>: <code>GrabzItClient</code> requires <code>applicationKey</code> and <code>applicationSecret</code> at construction. IronPDF uses <code>IronPdf.License.LicenseKey</code> set once at startup — no per-instance credentials. Remove all credential storage and injection for the GrabzIt client.</li>
+
+  <li><strong><code>GetResult()</code> null safety</strong>: GrabzIt's <code>GetResult()</code> returns <code>null</code> on failure. IronPDF throws a typed .NET exception on rendering failure. Remove all <code>if (pdfBytes == null)</code> null checks after <code>GetResult()</code> and replace with <code>try/catch</code> around render calls.</li>
+
+  <li><strong><code>PdfDocument</code> is <code>IDisposable</code></strong>: GrabzIt returns <code>byte[]</code> — no disposal required. IronPDF returns <code>PdfDocument</code>, which implements <code>IDisposable</code>. Every render call must produce a <code>PdfDocument</code> in a <code>using</code> block. Missing <code>using</code> blocks cause unmanaged resource leaks.</li>
+
+  <li><strong>Network dependency removed</strong>: All HTTP error handling related to GrabzIt (<code>HttpRequestException</code>, timeout logic, service availability checks) is removed. Replace with exception handling for IronPDF rendering errors.</li>
+
+  <li><strong>URL accessibility changes</strong>: GrabzIt's cloud fetches URLs from its own servers — URLs accessible from the public internet but not from the application host work with GrabzIt but not with IronPDF's in-process renderer. Internal URLs that were inaccessible to GrabzIt's cloud are now accessible with IronPDF.</li>
+
+  <li><strong>Screenshot and scraping capabilities not in scope</strong>: GrabzIt provides web screenshot (to image), HTML-to-image, video capture, and web scraping capabilities. IronPDF does not provide any of these. If the application uses these GrabzIt capabilities, they require a separate evaluation and replacement strategy independent of the PDF migration.</li>
+
+  <li><strong>Async model change</strong>: GrabzIt's polling and webhook async models are replaced by <code>await RenderHtmlAsPdfAsync()</code>. Remove all polling loops and webhook handlers related to GrabzIt capture.</li>
+
+  <li><strong>Linux deployment</strong>: GrabzIt's SDK has no native binary dependencies. IronPDF on Linux requires Chromium system library packages in the container or host environment. Add these to the container image and verify in the Linux deployment guide.</li>
+
+  <li><strong>License key required</strong>: <code>IronPdf.License.LicenseKey</code> must be set before any render call. GrabzIt uses its own API key model — both require startup key configuration but through different mechanisms.</li>
+
+  <li><strong>Namespace change</strong>: Remove <code>using GrabzIt;</code> and <code>using GrabzIt.Parameters;</code>. Replace with <code>using IronPdf;</code>.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>GrabzIt</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active development</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Cloud / in-process</td>
+      <td>Cloud SaaS</td>
+      <td>In-process</td>
+      <td>Core architectural difference</td>
+    </tr>
+    <tr>
+      <td>.NET Standard 2.0</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Framework support</td>
+      <td>Yes</td>
+      <td>4.6.2+</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+ support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Native binary required</td>
+      <td>No</td>
+      <td>No (Windows)</td>
+      <td>Linux: IronPDF needs Chromium libs</td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering</strong></td>
+    </tr>
+    <tr>
+      <td>HTML string rendering</td>
+      <td>Yes (cloud)</td>
+      <td>Yes (in-process)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL rendering</td>
+      <td>Yes (cloud)</td>
+      <td>Yes (in-process)</td>
+      <td>Accessibility model differs</td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Yes (Chromium)</td>
+      <td><a href="https://ironpdf.com/how-to/javascript-to-pdf/">Yes</a></td>
+      <td>Both Chromium</td>
+    </tr>
+    <tr>
+      <td>CSS3 / Flexbox / Grid</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>Yes (polling/webhook)</td>
+      <td>Yes (native async)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content & Layout</strong></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom margins</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page numbers</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Add / remove pages</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Compress PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Watermarking</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Forms</strong></td>
+    </tr>
+    <tr>
+      <td>Fill PDF forms</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Create PDF forms</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password encryption</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Permission flags</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Extended Capabilities</strong></td>
+    </tr>
+    <tr>
+      <td>Screenshots (web capture)</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>GrabzIt differentiator</td>
+    </tr>
+    <tr>
+      <td>Web scraping</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>GrabzIt differentiator</td>
+    </tr>
+    <tr>
+      <td>Video capture</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>GrabzIt differentiator</td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Operational</strong></td>
+    </tr>
+    <tr>
+      <td>Network latency</td>
+      <td>Per request</td>
+      <td>None</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>External service dependency</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Data leaves application</td>
+      <td>Yes (cloud render)</td>
+      <td>No (in-process)</td>
+      <td>Data residency consideration</td>
+    </tr>
+    <tr>
+      <td>Per-request API cost</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>Different cost model</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Audit all GrabzIt call sites</strong>: List every <code>HTMLToPDF()</code> and <code>URLToPDF()</code> call, its options configuration, and whether it uses <code>SaveTo()</code> or <code>GetResult()</code>. Separately note any screenshot, scraping, or video capture usage — those require independent evaluation.</li>
+
+  <li><strong>Evaluate non-PDF GrabzIt capabilities</strong>: If screenshot, web scraping, or video capture features are in active use, identify replacement tools before beginning PDF migration. These are out of IronPDF's scope and are separate migration tracks.</li>
+
+  <li><strong>Install IronPDF via NuGet</strong>: <code>dotnet add package IronPdf</code>.</li>
+
+  <li><strong>Configure the license key at startup</strong>: Set <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> in <code>Program.cs</code> before any render call. See the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>Remove GrabzIt credential management</strong>: Delete all <code>applicationKey</code> / <code>applicationSecret</code> storage, configuration values, and injection. Remove <code>GrabzItClient</code> construction from DI registration and all call sites.</li>
+
+  <li><strong>Register <code>ChromePdfRenderer</code> in DI</strong>: Add <code>builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;()</code> in <code>Program.cs</code> with <code>RenderingOptions</code> configured once.</li>
+
+  <li><strong>Update namespaces</strong>: Remove <code>using GrabzIt;</code> and <code>using GrabzIt.Parameters;</code>. Replace with <code>using IronPdf;</code>.</li>
+
+  <li><strong>Replace <code>HTMLToPDF()</code> + <code>SaveTo()</code> / <code>GetResult()</code> calls</strong>: Map each to <code>renderer.RenderHtmlAsPdf(html)</code> or <code>await renderer.RenderHtmlAsPdfAsync(html)</code>. Wrap <code>PdfDocument</code> in a <code>using</code> block. Replace <code>SaveTo()</code> with <code>pdf.SaveAs()</code> and <code>GetResult()</code> with <code>pdf.BinaryData</code>.</li>
+
+  <li><strong>Replace <code>URLToPDF()</code> calls</strong>: Map to <code>renderer.RenderUrlAsPdf(url)</code>. Configure <code>WaitFor</code> conditions from <code>URLToPDFOptions.WaitForElement</code>. Inject cookies via <code>RenderingOptions.CustomCookies</code>.</li>
+
+  <li><strong>Remove null checks on <code>GetResult()</code></strong>: Replace <code>if (pdfBytes == null)</code> error paths with <code>try/catch</code> around render calls.</li>
+
+  <li><strong>Remove GrabzIt HTTP error handling</strong>: Delete timeout configurations, retry policies, and service availability checks specific to GrabzIt.</li>
+
+  <li><strong>Update container configuration</strong>: On Linux, add Chromium system library packages to the application container image. Remove any GrabzIt-specific environment variable or API key configuration from the deployment pipeline.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on GrabzIt is technically reasonable</h3>
+
+<p>GrabzIt is technically reasonable when its non-PDF capabilities — web screenshots, video capture, web scraping — are in active production use and would require significant effort to replace; when the application's PDF volume is low enough that per-request pricing is not a meaningful cost; when the team's operational model strongly favors zero in-process dependencies and is comfortable with external service reliability; or when rendering must occur from a network location (capturing publicly accessible URLs) rather than from the application's own network context.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>Migration is worth scoping when PDF generation volume has grown to the point where per-request cloud pricing is visible in the budget; when data handling policies — GDPR, sector-specific compliance, internal data classification — make sending document content to a third-party service difficult to justify; when GrabzIt's network latency is contributing measurably to request response times; when the application needs post-render operations (merge, sign, encrypt) that currently require a second library; or when the application's URL rendering uses internal URLs that GrabzIt's cloud cannot reach.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>For a typical application using GrabzIt only for HTML-to-PDF and URL-to-PDF, the migration is bounded and systematic: remove credential management, replace client construction with DI-registered renderer, map options properties to <code>RenderingOptions</code>, replace API calls with renderer calls, add <code>using</code> blocks, replace null checks with exception handling, and update the Linux container image. A developer familiar with both APIs can typically complete the replacement in a day per call site cluster. The rendering comparison pass — validating output parity across all templates — is proportional to the variety of HTML templates in use.</p>
+
+<p>In your current GrabzIt integration, has the combination of per-request cost, network latency, and data handling overhead become significant enough to justify the migration effort — or is one of those factors the clear primary driver?</p>

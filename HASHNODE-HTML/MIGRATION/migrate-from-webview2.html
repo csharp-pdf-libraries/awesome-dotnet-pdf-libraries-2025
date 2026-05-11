@@ -1,0 +1,816 @@
+<!-- FRONTMATTER
+  title: Migrating from WebView2 to IronPDF: from install to production
+  subtitle: architecture differences, breaking changes, and migration patterns
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-webview2/
+  description: What changes, what maps directly, and what breaks when moving from WebView2 to IronPDF — a focused technical reference for .NET development teams.
+  published: False
+-->
+
+<h1>Migrating from WebView2 to IronPDF: from install to production</h1>
+
+<p class="subtitle"><em>architecture differences, breaking changes, and migration patterns</em></p>
+
+<h2>Framing</h2>
+
+<p>PDF generation via browser engine APIs represents a pragmatic choice that many .NET teams arrive at independently. When the application already depends on a Chromium-based control for displaying web content, adding PDF export by calling the engine's print API appears to be a natural extension — the browser is already present, and the rendered output is already available. The integration cost looks low at the point of initial implementation.</p>
+
+<p>The friction tends to appear later, when PDF generation becomes a sustained operational concern rather than a single-use feature. Browser UI controls are designed for interactive rendering in an application window; their PDF export capability is an extension of the print function, not a document generation pipeline. As requirements accumulate — headers and footers, password protection, merging documents, applying watermarks, signing for compliance — the application either builds a growing set of workarounds around the browser's print API or adopts a second library for post-processing. Managing two overlapping dependencies with different lifecycle models is a common driver for re-evaluation.</p>
+
+<p>Microsoft WebView2 is the Chromium-based WebView control for Windows desktop and WPF/WinForms applications. Teams that use it for PDF generation are typically calling <code>CoreWebView2.PrintToPdfAsync()</code> or the <code>PrintAsync()</code> method, which invokes Chromium's print pipeline to produce a PDF file. This guide addresses the technical migration from that pattern to IronPDF, which exposes the Chromium rendering pipeline as a document generation API rather than a UI component.</p>
+
+<h2>What WebView2 Is Designed to Do</h2>
+
+<p>Microsoft Edge WebView2 is a browser control that embeds the Chromium engine inside a .NET desktop application (WPF, WinForms, WinUI, or native Win32). Its primary design purpose is displaying web content interactively: the control renders HTML in a visible UI surface, responds to user input, executes JavaScript, and maintains full browser state including navigation history, cookies, and storage. The PDF generation capability — <code>PrintToPdfAsync()</code> — is exposed as a method on <code>CoreWebView2</code>, the underlying browser object, and invokes Chromium's headless print path to generate a PDF file from the currently loaded page.</p>
+
+<p>The integration model is desktop-first: WebView2 requires a window context and a valid <code>CoreWebView2Environment</code>, and it is distributed as a component that depends on the Edge WebView2 Runtime installed on the end-user machine (or embedded in the application via fixed-version distribution). It is not designed for server-side or headless PDF generation, and its use in ASP.NET or background service contexts requires significant workarounds around the UI thread and window handle requirements. Primary supported platforms are Windows desktop; Linux and macOS deployment is not part of WebView2's design scope. Current version details and exact API availability should be verified against Microsoft's official WebView2 documentation.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>IronPDF decouples the Chromium rendering engine from the browser UI surface. Where WebView2 renders HTML into an interactive control backed by a window handle, IronPDF's <code>ChromePdfRenderer</code> renders HTML directly to a PDF without a visible UI. There is no window context requirement, no UI thread affinity, and no dependency on the Edge Runtime installed on the host machine.</p>
+
+<p>This architectural difference has direct implications for server-side and service deployments. <a href="https://ironpdf.com/how-to/rendering-options/">IronPDF's rendering pipeline</a> runs in background threads without a window context, which makes it suitable for ASP.NET Core services, Azure Functions, background workers, and Docker containers — environments where WebView2's window handle and UI thread requirements cannot be satisfied. The <code>PdfDocument</code> returned by <code>ChromePdfRenderer</code> implements standard <code>IDisposable</code> and can be passed between methods, saved to a stream, merged with other documents, or signed without any UI involvement.</p>
+
+<p>The post-processing gap in WebView2 is also addressed directly. WebView2's <code>PrintToPdfAsync()</code> produces a file; post-processing (merge, stamp, sign, encrypt) requires a second library. IronPDF provides <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split</a>, digital signatures, password protection, watermarks, form field editing, and PDF/A compliance in the same package that handles rendering. License setup is a static call at application startup — the <a href="https://ironpdf.com/how-to/license-keys/">license key guide</a> covers both inline and environment-variable initialization.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Print loaded page to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderUrlAsPdf()</code></td>
+      <td>Replaces <code>PrintToPdfAsync()</code>; no window handle required</td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>WebView2 requires <code>NavigateToString()</code> first; IronPDF accepts HTML directly</td>
+    </tr>
+    <tr>
+      <td>HTML file to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlFileAsPdf()</code></td>
+      <td>Direct mapping</td>
+    </tr>
+    <tr>
+      <td>Render settings (paper size, margins)</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderOptions</code></td>
+      <td>WebView2 uses <code>CoreWebView2PrintSettings</code>; property names differ</td>
+    </tr>
+    <tr>
+      <td>Background/foreground rendering</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PrintBackground</code></td>
+      <td>Direct setting equivalent</td>
+    </tr>
+    <tr>
+      <td>Scale factor</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.Zoom</code></td>
+      <td>Maps to WebView2's <code>ScaleFactor</code> in print settings</td>
+    </tr>
+    <tr>
+      <td>Header/footer HTML templates</td>
+      <td>Medium</td>
+      <td><code>HtmlHeaderFooter</code></td>
+      <td>WebView2 <code>PrintSettings</code> has <code>HeaderTitle</code>, <code>FooterUri</code>; IronPDF uses full HTML objects</td>
+    </tr>
+    <tr>
+      <td>Authenticated page rendering</td>
+      <td>Medium</td>
+      <td><code>RenderingOptions.CustomCookies</code></td>
+      <td>WebView2 maintains full session state; IronPDF uses cookie injection</td>
+    </tr>
+    <tr>
+      <td>JavaScript wait conditions</td>
+      <td>Medium</td>
+      <td><code>RenderingOptions.WaitFor</code></td>
+      <td>WebView2 rendering is event-driven; IronPDF uses declarative wait conditions</td>
+    </tr>
+    <tr>
+      <td>Merge / combine PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>Outside WebView2's scope; now available natively</td>
+    </tr>
+    <tr>
+      <td>Password / permissions</td>
+      <td>Low</td>
+      <td><code>pdf.SecuritySettings</code></td>
+      <td>Outside WebView2's scope</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Medium</td>
+      <td><code>PdfSignature</code> API</td>
+      <td>Outside WebView2's scope</td>
+    </tr>
+    <tr>
+      <td>Watermarks / stamps</td>
+      <td>Low</td>
+      <td>IronPDF stamp API</td>
+      <td>Outside WebView2's scope</td>
+    </tr>
+    <tr>
+      <td>Server / headless deployment</td>
+      <td>N/A → Low</td>
+      <td>Supported natively</td>
+      <td>WebView2 requires Windows desktop; IronPDF works in server and container contexts</td>
+    </tr>
+    <tr>
+      <td>Windows-only constraint</td>
+      <td>N/A → Medium</td>
+      <td>Cross-platform</td>
+      <td>WebView2 is Windows-only; IronPDF supports Linux and macOS</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>Print Loaded Page to PDF</h3>
+
+<h4>WebView2 — PrintToPdfAsync</h4>
+
+<p>WebView2's PDF generation requires a fully initialized browser control within a window context. The page must be navigated to and fully rendered before <code>PrintToPdfAsync()</code> is called. This pattern is inherently coupled to the UI thread and the desktop application lifecycle.</p>
+
+<pre><code class="language-csharp">using Microsoft.Web.WebView2.Core;
+using System;
+using System.IO;
+using System.Threading.Tasks;
+
+// WebView2 approach: requires a live UI control and window context
+// This code typically lives in a WPF/WinForms form's code-behind
+
+// Assumes 'webView' is a WebView2 control already initialized in the UI
+// and 'webView.CoreWebView2' is non-null (i.e., InitializeAsync has completed)
+
+public async Task ExportToPdfAsync(string outputPath)
+{
+    // Configure print settings
+    var printSettings = webView.CoreWebView2.Environment.CreatePrintSettings();
+    printSettings.ShouldPrintBackgrounds     = true;
+    printSettings.ShouldPrintHeaderAndFooter = false;
+    printSettings.PageWidth                  = 8.27;  // A4 width in inches
+    printSettings.PageHeight                 = 11.69; // A4 height in inches
+    printSettings.MarginTop                  = 0.5;
+    printSettings.MarginBottom               = 0.5;
+    printSettings.MarginLeft                 = 0.5;
+    printSettings.MarginRight                = 0.5;
+
+    // Generate PDF from the currently loaded page
+    bool success = await webView.CoreWebView2.PrintToPdfAsync(outputPath, printSettings);
+
+    if (!success)
+        throw new InvalidOperationException(&quot;PrintToPdfAsync returned false.&quot;);
+}</code></pre>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Requires an initialized <code>CoreWebView2</code> backed by a <code>CoreWebView2Environment</code> with a data directory</li>
+
+  <li>Must run on the UI thread or with explicit cross-thread marshaling</li>
+
+  <li>Cannot be used in ASP.NET, background services, or Docker containers</li>
+
+  <li>Windows-only; Linux and macOS are not supported</li>
+
+  <li>The output path is a file; streaming output requires reading the file back after generation</li>
+
+  <li>The page must be fully loaded and stable before calling <code>PrintToPdfAsync()</code>; timing depends on application state</li>
+
+</ul>
+
+<h4>IronPDF — URL to PDF (No UI Thread)</h4>
+
+<p>IronPDF renders the URL directly without a browser control, window context, or UI thread requirement. The <a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF guide</a> covers request configuration including custom headers and wait conditions for JavaScript-rendered content.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using System.Threading.Tasks;
+
+// IronPdf.License.LicenseKey = &quot;YOUR-LICENSE-KEY&quot;; // Set at application startup
+
+// Can run on any thread, in any application type — no window handle required
+public static async Task&lt;byte[]&gt; ExportToPdfAsync(string url)
+{
+    using var renderer = new ChromePdfRenderer();
+
+    // Configure rendering (equivalent to CoreWebView2PrintSettings)
+    renderer.RenderingOptions.PaperSize       = IronPdf.Rendering.PdfPaperSize.A4;
+    renderer.RenderingOptions.PrintBackground = true;
+    renderer.RenderingOptions.MarginTop       = 13;  // mm
+    renderer.RenderingOptions.MarginBottom    = 13;
+    renderer.RenderingOptions.MarginLeft      = 13;
+    renderer.RenderingOptions.MarginRight     = 13;
+
+    // Render URL to PDF asynchronously — no UI thread requirement
+    using var pdf = await renderer.RenderUrlAsPdfAsync(url);
+
+    return pdf.BinaryData;
+}</code></pre>
+
+<p>The async overload <code>RenderUrlAsPdfAsync()</code> is available for use in async controller actions and background services</p>
+
+<h3>HTML String to PDF</h3>
+
+<h4>WebView2 — NavigateToString + PrintToPdfAsync</h4>
+
+<p>WebView2 does not accept an HTML string for PDF generation directly. The workflow requires loading the string into the control with <code>NavigateToString()</code>, waiting for the <code>NavigationCompleted</code> event, and then calling <code>PrintToPdfAsync()</code>. Managing the event-driven async coordination is non-trivial, especially in non-UI contexts.</p>
+
+<pre><code class="language-csharp">using Microsoft.Web.WebView2.Core;
+using System;
+using System.IO;
+using System.Threading.Tasks;
+
+// WebView2 HTML string → PDF: requires event handling across the navigation lifecycle
+
+public async Task&lt;string&gt; HtmlStringToPdfAsync(string html, string outputPath)
+{
+    var tcs = new TaskCompletionSource&lt;string&gt;();
+
+    // Must subscribe to NavigationCompleted before calling NavigateToString
+    void OnNavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
+    {
+        // Unsubscribe to avoid duplicate firings
+        webView.CoreWebView2.NavigationCompleted -= OnNavigationCompleted;
+
+        // Print to PDF now that navigation is complete
+        _ = webView.CoreWebView2
+            .PrintToPdfAsync(outputPath)
+            .ContinueWith(t =&gt; tcs.SetResult(outputPath));
+    }
+
+    webView.CoreWebView2.NavigationCompleted += OnNavigationCompleted;
+    webView.CoreWebView2.NavigateToString(html);
+
+    return await tcs.Task;
+}</code></pre>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Event-driven coordination is fragile; race conditions are possible if navigation events fire unexpectedly</li>
+
+  <li><code>NavigateToString()</code> limits string size (varies by Chromium version; large HTML may require <code>NavigateToLocalStreamUri()</code>)</li>
+
+  <li>Still requires a live UI control on the UI thread</li>
+
+  <li>Relative asset references in the HTML string cannot be resolved without a base URI</li>
+
+</ul>
+
+<h4>IronPDF — HTML String to PDF</h4>
+
+<p>IronPDF accepts HTML strings directly with no navigation event coordination. Base URLs for asset resolution can be passed as an argument. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> documents the full option set.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+
+using var renderer = new ChromePdfRenderer();
+
+string html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+  &lt;style&gt;
+    body    { font-family: 'Segoe UI', sans-serif; margin: 30px; }
+    h1      { color: #1a1a2e; }
+    .chart  { width: 100%; height: 300px; background: #f0f0f0; }
+  &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;h1&gt;Dashboard Export&lt;/h1&gt;
+  &lt;div class='chart'&gt;Chart placeholder&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+// No NavigateToString, no NavigationCompleted event — direct API call
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs(&quot;/output/dashboard.pdf&quot;);</code></pre>
+
+<p>There is no string length limitation equivalent to <code>NavigateToString()</code>'s constraints. For assets referenced by relative paths, a base URL string can be provided as a second argument to <code>RenderHtmlAsPdf()</code></p>
+
+<h3>Post-Processing: Merge and Sign</h3>
+
+<h4>WebView2 — Post-Processing</h4>
+
+<p>WebView2's <code>PrintToPdfAsync()</code> produces a PDF file. Any post-processing — merging multiple pages from different sources, adding digital signatures, applying passwords, or watermarking — requires a second library entirely separate from WebView2. This two-library dependency is a common pattern in WebView2-based PDF pipelines: WebView2 for generation, another library for manipulation.</p>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>Two separate library dependencies with different versioning, licensing, and disposal models</li>
+
+  <li>Document objects from WebView2 output must be serialized (written to file or stream) and re-loaded by the manipulation library</li>
+
+  <li>No unified API surface; the developer manages the handoff between rendering and manipulation</li>
+
+  <li>Post-processing library selection is independent of WebView2 and requires its own evaluation</li>
+
+</ul>
+
+<h4>IronPDF — Merge and Sign in One Library</h4>
+
+<p>IronPDF handles both rendering and post-processing in a single library and API. The <a href="https://ironpdf.com/examples/merge-pdfs/">merge and split guide</a> and the <a href="https://ironpdf.com/how-to/signing/">digital signatures guide</a> are part of the same <code>PdfDocument</code> object model that <code>ChromePdfRenderer</code> returns.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Signing;
+using System.Collections.Generic;
+
+// Render two sections
+using var renderer = new ChromePdfRenderer();
+using var cover   = renderer.RenderHtmlAsPdf(&quot;&lt;h1&gt;Cover Page&lt;/h1&gt;&quot;);
+using var body    = renderer.RenderHtmlFileAsPdf(&quot;/input/report-body.html&quot;);
+
+// Merge in a single call — no second library required
+using var merged = PdfDocument.Merge(new List&lt;PdfDocument&gt; { cover, body });
+
+// Apply digital signature to the merged document
+var signature = new PdfSignature(&quot;/certs/company.pfx&quot;, &quot;pfxPassword&quot;)
+{
+    SigningContact  = &quot;reports@example.com&quot;,
+    SigningReason   = &quot;Final approval&quot;,
+    SigningLocation = &quot;Chicago, IL&quot;
+};
+
+merged.Sign(signature);
+merged.SaveAs(&quot;/output/signed-report.pdf&quot;);</code></pre>
+
+<p>The entire workflow — rendering two HTML sources, merging, and signing — uses one library and one disposal scope. No intermediate file I/O is required between the rendering and manipulation steps.</p>
+
+<h3>Headers and Footers</h3>
+
+<h4>WebView2 — Headers and Footers</h4>
+
+<p>WebView2's <code>CoreWebView2PrintSettings</code> provides <code>ShouldPrintHeaderAndFooter</code>, <code>HeaderTitle</code>, and <code>FooterUri</code> fields. <code>HeaderTitle</code> accepts a string title displayed in the default Chromium print header. <code>FooterUri</code> displays the page URL. This is a minimal facility compared to custom header/footer design — it reflects Chromium's browser print dialog header behavior rather than a document generation header API.</p>
+
+<p>Key constraints:</p>
+
+<ul>
+
+  <li>No custom HTML for headers/footers; only <code>HeaderTitle</code> (string) and <code>FooterUri</code> (URL string)</li>
+
+  <li>Font, color, layout, and page number format cannot be customized</li>
+
+  <li>Most production documents require custom headers/footers that exceed these constraints</li>
+
+  <li>Teams typically add header/footer content to the HTML template itself using CSS <code>@page</code> as a workaround</li>
+
+</ul>
+
+<h4>IronPDF — Headers and Footers</h4>
+
+<p>IronPDF provides <code>TextHeaderFooter</code> for simple text with token substitution and <code>HtmlHeaderFooter</code> for fully custom HTML/CSS headers and footers applied per page. The <a href="https://ironpdf.com/how-to/headers-and-footers/">headers and footers guide</a> documents all available options including per-section configuration.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+
+using var renderer = new ChromePdfRenderer();
+
+// Custom HTML header — full HTML/CSS layout; replaces WebView2's HeaderTitle
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    Height       = 20,
+    HtmlFragment = @&quot;
+        &lt;table style='width:100%; font-family:Arial; font-size:10px;'&gt;
+          &lt;tr&gt;
+            &lt;td style='text-align:left;'&gt;Acme Corp — Internal&lt;/td&gt;
+            &lt;td style='text-align:right;'&gt;Page {page} of {total-pages}&lt;/td&gt;
+          &lt;/tr&gt;
+        &lt;/table&gt;&quot;,
+    DrawDividerLine = true
+};
+
+using var pdf = renderer.RenderHtmlFileAsPdf(&quot;/input/report.html&quot;);
+pdf.SaveAs(&quot;/output/report-with-header.pdf&quot;);</code></pre>
+
+<p>The <code>{page}</code>, <code>{total-pages}</code>, and <code>{date}</code> tokens are substituted at render time. The header is decoupled from the HTML template, which avoids CSS <code>@page</code> workarounds.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>WebView2 Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>CoreWebView2.PrintToPdfAsync(path)</code></td>
+      <td><code>renderer.RenderUrlAsPdf(url)</code> + <code>pdf.SaveAs(path)</code></td>
+      <td>Decoupled render + save</td>
+    </tr>
+    <tr>
+      <td><code>CoreWebView2.NavigateToString(html)</code> + <code>PrintToPdfAsync</code></td>
+      <td><code>renderer.RenderHtmlAsPdf(html)</code></td>
+      <td><a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a></td>
+    </tr>
+    <tr>
+      <td><code>CoreWebView2PrintSettings.PageWidth/Height</code></td>
+      <td><code>RenderingOptions.PaperSize</code> or <code>CustomPaperSize</code></td>
+      <td>Enum or dimension-based</td>
+    </tr>
+    <tr>
+      <td><code>PrintSettings.MarginTop/Bottom/Left/Right</code></td>
+      <td><code>RenderingOptions.MarginTop/Bottom/Left/Right</code></td>
+      <td>Verify unit equivalence (inches vs. mm)</td>
+    </tr>
+    <tr>
+      <td><code>PrintSettings.ShouldPrintBackgrounds</code></td>
+      <td><code>RenderingOptions.PrintBackground</code></td>
+      <td>Direct mapping</td>
+    </tr>
+    <tr>
+      <td><code>PrintSettings.ScaleFactor</code></td>
+      <td><code>RenderingOptions.Zoom</code></td>
+      <td>Verify property in current IronPDF docs</td>
+    </tr>
+    <tr>
+      <td><code>PrintSettings.PageOrientation</code></td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td>Landscape / Portrait</td>
+    </tr>
+    <tr>
+      <td><code>PrintSettings.ShouldPrintHeaderAndFooter</code></td>
+      <td><code>HtmlHeaderFooter</code> or <code>TextHeaderFooter</code></td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Headers and footers guide</a></td>
+    </tr>
+    <tr>
+      <td><code>PrintSettings.HeaderTitle</code></td>
+      <td><code>HtmlHeaderFooter.HtmlFragment</code></td>
+      <td>IronPDF header is full HTML</td>
+    </tr>
+    <tr>
+      <td>Cookie/session state</td>
+      <td><code>RenderingOptions.CustomCookies</code></td>
+      <td>Inject session cookies explicitly</td>
+    </tr>
+    <tr>
+      <td><code>NavigationCompleted</code> event</td>
+      <td>Not needed</td>
+      <td>IronPDF rendering is synchronous from the caller's perspective</td>
+    </tr>
+    <tr>
+      <td><code>CoreWebView2Environment</code> initialization</td>
+      <td>Not needed</td>
+      <td>No environment setup required</td>
+    </tr>
+    <tr>
+      <td>Window handle / HWND requirement</td>
+      <td>Not needed</td>
+      <td>IronPDF runs without a window context</td>
+    </tr>
+    <tr>
+      <td>(no equivalent)</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>Merge capability built in</td>
+    </tr>
+    <tr>
+      <td>(no equivalent)</td>
+      <td><code>pdf.SecuritySettings</code></td>
+      <td>Encryption and permissions built in</td>
+    </tr>
+    <tr>
+      <td>(no equivalent)</td>
+      <td><code>PdfSignature</code></td>
+      <td><a href="https://ironpdf.com/how-to/signing/">Digital signatures guide</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>UI thread requirement removed.</strong> WebView2 operations must run on the UI thread (or be marshaled via <code>Dispatcher</code>). IronPDF has no such requirement. Code that uses <code>Dispatcher.Invoke()</code> or <code>Application.Current.Dispatcher</code> to coordinate PDF generation can be removed; direct async/await patterns work without thread marshaling.</li>
+
+  <li><strong>Window handle and <code>CoreWebView2Environment</code> setup removed.</strong> WebView2 requires an initialized <code>CoreWebView2Environment</code> with a user data directory. IronPDF has no equivalent setup. Remove all environment initialization code from the PDF generation path.</li>
+
+  <li><strong>Windows-only constraint lifted.</strong> WebView2 is Windows-only. If the migration goal includes Linux or macOS deployment, IronPDF's cross-platform support enables that. Container deployments on Linux require Chromium dependency installation</li>
+
+  <li><strong>Event-driven async pattern replaced.</strong> The <code>NavigationCompleted</code> + <code>PrintToPdfAsync()</code> coordination pattern has no IronPDF equivalent. Replace with a direct <code>await renderer.RenderUrlAsPdfAsync()</code> or <code>renderer.RenderHtmlAsPdf()</code> call.</li>
+
+  <li><strong>File output vs. in-memory output.</strong> <code>PrintToPdfAsync()</code> writes to a file path. IronPDF returns a <code>PdfDocument</code> in memory; use <code>pdf.SaveAs()</code> to write to disk or <code>pdf.BinaryData</code> / <code>pdf.ToStream()</code> to stream the result. Update any code that reads the file back after <code>PrintToPdfAsync()</code> completes.</li>
+
+  <li><strong><code>CoreWebView2PrintSettings</code> property names differ.</strong> WebView2 uses properties like <code>PageWidth</code>, <code>PageHeight</code>, <code>ShouldPrintBackgrounds</code>. IronPDF uses <code>PaperSize</code> enum, <code>PrintBackground</code>, and margin properties. Each setting must be individually remapped.</li>
+
+  <li><strong>Authentication model change.</strong> WebView2 maintains full browser session state including cookies from interactive navigation. IronPDF uses explicit cookie injection. For pages that require authentication, the session management mechanism must be redesigned: obtain a session token programmatically and inject it via <code>RenderingOptions.CustomCookies</code>.</li>
+
+  <li><strong>Namespace change.</strong> WebView2 types are under <code>Microsoft.Web.WebView2.Core</code> and <code>Microsoft.Web.WebView2.Wpf</code> (or WinForms). IronPDF types are under <code>IronPdf</code>. Update all using directives.</li>
+
+  <li><strong>Second library removal.</strong> If the application currently uses a second PDF manipulation library alongside WebView2, evaluate whether IronPDF's built-in manipulation capabilities replace it. Removing a library dependency is a simplification, but verify feature parity for the specific manipulation operations in use.</li>
+
+  <li><strong>Concurrency model.</strong> WebView2 is single-threaded per control instance; concurrent PDF generation requires multiple control instances. IronPDF recommends a new <code>ChromePdfRenderer</code> instance per thread. The concurrency patterns differ; verify thread safety assumptions in the existing code.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature Area</th>
+      <th>WebView2</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active maintenance</td>
+      <td>Yes (Microsoft)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Commercial support</td>
+      <td>Community / GitHub</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>Yes (MIT)</td>
+      <td>No (commercial)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Platform Support</strong></td>
+    </tr>
+    <tr>
+      <td>Windows desktop</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>Major constraint of WebView2</td>
+    </tr>
+    <tr>
+      <td>macOS</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Docker / container</td>
+      <td>No (no window)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>ASP.NET Core / background service</td>
+      <td>No (UI thread req)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Azure Functions / serverless</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering</strong></td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Yes</td>
+      <td><a href="https://ironpdf.com/how-to/url-to-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Via NavigateToString</td>
+      <td>Yes</td>
+      <td>IronPDF is direct</td>
+    </tr>
+    <tr>
+      <td>HTML file to PDF</td>
+      <td>Via file:// URL</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Yes (full browser)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS Grid / Flexbox</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td>Both use Chromium</td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Add/remove pages</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Limited (string only)</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Yes</a> (full HTML)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Extract text</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Find and replace</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Bookmarks</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Watermarks / stamps</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password protection</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Redaction</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>Async API</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>No UI thread requirement</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>Key architecture difference</td>
+    </tr>
+    <tr>
+      <td>In-memory output (no file)</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom logging</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF compression</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Audit WebView2 PDF usage.</strong> Identify every location that calls <code>PrintToPdfAsync()</code> or <code>PrintAsync()</code>. Document the input type (URL, HTML string, HTML file), print settings used, and output handling (file path, stream).</li>
+
+  <li><strong>Identify post-processing dependencies.</strong> If a second library is used alongside WebView2 for manipulation (merge, sign, encrypt), determine whether IronPDF's built-in operations cover those needs before removing the second library.</li>
+
+  <li><strong>Add the IronPDF NuGet package.</strong> <code>dotnet add package IronPdf</code>. On Linux targets, verify Chromium dependency installation in IronPDF documentation.</li>
+
+  <li><strong>Configure the license key.</strong> Add <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> to application startup. Remove any setup code specific to the WebView2 environment initialization. See the <a href="https://ironpdf.com/how-to/license-keys/">license key guide</a>.</li>
+
+  <li><strong>Add <code>using IronPdf;</code> directives.</strong> Update files that contained <code>Microsoft.Web.WebView2.Core</code> imports related to PDF generation.</li>
+
+  <li><strong>Replace <code>PrintToPdfAsync()</code> call sites.</strong> Substitute with the appropriate <code>ChromePdfRenderer.Render*AsPdf()</code> call. Remove <code>CoreWebView2Environment</code> setup, <code>NavigationCompleted</code> event subscriptions, and UI thread marshaling.</li>
+
+  <li><strong>Translate print settings.</strong> Map <code>CoreWebView2PrintSettings</code> properties to <code>ChromePdfRenderOptions</code> equivalents: paper size, orientation, margins, background printing, scale.</li>
+
+  <li><strong>Redesign headers and footers.</strong> Replace <code>HeaderTitle</code> / <code>FooterUri</code> string settings with <code>HtmlHeaderFooter</code> or <code>TextHeaderFooter</code> objects configured on <code>RenderingOptions</code>.</li>
+
+  <li><strong>Update authentication handling.</strong> For pages requiring authentication, replace implicit WebView2 session state with explicit cookie injection via <code>RenderingOptions.CustomCookies</code>. Test authenticated page renders explicitly.</li>
+
+  <li><strong>Remove UI thread constraints.</strong> Remove <code>Dispatcher.Invoke()</code> wrappers or <code>Application.Current.Dispatcher</code> marshaling around PDF generation calls. IronPDF can be called directly from async methods and background threads.</li>
+
+  <li><strong>Add <code>using</code> disposal blocks.</strong> Wrap <code>ChromePdfRenderer</code> and <code>PdfDocument</code> in <code>using</code> statements throughout. Ensure disposal occurs in exception paths.</li>
+
+  <li><strong>Run output comparison.</strong> Generate PDF output using both WebView2 and IronPDF for each document type. Compare visually, paying particular attention to header/footer rendering and any page-break differences.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<p><strong>When staying on WebView2 is technically reasonable:</strong> If the application is a Windows desktop application, PDF generation is a secondary feature called from the UI thread, documents are simple single-page captures of the currently displayed page, and there is no need for post-processing (merge, sign, encrypt), the existing WebView2 integration may be adequate and inexpensive to maintain. The shared Chromium engine means rendering behavior is consistent with what the user sees in the UI control.</p>
+
+<p><strong>Signals that indicate migration is worth the engineering effort:</strong> The clearest signals are deployment target changes — any move toward Linux, containerized services, ASP.NET background workers, or Azure Functions makes WebView2's Windows-only, UI-thread requirement a hard constraint. Accumulation of post-processing requirements that force a second library is another strong signal. Teams that are spending engineering effort on <code>NavigationCompleted</code> event coordination, file path management, or Dispatcher marshaling for PDF generation calls will find those concerns disappear with a managed library.</p>
+
+<p><strong>What the cutover typically involves at the code level:</strong> The call site replacement is the most mechanical step: <code>PrintToPdfAsync()</code> with its event coordination becomes a single <code>Render*AsPdf()</code> call. Print settings require property-by-property remapping. UI thread and environment setup code is removed entirely. The authentication model for pages behind login requires redesign if it relied on WebView2's session state. A phased approach — migrating simple, unauthenticated render call sites first, then addressing authenticated page scenarios — manages risk by validating rendering quality before tackling the more complex session handling.</p>
+
+<p>What has been the most significant architectural constraint teams encountered when trying to scale WebView2-based PDF generation beyond single-user desktop scenarios, and how did the solution space evolve from there?</p>

@@ -1,0 +1,848 @@
+<!-- FRONTMATTER
+  title: TuesPechkin vs IronPDF: a technical comparison for modern .NET teams (2026)
+  subtitle: a .NET engineer reference for 2026
+  tags: dotnet, csharp, pdf, tuespechkin
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/tuespechkin/
+  description: TuesPechkin vs IronPDF for .NET: The .NET wkhtmltopdf wrapper ecosystem contains a range of libraries that address the same core problem
+  published: False
+-->
+
+<h1>TuesPechkin vs IronPDF: a technical comparison for modern .NET teams (2026)</h1>
+
+<p class="subtitle"><em>a .NET engineer reference for 2026</em></p>
+
+<h2>Problem Framing</h2>
+
+<p>The .NET wkhtmltopdf wrapper ecosystem contains a range of libraries that address the same core problem: exposing the wkhtmltopdf native library to .NET applications through managed C# APIs. TuesPechkin, Rotativa, DinkToPdf, and similar libraries all build on the same underlying native binary and therefore share the same rendering capabilities and limitations. The practical differences between them lie in their threading models, API ergonomics, and maintenance trajectories—not in the rendering output, which is determined by the wkhtmltopdf engine version each bundles.</p>
+
+<p>TuesPechkin is a .NET library that wraps wkhtmltopdf and was among the earlier .NET wkhtmltopdf wrappers to address the threading problem explicitly. wkhtmltopdf's native library is not thread-safe; concurrent PDF generation from multiple threads requires serialisation or process isolation. TuesPechkin introduced a threading model using a dedicated STA (Single Thread Apartment) thread for wkhtmltopdf calls, which allowed ASP.NET applications to issue concurrent requests without crashing. This architectural contribution was meaningful at the time; whether it represents an advantage in 2026 .NET applications depends on the deployment context.</p>
+
+<p>Evaluating TuesPechkin requires understanding both the wrapper's threading model and the underlying wkhtmltopdf engine's rendering capabilities. The wrapper can be excellent while the engine remains limited by its WebKit version. Teams evaluating TuesPechkin as a PDF generation solution are really evaluating wkhtmltopdf's CSS support ceiling—and that ceiling has not risen since wkhtmltopdf development became dormant.</p>
+
+<p>The broader context for this evaluation in 2026 is that wkhtmltopdf as a project has largely stopped receiving updates. The last significant wkhtmltopdf release was years ago; the rendering engine remains frozen at a WebKit version that predates CSS Grid, Flexbox, and modern JavaScript. Any .NET library that wraps wkhtmltopdf—TuesPechkin, DinkToPdf, Rotativa, or a custom P/Invoke implementation—inherits this ceiling. The architectural decision is therefore not primarily about the wrapper but about whether wkhtmltopdf's rendering capabilities are sufficient for the application's current and near-future CSS requirements. For teams whose HTML templates have not changed in years and use table-based layouts, this is a non-issue. For teams adopting contemporary CSS frameworks or planning to do so, it is a blocking constraint.</p>
+
+<h2>What TuesPechkin Is Designed To Do</h2>
+
+<p>TuesPechkin is an open-source .NET library (MIT license) that offers a managed wrapper around the wkhtmltopdf native library. Its primary contributions over a direct P/Invoke wrapper are: a threading model that routes all wkhtmltopdf calls through a dedicated STA thread (addressing wkhtmltopdf's non-thread-safe nature), an <code>IConverter</code> interface that abstracts the conversion operation for testability, and support for both Windows (using the embedded wkhtmltopdf DLL) and multi-process models (for cross-platform or isolated rendering).</p>
+
+<p>The API accepts an <code>HtmlToPdfDocument</code> object that configures the conversion: HTML string or URL, page settings (paper size, orientation, margins), object settings (JavaScript enabled, load error handling, DPI), and global settings (document-level configuration). The converter returns a <code>byte[]</code> representing the PDF output. TuesPechkin supports header and footer configuration via wkhtmltopdf's HTML header/footer URL model.</p>
+
+<p>TuesPechkin's NuGet package history shows a period of active development followed by reduced maintenance activity</p>
+
+<p>A key engineering characteristic of TuesPechkin compared to other wkhtmltopdf wrappers is the <code>IConverter</code> interface it exposes. This abstraction supports dependency injection patterns and simplifies unit testing—the converter can be mocked for tests that should not perform actual PDF rendering. This is a deliberate API design choice that reflects good practices; some alternative wkhtmltopdf wrappers do not provide an abstraction layer and are harder to test in isolation.</p>
+
+<h2>What IronPDF Is Designed To Do</h2>
+
+<p>IronPDF is a commercial .NET library for HTML-to-PDF generation and PDF manipulation using a bundled Chromium engine. The <code>ChromePdfRenderer</code> accepts HTML strings, file paths, and URLs and returns a <code>PdfDocument</code> object. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> documents the primary rendering path. Chromium's rendering engine supports the full CSS3 feature set—Grid, Flexbox, custom properties, web fonts, SVG, and JavaScript execution—which is the principal rendering difference from wkhtmltopdf.</p>
+
+<p><code>PdfDocument</code> implements <code>IDisposable</code> and exposes merge, split, encrypt, sign, annotate, form-fill, and text/image extraction. <code>ChromePdfRenderer</code> is thread-safe and handles concurrent requests without requiring a dedicated STA thread or process isolation. IronPDF targets .NET Framework 4.x and .NET 6+ on Windows, Linux, and macOS, distributed as a single NuGet package with platform-native Chromium binaries resolved at restore time. The <a href="https://ironpdf.com/how-to/async/">async rendering guide</a> documents the awaitable API for ASP.NET Core integration.</p>
+
+<h2>Key Limitations of TuesPechkin</h2>
+
+<h3>Product Status</h3>
+
+<p>TuesPechkin's maintenance status should be verified at the GitHub repository. The library has had periods of reduced activity; verify last commit date, open issue response patterns, and .NET version compatibility before adopting it in new projects. For established codebases that already use TuesPechkin on .NET Framework, migration cost must be weighed against the risks of relying on a less-maintained library.</p>
+
+<h3>Missing Capabilities</h3>
+
+<p>TuesPechkin is an HTML-to-PDF converter that returns byte arrays. It provides no API for reading existing PDFs, merging documents, encrypting output, applying digital signatures, filling form fields, extracting text or images, or performing any post-generation manipulation. All of these operations require a second library. Additionally, TuesPechkin's .NET Core / .NET 6+ support may be limited or require specific deployment configuration</p>
+
+<h3>Technical Constraints</h3>
+
+<p>The wkhtmltopdf rendering engine does not support CSS Grid or Flexbox. JavaScript execution is limited to wkhtmltopdf's embedded WebKit engine; async-rendered content, modern JavaScript APIs (Promises, async/await, ES6+ syntax in older wkhtmltopdf versions), and large JavaScript bundles may not render correctly. Web fonts loaded from CDN URLs require outbound network access from the wkhtmltopdf process and will be fetched at render time—network latency adds to render time for each external font request.</p>
+
+<p>TuesPechkin's STA threading model—routing calls through a dedicated thread—works for Windows .NET Framework applications but has known complications in ASP.NET Core's thread pool model and in Linux environments where STA threads have no meaning. The STA threading requirement is a Windows COM threading model concept; on Linux it is undefined. For .NET 6+ on Linux (container deployments), verify whether the library functions correctly and how it handles the STA threading requirement on a platform that has no STA thread concept. This is the most significant platform compatibility concern for teams running modern containerised .NET workloads.</p>
+
+<p>Performance characteristics under concurrent ASP.NET Core load depend on how TuesPechkin's converter serialises calls. Because wkhtmltopdf calls are serialised through a single STA thread, concurrent requests queue rather than execute in parallel. Under sustained throughput, this creates predictable queue depth growth. The practical throughput ceiling depends on average render time per document and acceptable queue depth; this must be measured for the specific application workload.</p>
+
+<h3>Support Model</h3>
+
+<p>TuesPechkin is an open-source library with community-only support via GitHub. There is no commercial support tier. For rendering issues that trace to wkhtmltopdf's underlying engine, the resolution path depends on the wkhtmltopdf community, which is largely dormant.</p>
+
+<h3>Architectural Fit</h3>
+
+<p>TuesPechkin is appropriate for .NET Framework applications on Windows with stable, simple HTML templates that are within wkhtmltopdf's CSS capabilities, where HTML-to-PDF conversion is the only PDF requirement, and where post-generation manipulation is not needed. It is less appropriate for .NET 6+ applications, Linux/container deployments (STA threading complications), applications with modern CSS templates, or any workflow requiring manipulation of the generated PDF.</p>
+
+<h2>Feature Comparison Overview</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>TuesPechkin</th>
+      <th>IronPDF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Threading model</td>
+      <td>STA thread (wkhtmltopdf)</td>
+      <td>Thread-safe (Chromium)</td>
+    </tr>
+    <tr>
+      <td>CSS Grid / Flexbox</td>
+      <td>No (wkhtmltopdf)</td>
+      <td>Yes (Chromium)</td>
+    </tr>
+    <tr>
+      <td>Post-render manipulation</td>
+      <td>No (byte[] only)</td>
+      <td>Yes (PdfDocument API)</td>
+    </tr>
+    <tr>
+      <td>.NET 6+ / .NET 8</td>
+      <td>-</td>
+      <td>Yes</td>
+    </tr>
+    <tr>
+      <td>Linux / Docker support</td>
+      <td>Complicated</td>
+      <td>Yes</td>
+    </tr>
+    <tr>
+      <td>License</td>
+      <td>Open source (MIT)</td>
+      <td>Commercial</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>HTML String to PDF</h3>
+
+<h4>TuesPechkin — HTML String to PDF:</h4>
+
+<pre><code class="language-csharp">// TuesPechkin HTML to PDF via IConverter
+// Package: TuesPechkin
+using TuesPechkin;
+using System.IO;
+
+// WkhtmltopdfConverter manages the native library lifecycle
+// ThreadSafeConverter wraps it in the STA thread model for ASP.NET safety
+// Typically configured once at application startup and reused
+private static IConverter GetConverter()
+{
+    return new ThreadSafeConverter(
+        new PdfToolset(
+            new Win32EmbeddedDeployment(
+                new StaticDeployment(Path.GetTempPath()))));
+    // ThreadSafeConverter and Win32EmbeddedDeployment are Windows-specific
+    // Verify alternative deployment options for Linux
+}
+
+public byte[] ConvertToPdf(string htmlContent)
+{
+    var converter = GetConverter();
+
+    var document = new HtmlToPdfDocument
+    {
+        GlobalSettings = new GlobalSettings
+        {
+            ProduceOutline = false,
+            // documentTitle: optional
+        },
+        Objects =
+        {
+            new ObjectSettings
+            {
+                HtmlContent = htmlContent,
+                WebSettings = new WebSettings
+                {
+                    EnableIntelligentShrinking = true,
+                    EnableJavascript = true
+                    // wkhtmltopdf JavaScript: limited WebKit engine
+                },
+                HeaderSettings = new HeaderSettings
+                {
+                    FontSize = 8,
+                    Right = &quot;Page [page] of [toPage]&quot;,
+                    Line = true
+                },
+                PaperSize = PaperSize.A4
+            }
+        }
+    };
+
+    // Returns byte[] — no manipulation API on the result
+    return converter.Convert(document);
+}</code></pre>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li><code>ThreadSafeConverter</code> routes calls through a dedicated STA thread; this serialises concurrent rendering requests under ASP.NET load—the throughput ceiling is one render at a time through this thread</li>
+
+  <li><code>Win32EmbeddedDeployment</code> is Windows-only; Linux deployment requires a different deployment strategy (<code>RemoteWorkloadDeployment</code> or manual binary placement)</li>
+
+  <li>The <code>wkhtmltopdf</code> binary is deployed to a temp path on first use; verify temp path write permissions in production environments and ensure the binary is not blocked by AppLocker or similar security policies</li>
+
+  <li>CSS Grid and Flexbox in the HTML template will not render correctly; inline table-based layouts are the reliable CSS approach for wkhtmltopdf</li>
+
+  <li>Page tokens <code>[page]</code> and <code>[toPage]</code> are wkhtmltopdf-specific header/footer token syntax, not standard HTML</li>
+
+  <li>Output is <code>byte[]</code>; no API for merging, encrypting, or signing—all post-generation operations require a separate library</li>
+
+  <li>The <code>ThreadSafeConverter</code> instance should be a singleton or static; creating multiple instances causes binary redeployment and may cause conflicts</li>
+
+</ul>
+
+<h4>IronPDF — HTML String to PDF:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// ChromePdfRenderer is thread-safe — can be a singleton or static instance
+// No STA thread required; concurrent calls are handled internally
+private static readonly ChromePdfRenderer Renderer = new ChromePdfRenderer();
+
+static IronPdfSetup()
+{
+    Renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+    Renderer.RenderingOptions.MarginTop = 15;
+    Renderer.RenderingOptions.MarginBottom = 15;
+    Renderer.RenderingOptions.CssMediaType = IronPdf.Rendering.PdfCssMediaType.Print;
+
+    // Text footer with page numbers — no special token syntax
+    Renderer.RenderingOptions.TextFooter = new IronPdf.Engines.Chrome.TextHeaderFooter
+    {
+        RightText = &quot;Page {page} of {total-pages}&quot;,
+        FontSize = 8,
+        DrawDividerLine = true
+    };
+}
+
+public async Task&lt;byte[]&gt; ConvertToPdfAsync(string htmlContent)
+{
+    using var pdf = await Renderer.RenderHtmlAsPdfAsync(htmlContent);
+    return pdf.BinaryData; // or pdf.SaveAs(path) for file output
+}</code></pre>
+
+<p>IronPDF's thread-safety model requires no STA thread management from the application. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> documents the full rendering configuration. Multiple concurrent ASP.NET Core requests can call <code>RenderHtmlAsPdfAsync()</code> simultaneously without serialisation, coordination, or dedicated thread management.</p>
+
+<h3>URL to PDF</h3>
+
+<h4>TuesPechkin — URL to PDF:</h4>
+
+<pre><code class="language-csharp">// TuesPechkin URL to PDF
+using TuesPechkin;
+
+var converter = GetConverter(); // reuse the singleton
+
+var document = new HtmlToPdfDocument
+{
+    Objects =
+    {
+        new ObjectSettings
+        {
+            // Set Page instead of HtmlContent for URL input
+            PageUrl = &quot;https://example.com/report&quot;,
+            WebSettings = new WebSettings
+            {
+                EnableJavascript = true,
+                // Wait time for JavaScript rendering — limited and not configurable
+                // as precisely as a dedicated WaitFor API
+            }
+        }
+    }
+};
+
+byte[] pdfBytes = converter.Convert(document);</code></pre>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>The URL is fetched by the wkhtmltopdf process; network access must be available from the process host—in containerised environments verify that the container can reach the target URL</li>
+
+  <li>SPA content that depends on JavaScript async rendering may not be captured; wkhtmltopdf's JavaScript delay configuration is a fixed millisecond value, not a condition-based wait</li>
+
+  <li>Authenticated URLs require cookie configuration via <code>LoadSettings.Cookies</code></li>
+
+  <li>HTTPS certificate validation failures require explicit bypass settings; internal URLs with self-signed certificates in development environments frequently trigger this</li>
+
+  <li>wkhtmltopdf's user-agent string may trigger bot detection or access control on certain external URLs</li>
+
+</ul>
+
+<h4>IronPDF — URL to PDF:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// Wait for SPA content to finish rendering — configurable condition
+renderer.RenderingOptions.WaitFor.RenderDelay(750);
+
+// Inject authentication cookie
+renderer.RenderingOptions.CustomCookies =
+    new System.Collections.Generic.Dictionary&lt;string, string&gt;
+    { { &quot;auth_session&quot;, &quot;token_value_here&quot; } };
+
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://example.com/report&quot;);
+pdf.SaveAs(&quot;report.pdf&quot;);</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF guide</a> documents cookie injection, custom HTTP request headers, and the <code>WaitFor</code> API which supports both fixed delays and JavaScript condition waits—providing more precise SPA content capture than wkhtmltopdf's fixed-delay model.</p>
+
+<h3>Applying Encryption to Generated PDF</h3>
+
+<h4>TuesPechkin — Post-Generation Encryption:</h4>
+
+<p>TuesPechkin has no encryption API. The byte array output must be passed to a separate library.</p>
+
+<pre><code class="language-csharp">// TuesPechkin produces byte[] — no encryption capability in the library
+// A second library is required for any security operation
+
+using TuesPechkin;
+
+byte[] rawPdfBytes = converter.Convert(document);
+
+// Pass rawPdfBytes to a separate PDF library for encryption
+// This pattern introduces a second NuGet dependency, a second API surface,
+// and a second disposal lifecycle to manage in the application code.</code></pre>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>Two-library accumulation for every post-generation operation</li>
+
+  <li>No interoperability between TuesPechkin's byte array and a second library's document type</li>
+
+  <li>Version management for two libraries with independent release cycles</li>
+
+</ul>
+
+<h4>IronPDF — Inline Encryption:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+using var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+
+// Encryption on the PdfDocument — no second library
+pdf.SecuritySettings.OwnerPassword = &quot;ownerSecret&quot;;
+pdf.SecuritySettings.UserPassword = &quot;userKey&quot;;
+pdf.SecuritySettings.AllowUserPrint = true;
+pdf.SecuritySettings.AllowUserCopyPasteContent = false;
+
+pdf.SaveAs(&quot;secured-document.pdf&quot;);</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/pdf-permissions-passwords/">passwords and permissions guide</a> documents the full permission flag model and 256-bit AES encryption. The security settings apply on the <code>PdfDocument</code> directly; no byte array handoff or second library is required.</p>
+
+<h3>Generating PDF in a Non-HTTP Context</h3>
+
+<p>TuesPechkin has a genuine advantage over Rotativa in this area: it does not require an HTTP request context. The <code>IConverter</code> abstraction can be used in any .NET hosting model—console applications, Windows Services, <code>IHostedService</code> background workers—as long as the threading model is compatible with the host's runtime environment. This section compares how each library handles non-HTTP PDF generation.</p>
+
+<h4>TuesPechkin — Non-HTTP Context:</h4>
+
+<pre><code class="language-csharp">// TuesPechkin works outside HTTP contexts — it does not depend on MVC
+// Unlike Rotativa, TuesPechkin's IConverter does not require ControllerContext
+// It can be used in console applications, background jobs, and hosted services
+
+using TuesPechkin;
+
+// Console application or hosted service — same API as HTTP handler
+var converter = new ThreadSafeConverter(
+    new PdfToolset(
+        new Win32EmbeddedDeployment(
+            new StaticDeployment(AppDomain.CurrentDomain.BaseDirectory))));
+
+var document = new HtmlToPdfDocument
+{
+    Objects = { new ObjectSettings { HtmlContent = &quot;&lt;h1&gt;Report&lt;/h1&gt;&quot; } }
+};
+
+byte[] pdfBytes = converter.Convert(document);
+File.WriteAllBytes(&quot;report.pdf&quot;, pdfBytes);
+// Note: STA thread requirement is fulfilled by ThreadSafeConverter internally
+// Verify behaviour in non-Windows environments for .NET 6+ hosted services</code></pre>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li><code>ThreadSafeConverter</code> creates and manages the STA thread internally</li>
+
+  <li>In Linux-hosted .NET services, the STA thread concept does not exist; verify whether TuesPechkin's threading model functions correctly on Linux</li>
+
+  <li><code>.NET 6+</code> compatibility should be explicitly verified; the library was primarily developed for .NET Framework</li>
+
+</ul>
+
+<h4>IronPDF — Non-HTTP Background Worker:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using Microsoft.Extensions.Hosting;
+
+public class PdfGenerationWorker : BackgroundService
+{
+    // ChromePdfRenderer is thread-safe; shared across all worker iterations
+    private static readonly ChromePdfRenderer Renderer = new ChromePdfRenderer();
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var jobs = await _jobQueue.DequeueAsync(stoppingToken);
+
+            // Parallel rendering — multiple jobs processed concurrently
+            await System.Threading.Tasks.Parallel.ForEachAsync(
+                jobs,
+                stoppingToken,
+                async (job, ct) =&gt;
+                {
+                    var html = await _templateEngine.RenderAsync(job.Template, job.Data);
+                    using var pdf = await Renderer.RenderHtmlAsPdfAsync(html);
+
+                    // Security settings per job
+                    if (job.EncryptOutput)
+                    {
+                        pdf.SecuritySettings.UserPassword = job.RecipientKey;
+                    }
+
+                    await _storage.SaveAsync($&quot;{job.Id}.pdf&quot;, pdf.BinaryData, ct);
+                });
+
+            await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+        }
+    }
+}</code></pre>
+
+<p>IronPDF works identically in background workers, hosted services, and console applications as in HTTP handlers. The <a href="https://ironpdf.com/how-to/async/">async rendering guide</a> covers <code>RenderHtmlAsPdfAsync()</code> and the parallel rendering patterns. Because <code>ChromePdfRenderer</code> is thread-safe, the same instance serves both HTTP requests and background jobs concurrently without coordination.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>TuesPechkin Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>new ThreadSafeConverter(...)</code></td>
+      <td><code>new ChromePdfRenderer()</code></td>
+      <td>No STA thread management needed</td>
+    </tr>
+    <tr>
+      <td><code>new HtmlToPdfDocument()</code></td>
+      <td>Rendering options on renderer</td>
+      <td>Config approach differs</td>
+    </tr>
+    <tr>
+      <td><code>ObjectSettings.HtmlContent</code></td>
+      <td><code>renderer.RenderHtmlAsPdf(html)</code></td>
+      <td><a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML to PDF guide</a></td>
+    </tr>
+    <tr>
+      <td><code>ObjectSettings.PageUrl</code></td>
+      <td><code>renderer.RenderUrlAsPdf(url)</code></td>
+      <td><a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF guide</a></td>
+    </tr>
+    <tr>
+      <td><code>ObjectSettings.PageUrl = file://...</code></td>
+      <td><code>renderer.RenderHtmlFileAsPdf(path)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>PaperSize.A4</code></td>
+      <td><code>RenderingOptions.PaperSize = A4</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>HeaderSettings.Right = "[page]..."</code></td>
+      <td><code>RenderingOptions.TextFooter.RightText</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>converter.Convert(document)</code> → <code>byte[]</code></td>
+      <td><code>pdf.BinaryData</code></td>
+      <td>PdfDocument has full API</td>
+    </tr>
+    <tr>
+      <td><code>Win32EmbeddedDeployment</code></td>
+      <td>NuGet restore (automatic)</td>
+      <td>IronPDF manages binaries</td>
+    </tr>
+    <tr>
+      <td>No encrypt API</td>
+      <td><code>pdf.SecuritySettings.*</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>No merge API</td>
+      <td><code>PdfDocument.Merge(docs)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>No sign API</td>
+      <td><code>pdf.Sign(signature)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>No text extraction</td>
+      <td><code>pdf.ExtractAllText()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>STA thread model (Windows)</td>
+      <td>Thread-safe (all platforms)</td>
+      <td>Platform parity advantage</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>TuesPechkin</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Current maintenance</td>
+      <td>Reduced</td>
+      <td>Active</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>Yes (MIT)</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>License model</td>
+      <td>Free</td>
+      <td>Commercial</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Support</strong></td>
+    </tr>
+    <tr>
+      <td>Commercial support</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Community forum</td>
+      <td>GitHub Issues</td>
+      <td>GitHub Issues</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Documentation depth</td>
+      <td>Limited</td>
+      <td>Comprehensive</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content Creation</strong></td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>DOCX to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Markdown to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Image to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Limited (wkhtmltopdf)</td>
+      <td>Yes (Chromium)</td>
+      <td>Engine difference</td>
+    </tr>
+    <tr>
+      <td>CSS Grid / Flexbox</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>Engine constraint</td>
+    </tr>
+    <tr>
+      <td>Web fonts (CDN)</td>
+      <td>Partial</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>Partial</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Responsive CSS</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Add/remove pages</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Via wkhtmltopdf config</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Yes (API)</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Bookmarks</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Table of contents</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Text extraction</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Image extraction</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Find and replace</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Redaction</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Annotations</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Watermarks / stamps</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Form creation</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Form filling</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password protection</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Permissions model</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HSM signing</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/pdfa/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development & Maintenance</strong></td>
+    </tr>
+    <tr>
+      <td>.NET Framework support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET 6+ / .NET 8</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux support</td>
+      <td>Complicated</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Docker support</td>
+      <td>Complicated</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>macOS support</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Thread safety model</td>
+      <td>STA thread (Windows)</td>
+      <td>Native (all platforms)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>No (sync only)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Pure managed assembly</td>
+      <td>No (P/Invoke)</td>
+      <td>No (Chromium)</td>
+      <td>Both include native code</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Commonly Reported Limitations</h2>
+
+<ul>
+
+  <li><strong>STA thread model in modern .NET.</strong> TuesPechkin's <code>ThreadSafeConverter</code> addresses wkhtmltopdf's thread safety by routing calls through an STA thread. This pattern is well-understood on Windows in .NET Framework applications. In .NET 6+ applications and in Linux-hosted containers, the STA apartment model is not available. Community reports suggest varied results when attempting to use TuesPechkin in .NET Core/.NET 6+ environments; explicit verification against the target runtime and platform is essential before adoption.</li>
+
+  <li><strong>wkhtmltopdf CSS rendering ceiling.</strong> All wkhtmltopdf wrappers share the same rendering ceiling. CSS Grid, Flexbox, CSS custom properties, and modern JavaScript APIs do not render correctly. For teams that are evaluating TuesPechkin in 2026 for a new project using contemporary CSS frameworks, this limitation is likely disqualifying unless the team is prepared to maintain parallel CSS rules specifically for the PDF rendering path.</li>
+
+  <li><strong>Reduced maintenance activity.</strong> TuesPechkin was an important innovation in the wkhtmltopdf .NET wrapper ecosystem when it was introduced, but the library has seen reduced activity in recent years. For a new production integration in 2026, the maintenance trajectory is a risk factor. Existing applications that use TuesPechkin on .NET Framework and Windows may be stable, but new integrations should weigh this factor explicitly.</li>
+
+  <li><strong>No post-generation manipulation.</strong> Like all wkhtmltopdf wrappers, TuesPechkin produces a byte array with no manipulation API. Teams that need to merge, encrypt, sign, or watermark the generated PDF must integrate a second library. The two-library pattern is functionally workable but adds integration surface and dependency management overhead.</li>
+
+  <li><strong>Linux deployment friction.</strong> wkhtmltopdf's Windows binary and the STA threading model that TuesPechkin uses are Windows-native patterns. Applications that need to run on Linux (Docker containers, Azure App Service on Linux, Kubernetes) face additional configuration and compatibility challenges that Windows deployments do not. IronPDF's Chromium engine has documented Linux deployment support; TuesPechkin's Linux story requires explicit investigation.</li>
+
+  <li><strong>Async API gap.</strong> TuesPechkin's <code>IConverter.Convert()</code> is synchronous. In ASP.NET Core applications where request handlers are expected to be async, wrapping a synchronous render call in <code>Task.Run()</code> is the common workaround—but this adds a thread pool thread per render call and can interact poorly with ASP.NET Core's thread pool management under load. A library with a native async API eliminates this pattern entirely.</li>
+
+</ul>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on TuesPechkin is technically reasonable</h3>
+
+<p>TuesPechkin is technically defensible for existing .NET Framework applications on Windows where HTML-to-PDF generation with wkhtmltopdf is working correctly, CSS templates are table-based and within the engine's capabilities, and no post-generation manipulation is needed. The MIT license and zero licensing cost are genuine advantages for open-source or budget-constrained projects. For an established, stable integration that is not being asked to do more than it currently does, migration cost is hard to justify.</p>
+
+<h3>When migration becomes a capability or architectural mismatch</h3>
+
+<p>Migration is forced by: .NET 6+ adoption, Linux or container deployment (STA thread incompatibility), CSS template modernisation (Grid, Flexbox, component library adoption), post-generation operation requirements (encrypt, sign, merge), or a maintenance trajectory assessment that concludes the library is no longer receiving adequate updates for the production risk it carries.</p>
+
+<h3>How IronPDF approaches the same problem differently</h3>
+
+<p>IronPDF replaces the wkhtmltopdf engine with Chromium, which eliminates the CSS feature ceiling. The thread-safety model is Chromium's, which works natively on Windows, Linux, and macOS without STA thread management. The <code>PdfDocument</code> result covers merge, encrypt, sign, and extract without secondary libraries. The async API integrates natively with .NET async pipelines—the <a href="https://ironpdf.com/how-to/async/">async rendering guide</a> documents the <code>RenderHtmlAsPdfAsync()</code> path. The migration from TuesPechkin is primarily a rendering engine change; the application's HTML templates carry over, though testing for CSS differences between wkhtmltopdf's WebKit and Chromium rendering is necessary.</p>
+
+<p>For teams considering TuesPechkin for a new project in 2026, the honest engineering assessment is: the wrapper API is well-designed, the <code>IConverter</code> abstraction supports good testing practices, and the threading model solved a real problem. But these advantages are bounded by the underlying wkhtmltopdf engine, which has not been updated in years and which cannot render the CSS that contemporary .NET web applications use. The wrapper's quality does not change the engine's CSS ceiling.</p>
+
+<p>When your team's HTML templates are tested against the PDF rendering engine during development—do you have a CSS compatibility matrix for what wkhtmltopdf supports, or has the boundary been discovered empirically through production failures?</p>

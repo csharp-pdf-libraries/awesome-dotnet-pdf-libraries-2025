@@ -1,0 +1,789 @@
+<!-- FRONTMATTER
+  title: Migrating from Kaizen.io to IronPDF: the .NET migration reference
+  subtitle: technical depth for .NET teams evaluating a PDF library switch
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-kaizen/
+  description: How to replace Kaizen.io with IronPDF in a .NET project: API equivalents, integration notes, and a step-by-step migration checklist.
+  published: False
+-->
+
+<h1>Migrating from Kaizen.io to IronPDF: the .NET migration reference</h1>
+
+<p class="subtitle"><em>technical depth for .NET teams evaluating a PDF library switch</em></p>
+
+<h2>Framing</h2>
+
+<p>Cloud-based HTML-to-PDF APIs follow a common architectural pattern: the application sends HTML content over HTTP to a third-party service, the service renders the document using a headless browser or document engine, and the application receives PDF bytes in response. This model removes rendering infrastructure from the application host but introduces an external dependency for every PDF generation request. The operational and data handling implications of that dependency accumulate over time in ways that are not always apparent at initial adoption.</p>
+
+<p>Re-evaluation of cloud PDF services typically happens for one of several reasons. Per-request pricing that was negligible at low volume becomes visible at scale. Sending HTML content — which may contain customer data, business logic, or proprietary templates — to a third-party service raises data residency and confidentiality questions that become harder to answer under compliance frameworks like GDPR or HIPAA. Network latency compounds under concurrent load. And when post-render PDF operations are required (merge, sign, form-fill, encrypt), the application needs a separate library alongside the cloud service, increasing the dependency count and integration surface.</p>
+
+<p>This guide covers the migration from a cloud-based PDF API (Kaizen.io) to IronPDF for .NET engineers evaluating or executing the switch. Because Kaizen.io's specific API surface, .NET SDK details, rendering engine, and current product status should be verified directly in official documentation, this article relies on the general pattern of cloud PDF API migration and places "-" wherever specific claims cannot be made confidently. The migration is classified as Low effort because the conceptual operation is identical (HTML in, PDF out) and the migration work is primarily replacing HTTP client calls with in-process method calls.</p>
+
+<h2>What Kaizen.io Is Designed to Do</h2>
+
+<p>The product status, last release, technical approach, rendering engine, .NET support, install footprint, and primary use case for Kaizen.io should be verified directly in official documentation, as the product's specifics are not sufficiently established in widely available technical sources to state with confidence. The guidance below applies to the general architecture of cloud-based HTML-to-PDF services, which Kaizen.io appears to represent based on available context.</p>
+
+<p>Cloud PDF generation services typically expose an HTTP REST API where the application sends HTML content (as a string, file, or URL reference), along with configuration parameters for paper size, margins, orientation, headers, footers, and rendering options. The service's servers handle the rendering using a headless browser or document engine, and the response contains the PDF as binary data or a download URL. The .NET integration is typically via <code>HttpClient</code> calls or a vendor-provided .NET SDK that wraps the HTTP API. There are no native binary dependencies in the application — all rendering infrastructure runs on the vendor's servers. The primary use case is PDF generation for teams that prefer to offload rendering infrastructure entirely rather than embed it in the application.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>A cloud PDF API and IronPDF represent opposite ends of the infrastructure spectrum for PDF generation. The cloud service runs rendering infrastructure remotely — the application sends content over HTTP and receives bytes back. IronPDF embeds Chromium in-process in the .NET application — the application calls a method and receives a <code>PdfDocument</code> object directly.</p>
+
+<p>IronPDF's two primary types are <code>ChromePdfRenderer</code> (for rendering HTML to PDF) and <code>PdfDocument</code> (for the resulting document and all manipulation). Both implement <code>IDisposable</code> and require <code>using</code> blocks. Configuration that in a cloud API is expressed as HTTP request parameters (paper size, margins, orientation) is expressed in IronPDF as properties on <code>RenderingOptions</code>. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers the full rendering configuration. The <a href="https://ironpdf.com/how-to/rendering-options/">rendering options reference</a> covers all available parameters. License initialization is a one-time startup call; see the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</p>
+
+<p>The shift from a cloud PDF API to IronPDF removes the network dependency from every render call, changes failure modes from HTTP errors to .NET exceptions, eliminates per-request API pricing, and consolidates PDF rendering and manipulation into a single in-process library. It introduces a different operational concern: IronPDF's Chromium engine adds to the application's memory footprint and, on Linux, requires Chromium system library packages in the container.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>HTTP call → in-process method call</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderUrlAsPdf()</code></td>
+      <td>URL must be reachable from app server</td>
+    </tr>
+    <tr>
+      <td>Paper size</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td>Verify Kaizen.io's parameter format</td>
+    </tr>
+    <tr>
+      <td>Margins</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.Margin*</code></td>
+      <td>Verify Kaizen.io's margin unit</td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Medium</td>
+      <td><code>RenderingOptions.HtmlHeader/HtmlFooter</code></td>
+      <td>Verify Kaizen.io's header/footer API</td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>-</td>
+      <td><code>RenderingOptions.WaitFor.*</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Output to byte array</td>
+      <td>Low</td>
+      <td><code>pdf.BinaryData</code></td>
+      <td>Replace <code>HttpResponseMessage.ReadAsByteArrayAsync()</code></td>
+    </tr>
+    <tr>
+      <td>Save to file</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>Low</td>
+      <td><code>RenderHtmlAsPdfAsync()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HTTP error handling</td>
+      <td>Low</td>
+      <td>.NET exception handling</td>
+      <td>Replace HTTP status checks</td>
+    </tr>
+    <tr>
+      <td>Credential management</td>
+      <td>Low</td>
+      <td>License key at startup</td>
+      <td>Remove API keys / bearer tokens</td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Low</td>
+      <td><code>PdfSignature</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAsPdfA()</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>Form filling</td>
+      <td>Low</td>
+      <td><code>pdf.Form.Fields</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>Data residency</td>
+      <td>N/A</td>
+      <td>In-process — data stays in app</td>
+      <td>Key architectural change</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>HTML String to PDF (Generic Cloud API Pattern)</h3>
+
+<h4>Cloud PDF API (Kaizen.io) — HTML to PDF via HTTP</h4>
+
+<pre><code class="language-csharp">using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+
+// Generic pattern for cloud PDF API integration
+// Verify Kaizen.io's actual endpoint, authentication method, and request format
+// in official documentation — this illustrates the general HTTP API pattern
+
+public class CloudPdfService
+{
+    private readonly HttpClient _httpClient;
+    private const string ApiBaseUrl = &quot;https://api.kaizen.io&quot;; // verify
+    private const string ApiKey = &quot;YOUR_API_KEY&quot;; // verify auth mechanism
+
+    public CloudPdfService(HttpClient httpClient)
+    {
+        _httpClient = httpClient;
+        // Verify whether Kaizen.io uses Bearer tokens, API key headers, or another mechanism
+        _httpClient.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue(&quot;Bearer&quot;, ApiKey); // verify format
+    }
+
+    public async Task&lt;byte[]&gt; HtmlToPdfAsync(string html, PdfOptions options)
+    {
+        // Verify the exact request structure in Kaizen.io official documentation
+        var requestBody = new
+        {
+            html = html,
+            options = new
+            {
+                paperSize = options.PaperSize,      // e.g., &quot;A4&quot;
+                marginTop = options.MarginTop,       // verify unit (mm, in, px)
+                marginBottom = options.MarginBottom,
+                marginLeft = options.MarginLeft,
+                marginRight = options.MarginRight,
+                landscape = options.Landscape        // verify parameter name
+            }
+        };
+
+        var json = JsonSerializer.Serialize(requestBody);
+        using var content = new StringContent(json, Encoding.UTF8, &quot;application/json&quot;);
+
+        // Verify the exact endpoint path in official documentation
+        using var response = await _httpClient.PostAsync($&quot;{ApiBaseUrl}/pdf&quot;, content);
+        response.EnsureSuccessStatusCode(); // throws on HTTP error
+
+        return await response.Content.ReadAsByteArrayAsync();
+    }
+
+    public record PdfOptions(
+        string PaperSize = &quot;A4&quot;,
+        int MarginTop = 10,
+        int MarginBottom = 10,
+        int MarginLeft = 10,
+        int MarginRight = 10,
+        bool Landscape = false);
+}</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>Verify the exact API endpoint URL, request body format, authentication mechanism (API key header, Bearer token, HMAC), and response format in Kaizen.io official documentation.</li>
+
+  <li><code>response.EnsureSuccessStatusCode()</code> throws <code>HttpRequestException</code> on non-2xx responses — all cloud render failures surface as HTTP exceptions.</li>
+
+  <li>API credentials (key, token) must be managed as secrets — remove all credential storage related to Kaizen.io during migration.</li>
+
+  <li>Network round-trips add latency to every render call; under concurrent load, multiple threads wait on separate HTTP connections.</li>
+
+  <li>The API may impose rate limits or request size limits</li>
+
+</ul>
+
+<h4>IronPDF — In-Process HTML to PDF</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// ChromePdfRenderer is reusable — register as singleton in DI
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 10;     // millimeters
+renderer.RenderingOptions.MarginBottom = 10;
+renderer.RenderingOptions.MarginLeft = 10;
+renderer.RenderingOptions.MarginRight = 10;
+
+string html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;h1&gt;Invoice #1042&lt;/h1&gt;
+  &lt;p&gt;Customer: Acme Corp&lt;/p&gt;
+  &lt;p&gt;Total: $1,599.00&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+// PdfDocument is IDisposable — use a using block
+using var pdf = renderer.RenderHtmlAsPdf(html);
+
+// Equivalent to ReadAsByteArrayAsync() from the HTTP response
+byte[] pdfBytes = pdf.BinaryData;
+
+// Or save directly
+pdf.SaveAs(&quot;invoice.pdf&quot;);</code></pre>
+
+<p>The <code>HttpClient.PostAsync()</code> / <code>ReadAsByteArrayAsync()</code> pattern is replaced by a direct method call. API credentials are removed. HTTP error handling (<code>EnsureSuccessStatusCode()</code>, <code>HttpRequestException</code>) is replaced by exception handling for IronPDF rendering errors. Full configuration is in the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a>.</p>
+
+<h3>URL to PDF</h3>
+
+<h4>Cloud PDF API — URL to PDF</h4>
+
+<pre><code class="language-csharp">using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+
+// Generic cloud PDF API URL rendering pattern
+// Verify Kaizen.io's URL rendering endpoint and parameters in official documentation
+
+public async Task&lt;byte[]&gt; UrlToPdfAsync(string url)
+{
+    // URL is passed to the cloud service, which fetches and renders it
+    // The target URL must be publicly accessible from the cloud service's servers
+    var requestBody = new
+    {
+        url = url,
+        options = new
+        {
+            paperSize = &quot;A4&quot;,   // verify parameter name and format
+            // JavaScript wait
+            // waitForSelector = &quot;.content-loaded&quot;, // example
+        }
+    };
+
+    var json = JsonSerializer.Serialize(requestBody);
+    using var content = new StringContent(json, Encoding.UTF8, &quot;application/json&quot;);
+    using var response = await _httpClient.PostAsync($&quot;{ApiBaseUrl}/pdf/url&quot;, content); // verify endpoint
+    response.EnsureSuccessStatusCode();
+
+    return await response.Content.ReadAsByteArrayAsync();
+}</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>Cloud services fetch the target URL from their own infrastructure — the URL must be publicly accessible from the internet, not from internal or VPN-protected networks.</li>
+
+  <li>Verify the URL rendering endpoint path and parameter format in official documentation.</li>
+
+  <li>Cookie injection for authenticated URLs requires vendor-specific mechanisms</li>
+
+</ul>
+
+<h4>IronPDF — URL to PDF</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// WaitFor configuration replaces cloud service wait parameters
+renderer.RenderingOptions.WaitFor.HtmlElement(&quot;.content-loaded&quot;);
+
+// Cookie injection for authenticated URLs
+renderer.RenderingOptions.CustomCookies =
+    new System.Collections.Generic.Dictionary&lt;string, string&gt;
+    {
+        { &quot;session_id&quot;, &quot;your-session-token&quot; }
+    };
+
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://reports.example.com/monthly&quot;);
+byte[] pdfBytes = pdf.BinaryData;</code></pre>
+
+<p>Unlike cloud API URL rendering, IronPDF's in-process renderer can access URLs that are only reachable from the application's network — including internal services, staging environments, or URLs behind authentication without requiring them to be publicly exposed. The <a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF guide</a> covers all wait conditions and cookie injection.</p>
+
+<h3>ASP.NET Core Controller Integration</h3>
+
+<h4>Cloud PDF API — ASP.NET Core Controller</h4>
+
+<pre><code class="language-csharp">using System.Net.Http;
+using Microsoft.AspNetCore.Mvc;</code></pre>
+
+<p>[ApiController] [Route("reports")] public class ReportController : ControllerBase { private readonly CloudPdfService _pdfService;</p>
+
+<p>public ReportController(CloudPdfService pdfService) { _pdfService = pdfService; }</p>
+
+<p>[HttpGet("{id}/pdf")] public async Task<IActionResult> GetReport(int id) { string html = await BuildReportHtmlAsync(id);</p>
+
+<p>try { // Network call to cloud PDF service — adds latency byte[] pdfBytes = await _pdfService.HtmlToPdfAsync( html, new CloudPdfService.PdfOptions("A4", 15, 15, 15, 15));</p>
+
+<p>return File(pdfBytes, "application/pdf", $"report-{id}.pdf"); } catch (HttpRequestException ex) { // Cloud service HTTP errors require explicit handling return StatusCode(503, $"PDF generation failed: {ex.Message}"); } }</p>
+
+<p>private Task<string> BuildReportHtmlAsync(int id) => Task.FromResult($"<html><body><h1>Report {id}</h1></body></html>"); }</p>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>The <code>CloudPdfService</code> dependency is registered with an <code>IHttpClientFactory</code>-backed <code>HttpClient</code> — remove this DI registration during migration.</li>
+
+  <li><code>HttpRequestException</code> catch block for cloud API failures must be replaced with exception handling for IronPDF rendering errors.</li>
+
+  <li>Service availability is an implicit dependency: if the cloud API is down, PDF generation fails.</li>
+
+</ul>
+
+<h4>IronPDF — ASP.NET Core Controller</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using Microsoft.AspNetCore.Mvc;</code></pre>
+
+<p>[ApiController] [Route("reports")] public class ReportController : ControllerBase { private readonly ChromePdfRenderer _renderer;</p>
+
+<p>// Singleton renderer injected via DI public ReportController(ChromePdfRenderer renderer) { _renderer = renderer; }</p>
+
+<p>[HttpGet("{id}/pdf")] public async Task<IActionResult> GetReport(int id) { string html = await BuildReportHtmlAsync(id);</p>
+
+<p>// In-process rendering — no network call using var pdf = await _renderer.RenderHtmlAsPdfAsync(html);</p>
+
+<p>return File(pdf.BinaryData, "application/pdf", $"report-{id}.pdf"); }</p>
+
+<p>private Task<string> BuildReportHtmlAsync(int id) => Task.FromResult($"<html><body><h1>Report {id}</h1></body></html>"); }</p>
+
+<p>// Program.cs: // builder.Services.AddSingleton<ChromePdfRenderer>(sp => { //     var r = new ChromePdfRenderer(); //     r.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4; //     r.RenderingOptions.MarginTop = 15; //     return r; // }); // Remove: builder.Services.AddHttpClient<CloudPdfService>(...);</p>
+
+<p>The <code>CloudPdfService</code> HTTP wrapper is replaced by a singleton <code>ChromePdfRenderer</code>. <code>HttpRequestException</code> handling is replaced with try/catch for rendering exceptions. Genuine async rendering via <code>RenderHtmlAsPdfAsync()</code> is available. The <a href="https://ironpdf.com/how-to/async/">async rendering guide</a> covers concurrent rendering under load.</p>
+
+<h3>Post-Render PDF Operations (New Capability)</h3>
+
+<p>Cloud APIs typically return bytes with no post-render manipulation API. With IronPDF, the rendered <code>PdfDocument</code> exposes the full manipulation surface.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Signing;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// Render multiple report sections
+using var intro = renderer.RenderHtmlAsPdf(
+    &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Executive Summary&lt;/h1&gt;&lt;p&gt;...&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+using var details = renderer.RenderHtmlAsPdf(
+    &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Detail Analysis&lt;/h1&gt;&lt;p&gt;...&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+using var appendix = renderer.RenderHtmlAsPdf(
+    &quot;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Appendix&lt;/h1&gt;&lt;p&gt;...&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+
+// Merge sections into a single document
+using var merged = PdfDocument.Merge(intro, details, appendix);
+
+// Encrypt with password
+merged.SecuritySettings.UserPassword = &quot;viewerpassword&quot;;
+
+// Apply digital signature
+var signature = new PdfSignature(&quot;cert.pfx&quot;, &quot;pfx-password&quot;)
+{
+    SigningReason = &quot;Approved for release&quot;,
+    SigningContact = &quot;compliance@example.com&quot;
+};
+merged.Sign(signature);
+
+merged.SaveAs(&quot;complete-report-signed.pdf&quot;);</code></pre>
+
+<p>Operations like merge, encrypt, and sign previously required a separate manipulation library to process the cloud API's byte output. With IronPDF, these are available directly on <code>PdfDocument</code>. The <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split guide</a> and <a href="https://ironpdf.com/how-to/signing/">digital signatures guide</a> cover these operations.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Kaizen.io / Cloud API Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>API base URL configuration</td>
+      <td>Not needed — in-process</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>API key / Bearer token auth</td>
+      <td><code>IronPdf.License.LicenseKey</code></td>
+      <td>License key set once at startup</td>
+    </tr>
+    <tr>
+      <td><code>HttpClient.PostAsync(endpoint, body)</code></td>
+      <td><code>renderer.RenderHtmlAsPdf(html)</code></td>
+      <td><a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a></td>
+    </tr>
+    <tr>
+      <td><code>response.EnsureSuccessStatusCode()</code></td>
+      <td><code>try/catch</code> on render call</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>response.Content.ReadAsByteArrayAsync()</code></td>
+      <td><code>pdf.BinaryData</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Paper size request parameter</td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Margin request parameters</td>
+      <td><code>RenderingOptions.Margin*</code></td>
+      <td>Verify unit convention</td>
+    </tr>
+    <tr>
+      <td>Orientation request parameter</td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript wait parameter</td>
+      <td><code>RenderingOptions.WaitFor.*</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL rendering endpoint</td>
+      <td><code>renderer.RenderUrlAsPdf(url)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Cookie injection</td>
+      <td><code>RenderingOptions.CustomCookies</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Save to file</td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async HTTP call</td>
+      <td><code>await renderer.RenderHtmlAsPdfAsync(html)</code></td>
+      <td><a href="https://ironpdf.com/how-to/async/">Async guide</a></td>
+    </tr>
+    <tr>
+      <td><code>HttpRequestException</code> handling</td>
+      <td>Exception handling on render call</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Remove <code>IHttpClientFactory</code> registration</td>
+      <td>Add <code>AddSingleton&lt;ChromePdfRenderer&gt;()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>No post-render manipulation</td>
+      <td><code>PdfDocument.Merge()</code>, <code>PdfSignature</code>, etc.</td>
+      <td>New capabilities</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>Credential management removed</strong>: API keys or bearer tokens for the cloud PDF service are removed entirely. Replace with <code>IronPdf.License.LicenseKey</code> set once at startup before any render call.</li>
+
+  <li><strong><code>PdfDocument</code> is <code>IDisposable</code></strong>: Cloud APIs return <code>byte[]</code> — no disposal required. IronPDF returns <code>PdfDocument</code>, which implements <code>IDisposable</code>. Every render call must produce a <code>PdfDocument</code> in a <code>using</code> block.</li>
+
+  <li><strong>HTTP error handling removed</strong>: <code>EnsureSuccessStatusCode()</code>, <code>HttpRequestException</code> catch blocks, timeout configurations, and retry policies specific to the cloud API are removed. Replace with exception handling for IronPDF rendering errors.</li>
+
+  <li><strong>URL accessibility changes</strong>: Cloud services render URLs from their own servers — publicly accessible URLs work, internal URLs do not. IronPDF renders from the application host — internal URLs that were inaccessible to the cloud service are now accessible.</li>
+
+  <li><strong>Kaizen.io-specific parameters</strong>: Verify the exact parameter names and units used by Kaizen.io for paper size, margins, orientation, and JavaScript wait — then map each to the corresponding <code>RenderingOptions</code> property. Mismatched units (mm vs points vs inches) produce silent layout differences.</li>
+
+  <li><strong>Namespace change</strong>: Remove <code>using System.Net.Http;</code> and any Kaizen.io SDK namespaces. Replace with <code>using IronPdf;</code>.</li>
+
+  <li><strong><code>IHttpClientFactory</code> registration removed</strong>: The DI registration for the Kaizen.io <code>HttpClient</code> (named or typed) is removed. Replace with <code>builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;()</code>.</li>
+
+  <li><strong>Linux deployment</strong>: Cloud APIs have no binary dependencies in the application. IronPDF on Linux requires Chromium system library packages in the container. Add these to the container image.</li>
+
+  <li><strong>Data residency change</strong>: HTML content previously transmitted to Kaizen.io's servers stays in-process. This is architecturally favorable for compliance requirements but requires confirming that the new rendering behavior is acceptable under any existing data handling agreements.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>Kaizen.io / Cloud API</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active development</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td>Verify Kaizen.io current status</td>
+    </tr>
+    <tr>
+      <td>Cloud / in-process</td>
+      <td>Cloud SaaS</td>
+      <td>In-process</td>
+      <td>Core architectural difference</td>
+    </tr>
+    <tr>
+      <td>.NET SDK</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Native binary required</td>
+      <td>No</td>
+      <td>No (Windows)</td>
+      <td>Linux: IronPDF needs Chromium libs</td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering</strong></td>
+    </tr>
+    <tr>
+      <td>HTML string rendering</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL rendering</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/javascript-to-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS3 / modern web</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>Yes (async HTTP)</td>
+      <td>Yes (native async)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content & Layout</strong></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom margins</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page numbers</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Compress PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Watermarking</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Forms</strong></td>
+    </tr>
+    <tr>
+      <td>Fill PDF forms</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Create PDF forms</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password encryption</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Operational</strong></td>
+    </tr>
+    <tr>
+      <td>Network latency</td>
+      <td>Yes (per request)</td>
+      <td>None</td>
+      <td>Key operational difference</td>
+    </tr>
+    <tr>
+      <td>External service dependency</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Data leaves application</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>Data residency consideration</td>
+    </tr>
+    <tr>
+      <td>Per-request cost</td>
+      <td>-</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Verify Kaizen.io's API surface</strong>: Before planning the migration, review Kaizen.io's official documentation to confirm the exact endpoint structure, authentication method, request/response format, and any SDK availability. Resolve all "-" items in this guide.</li>
+
+  <li><strong>Audit all Kaizen.io call sites</strong>: List every location where the cloud PDF API is called, its request parameters (paper size, margins, wait conditions), and how the response is consumed (byte array, file save, stream).</li>
+
+  <li><strong>Map API parameters to <code>RenderingOptions</code></strong>: For each Kaizen.io request parameter, identify the corresponding <code>RenderingOptions</code> property and verify unit conventions (mm vs inches vs points).</li>
+
+  <li><strong>Install IronPDF via NuGet</strong>: <code>dotnet add package IronPdf</code>.</li>
+
+  <li><strong>Configure the license key at startup</strong>: Set <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> in <code>Program.cs</code> before any render call. See the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>Remove Kaizen.io credential management</strong>: Delete all API key storage, configuration entries, and <code>HttpClient</code> authentication configuration for the cloud service.</li>
+
+  <li><strong>Remove cloud API <code>HttpClient</code> DI registration</strong>: Delete the <code>IHttpClientFactory</code> / <code>AddHttpClient&lt;&gt;()</code> registration for the cloud PDF service. Replace with <code>builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;()</code>.</li>
+
+  <li><strong>Update namespaces</strong>: Remove cloud API SDK <code>using</code> directives. Replace with <code>using IronPdf;</code>.</li>
+
+  <li><strong>Replace HTTP call pattern</strong>: For each cloud API call site, replace <code>HttpClient.PostAsync()</code> + <code>ReadAsByteArrayAsync()</code> with <code>renderer.RenderHtmlAsPdf(html)</code>. Wrap <code>PdfDocument</code> in <code>using</code>. Access bytes via <code>pdf.BinaryData</code> or save via <code>pdf.SaveAs()</code>.</li>
+
+  <li><strong>Update URL rendering calls</strong>: Replace URL rendering HTTP calls with <code>renderer.RenderUrlAsPdf(url)</code>. Configure <code>WaitFor</code> conditions and cookie injection as needed.</li>
+
+  <li><strong>Remove HTTP error handling</strong>: Delete <code>EnsureSuccessStatusCode()</code> and <code>HttpRequestException</code> catch blocks for the cloud API. Add try/catch for IronPDF rendering exceptions.</li>
+
+  <li><strong>Update Linux container image</strong>: Add Chromium system library packages to the application container image. Verify required packages for the Linux distribution in use.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on Kaizen.io is technically reasonable</h3>
+
+<p>A cloud PDF API is technically reasonable when the team's operational model strongly favors zero in-process binary dependencies, when PDF generation volume is low enough that per-request pricing is not a meaningful cost, when rendering must occur from a location (public internet) rather than from the application's network context, or when the simplicity of offloading rendering infrastructure to a vendor is valued over the control of in-process rendering. Teams with stable, low-volume PDF generation and no post-render manipulation requirements have less pressure to migrate.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>Migration is worth scoping when PDF generation volume has grown to the point where per-request cloud pricing is visible; when data handling policies make transmitting document content to a third-party service difficult to justify; when network latency is contributing to response times; when post-render operations (merge, sign, form-fill, encrypt) require an additional library alongside the cloud API; or when the application needs to render internal URLs that the cloud service's servers cannot reach.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>For a typical ASP.NET Core application with a small number of Kaizen.io call sites, the migration is bounded and systematic: remove credential management, replace <code>HttpClient</code> + HTTP calls with DI-registered renderer calls, add <code>using</code> blocks, remove HTTP error handling, update Linux container configuration. A developer familiar with both the cloud API and IronPDF can typically complete the replacement quickly for each call site. The rendering comparison pass — validating output parity across all templates — is proportional to template variety and CSS complexity.</p>
+
+<p>As you review your Kaizen.io integration, have you quantified the cumulative network latency across all PDF generation calls per day — and is that latency a factor in the user experience that would justify the migration effort?</p>

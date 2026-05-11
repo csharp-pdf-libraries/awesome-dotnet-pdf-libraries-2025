@@ -1,0 +1,826 @@
+<!-- FRONTMATTER
+  title: Migrating from TuesPechkin to IronPDF: a practical .NET guide
+  subtitle: a .NET engineer's reference for migrating PDF libraries
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-tuespechkin/
+  description: TuesPechkin has reached end-of-life. This guide walks .NET teams through the migration to IronPDF — API mapping, breaking changes, and a step-by-step checklist.
+  published: False
+-->
+
+<h1>Migrating from TuesPechkin to IronPDF: a practical .NET guide</h1>
+
+<p class="subtitle"><em>a .NET engineer's reference for migrating PDF libraries</em></p>
+
+<h2>Framing</h2>
+
+<p>TuesPechkin was a .NET wrapper library around wkhtmltopdf, the open-source HTML-to-PDF command-line tool built on QtWebKit. Its distinguishing contribution over earlier wkhtmltopdf wrappers was thread safety management: it handled the wkhtmltopdf library's requirement to be initialized and operated on a single dedicated thread, surfacing this complexity behind a simple <code>IConverter</code> interface that could be called from any thread in a multi-threaded ASP.NET application. Teams that adopted TuesPechkin during the mid-2010s did so to avoid the threading and lifetime management problems that plagued raw wkhtmltopdf interop.</p>
+
+<p>TuesPechkin is discontinued. The last release predates .NET Core, and the project is no longer maintained. Teams running TuesPechkin face the overlapping risks common to discontinued native-wrapper libraries: the underlying wkhtmltopdf tool is itself no longer under active development, its QtWebKit rendering engine has not tracked modern CSS standards, and the wrapper that manages its threading lifetime has no maintainer to address runtime compatibility issues on modern .NET or deployment environments. Any application still running TuesPechkin has been accumulating technical debt against both the wrapper and the engine simultaneously.</p>
+
+<p>This guide covers the migration from TuesPechkin to IronPDF. TuesPechkin's API is clean and well-defined — the core interface is <code>IConverter.Convert(IDocument)</code> returning <code>byte[]</code>. The migration involves replacing this interface with IronPDF's <code>ChromePdfRenderer</code>, updating document configuration objects to <code>RenderingOptions</code>, and removing the wkhtmltopdf binary and thread management infrastructure. The migration effort is classified as Low.</p>
+
+<h2>What TuesPechkin Is Designed to Do</h2>
+
+<p>TuesPechkin is a managed .NET wrapper that offers thread-safe access to the wkhtmltopdf native library (wkhtmltox.dll on Windows). The library's primary interface is <code>IConverter</code>, with the <code>ThreadSafeConverter</code> implementation managing a dedicated thread for wkhtmltopdf operations. Document conversion is requested by constructing an <code>HtmlToPdfDocument</code> object — which contains an <code>ObjectSettings</code> collection — and calling <code>converter.Convert(document)</code>, which returns the PDF as a <code>byte[]</code>.</p>
+
+<p><code>ObjectSettings</code> carries the conversion configuration: the HTML content (via <code>HtmlContent</code> for strings, <code>Page</code> for URLs, or <code>PageUrl</code> for file paths), page size and margins in <code>PaperSettings</code>, header and footer configuration in <code>HeaderSettings</code> and <code>FooterSettings</code>, and miscellaneous rendering options. The install footprint includes the TuesPechkin NuGet package plus a companion package (<code>TuesPechkin.Wkhtmltox.Win64</code> or similar) that bundles the wkhtmltopdf native DLL for the target platform. The primary use case is HTML string and URL to PDF conversion in ASP.NET applications. The exact .NET support range should be verified — as a discontinued project, compatibility with modern .NET may require runtime shims.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>TuesPechkin and IronPDF both convert HTML to PDF but differ fundamentally in architecture. TuesPechkin is a managed wrapper over a native library (wkhtmltopdf/wkhtmltox.dll) that uses QtWebKit for rendering. The wrapper manages the native library's thread affinity requirements. IronPDF uses embedded Chromium for rendering — full CSS3 support, in-process, no dedicated thread management required.</p>
+
+<p>IronPDF's <code>ChromePdfRenderer</code> is the functional replacement for TuesPechkin's <code>IConverter</code>. It accepts HTML strings, files, and URLs via named methods rather than a polymorphic <code>IDocument</code> parameter. <code>PdfDocument</code> implements <code>IDisposable</code> and is returned from every render operation; <code>pdf.BinaryData</code> replaces TuesPechkin's <code>byte[]</code> return. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers all rendering configuration. License initialization is a one-time startup call; see the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</p>
+
+<p>The most significant operational change is removing the thread management infrastructure. TuesPechkin's <code>ThreadSafeConverter</code> and <code>WinAnyCPUEmbeddedDeployment</code> (or platform-specific deployment classes) are removed entirely. <code>ChromePdfRenderer</code> is registered as a singleton in DI and called directly from any thread — the threading concern is no longer the application's responsibility.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderUrlAsPdf()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>File / file URL to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlFileAsPdf()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Paper size</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td>Verify TuesPechkin unit</td>
+    </tr>
+    <tr>
+      <td>Margins</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.Margin*</code></td>
+      <td>Verify TuesPechkin unit</td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Header (HTML string)</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.HtmlHeader.HtmlFragment</code></td>
+      <td>Token syntax differs</td>
+    </tr>
+    <tr>
+      <td>Footer (HTML string)</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.HtmlFooter.HtmlFragment</code></td>
+      <td>Token syntax differs</td>
+    </tr>
+    <tr>
+      <td><code>[page]</code> / <code>[toPage]</code> tokens</td>
+      <td>Low</td>
+      <td><code>{page}</code> / <code>{total-pages}</code></td>
+      <td><strong>Syntax change</strong></td>
+    </tr>
+    <tr>
+      <td>Grayscale output</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.GrayScale</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>byte[]</code> return</td>
+      <td>Low</td>
+      <td><code>pdf.BinaryData</code></td>
+      <td><code>PdfDocument</code> is <code>IDisposable</code></td>
+    </tr>
+    <tr>
+      <td><code>ThreadSafeConverter</code> registration</td>
+      <td>Low</td>
+      <td><code>AddSingleton&lt;ChromePdfRenderer&gt;()</code></td>
+      <td>Thread management removed</td>
+    </tr>
+    <tr>
+      <td>wkhtmltopdf DLL management</td>
+      <td>Low</td>
+      <td>Eliminated (Windows)</td>
+      <td>Linux: Chromium libs</td>
+    </tr>
+    <tr>
+      <td><code>WinAnyCPUEmbeddedDeployment</code></td>
+      <td>Low</td>
+      <td>Eliminated</td>
+      <td>No deployment class needed</td>
+    </tr>
+    <tr>
+      <td>CSS Flexbox / Grid</td>
+      <td>Low</td>
+      <td>Supported</td>
+      <td>wkhtmltopdf does not support</td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>Low</td>
+      <td><code>RenderHtmlAsPdfAsync()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Low</td>
+      <td><code>PdfSignature</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAsPdfA()</code></td>
+      <td>New capability</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>HTML String to PDF</h3>
+
+<h4>TuesPechkin — HTML String to PDF</h4>
+
+<pre><code class="language-csharp">using TuesPechkin;
+
+// TuesPechkin — configure once at startup (typically in DI or static initializer)
+// WinAnyCPUEmbeddedDeployment bundles the wkhtmltopdf DLL in the NuGet package
+IDeployment deployment = new WinAnyCPUEmbeddedDeployment(
+    new StaticDeployment(Path.GetTempPath()));
+
+// ThreadSafeConverter manages wkhtmltopdf's single-thread requirement
+// Registered as a singleton — must be kept alive for the application lifetime
+IConverter converter = new ThreadSafeConverter(
+    new PdfToolset(deployment));
+
+// Per-conversion: construct a document with settings
+var document = new HtmlToPdfDocument
+{
+    GlobalSettings =
+    {
+        ProduceOutline = false,
+        DocumentTitle = &quot;Invoice&quot;,
+        PaperSize = PaperKind.A4,
+        Margins =
+        {
+            All  = 10,          // mm
+            Unit = Unit.Millimeters
+        }
+    },
+    Objects =
+    {
+        new ObjectSettings
+        {
+            HtmlText = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;h1&gt;Invoice #1042&lt;/h1&gt;
+  &lt;p&gt;Customer: Acme Corp&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;,
+            // Header/footer configured here if needed
+            // HeaderSettings = { ... }
+        }
+    }
+};
+
+// Returns byte[] directly — no disposal required on the result
+byte[] pdfBytes = converter.Convert(document);
+File.WriteAllBytes(&quot;invoice.pdf&quot;, pdfBytes);</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li><code>ThreadSafeConverter</code> must be created once and kept alive as a singleton. Disposing and recreating it for each request is incorrect and causes errors.</li>
+
+  <li><code>WinAnyCPUEmbeddedDeployment</code> and platform-specific deployment classes manage the extraction and loading of the wkhtmltopdf native DLL. This is Windows-only; Linux deployment requires a separately installed wkhtmltopdf binary and a different deployment class.</li>
+
+  <li>TuesPechkin uses wkhtmltopdf internally — no CSS Flexbox, Grid, CSS variables, or modern web font loading.</li>
+
+  <li><code>PaperKind</code> is the <code>System.Drawing.Printing.PaperKind</code> enum, or a TuesPechkin-specific enum</li>
+
+  <li>Header/footer configuration in <code>ObjectSettings.HeaderSettings</code> and <code>FooterSettings</code> uses wkhtmltopdf-style properties.</li>
+
+  <li><code>IConverter.Convert()</code> is synchronous and blocks the calling thread until wkhtmltopdf completes.</li>
+
+</ul>
+
+<h4>IronPDF — HTML String to PDF</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// ChromePdfRenderer — registered as singleton in DI, thread-safe
+// No deployment class, no dedicated thread management needed
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.PaperOrientation = IronPdf.Rendering.PdfPaperOrientation.Portrait;
+renderer.RenderingOptions.MarginTop = 10;     // mm — same unit as TuesPechkin
+renderer.RenderingOptions.MarginBottom = 10;
+renderer.RenderingOptions.MarginLeft = 10;
+renderer.RenderingOptions.MarginRight = 10;
+
+string html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;h1&gt;Invoice #1042&lt;/h1&gt;
+  &lt;p&gt;Customer: Acme Corp&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+// PdfDocument is IDisposable — always wrap in using
+using var pdf = renderer.RenderHtmlAsPdf(html);
+
+// Equivalent of converter.Convert(doc) → byte[]
+byte[] pdfBytes = pdf.BinaryData;
+File.WriteAllBytes(&quot;invoice.pdf&quot;, pdfBytes);
+// Or: pdf.SaveAs(&quot;invoice.pdf&quot;);</code></pre>
+
+<p><code>converter.Convert(document)</code> maps to <code>renderer.RenderHtmlAsPdf(html)</code>. The <code>HtmlToPdfDocument</code> / <code>ObjectSettings</code> configuration hierarchy collapses to <code>RenderingOptions</code> properties. The <code>ThreadSafeConverter</code> / <code>WinAnyCPUEmbeddedDeployment</code> infrastructure is removed entirely — <code>ChromePdfRenderer</code> is a straightforward singleton. Full rendering configuration is in the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a>.</p>
+
+<h3>URL to PDF</h3>
+
+<h4>TuesPechkin — URL to PDF</h4>
+
+<pre><code class="language-csharp">using TuesPechkin;
+
+// TuesPechkin URL conversion — uses ObjectSettings.Page instead of HtmlText
+var document = new HtmlToPdfDocument
+{
+    GlobalSettings = { PaperSize = PaperKind.A4 },
+    Objects =
+    {
+        new ObjectSettings
+        {
+            // URL conversion: set Page instead of HtmlText
+            Page = &quot;https://reports.example.com/q3&quot;
+            // wkhtmltopdf fetches the URL using its own HTTP client
+            // SSL and authentication handling is limited
+        }
+    }
+};
+
+byte[] pdfBytes = converter.Convert(document);</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>wkhtmltopdf fetches the URL using its own HTTP client — session cookies are not forwarded from the ASP.NET request by default.</li>
+
+  <li>SSL certificate errors on internal HTTPS URLs are common.</li>
+
+</ul>
+
+<h4>IronPDF — URL to PDF</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// Forward session cookies for authenticated URLs
+renderer.RenderingOptions.CustomCookies =
+    new System.Collections.Generic.Dictionary&lt;string, string&gt;
+    {
+        { &quot;session_id&quot;, &quot;your-session-token&quot; }
+    };
+
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://reports.example.com/q3&quot;);
+byte[] pdfBytes = pdf.BinaryData;</code></pre>
+
+<p>TuesPechkin's <code>ObjectSettings.Page = url</code> maps to <code>renderer.RenderUrlAsPdf(url)</code>. Cookie injection is explicit and reliable. The <a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF guide</a> covers authentication and JavaScript wait conditions.</p>
+
+<h3>Headers and Footers with Page Numbers</h3>
+
+<h4>TuesPechkin — Headers and Footers</h4>
+
+<pre><code class="language-csharp">using TuesPechkin;
+
+// TuesPechkin headers and footers via ObjectSettings
+var document = new HtmlToPdfDocument
+{
+    GlobalSettings =
+    {
+        PaperSize = PaperKind.A4,
+        Margins   = { All = 15, Unit = Unit.Millimeters }
+    },
+    Objects =
+    {
+        new ObjectSettings
+        {
+            HtmlText = &quot;&lt;html&gt;&lt;body&gt;&lt;p&gt;Document content&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;,
+            HeaderSettings = new HeaderSettings
+            {
+                // wkhtmltopdf HTML header — an HTML string
+                // wkhtmltopdf page number tokens: [page] and [toPage]
+                HtmlUrl = &quot;file:///app/templates/header.html&quot;,
+                // OR: Center = &quot;Page [page] of [toPage]&quot; (text-based footer)
+                Spacing = 5  // mm between header and content
+            },
+            FooterSettings = new FooterSettings
+            {
+                Center = &quot;Page [page] of [toPage]&quot;,  // text-based footer
+                // Or: HtmlUrl for HTML footer file
+                Spacing = 5
+            }
+        }
+    }
+};
+
+byte[] pdfBytes = converter.Convert(document);</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>TuesPechkin uses wkhtmltopdf's <code>[page]</code> and <code>[toPage]</code> tokens (or <code>[sitepage]</code> / <code>[sitepages]</code>) — all must be replaced with IronPDF's <code>{page}</code> / <code>{total-pages}</code>.</li>
+
+  <li>wkhtmltopdf supports both text-based (<code>Center</code>, <code>Left</code>, <code>Right</code>) and HTML file-based headers/footers. Text tokens differ from HTML-based tokens.</li>
+
+  <li>HTML header/footer files must be file paths accessible to wkhtmltopdf process — <code>HtmlUrl</code> takes a <code>file://</code> URI.</li>
+
+</ul>
+
+<h4>IronPDF — Headers and Footers</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Editing;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 20;
+renderer.RenderingOptions.MarginBottom = 15;
+
+// IronPDF tokens: {page} and {total-pages}
+// Replace all [page] / [toPage] occurrences from TuesPechkin/wkhtmltopdf
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    Height = 12,
+    HtmlFragment = &quot;&lt;div style='font-size:9px; font-family:Arial; &quot; +
+                   &quot;text-align:right; padding:0 12px;'&gt;Report Header&lt;/div&gt;&quot;,
+    DrawDividerLine = true
+};
+
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    Height = 10,
+    HtmlFragment = &quot;&lt;div style='font-size:8px; font-family:Arial; &quot; +
+                   &quot;text-align:center;'&gt;Page {page} of {total-pages}&lt;/div&gt;&quot;
+};
+
+using var pdf = renderer.RenderHtmlAsPdf(
+    &quot;&lt;html&gt;&lt;body&gt;&lt;p&gt;Document content.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+pdf.SaveAs(&quot;document-with-headers.pdf&quot;);</code></pre>
+
+<p>TuesPechkin's <code>HeaderSettings</code> and <code>FooterSettings</code> map to <code>HtmlHeaderFooter.HtmlFragment</code>. External HTML header files (<code>HtmlUrl</code>) become inline HTML fragments — no file management required. The <code>[page]</code> / <code>[toPage]</code> tokens become <code>{page}</code> / <code>{total-pages}</code>. The <a href="https://ironpdf.com/how-to/headers-and-footers/">headers and footers guide</a> covers all configuration options.</p>
+
+<h3>ASP.NET Core DI Pattern</h3>
+
+<h4>TuesPechkin — ASP.NET Core Singleton Setup</h4>
+
+<pre><code class="language-csharp">// TuesPechkin — startup configuration in ASP.NET Core
+// ThreadSafeConverter must be a singleton, carefully lifecycle-managed
+
+using TuesPechkin;
+
+// In Program.cs / Startup.cs:
+var deployment = new WinAnyCPUEmbeddedDeployment(
+    new StaticDeployment(Path.GetTempPath()));
+
+var converter = new ThreadSafeConverter(new PdfToolset(deployment));
+
+// Register as singleton — not a standard IServiceCollection pattern
+// Often stored as a static field or in a wrapper service
+builder.Services.AddSingleton&lt;IConverter&gt;(converter);
+
+// In controller:
+// [FromServices] IConverter _converter
+// byte[] pdf = _converter.Convert(document);</code></pre>
+
+<pre><code class="language-csharp">// IronPDF — ASP.NET Core DI replacement
+// Program.cs:
+IronPdf.License.LicenseKey = &quot;YOUR-KEY&quot;; // startup license init
+
+builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;(sp =&gt;
+{
+    var r = new ChromePdfRenderer();
+    r.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+    r.RenderingOptions.MarginTop = 10;
+    r.RenderingOptions.MarginBottom = 10;
+    return r;
+});
+
+// In controller:
+// ChromePdfRenderer _renderer (injected)
+// using var pdf = _renderer.RenderHtmlAsPdf(html);
+// return File(pdf.BinaryData, &quot;application/pdf&quot;, &quot;output.pdf&quot;);</code></pre>
+
+<p>The <code>ThreadSafeConverter</code> singleton and its <code>WinAnyCPUEmbeddedDeployment</code> setup are replaced by a standard <code>builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;()</code> call. The async-capable <code>RenderHtmlAsPdfAsync()</code> replaces the synchronous <code>Convert()</code> call. No deployment class, no dedicated thread, no DLL extraction management. The <a href="https://ironpdf.com/how-to/async/">async rendering guide</a> covers concurrent rendering patterns for high-throughput endpoints.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>TuesPechkin Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>IConverter</code> / <code>ThreadSafeConverter</code></td>
+      <td><code>ChromePdfRenderer</code> (singleton)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>WinAnyCPUEmbeddedDeployment</code></td>
+      <td>Eliminated</td>
+      <td>No deployment class needed</td>
+    </tr>
+    <tr>
+      <td><code>PdfToolset</code></td>
+      <td>Eliminated</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>new HtmlToPdfDocument { ... }</code></td>
+      <td><code>RenderingOptions</code> on <code>ChromePdfRenderer</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>ObjectSettings.HtmlText = html</code></td>
+      <td><code>renderer.RenderHtmlAsPdf(html)</code></td>
+      <td><a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a></td>
+    </tr>
+    <tr>
+      <td><code>ObjectSettings.Page = url</code></td>
+      <td><code>renderer.RenderUrlAsPdf(url)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>ObjectSettings.PageUrl = filePath</code></td>
+      <td><code>renderer.RenderHtmlFileAsPdf(path)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>GlobalSettings.PaperSize</code></td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>GlobalSettings.Margins.All</code></td>
+      <td><code>RenderingOptions.MarginTop/Bottom/Left/Right</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>GlobalSettings.Margins.Unit</code></td>
+      <td>mm assumed</td>
+      <td>IronPDF always uses mm</td>
+    </tr>
+    <tr>
+      <td><code>HeaderSettings.HtmlUrl</code></td>
+      <td><code>RenderingOptions.HtmlHeader.HtmlFragment</code></td>
+      <td>Inline string replaces file</td>
+    </tr>
+    <tr>
+      <td><code>FooterSettings.Center</code></td>
+      <td><code>RenderingOptions.HtmlFooter.HtmlFragment</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>[page]</code> / <code>[toPage]</code> tokens</td>
+      <td><code>{page}</code> / <code>{total-pages}</code></td>
+      <td><strong>Syntax change</strong></td>
+    </tr>
+    <tr>
+      <td><code>converter.Convert(doc)</code> → <code>byte[]</code></td>
+      <td><code>pdf.BinaryData</code></td>
+      <td><code>PdfDocument</code> is <code>IDisposable</code></td>
+    </tr>
+    <tr>
+      <td>wkhtmltopdf native DLL</td>
+      <td>Eliminated (Windows)</td>
+      <td>Linux: Chromium libs</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>Discontinued status — act on both layers</strong>: TuesPechkin and wkhtmltopdf are both unmaintained. CSS limitations have been accumulating and will not improve.</li>
+
+  <li><strong><code>ThreadSafeConverter</code> lifecycle removed</strong>: The entire singleton management, deployment class instantiation, and thread management infrastructure is removed. <code>ChromePdfRenderer</code> is a standard DI singleton.</li>
+
+  <li><strong><code>WinAnyCPUEmbeddedDeployment</code> removed</strong>: The wkhtmltopdf DLL extraction and deployment step is eliminated. Remove from startup code, Docker images, and CI/CD artifact packaging.</li>
+
+  <li><strong><code>[page]</code> / <code>[toPage]</code> tokens</strong>: Every occurrence in header/footer HTML must be updated to <code>{page}</code> / <code>{total-pages}</code>. Old tokens produce literal text without error.</li>
+
+  <li><strong><code>HtmlToPdfDocument</code> / <code>ObjectSettings</code> → <code>RenderingOptions</code></strong>: The two-level document/object configuration hierarchy collapses to a flat <code>RenderingOptions</code> object.</li>
+
+  <li><strong><code>IConverter.Convert()</code> is synchronous</strong>: TuesPechkin's conversion blocks. IronPDF's <code>RenderHtmlAsPdfAsync()</code> is genuinely async — replace <code>Task.Run()</code> wrappers where present.</li>
+
+  <li><strong><code>PdfDocument</code> is <code>IDisposable</code></strong>: TuesPechkin's <code>Convert()</code> returns <code>byte[]</code> with no disposal. IronPDF returns <code>PdfDocument</code> — wrap in <code>using</code>.</li>
+
+  <li><strong>CSS Flexbox / Grid now supported</strong>: Templates constrained to float-based layouts for wkhtmltopdf compatibility can be updated to modern CSS.</li>
+
+  <li><strong>Web fonts now load reliably</strong>: Base64-embedded font workarounds added for wkhtmltopdf can be removed.</li>
+
+  <li><strong>Namespace change</strong>: Remove <code>using TuesPechkin;</code>. Replace with <code>using IronPdf;</code>.</li>
+
+  <li><strong>License key required</strong>: TuesPechkin is open-source. IronPDF requires <code>IronPdf.License.LicenseKey</code> at startup.</li>
+
+  <li><strong>Linux deployment</strong>: TuesPechkin's deployment model for Linux uses a separately installed wkhtmltopdf binary. IronPDF on Linux requires Chromium system library packages — a different but comparable native dependency profile.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>TuesPechkin</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active development</td>
+      <td>No (discontinued)</td>
+      <td>Yes</td>
+      <td>Key migration driver</td>
+    </tr>
+    <tr>
+      <td>.NET Framework support</td>
+      <td>Yes</td>
+      <td>4.6.2+</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+</td>
+      <td>Limited</td>
+      <td>Yes</td>
+      <td>TuesPechkin: compatibility concerns</td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Rendering engine</td>
+      <td>wkhtmltopdf (QtWebKit)</td>
+      <td>Chromium</td>
+      <td>CSS fidelity difference</td>
+    </tr>
+    <tr>
+      <td>Native binary required</td>
+      <td>Yes (always)</td>
+      <td>No (Windows)</td>
+      <td>Linux: Chromium libs</td>
+    </tr>
+    <tr>
+      <td>Thread management required</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>Key operational difference</td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering</strong></td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Yes</td>
+      <td><a href="https://ironpdf.com/how-to/html-string-to-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Limited</td>
+      <td>Yes</td>
+      <td>Chromium: fully supported</td>
+    </tr>
+    <tr>
+      <td>CSS3 / Flexbox / Grid</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>Key difference</td>
+    </tr>
+    <tr>
+      <td>Web fonts (CDN)</td>
+      <td>Unreliable</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>Partial</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content & Layout</strong></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Yes</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Yes</a></td>
+      <td>Token syntax differs</td>
+    </tr>
+    <tr>
+      <td>Custom margins</td>
+      <td>Yes (mm)</td>
+      <td>Yes (mm)</td>
+      <td>Same unit</td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page numbers</td>
+      <td>Yes ([page]/[toPage])</td>
+      <td>Yes ({page}/{total-pages})</td>
+      <td>Syntax change</td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>Compress PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password encryption</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>Async API</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>byte[] only</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom logging</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux support</td>
+      <td>Yes (binary)</td>
+      <td>Yes (Chromium libs)</td>
+      <td>Different dep profile</td>
+    </tr>
+    <tr>
+      <td>Docker / container</td>
+      <td>Complex</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Audit all <code>IConverter.Convert()</code> call sites</strong>: List every <code>HtmlToPdfDocument</code> construction — <code>GlobalSettings</code> values, <code>ObjectSettings.HtmlText</code> / <code>Page</code> / <code>PageUrl</code>, <code>HeaderSettings</code>, <code>FooterSettings</code>, and any <code>[page]</code> / <code>[toPage]</code> token usage.</li>
+
+  <li><strong>Identify <code>ThreadSafeConverter</code> / deployment class locations</strong>: Find every <code>WinAnyCPUEmbeddedDeployment</code>, <code>ThreadSafeConverter</code>, <code>PdfToolset</code> instantiation in startup code, static fields, and DI registrations.</li>
+
+  <li><strong>Install IronPDF via NuGet</strong>: <code>dotnet add package IronPdf</code>.</li>
+
+  <li><strong>Configure the license key at startup</strong>: Set <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> at application startup, before any render calls. See the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>Remove deployment class and converter infrastructure</strong>: Delete <code>WinAnyCPUEmbeddedDeployment</code>, <code>PdfToolset</code>, and <code>ThreadSafeConverter</code> instantiation code.</li>
+
+  <li><strong>Register <code>ChromePdfRenderer</code> in DI</strong>: Replace the <code>IConverter</code> singleton registration with <code>builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;()</code>.</li>
+
+  <li><strong>Update namespaces</strong>: Remove <code>using TuesPechkin;</code>. Add <code>using IronPdf;</code>.</li>
+
+  <li><strong>Replace <code>Convert(document)</code> calls</strong>: Map <code>ObjectSettings.HtmlText</code> → <code>renderer.RenderHtmlAsPdf(html)</code>, <code>ObjectSettings.Page</code> → <code>renderer.RenderUrlAsPdf(url)</code>. Wrap <code>PdfDocument</code> in <code>using</code>. Access bytes via <code>pdf.BinaryData</code>.</li>
+
+  <li><strong>Replace <code>GlobalSettings</code> configuration</strong>: Map <code>PaperSize</code>, <code>Margins</code>, and orientation to <code>RenderingOptions.*</code> properties.</li>
+
+  <li><strong>Replace headers and footers</strong>: Convert <code>HeaderSettings</code> / <code>FooterSettings</code> to <code>HtmlHeaderFooter.HtmlFragment</code>. Update <code>[page]</code> / <code>[toPage]</code> tokens to <code>{page}</code> / <code>{total-pages}</code>.</li>
+
+  <li><strong>Remove wkhtmltopdf binary packages</strong>: Remove <code>TuesPechkin.Wkhtmltox.*</code> NuGet packages. Remove the wkhtmltopdf DLL from deployment artifacts. Add Chromium system library packages on Linux.</li>
+
+  <li><strong>Remove TuesPechkin NuGet packages</strong>: Once all replacements compile and rendering tests pass, remove all TuesPechkin packages.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on TuesPechkin is technically reasonable</h3>
+
+<p>TuesPechkin is discontinued, making continued use indefensible for any application with active development, dependency updates, or a planned .NET runtime upgrade. The only scenario where staying is technically defensible is a completely frozen application with no planned changes — no new features, no dependency upgrades, no .NET version migration — where the rendering output is adequate for the current requirements and the cost of migration is genuinely not yet justified. In practice, this window shortens with every .NET release and every deployment environment change.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>The discontinued status of both TuesPechkin and wkhtmltopdf is sufficient justification for any active application. Additional concrete triggers: CSS rendering limitations are blocking modern template designs; JavaScript-heavy content is rendering unreliably; web font loading is failing in production; the <code>ThreadSafeConverter</code> singleton is causing threading issues under load; the wkhtmltopdf binary is complicating deployment or container builds; or the team is planning a .NET runtime upgrade and wants to reduce in-flight risk.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>The API translation is mechanical: delete the deployment class and converter infrastructure, register <code>ChromePdfRenderer</code> as a singleton, replace <code>converter.Convert(doc)</code> calls with <code>renderer.RenderHtmlAsPdf(html)</code>, add <code>using</code> blocks, update header/footer token syntax, and remove the wkhtmltopdf binary. The rendering comparison pass — confirming that IronPDF's Chromium output matches what wkhtmltopdf produced across all templates — is the quality gate. For templates that were constrained by wkhtmltopdf's CSS limitations, the comparison pass often surfaces layout improvements rather than problems.</p>
+
+<p>In your current TuesPechkin integration, has the <code>ThreadSafeConverter</code> singleton lifecycle ever caused issues under concurrent load — and does removing that threading complexity, along with the deployment class infrastructure, represent a meaningful simplification of your application's startup and request path?</p>

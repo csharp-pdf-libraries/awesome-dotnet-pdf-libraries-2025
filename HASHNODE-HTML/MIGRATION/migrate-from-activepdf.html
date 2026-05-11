@@ -1,0 +1,871 @@
+<!-- FRONTMATTER
+  title: Migrating from ActivePDF to IronPDF: step-by-step for .NET developers
+  subtitle: what changes, what breaks, and what maps cleanly
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-activepdf/
+  description: Switching from ActivePDF to IronPDF in a .NET project? This guide walks through API equivalents, rendering differences, and common migration gotchas.
+  published: False
+-->
+
+<h1>Migrating from ActivePDF to IronPDF: step-by-step for .NET developers</h1>
+
+<p class="subtitle"><em>what changes, what breaks, and what maps cleanly</em></p>
+
+<h2>Framing</h2>
+
+<p>PDF generation requirements in .NET applications rarely stay static. A reporting module that started as a simple invoice renderer may grow over years to include digital signatures, form data extraction, accessibility compliance, and output targeting multiple deployment environments. When the API of the chosen PDF library begins to resist that growth — when workarounds accumulate faster than features are added — engineering teams will typically initiate a library evaluation cycle.</p>
+
+<p>ActivePDF has held a position in the commercial .NET PDF space for an extended period. Its product line has historically included a toolkit, a server-side rendering component, and supporting utilities. Teams encounter it most often in enterprise environments where it was adopted years ago and has since become a load-bearing dependency — functional, but not always easy to extend. The v11.4.4 release in December 2025 indicates the product remains under active maintenance, which removes one common migration trigger but does not eliminate others.</p>
+
+<p>This guide is scoped to engineers evaluating or executing a migration from ActivePDF to IronPDF. It covers the architectural differences between the two libraries, an effort-graded operation mapping, concrete code comparisons for representative operations, a breaking-change inventory, and a numbered checklist for the cutover sequence. The guide is written to remain technically useful whether or not the migration proceeds.</p>
+
+<h2>What ActivePDF Is Designed to Do</h2>
+
+<p>ActivePDF is a commercial .NET PDF library. Its v11.4.4 release (December 2025) is the current stable version. The primary technical approach is Chromium-based HTML-to-PDF rendering, and it installs via NuGet packages. ActivePDF has historically offered multiple product components — a Toolkit for low-level PDF manipulation and a WebGrabber or DocConverter product for rendering — so the specific component in use in a given codebase determines which APIs are relevant. Refer to the official documentation which ActivePDF product and version is in scope for your integration, as the API surface and licensing model differ across components.</p>
+
+<p>The primary use case should be verified in official documentation, but ActivePDF is commonly deployed in enterprise document automation scenarios: server-side report generation, forms processing, and conversion of web content to archivable PDF. The .NET support range should be verified in official documentation for v11.x, as .NET Framework and .NET Core compatibility has varied across ActivePDF product lines. Integration typically involves instantiating a renderer or toolkit object, configuring properties, invoking a render or conversion method, and persisting the output to disk or a stream.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>IronPDF's architecture is organized around two primary types: <code>ChromePdfRenderer</code>, which handles all HTML-to-PDF rendering, and <code>PdfDocument</code>, which reintroduces a rendered or loaded PDF and exposes document manipulation operations. Both types are reusable and composable, but they carry distinct responsibilities: the renderer is effectively stateless and can be configured once and reused across many render calls, while <code>PdfDocument</code> holds a document's content and implements <code>IDisposable</code>.</p>
+
+<p>This separation is an important departure from patterns common in toolkit-style PDF libraries. In toolkit-based APIs, a single object often serves as both the rendering context and the document container, accumulating state as operations are performed. IronPDF's model encourages rendering and document manipulation to be distinct phases, connected by passing <code>PdfDocument</code> instances between them. Multi-source documents are assembled by rendering each source to a <code>PdfDocument</code> and then calling <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">PdfDocument.Merge()</a> rather than by appending to a shared context object.</p>
+
+<p>Async rendering is a first-class surface in IronPDF: <code>RenderHtmlAsPdfAsync</code>, <code>RenderUrlAsPdfAsync</code>, and <code>RenderHtmlFileAsPdfAsync</code> return <code>Task&lt;PdfDocument&gt;</code> and integrate cleanly with <code>async</code>/<code>await</code> pipelines. This matters in API server and message queue processing contexts where thread-pool saturation under load is a real concern. License initialization is performed once at startup via <code>IronPdf.License.LicenseKey</code> — see the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a> — and must precede any rendering call to avoid watermarked output.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>Rendering options naming differs</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderUrlAsPdf()</code></td>
+      <td>Both Chromium-backed; JS handling may differ</td>
+    </tr>
+    <tr>
+      <td>HTML file to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlFileAsPdf()</code></td>
+      <td>Base URL resolution behavior should be verified</td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>API differs but logic is simple</td>
+    </tr>
+    <tr>
+      <td>Split / extract pages</td>
+      <td>Low</td>
+      <td><code>PdfDocument.CopyPages()</code></td>
+      <td>Page index semantics should be verified</td>
+    </tr>
+    <tr>
+      <td>PDF from existing document</td>
+      <td>Low</td>
+      <td><code>PdfDocument.FromFile()</code></td>
+      <td>Straightforward load</td>
+    </tr>
+    <tr>
+      <td>Add headers / footers</td>
+      <td>Medium</td>
+      <td><code>ChromePdfRenderOptions.HtmlHeader/HtmlFooter</code></td>
+      <td>HTML-based header model; token support differs</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Medium</td>
+      <td><code>PdfSignature</code> API</td>
+      <td>Certificate chain and timestamp handling should be tested</td>
+    </tr>
+    <tr>
+      <td>Fill PDF forms</td>
+      <td>Medium</td>
+      <td><code>PdfDocument.Form.Fields</code></td>
+      <td>Field type handling needs explicit validation</td>
+    </tr>
+    <tr>
+      <td>Stamping / watermark</td>
+      <td>Medium</td>
+      <td><code>IronPdf.Stamping.*</code></td>
+      <td>Coordinate systems and z-ordering should be verified</td>
+    </tr>
+    <tr>
+      <td>Text extraction</td>
+      <td>Medium</td>
+      <td><code>PdfDocument.ExtractAllText()</code></td>
+      <td>Accuracy varies by PDF structure</td>
+    </tr>
+    <tr>
+      <td>Encrypt / decrypt</td>
+      <td>Medium</td>
+      <td><code>PdfDocument.SecuritySettings</code></td>
+      <td>Permission flag mapping needs verification</td>
+    </tr>
+    <tr>
+      <td>PDF/A output</td>
+      <td>High</td>
+      <td><code>PdfDocument.SaveAsPdfA()</code></td>
+      <td>Conformance level options differ</td>
+    </tr>
+    <tr>
+      <td>Custom fonts</td>
+      <td>Medium</td>
+      <td>Chromium resolves fonts on server</td>
+      <td>Font availability on deployment host matters</td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>Low</td>
+      <td><code>RenderHtmlAsPdfAsync()</code></td>
+      <td>IronPDF async is idiomatic <code>Task</code>-based</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>HTML String to PDF</h3>
+
+<h4>ActivePDF — HTML String to PDF</h4>
+
+<p>The specific API depends on which ActivePDF component is in use (Toolkit vs WebGrabber/DocConverter). The following represents a common pattern for a Chromium-based renderer component</p>
+
+<pre><code class="language-csharp">// ActivePDF rendering
+// The following illustrates a typical property-configure-then-convert pattern
+
+// 1. Instantiate the renderer object (class name varies by product component)
+// 2. Set rendering properties: paper size, margins, JS timeout, viewport
+// 3. Call the conversion method with HTML content as string or file path
+// 4. Retrieve output as file or byte array
+// 5. Dispose the renderer object</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>The rendering object class name and namespace varies by ActivePDF product component.</li>
+
+  <li>Option property names for paper size, margins, and JS execution differ from IronPDF.</li>
+
+  <li>Output retrieval API (file vs stream) may differ.</li>
+
+  <li>Disposal semantics should be verified — some ActivePDF components use <code>Dispose()</code>, others use custom cleanup methods.</li>
+
+</ul>
+
+<h4>IronPDF — HTML String to PDF</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// ChromePdfRenderer is stateless and reusable; configure once, call many times
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 10;    // millimeters
+renderer.RenderingOptions.MarginBottom = 10;
+renderer.RenderingOptions.MarginLeft = 15;
+renderer.RenderingOptions.MarginRight = 15;
+
+// RenderHtmlAsPdf returns PdfDocument — IDisposable, use using for cleanup
+using var pdf = renderer.RenderHtmlAsPdf(@&quot;
+    &lt;html&gt;
+    &lt;head&gt;&lt;style&gt;body { font-family: Arial; }&lt;/style&gt;&lt;/head&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Monthly Report&lt;/h1&gt;
+        &lt;p&gt;Generated content here.&lt;/p&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;&quot;);
+
+pdf.SaveAs(&quot;report.pdf&quot;);
+// PdfDocument disposed automatically at end of using block</code></pre>
+
+<p>The full set of rendering options — viewport size, CSS media type, JavaScript timeout, custom HTTP headers — is documented in the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> and the <a href="https://ironpdf.com/how-to/rendering-options/">rendering options reference</a>.</p>
+
+<h3>URL to PDF</h3>
+
+<h4>ActivePDF — URL to PDF</h4>
+
+<pre><code class="language-csharp">// ActivePDF URL rendering
+// Typical pattern for a Chromium-based renderer:
+
+// 1. Instantiate the renderer
+// 2. Configure timeout, viewport, and any authentication headers
+// 3. Pass URL to the conversion method
+// 4. Retrieve and save output
+// 5. Dispose renderer</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>Network timeout configuration is critical for external URLs; locate the equivalent property in IronPDF.</li>
+
+  <li>Cookie and header injection for authenticated pages may use a different configuration model.</li>
+
+  <li>Redirect handling behavior should be compared against the ActivePDF implementation.</li>
+
+</ul>
+
+<h4>IronPDF — URL to PDF</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+
+// Custom request headers and cookies can be set before the render call
+renderer.RenderingOptions.CustomCookies = new System.Collections.Generic.Dictionary&lt;string, string&gt;
+{
+    { &quot;session_token&quot;, &quot;abc123&quot; }
+};
+
+// RenderUrlAsPdf fetches the URL using the embedded Chromium engine
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://reports.example.com/monthly&quot;);
+pdf.SaveAs(&quot;url-output.pdf&quot;);</code></pre>
+
+<p>IronPDF waits for all page resources (images, fonts, lazy-loaded content) before rendering by default. For pages that require waiting on a specific DOM state, the <a href="https://ironpdf.com/how-to/waitfor/">JavaScript and wait conditions guide</a> covers <code>WaitFor</code> configuration. The <a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF guide</a> covers authentication and header patterns.</p>
+
+<h3>Digital Signatures</h3>
+
+<h4>ActivePDF — Digital Signatures</h4>
+
+<pre><code class="language-csharp">// ActivePDF digital signature
+// General pattern:
+
+// 1. Load the PDF to be signed
+// 2. Configure signature properties: certificate path, password, reason, location
+// 3. Apply the signature to a specific field or page region
+// 4. Save the signed output
+// 5. Dispose objects</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>Certificate format support (PFX/P12 vs other formats) should be verified against the IronPDF implementation.</li>
+
+  <li>Timestamp server URL configuration is a common requirement — locate the equivalent in IronPDF.</li>
+
+  <li>Multiple signature fields on a single document may require special handling.</li>
+
+  <li>LTV (Long-Term Validation) enablement should be checked against regulatory requirements.</li>
+
+</ul>
+
+<h4>IronPDF — Digital Signatures</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Signing;
+
+// Load the document to be signed
+using var pdf = PdfDocument.FromFile(&quot;document-to-sign.pdf&quot;);
+
+// Configure the signature using a PFX certificate
+var signature = new PdfSignature(&quot;certificate.pfx&quot;, &quot;password&quot;)
+{
+    SigningReason = &quot;Approved by engineering lead&quot;,
+    SigningLocation = &quot;Chicago, IL&quot;,
+    // Optionally configure a timestamp server for LTV
+    // TimestampServer = &quot;http://timestamp.example.com&quot;
+};
+
+// Apply the signature — signs the entire document
+pdf.Sign(signature);
+pdf.SaveAs(&quot;signed-document.pdf&quot;);</code></pre>
+
+<p>Full signing options including HSM-based signing for hardware security modules are in the <a href="https://ironpdf.com/how-to/signing/">digital signatures guide</a>.</p>
+
+<h3>Filling PDF Forms</h3>
+
+<h4>ActivePDF — Filling PDF Forms</h4>
+
+<pre><code class="language-csharp">// ActivePDF form filling
+// Typical pattern:
+
+// 1. Load the PDF containing form fields
+// 2. Access fields by name or index
+// 3. Set values for text fields, checkboxes, radio buttons, dropdowns
+// 4. Flatten or save the form</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>Field access by name vs index: verify the iteration model in IronPDF.</li>
+
+  <li>Checkbox and radio button value conventions (<code>"On"</code>, <code>"Off"</code>, <code>"Yes"</code>, <code>"No"</code>) vary by library — test explicitly.</li>
+
+  <li>Form flattening (making fields non-editable in the output) is a common downstream requirement; verify the API.</li>
+
+</ul>
+
+<h4>IronPDF — Filling PDF Forms</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// Load a PDF with interactive form fields
+using var pdf = PdfDocument.FromFile(&quot;form-template.pdf&quot;);
+
+// Access all fields in the form
+foreach (var field in pdf.Form.Fields)
+{
+    System.Console.WriteLine($&quot;Field: {field.Name}, Type: {field.GetType().Name}&quot;);
+}
+
+// Set individual field values by name
+var nameField = pdf.Form[&quot;applicant_name&quot;];
+if (nameField != null)
+    nameField.Value = &quot;Jane Smith&quot;;
+
+var approvedField = pdf.Form[&quot;approved&quot;];
+if (approvedField != null)
+    approvedField.Value = &quot;Yes&quot;; // Checkbox — value conventions vary by PDF
+
+// Save filled form (fields remain editable)
+pdf.SaveAs(&quot;filled-form.pdf&quot;);
+
+// To flatten all fields (make non-editable):
+// pdf.Form.Flatten();
+// pdf.SaveAs(&quot;flat-form.pdf&quot;);</code></pre>
+
+<p>Form editing documentation including field type handling is in the <a href="https://ironpdf.com/how-to/edit-forms/">edit forms guide</a>.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>ActivePDF Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Renderer / DocConverter object</td>
+      <td><code>ChromePdfRenderer</code></td>
+      <td>Stateless; configure once and reuse</td>
+    </tr>
+    <tr>
+      <td>HTML conversion method</td>
+      <td><code>renderer.RenderHtmlAsPdf(html)</code></td>
+      <td>Returns <code>PdfDocument</code></td>
+    </tr>
+    <tr>
+      <td>URL conversion method</td>
+      <td><code>renderer.RenderUrlAsPdf(url)</code></td>
+      <td>Returns <code>PdfDocument</code></td>
+    </tr>
+    <tr>
+      <td>File conversion method</td>
+      <td><code>renderer.RenderHtmlFileAsPdf(path)</code></td>
+      <td>Returns <code>PdfDocument</code></td>
+    </tr>
+    <tr>
+      <td>Paper size property</td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td>Enum-based selection</td>
+    </tr>
+    <tr>
+      <td>Margin properties</td>
+      <td><code>RenderingOptions.MarginTop/Bottom/Left/Right</code></td>
+      <td>Values in millimeters</td>
+    </tr>
+    <tr>
+      <td>Viewport / browser width</td>
+      <td><code>RenderingOptions.ViewportWidth</code></td>
+      <td>Verify units</td>
+    </tr>
+    <tr>
+      <td>JS execution timeout</td>
+      <td><code>RenderingOptions.Javascript</code> / <code>WaitFor</code></td>
+      <td>Refer to the official documentation</td>
+    </tr>
+    <tr>
+      <td>Output to file</td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td>Direct path-based save</td>
+    </tr>
+    <tr>
+      <td>Output to byte array</td>
+      <td><code>pdf.BinaryData</code></td>
+      <td>Returns <code>byte[]</code></td>
+    </tr>
+    <tr>
+      <td>Output to stream</td>
+      <td><code>pdf.Stream</code></td>
+      <td><code>MemoryStream</code> — see <a href="https://ironpdf.com/how-to/pdf-memory-stream/">memory stream guide</a></td>
+    </tr>
+    <tr>
+      <td>Merge documents</td>
+      <td><code>PdfDocument.Merge(pdf1, pdf2, ...)</code></td>
+      <td>N-way merge in single call</td>
+    </tr>
+    <tr>
+      <td>Split document</td>
+      <td><code>PdfDocument.CopyPages(startIndex, endIndex)</code></td>
+      <td>See <a href="https://ironpdf.com/how-to/split-multipage-pdf/">split guide</a></td>
+    </tr>
+    <tr>
+      <td>Add page</td>
+      <td>Not direct; use merge</td>
+      <td>Render independently, then merge</td>
+    </tr>
+    <tr>
+      <td>Remove page</td>
+      <td><code>pdf.RemovePage(pageIndex)</code></td>
+      <td>Zero-based index</td>
+    </tr>
+    <tr>
+      <td>Form field access</td>
+      <td><code>pdf.Form.Fields</code> / <code>pdf.Form["name"]</code></td>
+      <td>Access by index or name</td>
+    </tr>
+    <tr>
+      <td>Flatten form</td>
+      <td><code>pdf.Form.Flatten()</code></td>
+      <td>Refer to the official documentation</td>
+    </tr>
+    <tr>
+      <td>Password protection</td>
+      <td><code>pdf.SecuritySettings.OwnerPassword</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Permission flags</td>
+      <td><code>pdf.SecuritySettings.AllowUserAnnotations</code> etc.</td>
+      <td>Permission names differ</td>
+    </tr>
+    <tr>
+      <td>Digital signature</td>
+      <td><code>PdfSignature</code> class</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Document metadata</td>
+      <td><code>pdf.MetaData.Title</code> etc.</td>
+      <td>Property names differ from ActivePDF</td>
+    </tr>
+    <tr>
+      <td>Header/footer</td>
+      <td><code>RenderingOptions.HtmlHeader</code> / <code>HtmlFooter</code></td>
+      <td>HTML-based with token support</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>Product component fragmentation</strong>: ActivePDF has multiple product lines (Toolkit, WebGrabber, DocConverter). Confirm which components are in use — the migration effort and API mapping will differ significantly between them.</li>
+
+  <li><strong>Namespace changes</strong>: ActivePDF namespaces must be replaced with <code>using IronPdf;</code> and related subnamespaces. This is a compile-time change but can touch many files.</li>
+
+  <li><strong>Disposal pattern</strong>: If the ActivePDF integration does not use <code>IDisposable</code> / <code>using</code> blocks, every <code>PdfDocument</code> in the IronPDF port must be wrapped in a <code>using</code> statement. Missing disposals cause unmanaged memory leaks.</li>
+
+  <li><strong>License initialization</strong>: <code>IronPdf.License.LicenseKey</code> must be assigned before the first render call. Rendering before license initialization produces watermarked output; this is a runtime error, not a compile-time error.</li>
+
+  <li><strong>No stateful accumulation</strong>: If the existing code appends content to a single rendering context across multiple operations, that code must be restructured to render each source independently and then call <code>PdfDocument.Merge()</code>.</li>
+
+  <li><strong>Thread safety</strong>: Do not share a single <code>ChromePdfRenderer</code> across concurrent requests without validation. The safe pattern is a renderer per logical rendering unit (request, task, or operation).</li>
+
+  <li><strong>Form field value conventions</strong>: Checkbox and radio field value strings (<code>"On"</code>, <code>"Yes"</code>, <code>"1"</code>, etc.) are not standardized across PDF libraries. Test form-fill operations against actual form templates before treating them as complete.</li>
+
+  <li><strong>Platform dependencies on Linux</strong>: IronPDF requires specific system libraries for Chromium on Linux hosts. Docker base images without these libraries will produce runtime errors on first render. Refer to the official documentation for the target distribution.</li>
+
+  <li><strong>PDF/A conformance levels</strong>: Different libraries default to different PDF/A variants (1b, 2b, 3b). If archival compliance is a requirement, verify that the IronPDF output matches the expected conformance level before replacing the existing implementation.</li>
+
+  <li><strong>HTTP request behavior for URL rendering</strong>: Cookie handling, redirect following, and TLS configuration for URL-based rendering should be explicitly tested against the URLs in production use.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>ActivePDF v11.4.4</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active development</td>
+      <td>Yes (Dec 2025)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Framework support</td>
+      <td>-</td>
+      <td>4.6.2+</td>
+      <td>Verify minimum in official documentation</td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+ support</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering Engine</strong></td>
+    </tr>
+    <tr>
+      <td>Chromium-based engine</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HTML string rendering</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL rendering</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Local HTML file rendering</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Yes</td>
+      <td><a href="https://ironpdf.com/how-to/javascript-to-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS3 support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Responsive CSS</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/html-to-pdf-responsive-css/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/webfonts-webicons/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/SVGs/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Pixel-perfect rendering</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content Creation</strong></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Yes</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HTML headers/footers</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom margins</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page numbers</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Bookmarks</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Table of contents</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Add / remove pages</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation / rotation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Compress PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Watermarking</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Stamping (text/image)</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Annotations</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Find and replace text</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Extract text</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Extract images</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Forms</strong></td>
+    </tr>
+    <tr>
+      <td>Fill PDF forms</td>
+      <td>Yes</td>
+      <td><a href="https://ironpdf.com/how-to/edit-forms/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Create PDF forms</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Flatten forms</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password encryption</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Permission flags</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HSM signing</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF redaction</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF sanitize</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>Async API</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Parallel processing</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom logging</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux support</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Docker / container support</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Inventory ActivePDF components in use</strong>: Determine whether the integration uses Toolkit, WebGrabber, DocConverter, or a combination. The migration path differs per component; scope each separately.</li>
+
+  <li><strong>Enumerate all call sites</strong>: Identify every instantiation of ActivePDF rendering and document objects, every property being set, and every method being called. This list drives the API mapping effort.</li>
+
+  <li><strong>Install IronPDF via NuGet</strong>: <code>dotnet add package IronPdf</code>. Do not remove the ActivePDF package reference until the new implementation compiles and tests pass.</li>
+
+  <li><strong>Configure the license key at startup</strong>: Set <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> in <code>Program.cs</code>, <code>Startup.cs</code>, or equivalent, before any rendering code executes. See the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>Update namespaces</strong>: Replace ActivePDF <code>using</code> directives with <code>using IronPdf;</code>. Use compilation errors to locate all affected files systematically.</li>
+
+  <li><strong>Port rendering calls</strong>: Replace each HTML/URL/file conversion call with the corresponding <code>ChromePdfRenderer</code> method. Remove any stateful accumulation patterns and replace with render-then-merge workflows.</li>
+
+  <li><strong>Remap rendering options</strong>: For each ActivePDF option property (paper size, margins, JS timeout, viewport, CSS media type), locate and set the corresponding <code>RenderingOptions</code> property.</li>
+
+  <li><strong>Update disposal code</strong>: Replace any custom cleanup calls with <code>using var pdf = ...</code> blocks. Every <code>PdfDocument</code> should be disposed when its scope ends.</li>
+
+  <li><strong>Port document manipulation</strong>: Replace merge, split, page add/remove, and rotation operations with the corresponding <code>PdfDocument</code> API calls.</li>
+
+  <li><strong>Validate security and forms explicitly</strong>: Run the existing security (encryption, permissions, signatures) and form-fill test scenarios specifically — these are the most likely areas to produce behavioral differences that compile without error.</li>
+
+  <li><strong>Test on production deployment targets</strong>: Validate on Linux and in Docker environments if applicable; system dependency requirements differ from Windows.</li>
+
+  <li><strong>Remove ActivePDF references and clean up</strong>: Once all tests pass and the migration is stable, remove the ActivePDF NuGet packages, delete any unused shim code, and perform a final build and test pass.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on ActivePDF is technically reasonable</h3>
+
+<p>Teams with a stable, well-tested ActivePDF integration that meets current functional requirements have limited technical motivation to migrate on timeline alone. If the ActivePDF Toolkit component is in heavy use for low-level PDF manipulation and that functionality is core to the application, the migration scope increases substantially, as the API surfaces differ most in that domain. Active maintenance through December 2025 removes the concern about abandoned dependency.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>Migration becomes worth scoping when the application is moving to a .NET version or deployment platform that ActivePDF does not fully support; when new requirements (HSM signing, PDF/UA accessibility, advanced async patterns) are not available in the current ActivePDF version; when the team needs to reduce the number of separate PDF-related packages in the dependency graph; or when the ActivePDF licensing model creates friction at the scale the application now operates.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>The most structural change is replacing stateful document accumulation patterns with a render-then-merge workflow. Once that refactor is complete, the remaining work — namespace updates, rendering options remapping, disposal pattern corrections — follows a predictable search-and-replace pattern across the codebase. For integrations that use only rendering and basic manipulation, the port is typically completable within a few engineering days given a representative regression test suite. Integrations that rely heavily on Toolkit-style low-level operations require a longer validation phase.</p>
+
+<p>What has been the most friction-generating aspect of working with the ActivePDF API in your current integration?</p>

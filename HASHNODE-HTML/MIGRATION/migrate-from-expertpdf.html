@@ -1,0 +1,860 @@
+<!-- FRONTMATTER
+  title: Migrating from ExpertPdf to IronPDF: a .NET production guide
+  subtitle: what the docs do not cover when switching PDF libraries
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-expertpdf/
+  description: A practical migration reference for .NET developers switching from ExpertPdf to IronPDF — API mapping, rendering differences, and a migration checklist.
+  published: False
+-->
+
+<h1>Migrating from ExpertPdf to IronPDF: a .NET production guide</h1>
+
+<p class="subtitle"><em>what the docs do not cover when switching PDF libraries</em></p>
+
+<h2>Framing</h2>
+
+<p>ExpertPdf has been a fixture in the .NET HTML-to-PDF space for well over a decade. Its long .NET Framework compatibility range — stretching from .NET Framework 2.0 through current versions — made it a natural choice for teams building on early .NET stacks and needing reliable HTML rendering without rebuilding their infrastructure. Libraries with that kind of longevity accumulate broad adoption in legacy codebases, and migration decisions are often deferred precisely because "it still works."</p>
+
+<p>Re-evaluation tends to arrive from one of several directions. Modern CSS (Flexbox, Grid, custom properties) adoption in front-end templates exposes rendering gaps in libraries whose HTML engines were designed for an older web. Requirements for PDF/A compliance, digital signatures, parallel rendering, or PDF manipulation operations add surface area that was not part of the original adoption decision. And as applications migrate to .NET 6, 7, 8, or containerized Linux deployments, the integration patterns from the early .NET Framework era — synchronous rendering, single-threaded converters, large per-request setup overhead — begin to show friction.</p>
+
+<p>This guide covers the migration from ExpertPdf to IronPDF for .NET engineers evaluating or executing the switch. Both libraries are HTML-to-PDF renderers, which makes the conceptual mapping straightforward. The migration is classified as Medium effort, reflecting differences in rendering engine generation, API surface, configuration model, and the disposal patterns that must be updated throughout the codebase.</p>
+
+<h2>What ExpertPdf Is Designed to Do</h2>
+
+<p>ExpertPdf is a commercial .NET library for HTML-to-PDF conversion. It is actively maintained and supports a broad range of .NET targets — from .NET Framework 2.0 through current .NET versions. The last release should be verified in official documentation. The library installs via NuGet; the install footprint should be verified in official documentation.</p>
+
+<p>ExpertPdf's primary API is the <code>HtmlToPdfConverter</code> class, which is instantiated and configured via properties, then used to convert an HTML string or URL to a PDF byte array or file. The converter accepts configuration for paper size, orientation, margins, header/footer content, JavaScript execution, and authentication. The library has historically used its own HTML rendering engine, though Chromium-based rendering options have been added in more recent versions</p>
+
+<h2>Architectural Differences</h2>
+
+<p>ExpertPdf and IronPDF both accept HTML as input and produce PDF output. The differences in architecture — rendering engine generation, configuration model, and post-render manipulation surface — are the primary drivers of the Medium effort classification.</p>
+
+<p>ExpertPdf's <code>HtmlToPdfConverter</code> is instantiated per-operation or reused across operations with reconfiguration between calls. IronPDF uses <code>ChromePdfRenderer</code>, which holds rendering configuration as persistent properties on <code>RenderingOptions</code> — the renderer instance is designed to be configured once and reused as a singleton. Both produce a document result, but ExpertPdf returns a <code>byte[]</code> directly from its conversion methods, while IronPDF's <code>RenderHtmlAsPdf()</code> returns a <code>PdfDocument</code> that implements <code>IDisposable</code> and must be wrapped in a <code>using</code> block.</p>
+
+<p>The most operationally significant difference for teams with complex requirements is IronPDF's manipulation surface. ExpertPdf focuses on HTML-to-PDF conversion; IronPDF's <code>PdfDocument</code> additionally exposes merge, split, form filling, digital signatures, encryption, PDF/A and PDF/UA compliance, text extraction, stamping, annotations, and redaction — all on the same type without additional libraries. The <a href="https://ironpdf.com/how-to/rendering-options/">rendering options reference</a> covers IronPDF's full configuration surface. License initialization is a one-time startup call; see the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>Rendering engine may differ</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderUrlAsPdf()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Paper size</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td>Property naming differs</td>
+    </tr>
+    <tr>
+      <td>Margins</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.MarginTop/Bottom/Left/Right</code></td>
+      <td>Unit convention should be verified</td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Low</td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Low</td>
+      <td>Chromium; <code>WaitFor</code> for timing</td>
+      <td>Verify ExpertPdf engine version</td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Medium</td>
+      <td><code>RenderingOptions.HtmlHeader/HtmlFooter</code></td>
+      <td>ExpertPdf's header API differs</td>
+    </tr>
+    <tr>
+      <td>Output to byte array</td>
+      <td>Low</td>
+      <td><code>pdf.BinaryData</code></td>
+      <td>ExpertPdf returns <code>byte[]</code> directly</td>
+    </tr>
+    <tr>
+      <td>Output to file</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Base URL for relative assets</td>
+      <td>Medium</td>
+      <td><code>RenderingOptions.BaseUrl</code></td>
+      <td>ExpertPdf has a base URL option</td>
+    </tr>
+    <tr>
+      <td>Authentication / cookies</td>
+      <td>Medium</td>
+      <td><code>RenderingOptions.CustomCookies</code></td>
+      <td>ExpertPdf has login form automation</td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Medium</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>Not in ExpertPdf core scope</td>
+    </tr>
+    <tr>
+      <td>Fill PDF forms</td>
+      <td>Medium</td>
+      <td><code>pdf.Form.Fields</code></td>
+      <td>Not in ExpertPdf core scope</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Medium</td>
+      <td><code>PdfSignature</code> API</td>
+      <td>Not in ExpertPdf core scope</td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>Medium</td>
+      <td><code>pdf.SaveAsPdfA()</code></td>
+      <td>Not in ExpertPdf core scope</td>
+    </tr>
+    <tr>
+      <td>Watermarking</td>
+      <td>Medium</td>
+      <td><code>IronPdf.Stamping.*</code></td>
+      <td>ExpertPdf watermark</td>
+    </tr>
+    <tr>
+      <td>Rendering engine CSS fidelity</td>
+      <td>Medium</td>
+      <td>Chromium (current)</td>
+      <td>Verify ExpertPdf engine version for CSS gap</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>HTML String to PDF</h3>
+
+<h4>ExpertPdf — HTML String to PDF</h4>
+
+<pre><code class="language-csharp">using ExpertPdf.HtmlToPdf;
+
+// ExpertPdf uses an instantiated converter with property-based configuration
+var converter = new HtmlToPdfConverter();
+
+// Paper size and orientation
+converter.PdfDocumentOptions.PdfPageSize = PdfPageSize.A4;
+converter.PdfDocumentOptions.PdfPageOrientation = PdfPageOrientation.Portrait;
+
+// Margins in points
+converter.PdfDocumentOptions.LeftMargin = 20;
+converter.PdfDocumentOptions.RightMargin = 20;
+converter.PdfDocumentOptions.TopMargin = 20;
+converter.PdfDocumentOptions.BottomMargin = 20;
+
+// JavaScript execution — delay allows JS to complete before capture
+converter.PdfDocumentOptions.EnableJavascript = true;
+converter.JavascriptTimeout = 5000; // milliseconds
+
+string html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;h1&gt;Monthly Report&lt;/h1&gt;
+  &lt;p&gt;Generated: 2026-02-25&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+// GetPdfBytesFromHtmlString returns byte[] directly — no disposal required
+byte[] pdfBytes = converter.GetPdfBytesFromHtmlString(html);
+
+System.IO.File.WriteAllBytes(&quot;report.pdf&quot;, pdfBytes);</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li><code>HtmlToPdfConverter</code> properties configure the converter. Verify exact property paths (<code>PdfDocumentOptions.*</code>, <code>JavascriptTimeout</code>, etc.) in official documentation as they may differ by version.</li>
+
+  <li>The conversion methods (<code>GetPdfBytesFromHtmlString</code>, <code>GetPdfBytesFromUrl</code>) return <code>byte[]</code> directly — no <code>IDisposable</code> result to manage.</li>
+
+  <li>Margin units should be verified in official documentation; ExpertPdf has used different unit conventions across versions.</li>
+
+  <li>The rendering engine used (custom HTML renderer vs Chromium) affects CSS fidelity. Verify which engine is active in the current version.</li>
+
+</ul>
+
+<h4>IronPDF — HTML String to PDF</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// Renderer is configured once and reused — register as singleton in DI
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.PaperOrientation = IronPdf.Rendering.PdfPaperOrientation.Portrait;
+renderer.RenderingOptions.MarginTop = 20;     // millimeters
+renderer.RenderingOptions.MarginBottom = 20;
+renderer.RenderingOptions.MarginLeft = 20;
+renderer.RenderingOptions.MarginRight = 20;
+
+string html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;h1&gt;Monthly Report&lt;/h1&gt;
+  &lt;p&gt;Generated: 2026-02-25&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+// PdfDocument is IDisposable — always use a using block
+using var pdf = renderer.RenderHtmlAsPdf(html);
+
+// Access bytes or save directly
+byte[] pdfBytes = pdf.BinaryData;
+pdf.SaveAs(&quot;report.pdf&quot;);</code></pre>
+
+<p>The shift from ExpertPdf's <code>byte[]</code> return to IronPDF's <code>PdfDocument</code> return is the most structurally significant change in this operation. The <code>using</code> block is mandatory. Full rendering configuration is documented in the <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a>.</p>
+
+<h3>URL to PDF with Authentication</h3>
+
+<h4>ExpertPdf — URL to PDF with Login</h4>
+
+<pre><code class="language-csharp">using ExpertPdf.HtmlToPdf;
+
+var converter = new HtmlToPdfConverter();
+converter.PdfDocumentOptions.PdfPageSize = PdfPageSize.A4;
+
+// ExpertPdf supports form-based login before rendering
+// This allows rendering of pages behind authentication
+converter.LoginUser = &quot;username&quot;;
+converter.LoginPassword = &quot;password&quot;;
+// converter.LoginUrl = &quot;https://app.example.com/login&quot;; // verify property name
+
+// Alternatively, inject cookies directly
+// converter.PdfDocumentOptions.HttpRequestCookies = &quot;session=abc123&quot;; // verify
+
+byte[] pdfBytes = converter.GetPdfBytesFromUrl(&quot;https://app.example.com/dashboard&quot;);
+System.IO.File.WriteAllBytes(&quot;dashboard.pdf&quot;, pdfBytes);</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>ExpertPdf's login automation submits a form before rendering the target URL — useful for applications without cookie-based session injection. The exact property names (<code>LoginUser</code>, <code>LoginPassword</code>, <code>LoginUrl</code>) should be verified in official documentation.</li>
+
+  <li>Cookie injection is an alternative path for session-based authentication</li>
+
+  <li>IronPDF does not provide form-based login automation; authentication must be handled via cookie injection or pre-authenticated URL rendering.</li>
+
+</ul>
+
+<h4>IronPDF — URL to PDF with Cookie Authentication</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// Inject an authentication cookie obtained from the application's login flow
+renderer.RenderingOptions.CustomCookies =
+    new System.Collections.Generic.Dictionary&lt;string, string&gt;
+    {
+        { &quot;session_id&quot;, &quot;your-session-token&quot; },
+        { &quot;.AspNetCore.Cookies&quot;, &quot;your-auth-cookie-value&quot; }
+    };
+
+// WaitFor ensures JS-rendered dashboard content is loaded before capture
+renderer.RenderingOptions.WaitFor.NetworkIdle(networkIdleTimeSpan: TimeSpan.FromSeconds(2));
+
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://app.example.com/dashboard&quot;);
+pdf.SaveAs(&quot;dashboard.pdf&quot;);</code></pre>
+
+<p>IronPDF's URL rendering supports cookie injection, custom HTTP headers, and network idle wait conditions. Applications that relied on ExpertPdf's form-based login automation must obtain session cookies through the application's own login API before calling IronPDF. The <a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF guide</a> covers authentication patterns and the <code>WaitFor</code> configuration.</p>
+
+<h3>Headers and Footers</h3>
+
+<h4>ExpertPdf — Headers and Footers</h4>
+
+<pre><code class="language-csharp">using ExpertPdf.HtmlToPdf;
+
+var converter = new HtmlToPdfConverter();
+converter.PdfDocumentOptions.PdfPageSize = PdfPageSize.A4;
+
+// ExpertPdf header configuration
+converter.PdfDocumentOptions.ShowHeader = true;
+converter.PdfDocumentOptions.HeaderHeight = 30; // points or mm
+
+// Header HTML content
+converter.PdfDocumentOptions.HtmlToPdfHeader = new HtmlToPdfElement(
+    0, 0, 0, 30,
+    &quot;&lt;div style='font-size:9px; text-align:right;'&gt;Page &amp;p; of &amp;P;&lt;/div&gt;&quot;,
+    converter.PdfDocumentOptions.PdfPageSize, PdfPageOrientation.Portrait
+);
+
+// Footer
+converter.PdfDocumentOptions.ShowFooter = true;
+converter.PdfDocumentOptions.HtmlToPdfFooter = new HtmlToPdfElement(
+    0, 0, 0, 20,
+    &quot;&lt;div style='font-size:8px; text-align:center;'&gt;CONFIDENTIAL&lt;/div&gt;&quot;,
+    converter.PdfDocumentOptions.PdfPageSize, PdfPageOrientation.Portrait
+);
+
+byte[] pdfBytes = converter.GetPdfBytesFromHtmlString(
+    &quot;&lt;html&gt;&lt;body&gt;&lt;p&gt;Body content.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;);</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>ExpertPdf uses <code>HtmlToPdfElement</code> objects that wrap an HTML string with position and size parameters. Verify exact constructor signature and parameter order in official documentation.</li>
+
+  <li>Page number tokens in ExpertPdf use <code>&amp;p;</code> and <code>&amp;P;</code> syntax — different from IronPDF's <code>{page}</code> and <code>{total-pages}</code>.</li>
+
+  <li><code>HtmlToPdfElement</code> constructor parameters (x, y, width, height) use the same unit system as the rest of ExpertPdf</li>
+
+</ul>
+
+<h4>IronPDF — Headers and Footers</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Editing;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+
+// HtmlHeaderFooter accepts a full HTML fragment — no position parameters needed
+renderer.RenderingOptions.HtmlHeader = new HtmlHeaderFooter
+{
+    Height = 15,  // millimeters
+    HtmlFragment = &quot;&lt;div style='font-size:9px; text-align:right; font-family:Arial;'&gt;&quot; +
+                   &quot;Page {page} of {total-pages}&lt;/div&gt;&quot;,
+    DrawDividerLine = true
+};
+
+renderer.RenderingOptions.HtmlFooter = new HtmlHeaderFooter
+{
+    Height = 12,
+    HtmlFragment = &quot;&lt;div style='font-size:8px; text-align:center; font-family:Arial;'&gt;&quot; +
+                   &quot;CONFIDENTIAL&lt;/div&gt;&quot;
+};
+
+using var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;html&gt;&lt;body&gt;&lt;p&gt;Body content.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+pdf.SaveAs(&quot;document-with-header.pdf&quot;);</code></pre>
+
+<p>The token syntax change is the most common source of silent header/footer bugs during migration: ExpertPdf's <code>&amp;p;</code> and <code>&amp;P;</code> become <code>{page}</code> and <code>{total-pages}</code> in IronPDF. The <code>HtmlHeaderFooter</code> model eliminates the <code>HtmlToPdfElement</code> position parameters — height is set in millimeters and the HTML fragment handles its own internal layout. Full configuration is in the <a href="https://ironpdf.com/how-to/headers-and-footers/">headers and footers guide</a>.</p>
+
+<h3>Async in ASP.NET Core</h3>
+
+<h4>ExpertPdf — Async Context</h4>
+
+<pre><code class="language-csharp">using ExpertPdf.HtmlToPdf;
+using Microsoft.AspNetCore.Mvc;</code></pre>
+
+<p>[ApiController] [Route("documents")] public class DocumentController : ControllerBase { [HttpGet("{id}/pdf")] public async Task<IActionResult> GetDocument(int id) { string html = await BuildHtmlAsync(id);</p>
+
+<p>// ExpertPdf's conversion methods are synchronous // Task.Run() prevents blocking the ASP.NET Core thread pool byte[] pdfBytes = await Task.Run(() => { var converter = new HtmlToPdfConverter(); converter.PdfDocumentOptions.PdfPageSize = PdfPageSize.A4; return converter.GetPdfBytesFromHtmlString(html); });</p>
+
+<p>return File(pdfBytes, "application/pdf", $"document-{id}.pdf"); }</p>
+
+<p>private Task<string> BuildHtmlAsync(int id) => Task.FromResult($"<html><body><h1>Document {id}</h1></body></html>"); }</p>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li><code>HtmlToPdfConverter.GetPdfBytesFromHtmlString()</code> is synchronous — using it directly in an async ASP.NET Core action blocks the thread pool under concurrent load.</li>
+
+  <li>The <code>Task.Run()</code> pattern moves the blocking work off the request thread but does not reduce overall thread consumption — it shifts the problem rather than solving it.</li>
+
+  <li>Instantiating <code>HtmlToPdfConverter</code> per request may carry setup overhead; verify whether it is safe and performant to reuse a converter instance across requests.</li>
+
+</ul>
+
+<h4>IronPDF — Async in ASP.NET Core</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using Microsoft.AspNetCore.Mvc;</code></pre>
+
+<p>[ApiController] [Route("documents")] public class DocumentController : ControllerBase { private readonly ChromePdfRenderer _renderer;</p>
+
+<p>public DocumentController(ChromePdfRenderer renderer) { _renderer = renderer; }</p>
+
+<p>[HttpGet("{id}/pdf")] public async Task<IActionResult> GetDocument(int id) { string html = await BuildHtmlAsync(id);</p>
+
+<p>// Genuinely async — no Task.Run() wrapper required using var pdf = await _renderer.RenderHtmlAsPdfAsync(html);</p>
+
+<p>return File(pdf.BinaryData, "application/pdf", $"document-{id}.pdf"); }</p>
+
+<p>private Task<string> BuildHtmlAsync(int id) => Task.FromResult($"<html><body><h1>Document {id}</h1></body></html>"); } ```</p>
+
+<p><code>RenderHtmlAsPdfAsync</code> returns <code>Task&lt;PdfDocument&gt;</code> and integrates directly into the async pipeline. The singleton <code>ChromePdfRenderer</code> is configured once and injected through DI — no per-request construction overhead. The <a href="https://ironpdf.com/how-to/async/">async rendering guide</a> covers concurrency and parallel batch generation.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>ExpertPdf Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>new HtmlToPdfConverter()</code></td>
+      <td><code>new ChromePdfRenderer()</code></td>
+      <td>Instance-based in both</td>
+    </tr>
+    <tr>
+      <td><code>converter.PdfDocumentOptions.PdfPageSize</code></td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td>Enum values differ</td>
+    </tr>
+    <tr>
+      <td><code>converter.PdfDocumentOptions.PdfPageOrientation</code></td>
+      <td><code>RenderingOptions.PaperOrientation</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>converter.PdfDocumentOptions.*Margin</code></td>
+      <td><code>RenderingOptions.MarginTop/Bottom/Left/Right</code></td>
+      <td>Verify unit convention</td>
+    </tr>
+    <tr>
+      <td><code>converter.PdfDocumentOptions.EnableJavascript</code></td>
+      <td>Chromium executes JS by default</td>
+      <td>No flag needed</td>
+    </tr>
+    <tr>
+      <td><code>converter.JavascriptTimeout</code></td>
+      <td><code>RenderingOptions.WaitFor.RenderDelay()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>converter.GetPdfBytesFromHtmlString(html)</code></td>
+      <td><code>renderer.RenderHtmlAsPdf(html)</code> → <code>pdf.BinaryData</code></td>
+      <td>Returns <code>PdfDocument</code>, not <code>byte[]</code></td>
+    </tr>
+    <tr>
+      <td><code>converter.GetPdfBytesFromUrl(url)</code></td>
+      <td><code>renderer.RenderUrlAsPdf(url)</code> → <code>pdf.BinaryData</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>converter.LoginUser</code> / <code>LoginPassword</code></td>
+      <td>Cookie injection via <code>RenderingOptions.CustomCookies</code></td>
+      <td>IronPDF has no form-login automation</td>
+    </tr>
+    <tr>
+      <td><code>HtmlToPdfElement</code> (header/footer)</td>
+      <td><code>HtmlHeaderFooter</code></td>
+      <td>No position params; HTML fragment only</td>
+    </tr>
+    <tr>
+      <td><code>&amp;p;</code> / <code>&amp;P;</code> page tokens</td>
+      <td><code>{page}</code> / <code>{total-pages}</code></td>
+      <td><strong>Token syntax changed</strong></td>
+    </tr>
+    <tr>
+      <td><code>converter.PdfDocumentOptions.ShowHeader</code></td>
+      <td><code>RenderingOptions.HtmlHeader</code> set / not set</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Byte array return</td>
+      <td><code>pdf.BinaryData</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Save to file</td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td><a href="https://ironpdf.com/how-to/export-save-pdf-csharp/">Export guide</a></td>
+    </tr>
+    <tr>
+      <td>Merge — not in scope</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td><a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Merge guide</a></td>
+    </tr>
+    <tr>
+      <td>Form fill — not in scope</td>
+      <td><code>pdf.Form.Fields</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Signing — not in scope</td>
+      <td><code>PdfSignature</code></td>
+      <td><a href="https://ironpdf.com/how-to/signing/">Signing guide</a></td>
+    </tr>
+    <tr>
+      <td>PDF/A — not in scope</td>
+      <td><code>pdf.SaveAsPdfA()</code></td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>Return type change — <code>byte[]</code> to <code>PdfDocument</code></strong>: ExpertPdf's conversion methods return <code>byte[]</code> directly. IronPDF returns <code>PdfDocument</code>. Every call site must be updated to access <code>pdf.BinaryData</code> for the bytes and every <code>PdfDocument</code> must be in a <code>using</code> block. Missing <code>using</code> blocks cause unmanaged resource leaks.</li>
+
+  <li><strong>Header/footer token syntax</strong>: ExpertPdf uses <code>&amp;p;</code> and <code>&amp;P;</code> for current page and total pages. IronPDF uses <code>{page}</code> and <code>{total-pages}</code>. This is a silent error — old tokens render as literal strings in IronPDF output.</li>
+
+  <li><strong><code>HtmlToPdfElement</code> replaced by <code>HtmlHeaderFooter</code></strong>: ExpertPdf's header/footer API uses position and size parameters for element placement. IronPDF's <code>HtmlHeaderFooter</code> accepts only an HTML fragment and a height value — internal layout is handled by the HTML/CSS.</li>
+
+  <li><strong>No form-login automation</strong>: ExpertPdf supports automated form-based login before rendering authenticated pages. IronPDF does not. Applications relying on this feature must obtain session cookies through the application's own auth flow before passing them to IronPDF.</li>
+
+  <li><strong>Rendering engine version and fidelity</strong>: If the ExpertPdf version in use employs its older HTML renderer rather than Chromium, the rendering comparison between ExpertPdf and IronPDF output will reveal layout differences. Templates written for the older engine may require CSS updates. This is the most variable factor in estimating migration effort.</li>
+
+  <li><strong>Namespace change</strong>: Replace <code>using ExpertPdf.HtmlToPdf;</code> and related ExpertPdf namespaces with <code>using IronPdf;</code>. Compile errors guide the remaining work.</li>
+
+  <li><strong>DI registration</strong>: ExpertPdf's <code>HtmlToPdfConverter</code> is often instantiated per-operation. IronPDF's <code>ChromePdfRenderer</code> is intended to be a singleton: <code>builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;()</code>. Update DI configuration and all constructor injections.</li>
+
+  <li><strong>License key required</strong>: <code>IronPdf.License.LicenseKey</code> must be set before the first render call. ExpertPdf uses its own license mechanism</li>
+
+  <li><strong>Async availability</strong>: ExpertPdf has synchronous conversion methods. IronPDF provides <code>RenderHtmlAsPdfAsync()</code> and <code>RenderUrlAsPdfAsync()</code>. Replace <code>Task.Run()</code> wrappers with the native async methods.</li>
+
+  <li><strong>Thread safety</strong>: Assume <code>HtmlToPdfConverter</code> is not thread-safe unless official documentation states otherwise. <code>ChromePdfRenderer</code> is designed for reuse</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>ExpertPdf</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active development</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Framework support</td>
+      <td>Yes (2.0+)</td>
+      <td>4.6.2+</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+ support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering</strong></td>
+    </tr>
+    <tr>
+      <td>HTML string rendering</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL rendering</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Rendering engine</td>
+      <td>Custom / Chromium</td>
+      <td>Chromium</td>
+      <td>Verify ExpertPdf active engine</td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Yes</td>
+      <td><a href="https://ironpdf.com/how-to/javascript-to-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS3 / Flexbox / Grid</td>
+      <td>Partial / Yes</td>
+      <td>Yes</td>
+      <td>Depends on ExpertPdf engine</td>
+    </tr>
+    <tr>
+      <td>Responsive CSS</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>No (synchronous)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content & Layout</strong></td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Yes (<code>HtmlToPdfElement</code>)</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Yes</a></td>
+      <td>API and token syntax differ</td>
+    </tr>
+    <tr>
+      <td>Custom margins</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td>Verify unit convention</td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page numbers</td>
+      <td>Yes (<code>&amp;p;</code> / <code>&amp;P;</code>)</td>
+      <td>Yes (<code>{page}</code> / <code>{total-pages}</code>)</td>
+      <td>Token syntax differs</td>
+    </tr>
+    <tr>
+      <td>Bookmarks</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Add / remove pages</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Compress PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Watermarking</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Annotations</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Forms</strong></td>
+    </tr>
+    <tr>
+      <td>Fill PDF forms</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Create PDF forms</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password encryption</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Permission flags</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF redaction</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Authentication</strong></td>
+    </tr>
+    <tr>
+      <td>Form-based login</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>IronPDF uses cookie injection</td>
+    </tr>
+    <tr>
+      <td>Cookie injection</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>Yes (<code>byte[]</code>)</td>
+      <td>Yes (<code>BinaryData</code>)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom logging</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux support</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Docker / container</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Audit all <code>HtmlToPdfConverter</code> call sites</strong>: List every instantiation, its configuration (paper size, margins, orientation, header/footer, authentication), and its output method (<code>GetPdfBytesFromHtmlString</code>, <code>GetPdfBytesFromUrl</code>).</li>
+
+  <li><strong>Identify which ExpertPdf rendering engine is in use</strong>: Determine whether the version in use employs the Chromium-based renderer or the older HTML engine. This determines the scope of the rendering fidelity review in step 3.</li>
+
+  <li><strong>Render-compare all templates with IronPDF</strong>: Before any code changes, render each HTML template with IronPDF and compare against ExpertPdf output. Identify and document layout differences — these are the CSS updates to make after the API swap.</li>
+
+  <li><strong>Install IronPDF via NuGet</strong>: <code>dotnet add package IronPdf</code>. Retain ExpertPdf references until replacement code compiles and tests pass.</li>
+
+  <li><strong>Configure the license key at startup</strong>: Set <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> in <code>Program.cs</code> or <code>Startup.cs</code>. See the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>Register <code>ChromePdfRenderer</code> in DI</strong>: Add <code>builder.Services.AddSingleton&lt;ChromePdfRenderer&gt;()</code> and update all constructor injections.</li>
+
+  <li><strong>Update namespaces</strong>: Replace <code>using ExpertPdf.HtmlToPdf;</code> and related directives with <code>using IronPdf;</code>. Compile errors identify every affected file.</li>
+
+  <li><strong>Replace <code>GetPdfBytesFromHtmlString()</code> calls</strong>: Map each to <code>renderer.RenderHtmlAsPdf(html)</code>. Wrap <code>PdfDocument</code> in <code>using</code>. Access bytes via <code>pdf.BinaryData</code> or save via <code>pdf.SaveAs(path)</code>.</li>
+
+  <li><strong>Replace <code>GetPdfBytesFromUrl()</code> calls</strong>: Map to <code>renderer.RenderUrlAsPdf(url)</code>. Configure <code>WaitFor</code> if JavaScript timing was previously handled via <code>JavascriptTimeout</code>.</li>
+
+  <li><strong>Port header/footer configuration</strong>: Replace <code>HtmlToPdfElement</code> with <code>HtmlHeaderFooter</code>. Update page number tokens: <code>&amp;p;</code> → <code>{page}</code>, <code>&amp;P;</code> → <code>{total-pages}</code>.</li>
+
+  <li><strong>Replace <code>Task.Run()</code> wrappers</strong>: Swap <code>await Task.Run(() =&gt; converter.GetPdfBytesFromHtmlString(...))</code> for <code>await renderer.RenderHtmlAsPdfAsync(html)</code>.</li>
+
+  <li><strong>Address form-login authentication</strong>: For any URL render that used ExpertPdf's <code>LoginUser</code>/<code>LoginPassword</code> automation, implement an equivalent session cookie acquisition flow and inject cookies via <code>RenderingOptions.CustomCookies</code>.</li>
+
+  <li><strong>Remove ExpertPdf NuGet reference</strong>: Once all replacements compile and tests pass, remove the ExpertPdf package and perform a final build verification.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on ExpertPdf is technically reasonable</h3>
+
+<p>ExpertPdf is a reasonable choice when its current rendering engine meets the CSS fidelity requirements of existing templates, the form-based login automation is a key feature for rendering authenticated pages without a separate session acquisition step, and the application's PDF requirements do not extend into the manipulation, compliance, and signing areas that ExpertPdf does not cover. Teams with a stable ExpertPdf integration and no immediate rendering or platform pressure have no urgent migration trigger.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>Migration is worth scoping when templates use modern CSS (Flexbox, Grid, custom properties, web fonts) and rendering fidelity is a friction point with the current ExpertPdf version; when new requirements include digital signatures, PDF/A compliance, form filling, or PDF manipulation that require a separate library alongside ExpertPdf; when the synchronous API is causing thread pool exhaustion in high-concurrency ASP.NET Core applications; or when Linux and container deployment targets are creating compatibility uncertainty.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>The API swap is mechanical for the core rendering path: register <code>ChromePdfRenderer</code> in DI, replace <code>HtmlToPdfConverter</code> instantiation with injected renderer, map property names to <code>RenderingOptions</code>, replace conversion method calls with <code>renderer.Render*()</code>, add <code>using</code> blocks, and update output access. The header/footer token update (<code>&amp;p;</code>/<code>&amp;P;</code> → <code>{page}</code>/<code>{total-pages}</code>) is a simple text substitution. The form-login replacement requires adding a cookie acquisition step that is architecture-specific. The rendering fidelity review — validating output parity for each template — is the most judgment-intensive step and scales with template complexity and ExpertPdf engine generation.</p>
+
+<p>When you look at the rendering output from ExpertPdf today, are there layouts that you know render incorrectly compared to Chrome — and has the workaround cost for those layouts factored into any previous migration discussions?</p>

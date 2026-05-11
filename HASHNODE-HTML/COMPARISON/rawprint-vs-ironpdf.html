@@ -1,0 +1,826 @@
+<!-- FRONTMATTER
+  title: RawPrint vs IronPDF: from install to production — compared
+  subtitle: a technical comparison for modern .NET teams (2026)
+  tags: dotnet, csharp, pdf, rawprint
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/rawprint/
+  description: RawPrint vs IronPDF for .NET: Printing in .NET applications covers two architecturally distinct scenarios that share almost no
+  published: False
+-->
+
+<h1>RawPrint vs IronPDF: from install to production — compared</h1>
+
+<p class="subtitle"><em>a technical comparison for modern .NET teams (2026)</em></p>
+
+<h2>Problem Framing</h2>
+
+<p>Printing in .NET applications addresses two architecturally distinct scenarios that share almost no implementation surface. The first is GDI-mediated printing: a document — PDF, HTML, image, or other format — is rendered by the application and handed to the Windows print spooler, which manages the rendering pipeline, printer driver translation, and delivery to the printer. The second is raw printing: the application sends a pre-formed byte stream directly to a printer port, bypassing the Windows rendering pipeline entirely. In the second model, the printer receives commands in its own native language — ZPL for Zebra label printers, ESC/POS for receipt printers, TSPL for TSC printers — and interprets them without any GDI involvement. The two models are not interchangeable: a ZPL command stream sent through GDI will produce garbage output, and a rendered document sent raw to a label printer will likely be ignored or produce incorrect output.</p>
+
+<p>RawPrint is a .NET utility library for the second scenario: it provides a thin managed wrapper around the Windows <code>OpenPrinter</code> / <code>StartDocPrinter</code> / <code>WritePrinter</code> API calls that allow application code to send raw byte arrays directly to a named printer port. Its primary users are teams building label printing (Zebra, Eltron, TSPL), receipt printing (ESC/POS for POS hardware), and industrial print automation workflows where the application generates the command language payload and sends it verbatim to the printer.</p>
+
+<p>IronPDF's printing path sits entirely within the first scenario: it generates a PDF from HTML or loads an existing PDF, then sends it to a printer via the Windows GDI pipeline, which handles driver translation and spooler management. The comparison in this article is not a direct competition — the tools solve different problems. It is relevant to teams who need to print PDF files on printers that also support raw protocols, to teams evaluating whether raw printing or GDI-mediated printing is the right model for their deployment, and to teams who reach for one tool thinking it covers the other scenario.</p>
+
+<h2>What RawPrint Is Designed to Do</h2>
+
+<p>RawPrint is a lightweight .NET NuGet library that offers a managed API for sending raw byte streams directly to Windows printer ports without engaging the GDI print spooler's rendering pipeline. The library wraps the Windows <code>winspool.drv</code> P/Invoke calls — <code>OpenPrinter</code>, <code>StartDocPrinter</code>, <code>StartPagePrinter</code>, <code>WritePrinter</code>, <code>EndPagePrinter</code>, <code>EndDocPrinter</code>, <code>ClosePrinter</code> — behind a clean managed interface that eliminates the need to write the P/Invoke declarations manually.</p>
+
+<p>Based on available information, the core API includes <code>Printer.PrintRawFile(printerName, filePath, docName)</code> for sending a file's bytes directly to a named printer, and <code>Printer.SendBytesToPrinter(printerName, bytes, docName)</code> for sending an in-memory byte array. These methods allow application code to dispatch ZPL (Zebra Programming Language), EPL (Eltron Programming Language), TSPL (TSC Printer Language), ESC/POS (Epson Standard Code for Point of Sale), and any other raw printer command language payload without Windows intercepting, re-rendering, or reformatting the stream.</p>
+
+<p>RawPrint is Windows-only — it wraps the Windows print spooler API. It does not generate documents, render HTML, process PDFs, or perform any content transformation. Its sole function is to deliver a pre-formed byte payload to a named Windows printer destination. Verify current NuGet package name (there are several packages in the ecosystem providing similar Win32 raw print wrappers — ensure the one being adopted is actively maintained), .NET version support (.NET Standard vs .NET 6+), and API surface in official documentation or the package repository before integrating.</p>
+
+<h2>What IronPDF Is Designed to Do</h2>
+
+<p>IronPDF is a .NET PDF library built on embedded Chromium for HTML-to-PDF generation, paired with a programmatic printing API. <code>ChromePdfRenderer</code> generates PDFs from HTML strings, HTML files, and URLs with full CSS3 fidelity — Flexbox, Grid, web fonts, SVG, and JavaScript execution. <code>PdfDocument</code> handles manipulation of existing PDFs: text extraction, image extraction, AcroForm filling, merge, split, signing, encryption, PDF/A compliance, and more.</p>
+
+<p>For printing, IronPDF's <code>PdfDocument.Print()</code> method sends a PDF to a physical printer via the Windows GDI pipeline — printer selection, copy count, duplex, and page range are configurable from code, and no Adobe Acrobat or external viewer is required. The <a href="https://ironpdf.com/how-to/print-pdf/">printing guide</a> covers the full <code>PdfPrintSettings</code> configuration surface. License initialization is a one-time startup call; see the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>. IronPDF supports Windows, Linux, and macOS; programmatic printing to physical printers is a Windows-centric operation (printer driver availability depends on the OS).</p>
+
+<h2>Key Limitations of RawPrint</h2>
+
+<h4>Product Status</h4>
+
+<p>Multiple NuGet packages exist in the .NET ecosystem that wrap the Windows raw print API</p>
+
+<h4>Missing Capabilities</h4>
+
+<p>RawPrint is exclusively a print dispatch utility. It does not generate PDFs, render HTML, create documents from data, extract content from existing files, or perform any document transformation. Any workflow requiring document generation before printing must use a separate library entirely — RawPrint has no document creation surface whatsoever. It also cannot render a PDF to a printer through the GDI pipeline; it can only forward pre-formed byte payloads to printer ports. Sending PDF bytes via <code>SendBytesToPrinter</code> to a standard GDI printer will produce incorrect output or an error, because PDF is not a raw printer command language.</p>
+
+<h4>Technical Constraints</h4>
+
+<p>RawPrint is Windows-only. The <code>OpenPrinter</code> / <code>WritePrinter</code> API it wraps is a Windows Win32 API; it has no equivalent on Linux or macOS. Applications that need to print from Linux containers or cross-platform deployments cannot use RawPrint for printer dispatch. Additionally, the target printer must be configured as a named Windows printer queue — raw printing to IP-connected printers requires that printer to be added to the Windows print system with its port configured correctly.</p>
+
+<p>Raw printing bypasses the printer driver's rendering pipeline. This means the application is entirely responsible for generating a byte stream that is valid for the specific printer model and firmware version. ZPL syntax, label dimensions, DPI settings, and command encoding must all be managed in application code. A payload that works on a Zebra ZT230 at 203 DPI may not produce the correct output on a ZT410 at 300 DPI without adjustments. The application owns this translation layer.</p>
+
+<h4>Support Model</h4>
+
+<p>Community-maintained NuGet packages in this category typically have no commercial support. Verify the current maintainer and support channel in the package repository. The Windows raw print API itself is well-documented by Microsoft, which partially compensates — experienced Windows print subsystem knowledge can resolve most integration issues without library-specific support.</p>
+
+<h4>Architectural Fit</h4>
+
+<p>RawPrint is architecturally suited for Windows-based applications that drive label printers, receipt printers, or other hardware that accepts native command language payloads (ZPL, ESC/POS, TSPL), where the application generates the command stream and the goal is delivering it to the printer without Windows rendering interference. It is not suited for PDF printing, document generation, cross-platform deployments, or any scenario where the printer is a standard GDI-compatible device.</p>
+
+<h2>Feature Comparison Overview</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature Area</th>
+      <th>RawPrint</th>
+      <th>IronPDF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Send raw command stream to printer</td>
+      <td>Yes (core purpose)</td>
+      <td>No</td>
+    </tr>
+    <tr>
+      <td>Print PDF via GDI pipeline</td>
+      <td>No</td>
+      <td>Yes</td>
+    </tr>
+    <tr>
+      <td>PDF generation (HTML to PDF)</td>
+      <td>No</td>
+      <td>Yes</td>
+    </tr>
+    <tr>
+      <td>PDF manipulation (sign, merge, extract)</td>
+      <td>No</td>
+      <td>Yes</td>
+    </tr>
+    <tr>
+      <td>Windows-only</td>
+      <td>Yes</td>
+      <td>No (cross-platform)</td>
+    </tr>
+    <tr>
+      <td>NuGet package</td>
+      <td>Yes</td>
+      <td>Yes</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>Sending a Raw ZPL Label to a Zebra Printer</h3>
+
+<h4>RawPrint — ZPL Label via Raw Byte Stream</h4>
+
+<pre><code class="language-csharp">using RawPrint;  // verify current NuGet package namespace
+
+// RawPrint — send a ZPL label command stream directly to a Zebra printer
+// The printer must be configured as a named Windows printer queue
+
+string printerName = &quot;ZebraZT230&quot;;  // Windows printer name — must match exactly
+string docName     = &quot;ShippingLabel-4412&quot;;
+
+// Build a ZPL II label payload
+// ZPL is the Zebra Programming Language — commands start with ^
+// This example generates a 4&quot;×6&quot; shipping label at 203 DPI
+string zplLabel = @&quot;
+^XA
+^PW812
+^LL1218
+^LH0,0
+
+^FO30,30^A0N,40,40^FDShip To:^FS
+^FO30,80^A0N,30,30^FDAcme Corp^FS
+^FO30,110^A0N,25,25^FD123 Main St, Chicago IL 60601^FS
+
+^FO30,200^BY3^BCN,100,Y,N,N^FD1234567890^FS
+
+^XZ&quot;;
+
+// Convert ZPL string to bytes — Zebra printers expect ASCII/UTF-8
+byte[] zplBytes = System.Text.Encoding.ASCII.GetBytes(zplLabel);
+
+// Send raw bytes directly to the printer port — no GDI, no driver rendering
+// Verify method signature in current RawPrint package documentation
+Printer.SendBytesToPrinter(printerName, zplBytes, docName);
+
+Console.WriteLine($&quot;ZPL label sent to '{printerName}'.&quot;);</code></pre>
+
+<ul>
+
+  <li>The printer name (<code>"ZebraZT230"</code>) must exactly match the Windows printer queue name as it appears in the Windows print system — a mismatch silently fails or throws a Win32 exception.</li>
+
+  <li>ZPL commands (label width <code>^PW</code>, label length <code>^LL</code>, font <code>^A0N</code>, field origin <code>^FO</code>, barcode <code>^BC</code>) are specific to Zebra firmware versions</li>
+
+  <li><code>System.Text.Encoding.ASCII</code> is correct for most ZPL payloads; some advanced ZPL features require the printer's specific code page</li>
+
+  <li>RawPrint bypasses the printer driver entirely; if the printer driver's settings (DPI, darkness, speed) need to change per label, those changes must be embedded as ZPL commands (<code>^PR</code>, <code>~SD</code>) within the payload — they cannot be set via print dialog.</li>
+
+  <li>Verify the exact method signature (<code>Printer.SendBytesToPrinter</code> vs <code>IRawPrint.Print</code> vs another variant) in the current version of the specific NuGet package in use — multiple packages wrap this API with different method names.</li>
+
+</ul>
+
+<h4>IronPDF — PDF Label via GDI Print Pipeline</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Printing;
+
+// IronPDF — print a PDF label via the Windows GDI pipeline
+// Use case: the label design is maintained as HTML/CSS and rendered to PDF
+
+var renderer = new ChromePdfRenderer();
+// Custom paper size matching 4&quot;×6&quot; label stock (in mm)
+renderer.RenderingOptions.CustomPaperWidth  = 101.6;  // 4 inches
+renderer.RenderingOptions.CustomPaperHeight = 152.4;  // 6 inches
+renderer.RenderingOptions.MarginTop         = 3;
+renderer.RenderingOptions.MarginBottom      = 3;
+renderer.RenderingOptions.MarginLeft        = 3;
+renderer.RenderingOptions.MarginRight       = 3;
+
+string labelHtml = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+  &lt;style&gt;
+    body     { font-family: Arial; font-size: 11pt; margin: 0; }
+    .section { margin-bottom: 10px; }
+    .label   { font-weight: bold; font-size: 9pt; color: #666; }
+    .value   { font-size: 13pt; }
+    .barcode { margin-top: 12px; }
+  &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;div class='section'&gt;
+    &lt;div class='label'&gt;SHIP TO:&lt;/div&gt;
+    &lt;div class='value'&gt;Acme Corp&lt;/div&gt;
+    &lt;div class='value'&gt;123 Main St, Chicago IL 60601&lt;/div&gt;
+  &lt;/div&gt;
+  &lt;div class='barcode'&gt;
+    &lt;!-- Barcode rendered via a barcode font or IronBarcode integration --&gt;
+    &lt;div class='label'&gt;TRACKING:&lt;/div&gt;
+    &lt;div class='value' style='font-family: monospace; letter-spacing: 2px;'&gt;1234567890&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+// Generate the label PDF in memory
+using var labelPdf = await renderer.RenderHtmlAsPdfAsync(labelHtml);
+
+// Print via GDI pipeline — the printer must be a GDI-compatible driver,
+// not a raw-only label printer configured without a Windows driver
+labelPdf.Print(new PdfPrintSettings
+{
+    PrinterName    = &quot;ZebraZT230&quot;,  // printer name with Windows driver installed
+    NumberOfCopies = 1,
+    PrintAllPages  = true
+});</code></pre>
+
+<p>IronPDF's GDI printing path requires that the printer has a Windows printer driver installed — raw-only printers without a rendering driver cannot receive GDI output. For label printers that support both ZPL raw mode and a Windows driver (many Zebra models do), IronPDF's approach keeps the label design in HTML/CSS and sends it through the driver. The <a href="https://ironpdf.com/how-to/print-pdf/">printing guide</a> covers <code>PdfPrintSettings</code> configuration for paper size, duplex, and page range.</p>
+
+<h3>Sending an ESC/POS Receipt to a Thermal Printer</h3>
+
+<h4>RawPrint — ESC/POS Receipt</h4>
+
+<pre><code class="language-csharp">using RawPrint;  // verify current package namespace
+using System.Collections.Generic;
+using System.Text;
+
+// RawPrint — ESC/POS receipt for a thermal receipt printer (e.g., Epson TM-T88)
+// ESC/POS uses escape sequences to control formatting and paper cutting
+
+string printerName = &quot;EpsonTMT88&quot;;  // Windows printer queue name
+
+// Build ESC/POS command sequence as bytes
+// ESC/POS commands: ESC @ = init, ESC a = align, ESC ! = font, GS V = cut
+var receipt = new List&lt;byte&gt;();
+
+// ESC @ — Initialize printer
+receipt.AddRange(new byte[] { 0x1B, 0x40 });
+
+// ESC a 1 — Center alignment
+receipt.AddRange(new byte[] { 0x1B, 0x61, 0x01 });
+
+// ESC ! 0x10 — Double-height emphasis for store name
+receipt.AddRange(new byte[] { 0x1B, 0x21, 0x10 });
+receipt.AddRange(Encoding.ASCII.GetBytes(&quot;ACME RETAIL\n&quot;));
+
+// ESC ! 0x00 — Reset to normal size
+receipt.AddRange(new byte[] { 0x1B, 0x21, 0x00 });
+
+// ESC a 0 — Left alignment for line items
+receipt.AddRange(new byte[] { 0x1B, 0x61, 0x00 });
+receipt.AddRange(Encoding.ASCII.GetBytes(&quot;--------------------------------\n&quot;));
+receipt.AddRange(Encoding.ASCII.GetBytes(&quot;Widget A            x2   $19.98\n&quot;));
+receipt.AddRange(Encoding.ASCII.GetBytes(&quot;Widget B            x1   $49.99\n&quot;));
+receipt.AddRange(Encoding.ASCII.GetBytes(&quot;--------------------------------\n&quot;));
+
+// ESC a 2 — Right alignment for total
+receipt.AddRange(new byte[] { 0x1B, 0x61, 0x02 });
+receipt.AddRange(Encoding.ASCII.GetBytes(&quot;TOTAL:          $69.97\n\n\n&quot;));
+
+// GS V 0 — Full paper cut
+receipt.AddRange(new byte[] { 0x1D, 0x56, 0x00 });
+
+// Send raw bytes to printer — bypasses GDI entirely
+Printer.SendBytesToPrinter(printerName, receipt.ToArray(), &quot;Receipt-8847&quot;);
+Console.WriteLine(&quot;ESC/POS receipt sent.&quot;);</code></pre>
+
+<ul>
+
+  <li>ESC/POS command byte values are defined by the Epson ESC/POS specification and may vary between printer models and firmware revisions — consult the specific printer's ESC/POS programming guide.</li>
+
+  <li>Encoding for line item text is typically ASCII or the printer's configured code page; Unicode characters outside the code page will print as the printer's substitution character.</li>
+
+  <li>The <code>GS V</code> paper cut command requires that the printer has a cutter installed and enabled — sending it to a printer without a cutter has no effect or may produce an error.</li>
+
+  <li>Alignment, font sizes, and line spacing commands (<code>ESC 3</code>) must be reset explicitly after use — ESC/POS is a stateful protocol and unintended state from a previous receipt carries into the next if the printer is not re-initialized.</li>
+
+</ul>
+
+<h4>IronPDF — Receipt-style PDF (for GDI-capable thermal printers)</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Printing;
+
+// IronPDF — receipt-style PDF for a thermal printer with Windows GDI driver
+// Requires the printer to have a Windows printer driver installed
+// This is a different approach: HTML layout, not raw ESC/POS
+
+var renderer = new ChromePdfRenderer();
+// Standard 80mm thermal receipt width (~3.15 inches)
+renderer.RenderingOptions.CustomPaperWidth  = 80;
+renderer.RenderingOptions.CustomPaperHeight = 200;  // adjust to content height
+renderer.RenderingOptions.MarginTop         = 2;
+renderer.RenderingOptions.MarginBottom      = 5;
+renderer.RenderingOptions.MarginLeft        = 3;
+renderer.RenderingOptions.MarginRight       = 3;
+
+string html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+  &lt;style&gt;
+    body   { font-family: monospace; font-size: 9pt; }
+    .store { text-align: center; font-size: 12pt; font-weight: bold;
+             margin-bottom: 6px; }
+    .line  { display: flex; justify-content: space-between; }
+    .total { text-align: right; font-weight: bold; border-top: 1px solid #000;
+             padding-top: 4px; margin-top: 4px; }
+  &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;div class='store'&gt;ACME RETAIL&lt;/div&gt;
+  &lt;hr/&gt;
+  &lt;div class='line'&gt;&lt;span&gt;Widget A x2&lt;/span&gt;&lt;span&gt;$19.98&lt;/span&gt;&lt;/div&gt;
+  &lt;div class='line'&gt;&lt;span&gt;Widget B x1&lt;/span&gt;&lt;span&gt;$49.99&lt;/span&gt;&lt;/div&gt;
+  &lt;div class='total'&gt;TOTAL: $69.97&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+using var receipt = await renderer.RenderHtmlAsPdfAsync(html);
+
+receipt.Print(new PdfPrintSettings
+{
+    PrinterName    = &quot;EpsonTMT88&quot;,  // must have Windows driver installed
+    NumberOfCopies = 1,
+    PrintAllPages  = true
+});</code></pre>
+
+<p>For printers with Windows GDI drivers, IronPDF can render receipt-style HTML and print via the driver. This approach is not appropriate for printers configured only for raw printing without a Windows driver. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers all rendering options including custom paper dimensions.</p>
+
+<h3>Batch Raw Print from File</h3>
+
+<h4>RawPrint — Batch Print ZPL Files</h4>
+
+<pre><code class="language-csharp">using RawPrint;
+using System.IO;
+
+// RawPrint — batch send multiple pre-generated ZPL files to a printer
+// Each .zpl file contains a pre-formed ZPL label payload
+
+string printerName = &quot;ZebraZT230&quot;;
+string labelFolder = @&quot;C:\Labels\Pending&quot;;
+
+// Enumerate ZPL files — each is a complete label payload
+var zplFiles = Directory.GetFiles(labelFolder, &quot;*.zpl&quot;);
+
+int sent    = 0;
+int failed  = 0;
+
+foreach (var filePath in zplFiles)
+{
+    string docName = Path.GetFileNameWithoutExtension(filePath);
+    try
+    {
+        // PrintRawFile sends the file's contents verbatim to the printer
+        // Verify method signature in current RawPrint package documentation
+        Printer.PrintRawFile(printerName, filePath, docName);
+        Console.WriteLine($&quot;Sent: {docName}&quot;);
+        sent++;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($&quot;Failed: {docName} — {ex.Message}&quot;);
+        failed++;
+    }
+}
+
+Console.WriteLine($&quot;Batch complete: {sent} sent, {failed} failed.&quot;);</code></pre>
+
+<ul>
+
+  <li><code>PrintRawFile</code> reads the file bytes and forwards them directly to the printer queue — the file encoding must match the printer's expected encoding (usually ASCII for ZPL).</li>
+
+  <li>Error handling on a per-file basis is important for batch operations — a failure on one label should not halt the entire batch.</li>
+
+  <li>Verify the exact method name (<code>PrintRawFile</code> vs <code>SendFileToPrinter</code> vs another variant) in the current package version.</li>
+
+  <li>Verify whether the method call blocks until the data is written to the spooler queue or until the printer confirms completion — Windows print spooler operations are typically queued, not synchronous to physical printing.</li>
+
+</ul>
+
+<h4>IronPDF — Batch Print PDFs</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Printing;
+using System.IO;
+
+// IronPDF — batch print PDF files via GDI pipeline
+string pdfFolder   = @&quot;C:\Labels\Pending&quot;;
+var pdfPrintSettings = new PdfPrintSettings
+{
+    PrinterName    = &quot;ZebraZT230&quot;,  // must have Windows driver
+    NumberOfCopies = 1,
+    PrintAllPages  = true
+};
+
+var pdfFiles = Directory.GetFiles(pdfFolder, &quot;*.pdf&quot;);
+
+foreach (var filePath in pdfFiles)
+{
+    using var pdf = PdfDocument.FromFile(filePath);
+    pdf.Print(pdfPrintSettings);
+    Console.WriteLine($&quot;Printed: {Path.GetFileName(filePath)}&quot;);
+}</code></pre>
+
+<p>IronPDF reuses the same <code>PdfPrintSettings</code> instance across the batch. The <a href="https://ironpdf.com/how-to/print-pdf/">printing guide</a> covers page range, duplex, and printer enumeration options.</p>
+
+<h3>Generating and Printing a PDF in One Pipeline (IronPDF; not applicable to RawPrint)</h3>
+
+<p>RawPrint's scope is byte delivery to a printer queue. Document generation — creating the PDF content — is entirely outside its scope. In workflows requiring both document generation and printing, a generation library must be used alongside RawPrint (if raw delivery is required) or IronPDF handles both steps.</p>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Printing;
+
+// IronPDF — generate a PDF from HTML, then print it immediately
+// No intermediate file write required; no subprocess; no separate library
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize    = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop    = 20;
+renderer.RenderingOptions.MarginBottom = 20;
+
+string html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;h1&gt;Work Order #9912&lt;/h1&gt;
+  &lt;p&gt;Station: Assembly Line 3 | Priority: High&lt;/p&gt;
+  &lt;table style='width:100%; border-collapse:collapse;'&gt;
+    &lt;tr&gt;&lt;th style='border:1px solid #ccc;padding:6px;'&gt;Task&lt;/th&gt;
+        &lt;th style='border:1px solid #ccc;padding:6px;'&gt;Status&lt;/th&gt;&lt;/tr&gt;
+    &lt;tr&gt;&lt;td style='border:1px solid #ccc;padding:6px;'&gt;Install bracket&lt;/td&gt;
+        &lt;td style='border:1px solid #ccc;padding:6px;'&gt;Pending&lt;/td&gt;&lt;/tr&gt;
+  &lt;/table&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+// Step 1: Generate PDF from HTML in memory — no file I/O
+using var workOrder = await renderer.RenderHtmlAsPdfAsync(html);
+
+// Step 2: Print immediately from the in-memory PdfDocument
+workOrder.Print(new PdfPrintSettings
+{
+    PrinterName    = &quot;OfficeHP4000&quot;,
+    NumberOfCopies = 1,
+    PrintAllPages  = true,
+    Duplex         = Duplex.Simplex
+});
+
+// Step 3: Optionally archive
+workOrder.SaveAs(@&quot;C:\WorkOrders\wo-9912.pdf&quot;);</code></pre>
+
+<p>Generation, print dispatch, and archival operate in sequence on the same <code>PdfDocument</code> object — no temporary file path, no subprocess, no second library. The <a href="https://ironpdf.com/how-to/csharp-pdf-reports/">PDF reporting guide</a> covers data-driven generation patterns for similar print-on-demand workflows.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>RawPrint Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>Printer.SendBytesToPrinter(name, bytes, doc)</code></td>
+      <td>Not applicable</td>
+      <td>Different print model</td>
+    </tr>
+    <tr>
+      <td><code>Printer.PrintRawFile(name, path, doc)</code></td>
+      <td><code>pdf.Print(settings)</code></td>
+      <td><a href="https://ironpdf.com/how-to/print-pdf/">Printing guide</a></td>
+    </tr>
+    <tr>
+      <td>Printer name (Windows queue)</td>
+      <td><code>PdfPrintSettings.PrinterName</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Raw byte payload (ZPL/ESC/POS)</td>
+      <td>Not applicable</td>
+      <td>IronPDF: GDI pipeline</td>
+    </tr>
+    <tr>
+      <td>ZPL label generation</td>
+      <td>Not applicable</td>
+      <td>Requires separate ZPL generation</td>
+    </tr>
+    <tr>
+      <td>ESC/POS command building</td>
+      <td>Not applicable</td>
+      <td>Separate ESC/POS library needed</td>
+    </tr>
+    <tr>
+      <td>Batch file dispatch</td>
+      <td>Loop over <code>pdf.Print(settings)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Windows-only API</td>
+      <td>Cross-platform library</td>
+      <td>IronPDF: Windows for printing</td>
+    </tr>
+    <tr>
+      <td>Document generation</td>
+      <td>Not applicable</td>
+      <td><code>renderer.RenderHtmlAsPdf(html)</code></td>
+    </tr>
+    <tr>
+      <td>HTML to PDF</td>
+      <td>Not applicable</td>
+      <td><a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string guide</a></td>
+    </tr>
+    <tr>
+      <td>PDF merge before print</td>
+      <td>Not applicable</td>
+      <td><code>PdfDocument.Merge(a, b, ...)</code></td>
+    </tr>
+    <tr>
+      <td>PDF encryption</td>
+      <td>Not applicable</td>
+      <td><code>pdf.SecuritySettings.*</code></td>
+    </tr>
+    <tr>
+      <td>Commercial support</td>
+      <td>Not applicable</td>
+      <td>Yes (IronPDF)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>RawPrint</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active development</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td>Verify NuGet package</td>
+    </tr>
+    <tr>
+      <td>.NET Standard / NuGet</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Windows only</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>IronPDF: cross-platform</td>
+    </tr>
+    <tr>
+      <td>Commercial license</td>
+      <td>No (community)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Printing</strong></td>
+    </tr>
+    <tr>
+      <td>Raw byte stream to printer</td>
+      <td>Yes (core purpose)</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>ZPL / ESC/POS dispatch</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Print PDF via GDI</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/print-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Printer selection by name</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Copy count</td>
+      <td>No (raw stream only)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Duplex mode</td>
+      <td>No (raw stream only)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page range</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Batch file printing</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Silent / no dialog</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content Creation</strong></td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS3 / Flexbox / Grid</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>DOCX to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Generate PDF from data</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Compress PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linearize PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Text & Content</strong></td>
+    </tr>
+    <tr>
+      <td>Extract text from PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Extract images from PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Find and replace text</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Watermark / stamp</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Forms</strong></td>
+    </tr>
+    <tr>
+      <td>Fill AcroForm fields</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Create form fields</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/create-forms/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password encryption</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/signing/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>Linux / Docker</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>macOS</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async API</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Commercial support</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SLA / vendor escalation</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Commonly Reported Limitations</h2>
+
+<ul>
+
+  <li>The Windows raw print API requires the printer to be registered as a named queue in the Windows print system — printers connected directly via USB or serial without a Windows queue cannot be targeted; the Windows driver must install the queue even if raw printing bypasses the driver's rendering pipeline.</li>
+
+  <li>ZPL, ESC/POS, and TSPL command sequences are printer-model-specific and firmware-version-sensitive — a payload that prints correctly on one model may produce incorrect output on a different model or firmware revision, requiring the application to maintain separate command templates per printer type.</li>
+
+  <li>Error reporting from raw print operations is limited — the Windows <code>WritePrinter</code> API returns a success/failure indicator but does not distinguish between "data written to spooler queue" and "printer physically received and processed the data"; paper jams, ribbon errors, and printer offline states may not surface as exceptions.</li>
+
+  <li>Multiple NuGet packages in the .NET ecosystem wrap the Windows raw print API with similar names but different API surfaces, .NET target frameworks, and maintenance status</li>
+
+  <li>ESC/POS printer state is persistent across print jobs unless the printer is explicitly re-initialized (<code>ESC @</code>) at the start of each job — stale state from a previous job (unusual font sizes, alignment modes, bold on) will carry into the next job if not reset.</li>
+
+</ul>
+
+<h2>Conclusion</h2>
+
+<h3>When RawPrint is technically reasonable</h3>
+
+<p>RawPrint is technically reasonable for Windows-based applications that dispatch label or receipt print jobs to printers accepting native command languages — ZPL for Zebra label printers, ESC/POS for thermal receipt printers, TSPL for TSC devices — where the application generates the command payload and the goal is delivering it verbatim to the printer port without GDI interference. It removes the need to write P/Invoke declarations manually, which is a genuine reduction in boilerplate for teams building in-house raw print dispatch code. Applications already generating ZPL or ESC/POS payloads that have working integrations on Windows have little reason to change.</p>
+
+<h3>When the architectural mismatch becomes significant</h3>
+
+<p>The mismatch becomes significant when the requirement is printing PDF documents rather than raw command payloads — RawPrint cannot render or deliver PDFs to GDI printers; when document generation (creating the content before printing) is part of the workflow; when cross-platform deployment (Linux, macOS, Docker) is on the roadmap and the Windows-only constraint is a blocker; or when the application needs both PDF generation and print dispatch under a single library dependency.</p>
+
+<h3>How IronPDF approaches the same problem space</h3>
+
+<p>IronPDF addresses the GDI-mediated printing scenario: generate a PDF from HTML or load an existing PDF, then dispatch it to a named printer via <code>PdfDocument.Print()</code> with typed settings — no subprocess, no P/Invoke, no external binary. It does not compete with RawPrint's raw byte dispatch model; teams that need both PDF printing and raw label printing will use both tools for their respective scenarios. The <a href="https://ironpdf.com/docs/">IronPDF documentation overview</a> covers the full generation, manipulation, and printing surface.</p>
+
+<p>For teams evaluating printer dispatch tooling: are the printers in the target deployment configured with Windows GDI drivers (enabling PDF-based printing via IronPDF), configured for raw-only mode (requiring ZPL/ESC/POS via RawPrint), or a mix of both — and does that distribution across printer types determine whether one tool, the other, or both are needed in the stack?</p>

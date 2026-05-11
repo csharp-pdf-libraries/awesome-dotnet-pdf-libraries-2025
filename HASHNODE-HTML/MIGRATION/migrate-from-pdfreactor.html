@@ -1,0 +1,737 @@
+<!-- FRONTMATTER
+  title: Migrating from PDFreactor to IronPDF: a practical .NET guide
+  subtitle: a .NET engineer's reference for migrating PDF libraries
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-pdfreactor/
+  description: Switching from PDFreactor to IronPDF in a .NET project? This guide walks through API equivalents, rendering differences, and common migration gotchas.
+  published: False
+-->
+
+<h1>Migrating from PDFreactor to IronPDF: a practical .NET guide</h1>
+
+<p class="subtitle"><em>a .NET engineer's reference for migrating PDF libraries</em></p>
+
+<p># Migrating from PDFreactor to IronPDF: a practical .NET guide</p>
+
+<p>The original version of this article is published at <a href="https://ironsoftware.com/csharp/pdf/blog/migrate-from-pdfreactor/">https://ironsoftware.com/csharp/pdf/blog/migrate-from-pdfreactor/</a>.</p>
+
+<h2>Framing</h2>
+
+<p>PDF generation is rarely a neutral technical decision in enterprise .NET stacks. Teams choose a library early, build abstractions around it, and often go years without revisiting the choice—until a trigger forces the question: maintenance windows stretching, licensing model changes, a new platform target (Linux containers, ARM, WebAssembly), or a framework upgrade that exposes undocumented assumptions in the integration layer. At that point, evaluating alternatives becomes an engineering task with real scope.</p>
+
+<p>HTML-to-PDF renderers occupy a specific tier in this landscape. They promise fidelity to browser-rendered markup, which makes them attractive for teams already producing HTML templates—invoices, reports, letters—that need to be archived or delivered as fixed-layout documents. The tradeoff is a larger runtime dependency footprint and tighter coupling to a browser engine whose version lifecycle may not align with the application's release cadence.</p>
+
+<p>PDFreactor sits in this category. Understanding precisely where it fits architecturally—and where IronPDF takes a different approach to the same problem—is the foundation for a credible effort estimate before any migration work begins.</p>
+
+<h2>What PDFreactor Is Designed To Do</h2>
+
+<p>PDFreactor is an HTML-to-PDF conversion engine with a strong emphasis on CSS compliance, particularly CSS Paged Media—the W3C specification that governs page layout, running headers and footers, page counters, and print-specific layout rules. It is designed for use cases where the source document is already HTML/CSS and where precise typographic and layout control is required: regulatory reports, publishing workflows, complex invoices with precise column widths, and documents that need to conform to specific paper standards.</p>
+
+<p>PDFreactor's integration model is server-based. It exposes a Java-based core that can be invoked via a local or remote API call; .NET clients communicate with the engine over HTTP or via a provided client library rather than loading a managed assembly directly. This means the rendering runtime is typically a separate process or service, which changes the deployment profile relative to an in-process library. Verify current .NET client library availability and supported versions in the official PDFreactor documentation, as the integration surface may have changed across releases.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>IronPDF takes a different integration path. Rather than delegating to a separate server process, it bundles a Chromium-based rendering engine that runs in-process alongside the .NET application. The consuming code references a single NuGet package; no separate server, no HTTP client, no external service to keep healthy. This changes the deployment model significantly for teams using Docker or Azure App Service, where managing a sidecar process adds operational surface area.</p>
+
+<p>The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML to PDF rendering pipeline</a> in IronPDF is exposed through a straightforward C# API: pass an HTML string, a file path, or a live URL, and receive a <code>PdfDocument</code> object that can be saved, streamed, or further manipulated. The <code>PdfDocument</code> implements <code>IDisposable</code>, and correct disposal is the primary resource management concern—there is no connection pool to drain or service to shut down. For teams already comfortable with the <code>using</code> pattern in .NET, the mental model maps cleanly.</p>
+
+<p>IronPDF's <a href="https://ironpdf.com/how-to/rendering-options/">rendering options surface</a> exposes paper size, margins, JavaScript execution timeout, media type simulation, and print-vs-screen CSS selection. Teams migrating from PDFreactor will find conceptual parity for most standard layout operations, though the specific configuration API differs: PDFreactor's CSS Paged Media extensions are handled through the HTML/CSS content itself in IronPDF's model, rather than through library-level properties. Assess any custom <code>@page</code> rule usage in existing templates during discovery.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Basic HTML string to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>Direct conceptual equivalent; no server required</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderUrlAsPdf()</code></td>
+      <td>Authentication headers may need separate handling</td>
+    </tr>
+    <tr>
+      <td>CSS Paged Media <code>@page</code> rules</td>
+      <td>Medium</td>
+      <td>Supported via Chromium engine</td>
+      <td>Verify specific at-rule coverage; some vendor extensions may not apply</td>
+    </tr>
+    <tr>
+      <td>Running headers/footers via CSS</td>
+      <td>Medium</td>
+      <td>HTML headers/footers API available</td>
+      <td>IronPDF uses its own header/footer model; CSS-driven headers need re-evaluation</td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Low</td>
+      <td>Configurable via <code>RenderingOptions.EnableJavaScript</code></td>
+      <td>Timeout values differ; test JS-heavy templates</td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Medium</td>
+      <td><code>PdfSignature</code> API</td>
+      <td>Certificate handling approach differs; verify HSM integration if applicable</td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance output</td>
+      <td>Medium</td>
+      <td><code>PdfDocument.SaveAsPdfA()</code></td>
+      <td>Verify conformance level coverage matches requirements</td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Stream</code> / <code>SaveToStream()</code></td>
+      <td>Disposal semantics must be observed</td>
+    </tr>
+    <tr>
+      <td>Custom paper sizes</td>
+      <td>Low</td>
+      <td><code>PaperSize</code> enum + custom dimensions</td>
+      <td>Millimeter vs point units—check for rounding</td>
+    </tr>
+    <tr>
+      <td>Page merge / split</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code>, <code>SplitToPages()</code></td>
+      <td>Static and instance methods both available</td>
+    </tr>
+    <tr>
+      <td>HTTP-based remote rendering</td>
+      <td>High</td>
+      <td>Not applicable—in-process only</td>
+      <td>Architecture shift; no sidecar required but deployment scripts change</td>
+    </tr>
+    <tr>
+      <td>Existing PDFreactor .NET client code</td>
+      <td>High</td>
+      <td>Full rewrite of integration layer</td>
+      <td>No adapter; all API calls must be remapped</td>
+    </tr>
+    <tr>
+      <td>Logging / diagnostics</td>
+      <td>Medium</td>
+      <td>Custom logging via ILogger</td>
+      <td>Refer to the official documentation for exact hook points</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>HTML String to PDF</h3>
+
+<h4>PDFreactor — HTML String to PDF:</h4>
+
+<p>PDFreactor's .NET client accepts an HTML string as input and submits it to the PDFreactor service. The response is a byte array or stream representing the rendered PDF. A typical integration involves:</p>
+
+<ul>
+
+  <li>Instantiating a PDFreactor client configured with the service endpoint (localhost or remote)</li>
+
+  <li>Populating a configuration object with the HTML content, CSS references, and output options</li>
+
+  <li>Calling the conversion method and receiving binary PDF data</li>
+
+  <li>Handling HTTP-level errors in addition to rendering errors</li>
+
+</ul>
+
+<p>Technical constraints to note:</p>
+
+<ul>
+
+  <li>The rendering process runs out-of-process; network latency affects throughput even on localhost</li>
+
+  <li>CSS external resource references must be resolvable by the server process, not the client machine</li>
+
+  <li>Thread safety depends on how the service handles concurrent requests, which varies by deployment</li>
+
+</ul>
+
+<h4>IronPDF — HTML String to PDF:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// Initialize renderer — thread-safe; can be reused across requests
+var renderer = new ChromePdfRenderer();
+
+// Configure rendering options
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 20;
+renderer.RenderingOptions.MarginBottom = 20;
+renderer.RenderingOptions.EnableJavaScript = true;
+renderer.RenderingOptions.WaitFor.RenderDelay(200); // ms, for JS-rendered content
+
+// Render HTML string to PdfDocument
+using var pdf = renderer.RenderHtmlAsPdf(&quot;&lt;h1&gt;Quarterly Report&lt;/h1&gt;&lt;p&gt;Content here.&lt;/p&gt;&quot;);
+
+// Save or stream the result
+pdf.SaveAs(&quot;/output/report.pdf&quot;);</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers base URL configuration for resolving relative CSS and image references—a common point of divergence when templates reference external assets. Because rendering is in-process, all file paths and URLs must be accessible from the application's execution context rather than a separate server's file system. The <a href="https://ironpdf.com/how-to/rendering-options/">rendering options reference</a> documents the full configuration surface.</p>
+
+<h3>URL to PDF</h3>
+
+<h4>PDFreactor — URL to PDF:</h4>
+
+<p>PDFreactor can accept a URL as the source document, with the server process fetching and rendering the page. This enables rendering of authenticated pages if the service is configured with appropriate credentials or cookies.</p>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>The PDFreactor service must have network access to the target URL</li>
+
+  <li>Authentication (cookies, bearer tokens) must be configured server-side or passed through the client configuration</li>
+
+  <li>Rendering is synchronous from the client's perspective; long-loading pages increase response time</li>
+
+</ul>
+
+<h4>IronPDF — URL to PDF:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+
+// Set a custom user agent if the target site requires it
+renderer.RenderingOptions.CustomCssUrl = null; // leave null unless overriding stylesheets
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.Letter;
+
+// Render a live URL — the Chromium engine fetches and renders the page in-process
+using var pdf = renderer.RenderUrlAsPdf(&quot;https://example.com/report&quot;);
+
+pdf.SaveAs(&quot;/output/page-snapshot.pdf&quot;);</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF documentation</a> covers cookie injection for authenticated pages and proxy configuration—scenarios that frequently arise when migrating from a server-based renderer that handled credentials differently. Note that the calling application process must have outbound HTTP access to the target host.</p>
+
+<h3>Headers and Footers</h3>
+
+<h4>PDFreactor — Headers and Footers:</h4>
+
+<p>PDFreactor supports CSS Paged Media's <code>@page</code> rule with <code>@top-left</code>, <code>@top-center</code>, <code>@bottom-right</code>, and similar margin box properties. Headers and footers are defined in the CSS embedded in the HTML document and rendered by the engine as part of the page layout model. This approach keeps header/footer logic in the template, not the host application.</p>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>CSS margin box support is not fully implemented in all Chromium versions; verify specific rule coverage</li>
+
+  <li>Running elements (content floated into margin boxes via <code>position: running()</code>) may not port directly</li>
+
+  <li>Page counter CSS functions map conceptually but syntax differences apply</li>
+
+</ul>
+
+<h4>IronPDF — Headers and Footers:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Engines.Chrome;
+
+var renderer = new ChromePdfRenderer();
+
+// Text-based header
+renderer.RenderingOptions.TextHeader = new IronPdf.Engines.Chrome.TextHeaderFooter
+{
+    CenterText = &quot;Confidential&quot;,
+    DrawDividerLine = true,
+    FontSize = 9
+};
+
+// Text-based footer with page numbers
+renderer.RenderingOptions.TextFooter = new IronPdf.Engines.Chrome.TextHeaderFooter
+{
+    LeftText = &quot;{date}&quot;,
+    RightText = &quot;Page {page} of {total-pages}&quot;,
+    FontSize = 8
+};
+
+using var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+pdf.SaveAs(&quot;/output/document-with-headers.pdf&quot;);</code></pre>
+
+<p>For templates that require rich HTML in headers and footers, IronPDF supports HTML-based header/footer objects where the header content is itself an HTML string. The <a href="https://ironpdf.com/how-to/headers-and-footers/">headers and footers guide</a> covers both text and HTML variants, including per-first-page suppression. Teams migrating from CSS Paged Media headers should plan to reimplement header/footer logic using IronPDF's API rather than expecting the CSS margin box model to transfer directly.</p>
+
+<h3>PDF/A Compliance</h3>
+
+<h4>PDFreactor — PDF/A Compliance:</h4>
+
+<p>PDFreactor supports output of PDF/A-compliant documents as a conversion option. The conformance level is specified in the configuration object before rendering.</p>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>Verify exactly which PDF/A levels (1b, 2b, 3b, etc.) are supported in the installed version</li>
+
+  <li>Embedded font requirements for PDF/A must be satisfied by the HTML/CSS content</li>
+
+  <li>Color profile embedding requirements apply; test with validators post-generation</li>
+
+</ul>
+
+<h4>IronPDF — PDF/A Compliance:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+// Render a standard PDF first
+var renderer = new ChromePdfRenderer();
+using var pdf = renderer.RenderHtmlAsPdf(htmlContent);
+
+// Convert to PDF/A-3b
+pdf.SaveAsPdfA(&quot;/output/compliant.pdf&quot;, PdfAVersions.PdfA3b);</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/pdfa/">PDF/A compliance guide</a> covers the supported conformance levels and the validation considerations teams should apply post-conversion. PDF/A requirements around font embedding and color profiles are enforced during the save step; content that fails compliance requirements surfaces as errors at that stage rather than silently producing non-conformant output. Validate all migrated PDF/A output against an independent validator before retiring the prior integration.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>PDFreactor Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>PDFreactor client instantiation</td>
+      <td><code>new ChromePdfRenderer()</code></td>
+      <td>No endpoint URL; in-process only</td>
+    </tr>
+    <tr>
+      <td>Configuration object (source HTML)</td>
+      <td><code>renderer.RenderHtmlAsPdf(htmlString)</code></td>
+      <td>HTML passed directly to method</td>
+    </tr>
+    <tr>
+      <td>Configuration object (source URL)</td>
+      <td><code>renderer.RenderUrlAsPdf(url)</code></td>
+      <td>See <a href="https://ironpdf.com/how-to/url-to-pdf/">URL to PDF</a></td>
+    </tr>
+    <tr>
+      <td>Output format: PDF</td>
+      <td>Default output of all Render methods</td>
+      <td>No format flag required</td>
+    </tr>
+    <tr>
+      <td>CSS <code>@page</code> size</td>
+      <td><code>RenderingOptions.PaperSize</code></td>
+      <td>Enum + custom dimensions</td>
+    </tr>
+    <tr>
+      <td>CSS <code>@page</code> margins</td>
+      <td><code>RenderingOptions.MarginTop/Bottom/Left/Right</code></td>
+      <td>Integer (mm)</td>
+    </tr>
+    <tr>
+      <td>Running headers via CSS</td>
+      <td><code>RenderingOptions.TextHeader</code> / <code>HtmlHeader</code></td>
+      <td>API-level, not CSS-level</td>
+    </tr>
+    <tr>
+      <td>Page counter CSS</td>
+      <td><code>{page}</code> / <code>{total-pages}</code> tokens in footer</td>
+      <td>Token syntax differs from CSS <code>counter()</code></td>
+    </tr>
+    <tr>
+      <td>JavaScript enable/disable</td>
+      <td><code>RenderingOptions.EnableJavaScript</code></td>
+      <td>Boolean</td>
+    </tr>
+    <tr>
+      <td>Render delay for JS</td>
+      <td><code>RenderingOptions.WaitFor.RenderDelay()</code></td>
+      <td>Milliseconds</td>
+    </tr>
+    <tr>
+      <td>PDF/A output option</td>
+      <td><code>PdfDocument.SaveAsPdfA()</code></td>
+      <td>- exact level support</td>
+    </tr>
+    <tr>
+      <td>Digital signature</td>
+      <td><code>PdfDocument.Sign()</code> with <code>PdfSignature</code></td>
+      <td>Certificate path or X509Certificate2</td>
+    </tr>
+    <tr>
+      <td>Encryption / password</td>
+      <td><code>PdfDocument.Password</code> property</td>
+      <td>- permissions model</td>
+    </tr>
+    <tr>
+      <td>Output as byte array</td>
+      <td><code>PdfDocument.BinaryData</code></td>
+      <td>Direct byte array access</td>
+    </tr>
+    <tr>
+      <td>Output as stream</td>
+      <td><code>PdfDocument.SaveToStream()</code></td>
+      <td>Explicit stream management required</td>
+    </tr>
+    <tr>
+      <td>Merge documents</td>
+      <td><code>PdfDocument.Merge(pdfList)</code></td>
+      <td>Static method; takes IEnumerable</td>
+    </tr>
+    <tr>
+      <td>HTTP client configuration</td>
+      <td><code>RenderingOptions.CustomRequestHeaders</code></td>
+      <td>- for full header support</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>No server process.</strong> The most significant architectural change is the elimination of the PDFreactor service. Any infrastructure automation (health checks, service restarts, remote API calls) tied to the PDFreactor server must be removed or replaced. The deployment becomes simpler but the application process now carries the Chromium engine weight.</li>
+
+  <li><strong>Disposal is mandatory.</strong> <code>PdfDocument</code> and <code>ChromePdfRenderer</code> implement <code>IDisposable</code>. PDFreactor's client-based model does not expose the same lifecycle concern since the rendering happens remotely. Teams should audit for any code that holds <code>PdfDocument</code> references in long-lived objects without disposal.</li>
+
+  <li><strong>CSS Paged Media extensions do not transfer.</strong> PDFreactor's extended support for CSS Paged Media (running elements, named page sequences, CMYK color spaces) is not available through IronPDF's Chromium renderer. Any template relying on these features requires redesign.</li>
+
+  <li><strong>External resource resolution path changes.</strong> Templates with relative CSS or image references that were resolved from the PDFreactor server's working directory must be updated; paths and base URLs are now resolved from the application's execution context. See the base URL configuration options.</li>
+
+  <li><strong>Thread safety model differs.</strong> <code>ChromePdfRenderer</code> is thread-safe for concurrent use; however, <code>PdfDocument</code> objects should not be shared across threads without coordination. Refer to the official documentation for the current thread safety guarantees.</li>
+
+  <li><strong>Platform-specific native binaries.</strong> IronPDF ships platform-specific Chromium binaries via the NuGet package. Container images must include the required system libraries for Chromium operation on Linux (glibc version, font packages). This is not a concern with PDFreactor's .NET client library, which delegates rendering to the server.</li>
+
+  <li><strong>License key required at startup.</strong> IronPDF requires a valid license key before use. PDFreactor also has a license model; ensure the provisioning approach (environment variable, appsettings.json, startup code) is updated appropriately.</li>
+
+  <li><strong>Print vs. screen media type.</strong> IronPDF defaults to print media type for rendering. Templates previously tested in a browser (screen media) may render differently. Configure <code>RenderingOptions.CssMediaType</code> if templates define distinct print/screen stylesheets.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>PDFreactor</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Current maintenance status</td>
+      <td>-</td>
+      <td>Actively maintained</td>
+      <td>Verify PDFreactor release cadence</td>
+    </tr>
+    <tr>
+      <td>Last known release</td>
+      <td>-</td>
+      <td>- latest</td>
+      <td>Check NuGet for current version</td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>-</td>
+      <td>Commercial</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Support</strong></td>
+    </tr>
+    <tr>
+      <td>Commercial support available</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Community forum / GitHub Issues</td>
+      <td>-</td>
+      <td>Yes (GitHub)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Documentation completeness</td>
+      <td>-</td>
+      <td>Comprehensive</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content Creation</strong></td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HTML file to PDF</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS Paged Media <code>@page</code></td>
+      <td>Yes (strong)</td>
+      <td>Partial</td>
+      <td>PDFreactor's primary differentiator</td>
+    </tr>
+    <tr>
+      <td>Running headers via CSS</td>
+      <td>Yes</td>
+      <td>No—use API headers</td>
+      <td>Requires template redesign</td>
+    </tr>
+    <tr>
+      <td><a href="https://ironpdf.com/how-to/docx-to-pdf/">PDF from DOCX</a></td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Markdown to PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Image to PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Add/remove pages</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Headers and footers API</a></td>
+      <td>No (CSS-driven)</td>
+      <td>Yes</td>
+      <td>Architectural difference</td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page orientation</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Bookmarks</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Table of contents</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Find and replace text</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Redaction</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password protection</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Permissions model</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HSM signing</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td>Verify level parity</td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/pdfua/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Section 508 compliance</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development & Maintenance</strong></td>
+    </tr>
+    <tr>
+      <td>.NET Framework support</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux support</td>
+      <td>Server-side (Java)</td>
+      <td>Yes (Chromium binary)</td>
+      <td>Different deployment model</td>
+    </tr>
+    <tr>
+      <td>Docker support</td>
+      <td>Sidecar pattern</td>
+      <td>In-process</td>
+      <td>Container image size implications</td>
+    </tr>
+    <tr>
+      <td>NuGet package distribution</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async rendering</td>
+      <td>-</td>
+      <td><a href="https://ironpdf.com/how-to/async/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Thread safety</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Audit existing PDFreactor usage.</strong> Enumerate every call site that constructs a PDFreactor client, configures a render operation, or processes PDFreactor output. Document the full set of configuration properties used.</li>
+
+  <li><strong>Identify CSS Paged Media dependencies.</strong> Search HTML templates for <code>@page</code> rules, <code>running()</code>, named pages, CMYK color values, and margin box properties. Each of these represents a migration risk that requires design work, not just API remapping.</li>
+
+  <li><strong>Install the IronPDF NuGet package.</strong> Run <code>dotnet add package IronPdf</code> or add via the NuGet Package Manager. Verify the package resolves platform-specific native binaries for all target runtime identifiers (win-x64, linux-x64, etc.).</li>
+
+  <li><strong>Set up the license key.</strong> Configure the IronPDF license key before the first use of the library. The recommended approach is environment variable or configuration file injection; see the <a href="https://ironpdf.com/how-to/license-keys/">license key setup guide</a> for the exact mechanism.</li>
+
+  <li><strong>Replace PDFreactor namespaces and using directives.</strong> Remove PDFreactor client library references and substitute <code>using IronPdf;</code> and related namespaces. The compiler will surface all remaining call sites for remapping.</li>
+
+  <li><strong>Remap core rendering calls.</strong> Replace each PDFreactor render operation with the equivalent <code>ChromePdfRenderer.RenderHtmlAsPdf()</code>, <code>RenderUrlAsPdf()</code>, or <code>RenderHtmlFileAsPdf()</code> call. Port configuration properties to <code>RenderingOptions</code>.</li>
+
+  <li><strong>Redesign CSS-driven headers and footers.</strong> For each template using CSS Paged Media headers/footers, implement the equivalent using <code>RenderingOptions.TextHeader</code>, <code>TextFooter</code>, or HTML header/footer objects.</li>
+
+  <li><strong>Update disposal patterns.</strong> Wrap all <code>PdfDocument</code> instantiations in <code>using</code> statements or call <code>Dispose()</code> explicitly in finally blocks. Check for any long-lived caches of <code>PdfDocument</code> objects.</li>
+
+  <li><strong>Update path resolution for external resources.</strong> Templates with relative CSS, image, or font references need a <code>BaseUrlOrPath</code> value passed to the render call, pointing to the directory from which relative paths should be resolved.</li>
+
+  <li><strong>Verify PDF/A output.</strong> If the application produces PDF/A documents, run the IronPDF output through an independent validator (veraPDF or Adobe Preflight). Do not assume conformance without external validation.</li>
+
+  <li><strong>Remove PDFreactor service infrastructure.</strong> Update deployment scripts, health checks, and monitoring to remove references to the PDFreactor server process. Ensure the application process now has the system library dependencies required by the Chromium binary on Linux hosts.</li>
+
+  <li><strong>Run regression tests across representative document set.</strong> Compare IronPDF output visually and structurally against PDFreactor output for a representative sample. Pay particular attention to multi-page layout, font embedding, and any documents that previously relied on CSS Paged Media features.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on PDFreactor is technically reasonable</h3>
+
+<p>Teams with deep investment in CSS Paged Media—particularly running elements, CMYK output, or named page sequences—will find PDFreactor's compliance with the W3C specification to be a genuine technical advantage that is difficult to replicate in a Chromium-based renderer. If the template library is large, the CSS is complex, and the output has been certified against a compliance requirement tied to specific layout behavior, the engineering cost of redesigning those templates may outweigh the benefits of migration. Additionally, teams with an existing operational pattern around managing the PDFreactor service may find the in-process deployment model a less natural fit if the PDF generation workload is already isolated as a dedicated service.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>Migration becomes more attractive when the deployment complexity of maintaining a separate PDFreactor service creates friction—particularly in containerized or serverless environments where sidecar processes are costly to manage. If the PDFreactor .NET client library has lagged behind .NET version support, or if licensing constraints are adding cost that the usage level no longer justifies, those are concrete signals. Teams that have been working around limitations in PDFreactor's .NET integration layer (as opposed to its CSS rendering capability) often find the in-process model meaningfully easier to work with. Similarly, if the migration is occurring alongside a broader modernization effort—upgrading to .NET 8, moving to Linux containers, standardizing on async-first patterns—bundling the PDF library change into that work reduces the incremental cost.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>The code-level work is primarily in two areas: replacing the PDFreactor client and configuration API with <code>ChromePdfRenderer</code> and <code>RenderingOptions</code>, and redesigning any templates that depend on CSS Paged Media features that do not have a direct equivalent in Chromium's print rendering model. The first area is mechanical and predictable; the second requires CSS authoring work proportional to the complexity of existing templates. For applications where templates are simple—HTML with inline styles, no advanced <code>@page</code> rules—the migration is largely a namespace and API replacement exercise. For applications where PDFreactor was specifically chosen for its CSS Paged Media compliance, that complexity is real and should be scoped carefully.</p>
+
+<p>What approach does your team take for validating rendered PDF output when moving between rendering engines—visual diffing, text extraction comparison, or structural validation of the PDF object model?</p>

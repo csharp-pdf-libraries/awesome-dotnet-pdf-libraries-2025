@@ -1,0 +1,894 @@
+<!-- FRONTMATTER
+  title: Migrating from GemBox PDF to IronPDF: step-by-step for .NET developers
+  subtitle: what changes, what breaks, and what maps cleanly
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-gembox/
+  description: API mapping and migration checklist for .NET developers moving from GemBox PDF to IronPDF, covering the key differences in PDF generation approach.
+  published: False
+-->
+
+<h1>Migrating from GemBox PDF to IronPDF: step-by-step for .NET developers</h1>
+
+<p class="subtitle"><em>what changes, what breaks, and what maps cleanly</em></p>
+
+<h2>Framing</h2>
+
+<p>PDF libraries in the .NET ecosystem divide roughly into two camps: those built around programmatic document construction (place elements at coordinates, compose objects onto pages) and those built around HTML rendering (provide HTML/CSS, receive a PDF). GemBox.Pdf sits in the first camp — it provides a document object model for creating and manipulating PDF files with code, without depending on a browser engine or external rendering process. Teams that adopt it typically do so for its managed-code approach to PDF structure access, its broad compatibility across .NET targets, and its document manipulation capabilities.</p>
+
+<p>Re-evaluation tends to occur when requirements shift toward HTML/CSS-driven document generation. Maintaining coordinate-based templates in C# code becomes expensive relative to maintaining HTML/CSS templates that can be authored by front-end developers, tested in a browser, and validated visually before the PDF rendering step. When the output is a report, invoice, or any document that follows a web-layout design, the HTML rendering model simplifies the development workflow significantly. At the same time, new requirements for digital signatures, PDF/A compliance, or high-concurrency async generation can trigger a comparison against the current library.</p>
+
+<p>This guide covers the migration from GemBox.Pdf to IronPDF for .NET engineers scoping or executing the switch. The migration is classified as Medium effort, reflecting that manipulation operations (load, save, merge, split, forms, sign) map cleanly between the two APIs, while any document generation currently using GemBox's element composition model requires redesign as HTML/CSS. Teams using GemBox.Pdf exclusively for manipulation will find effort closer to Low.</p>
+
+<h2>What GemBox PDF Is Designed to Do</h2>
+
+<p>GemBox.Pdf is a commercial .NET library published by GemBox Software. The library is actively maintained; the last release version and .NET Framework and .NET Core / .NET 5+ support range should be verified in official documentation. It distributes via NuGet; the install footprint should be verified in official documentation, but GemBox.Pdf is a managed .NET assembly with no required native binary dependencies on Windows, which is a key characteristic of its design.</p>
+
+<p>GemBox.Pdf's API is centered on a document object model: <code>PdfDocument</code> is the root object, which contains <code>PdfPage</code> objects, each of which has a <code>Content</code> layer where drawing operations are performed. The library supports PDF creation from scratch (adding pages, drawing text at coordinates, embedding images, drawing shapes and lines), reading and modifying existing PDF documents, extracting text and images, filling and creating AcroForm fields, digital signatures, PDF/A compliance, encryption, and page operations (merge, split, rotate). The rendering model is programmatic — GemBox.Pdf constructs PDFs by writing PDF primitives, not by rendering HTML. This is its primary architectural characteristic and the key differentiator from HTML-rendering libraries.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>GemBox.Pdf and IronPDF share the manipulation surface — both can load, save, merge, split, sign, and encrypt PDFs — but diverge at the generation model. GemBox.Pdf builds new PDF content by writing to a page's content layer: placing text blocks, drawing lines and rectangles, embedding images at coordinates. IronPDF builds new PDF content by rendering HTML/CSS through an embedded Chromium engine. The output format (PDF) is identical; the authoring model is entirely different.</p>
+
+<p>IronPDF's two primary types are <code>ChromePdfRenderer</code> (for rendering HTML to PDF) and <code>PdfDocument</code> (for the resulting document and all manipulation operations). Both implement <code>IDisposable</code>. GemBox.Pdf's <code>PdfDocument</code> also implements <code>IDisposable</code>, which is the structural parallel — both require <code>using</code> blocks. The <a href="https://ironpdf.com/how-to/rendering-options/">rendering options reference</a> covers IronPDF's full HTML rendering configuration including paper size, margins, CSS media type, and JavaScript execution. License initialization is a one-time startup call via <code>IronPdf.License.LicenseKey</code>; see the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</p>
+
+<p>The practical implication of the architectural difference is that migrating GemBox.Pdf's document manipulation operations is a mechanical API remapping exercise, while migrating GemBox.Pdf's document generation operations is a template development project. The ratio of each in the current codebase determines the actual migration effort.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Load existing PDF</td>
+      <td>Low</td>
+      <td><code>PdfDocument.FromFile(path)</code></td>
+      <td>Both use <code>PdfDocument</code>; namespace disambiguation required</td>
+    </tr>
+    <tr>
+      <td>Save PDF</td>
+      <td>Low</td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td>GemBox: <code>pdfDoc.Save(path)</code></td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>GemBox has no HTML renderer</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderUrlAsPdf()</code></td>
+      <td>New capability</td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>GemBox uses page append; IronPDF has static merge</td>
+    </tr>
+    <tr>
+      <td>Split / extract pages</td>
+      <td>Low</td>
+      <td><code>PdfDocument.CopyPages()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Add / delete pages</td>
+      <td>Low</td>
+      <td><code>pdf.AddPage()</code> / <code>pdf.RemovePage()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page rotation</td>
+      <td>Low</td>
+      <td><code>pdf.RotatePage()</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Text extraction</td>
+      <td>Low</td>
+      <td><code>pdf.ExtractAllText()</code></td>
+      <td>GemBox provides richer positional data</td>
+    </tr>
+    <tr>
+      <td>Fill PDF forms</td>
+      <td>Medium</td>
+      <td><code>pdf.Form.Fields</code></td>
+      <td>GemBox uses typed field objects; IronPDF uses uniform string values</td>
+    </tr>
+    <tr>
+      <td>Create PDF forms</td>
+      <td>Medium</td>
+      <td><code>pdf.Form</code> API</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Medium</td>
+      <td><code>PdfSignature</code> API</td>
+      <td>Certificate format and placement differ</td>
+    </tr>
+    <tr>
+      <td>Encrypt / permissions</td>
+      <td>Medium</td>
+      <td><code>pdf.SecuritySettings</code></td>
+      <td>Permission flag naming differs</td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>Medium</td>
+      <td><code>pdf.SaveAsPdfA()</code></td>
+      <td>Conformance level mapping required</td>
+    </tr>
+    <tr>
+      <td>Programmatic content generation</td>
+      <td>High</td>
+      <td>Re-express as HTML/CSS</td>
+      <td>GemBox coordinate API has no IronPDF equivalent</td>
+    </tr>
+    <tr>
+      <td>Image embedding</td>
+      <td>Medium</td>
+      <td>HTML <code>&lt;img&gt;</code> in template or <code>ImageStamper</code></td>
+      <td>GemBox places images at coordinates</td>
+    </tr>
+    <tr>
+      <td>Watermarking</td>
+      <td>Medium</td>
+      <td><code>IronPdf.Stamping.TextStamper</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Annotations</td>
+      <td>Medium</td>
+      <td><code>IronPdf.Annotations.*</code></td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>Programmatic Content Generation (Design Change Required)</h3>
+
+<h4>GemBox.Pdf — Drawing-Based Content Generation</h4>
+
+<pre><code class="language-csharp">using GemBox.Pdf;
+using GemBox.Pdf.Content;
+
+// GemBox.Pdf requires a license initialization call
+ComponentInfo.SetLicense(&quot;FREE-LIMITED-KEY&quot;); // or a paid license key
+
+// Create a new PDF document
+using var document = new PdfDocument();
+
+// Add a page (A4 size in points — GemBox uses points as default unit)
+var page = document.Pages.Add();
+
+// Access the page content layer for drawing
+using var formattedText = new PdfFormattedText();
+formattedText.FontSize = 18;
+formattedText.AppendLine(&quot;Invoice #1042&quot;);
+
+// Draw text at absolute coordinates (x, y from bottom-left in GemBox's default)
+page.Content.DrawText(formattedText, new PdfPoint(40, 750));
+
+// Draw a separator line
+using var path = new PdfPath();
+path.AddLine(new PdfPoint(40, 740), new PdfPoint(555, 740));
+page.Content.DrawPath(path, null, new PdfPen(new PdfRgbColor(0, 0, 0), 0.5));
+
+// Draw body text
+using var bodyText = new PdfFormattedText();
+bodyText.FontSize = 11;
+bodyText.AppendLine(&quot;Customer: Acme Corp&quot;);
+bodyText.AppendLine(&quot;Total: $1,599.00&quot;);
+page.Content.DrawText(bodyText, new PdfPoint(40, 710));
+
+document.Save(&quot;invoice.pdf&quot;);</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>GemBox.Pdf's default coordinate system has the origin at the bottom-left of the page (PDF coordinate convention). Y increases upward, so y=750 is near the top of an A4 page (842 points tall). This is the inverse of screen coordinates and is a common source of confusion.</li>
+
+  <li>Text placement is absolute — there is no automatic text flow, line wrapping, or pagination. Overflow must be handled manually.</li>
+
+  <li><code>PdfFormattedText</code>, <code>PdfPath</code>, and <code>PdfPen</code> are all <code>IDisposable</code> and should be in <code>using</code> blocks.</li>
+
+  <li>Font fallback and embedding are the developer's responsibility for non-standard fonts.</li>
+
+  <li>Every document template built this way must be redesigned as HTML/CSS for IronPDF.</li>
+
+</ul>
+
+<h4>IronPDF — Equivalent via HTML Rendering</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+var renderer = new ChromePdfRenderer();
+renderer.RenderingOptions.PaperSize = IronPdf.Rendering.PdfPaperSize.A4;
+renderer.RenderingOptions.MarginTop = 14;    // ~40 points in mm
+renderer.RenderingOptions.MarginBottom = 14;
+renderer.RenderingOptions.MarginLeft = 14;
+renderer.RenderingOptions.MarginRight = 14;
+
+// GemBox's drawing primitives are replaced by HTML and CSS
+// CSS handles text flow, layout, and spacing automatically
+string html = @&quot;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+&lt;style&gt;
+  body { font-family: Arial, sans-serif; font-size: 11pt; }
+  h1   { font-size: 18pt; margin-bottom: 4px; }
+  hr   { border: none; border-top: 0.5pt solid #000; margin: 4px 0 10px; }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;h1&gt;Invoice #1042&lt;/h1&gt;
+  &lt;hr/&gt;
+  &lt;p&gt;Customer: Acme Corp&lt;/p&gt;
+  &lt;p&gt;Total: $1,599.00&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;&quot;;
+
+using var pdf = renderer.RenderHtmlAsPdf(html);
+pdf.SaveAs(&quot;invoice.pdf&quot;);</code></pre>
+
+<p>Replacing GemBox.Pdf's drawing-primitive model with HTML/CSS is the highest-effort step in this migration and the primary driver of the Medium classification. The <a href="https://ironpdf.com/how-to/html-string-to-pdf/">HTML string to PDF guide</a> covers the full rendering configuration. For multi-page reports with large tables, the <a href="https://ironpdf.com/how-to/html-to-pdf-page-breaks/">page breaks guide</a> covers CSS fragmentation control.</p>
+
+<h3>Loading and Merging PDFs</h3>
+
+<h4>GemBox.Pdf — Loading and Merging</h4>
+
+<pre><code class="language-csharp">using GemBox.Pdf;
+
+ComponentInfo.SetLicense(&quot;FREE-LIMITED-KEY&quot;);
+
+// Load the base document
+using var baseDoc = PdfDocument.Load(&quot;document1.pdf&quot;);
+
+// Load additional documents to append
+using var doc2 = PdfDocument.Load(&quot;document2.pdf&quot;);
+using var doc3 = PdfDocument.Load(&quot;document3.pdf&quot;);
+
+// GemBox merges by appending pages from source into target
+foreach (var page in doc2.Pages)
+    baseDoc.Pages.AddClone(page); // AddClone copies the page into the base document
+
+foreach (var page in doc3.Pages)
+    baseDoc.Pages.AddClone(page);
+
+baseDoc.Save(&quot;merged.pdf&quot;);</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>GemBox.Pdf's <code>Pages.AddClone()</code> copies a page from another document. Source documents must remain open while pages are being cloned.</li>
+
+  <li>The method name may differ by GemBox.Pdf version</li>
+
+  <li>The <code>PdfDocument.Load()</code> static factory method is the GemBox equivalent of <code>PdfDocument.FromFile()</code> in IronPDF.</li>
+
+  <li>Both <code>PdfDocument</code> types are <code>IDisposable</code> — <code>using</code> blocks are required in both libraries.</li>
+
+</ul>
+
+<h4>IronPDF — Loading and Merging</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+using var pdf1 = PdfDocument.FromFile(&quot;document1.pdf&quot;);
+using var pdf2 = PdfDocument.FromFile(&quot;document2.pdf&quot;);
+using var pdf3 = PdfDocument.FromFile(&quot;document3.pdf&quot;);
+
+// Single static call — N-way merge in argument order
+using var merged = PdfDocument.Merge(pdf1, pdf2, pdf3);
+merged.SaveAs(&quot;merged.pdf&quot;);</code></pre>
+
+<p><code>PdfDocument.Merge()</code> consolidates the page-by-page clone loop into a single method call. Partial merges (page ranges), splitting by page count, and copy-page operations are documented in the <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split guide</a>.</p>
+
+<h3>Filling PDF Forms</h3>
+
+<h4>GemBox.Pdf — AcroForm Filling</h4>
+
+<pre><code class="language-csharp">using GemBox.Pdf;
+using GemBox.Pdf.Forms;
+
+ComponentInfo.SetLicense(&quot;FREE-LIMITED-KEY&quot;);
+
+using var document = PdfDocument.Load(&quot;form-template.pdf&quot;);
+
+// GemBox.Pdf uses typed form field access via the document's Form property
+if (document.Form != null)
+{
+    // Text fields — GemBox uses typed field classes
+    if (document.Form.Fields[&quot;applicant_name&quot;] is PdfTextField textField)
+        textField.Value = &quot;Jane Smith&quot;;
+
+    // Checkboxes — GemBox uses PdfCheckBoxField with a State property
+    if (document.Form.Fields[&quot;status_approved&quot;] is PdfCheckBoxField checkField)
+        checkField.Checked = true;
+
+    // Combo/list boxes
+    if (document.Form.Fields[&quot;category&quot;] is PdfComboBoxField comboField)
+        comboField.Value = &quot;Enterprise&quot;;
+}
+
+document.Save(&quot;filled-form.pdf&quot;);</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>GemBox.Pdf's typed field model (<code>PdfTextField</code>, <code>PdfCheckBoxField</code>, <code>PdfComboBoxField</code>, etc.) requires <code>is</code> type pattern matching or explicit casting to access type-specific properties.</li>
+
+  <li><code>PdfCheckBoxField.Checked</code> is a boolean — this becomes <code>field.Value = "On"</code> in IronPDF.</li>
+
+  <li>Field names must match the PDF template exactly in both libraries.</li>
+
+  <li>Flattening (removing interactivity)</li>
+
+</ul>
+
+<h4>IronPDF — AcroForm Filling</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+using var pdf = PdfDocument.FromFile(&quot;form-template.pdf&quot;);
+
+// Uniform string-based value assignment — no typed field classes needed
+var nameField = pdf.Form[&quot;applicant_name&quot;];
+if (nameField != null)
+    nameField.Value = &quot;Jane Smith&quot;;
+
+// Checkbox: &quot;On&quot; is the standard PDF value
+var approvedField = pdf.Form[&quot;status_approved&quot;];
+if (approvedField != null)
+    approvedField.Value = &quot;On&quot;;
+
+var categoryField = pdf.Form[&quot;category&quot;];
+if (categoryField != null)
+    categoryField.Value = &quot;Enterprise&quot;;
+
+pdf.SaveAs(&quot;filled-form.pdf&quot;);</code></pre>
+
+<p>The key behavioral change from GemBox.Pdf is the move from typed field access to uniform string values. GemBox's <code>checkField.Checked = true</code> becomes <code>field.Value = "On"</code>. Full field types, value conventions, and flattening are covered in the <a href="https://ironpdf.com/how-to/edit-forms/">edit forms guide</a>.</p>
+
+<h3>Digital Signatures</h3>
+
+<h4>GemBox.Pdf — Digital Signatures</h4>
+
+<pre><code class="language-csharp">using GemBox.Pdf;
+using GemBox.Pdf.Security;
+
+ComponentInfo.SetLicense(&quot;FREE-LIMITED-KEY&quot;);
+
+using var document = PdfDocument.Load(&quot;document.pdf&quot;);
+
+// GemBox.Pdf uses a PdfSignatureField placed on a page,
+// then a PdfSignature applied to that field
+var signatureField = document.Form.Fields.AddNew&lt;PdfSignatureField&gt;(
+    &quot;Signature1&quot;,
+    document.Pages[0]);
+
+// Position the visible signature field on the page
+signatureField.Widget.Rectangle = new PdfBox(
+    new PdfPoint(40, 100),
+    new PdfPoint(250, 150));
+
+// Load certificate from PKCS#12 file and apply
+var certificate = new X509Certificate2(&quot;certificate.pfx&quot;, &quot;pfx-password&quot;);
+signatureField.Sign(new PdfSignature(certificate)
+{
+    ContactInfo = &quot;signer@example.com&quot;,
+    Reason = &quot;Approved for distribution&quot;,
+    Location = &quot;Chicago, IL&quot;
+});
+
+document.Save(&quot;signed-document.pdf&quot;);</code></pre>
+
+<p>Concrete constraints:</p>
+
+<ul>
+
+  <li>GemBox.Pdf requires adding a <code>PdfSignatureField</code> to the form before signing. The field placement uses GemBox's bottom-left coordinate convention.</li>
+
+  <li><code>X509Certificate2</code> from <code>System.Security.Cryptography.X509Certificates</code> is used for the certificate, which is a .NET BCL type — this part transfers cleanly to IronPDF.</li>
+
+  <li>Verify exact class names (<code>PdfSignatureField</code>, <code>PdfSignature</code>) and method signatures in official documentation as they may vary by version.</li>
+
+</ul>
+
+<h4>IronPDF — Digital Signatures</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using IronPdf.Signing;
+
+using var pdf = PdfDocument.FromFile(&quot;document.pdf&quot;);
+
+// Configure signature from PKCS#12 certificate
+var signature = new PdfSignature(&quot;certificate.pfx&quot;, &quot;pfx-password&quot;)
+{
+    SigningContact = &quot;signer@example.com&quot;,
+    SigningReason = &quot;Approved for distribution&quot;,
+    SigningLocation = &quot;Chicago, IL&quot;
+};
+
+// Apply signature and save
+pdf.Sign(signature);
+pdf.SaveAs(&quot;signed-document.pdf&quot;);</code></pre>
+
+<p>IronPDF's signing API does not require pre-placing a form field — <code>pdf.Sign()</code> applies the signature directly. For visible signature appearances and multi-signature workflows, see the <a href="https://ironpdf.com/how-to/signing/">digital signatures guide</a>. The <a href="https://ironpdf.com/how-to/signing-pdf-with-hsm/">HSM signing guide</a> covers hardware security module integration.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>GemBox.Pdf Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>ComponentInfo.SetLicense("key")</code></td>
+      <td><code>IronPdf.License.LicenseKey = "key"</code></td>
+      <td>GemBox uses static method; IronPDF uses static property</td>
+    </tr>
+    <tr>
+      <td><code>PdfDocument.Load(path)</code></td>
+      <td><code>PdfDocument.FromFile(path)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>new PdfDocument()</code></td>
+      <td><code>ChromePdfRenderer</code> + HTML</td>
+      <td>Different generation model</td>
+    </tr>
+    <tr>
+      <td><code>document.Save(path)</code></td>
+      <td><code>pdf.SaveAs(path)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>document.Pages.Add()</code></td>
+      <td>Render from HTML via renderer</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>document.Pages.AddClone(page)</code></td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td><a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">Merge guide</a></td>
+    </tr>
+    <tr>
+      <td><code>document.Pages.Count</code></td>
+      <td><code>pdf.PageCount</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>document.Pages.RemoveAt(n)</code></td>
+      <td><code>pdf.RemovePage(n)</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>page.Content.DrawText(text, point)</code></td>
+      <td>HTML in template</td>
+      <td>Coordinate drawing → HTML/CSS layout</td>
+    </tr>
+    <tr>
+      <td><code>page.Content.DrawPath(path, ...)</code></td>
+      <td>CSS borders / SVG / stamping</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>PdfFormattedText</code></td>
+      <td>HTML element in template</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>PdfPoint</code> coordinates</td>
+      <td>CSS positioning</td>
+      <td>Coordinate system: GemBox bottom-left, IronPDF top-left</td>
+    </tr>
+    <tr>
+      <td><code>document.Form.Fields["name"]</code></td>
+      <td><code>pdf.Form["name"]</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>PdfTextField.Value</code></td>
+      <td><code>field.Value = "text"</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>PdfCheckBoxField.Checked</code></td>
+      <td><code>field.Value = "On"</code></td>
+      <td>Boolean → string</td>
+    </tr>
+    <tr>
+      <td><code>PdfSignatureField</code> + <code>PdfSignature</code></td>
+      <td><code>PdfSignature</code> only</td>
+      <td><a href="https://ironpdf.com/how-to/signing/">Signing guide</a></td>
+    </tr>
+    <tr>
+      <td><code>document.PageSetup</code> (encryption)</td>
+      <td><code>pdf.SecuritySettings</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>document.Metadata</code></td>
+      <td><code>pdf.MetaData.*</code></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>PdfDocument</code> (GemBox)</td>
+      <td><code>PdfDocument</code> (IronPDF)</td>
+      <td><strong>Namespace conflict</strong> — both types named <code>PdfDocument</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong><code>PdfDocument</code> type name conflict</strong>: Both GemBox.Pdf and IronPDF define a class named <code>PdfDocument</code>. If both packages are present simultaneously during migration, use fully qualified names (<code>GemBox.Pdf.PdfDocument</code> vs <code>IronPdf.PdfDocument</code>) until GemBox is removed.</li>
+
+  <li><strong><code>ComponentInfo.SetLicense()</code> replaced</strong>: GemBox.Pdf requires <code>ComponentInfo.SetLicense("key")</code> at startup. IronPDF uses <code>IronPdf.License.LicenseKey = "key"</code>. If GemBox's call is missing, the library produces watermarked output (FREE-LIMITED-KEY restriction) — same behavior applies to IronPDF.</li>
+
+  <li><strong>Coordinate system inversion</strong>: GemBox.Pdf uses PDF's native coordinate system (origin at bottom-left, Y increases upward). Any code that uses absolute coordinates for text placement or shape drawing must account for this if being adapted to IronPDF's stamping API, which uses top-left origin conventions.</li>
+
+  <li><strong>No drawing-primitive API in IronPDF</strong>: GemBox.Pdf's <code>page.Content.DrawText()</code>, <code>DrawPath()</code>, <code>DrawImage()</code> and related drawing operations have no IronPDF equivalent. Every document built using these methods must be redesigned as HTML/CSS.</li>
+
+  <li><strong>Typed form fields → uniform string values</strong>: GemBox.Pdf uses <code>PdfTextField</code>, <code>PdfCheckBoxField</code>, <code>PdfComboBoxField</code> etc. with type-specific properties (<code>Value</code>, <code>Checked</code>, <code>SelectedIndex</code>). IronPDF uses <code>field.Value</code> as a string for all types.</li>
+
+  <li><strong>Namespace change</strong>: Remove <code>using GemBox.Pdf;</code>, <code>using GemBox.Pdf.Content;</code>, <code>using GemBox.Pdf.Forms;</code>, etc. Replace with <code>using IronPdf;</code>. Compile errors identify every affected file.</li>
+
+  <li><strong>Dispose semantics preserved</strong>: Both GemBox.Pdf and IronPDF use <code>IDisposable</code> for <code>PdfDocument</code>. The pattern is identical; only the type source changes.</li>
+
+  <li><strong><code>PdfDocument.Load()</code> → <code>PdfDocument.FromFile()</code></strong>: GemBox uses a static <code>Load()</code> factory; IronPDF uses <code>FromFile()</code>. Simple rename across all load call sites.</li>
+
+  <li><strong>Thread safety</strong>: GemBox.Pdf document instances are not thread-safe. IronPDF follows the same assumption — per-operation instantiation is the safe default.</li>
+
+  <li><strong>License key required at startup</strong>: Both GemBox.Pdf and IronPDF must have their respective license keys set before any operation. Update the startup initialization call.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>GemBox.Pdf</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Active development</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Framework support</td>
+      <td>-</td>
+      <td>4.6.2+</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>.NET Core / .NET 5+ support</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Native binary required</td>
+      <td>No</td>
+      <td>No (Windows)</td>
+      <td>Linux: IronPDF needs Chromium system libs</td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Rendering</strong></td>
+    </tr>
+    <tr>
+      <td>HTML string rendering</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>URL rendering</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>JavaScript execution</td>
+      <td>No</td>
+      <td><a href="https://ironpdf.com/how-to/javascript-to-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSS3 / Flexbox / Grid</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Web fonts</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SVG rendering</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content Creation</strong></td>
+    </tr>
+    <tr>
+      <td>Drawing-primitive PDF creation</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>GemBox differentiator</td>
+    </tr>
+    <tr>
+      <td>Headers and footers</td>
+      <td>Via drawing</td>
+      <td><a href="https://ironpdf.com/how-to/headers-and-footers/">Yes</a></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom margins</td>
+      <td>Via page geometry</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom paper size</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page numbers</td>
+      <td>Via drawing / form fields</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Bookmarks / outlines</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Yes (page clone)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Split PDFs</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Add / remove pages</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Page rotation</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Compress PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linearize PDF</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Text & Content</strong></td>
+    </tr>
+    <tr>
+      <td>Extract text</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Extract images</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Find and replace text</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Forms</strong></td>
+    </tr>
+    <tr>
+      <td>Fill PDF forms</td>
+      <td>Yes (typed fields)</td>
+      <td><a href="https://ironpdf.com/how-to/edit-forms/">Yes</a></td>
+      <td>Typed → uniform string value</td>
+    </tr>
+    <tr>
+      <td>Create PDF forms</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Flatten forms</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password encryption</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Permission flags</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Metadata</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development</strong></td>
+    </tr>
+    <tr>
+      <td>Async API</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Memory stream output</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Custom logging</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Linux support</td>
+      <td>Yes (no native deps)</td>
+      <td>Yes (Chromium deps)</td>
+      <td>Different dependency profile</td>
+    </tr>
+    <tr>
+      <td>Docker / container</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Triage GemBox.Pdf usage into two groups</strong>: (a) document manipulation — load, save, merge, split, forms, sign, encrypt: Low-Medium effort, maps directly; (b) drawing-primitive content generation (<code>DrawText</code>, <code>DrawPath</code>, <code>DrawImage</code>): High effort, requires HTML/CSS redesign. Group (b) drives the timeline.</li>
+
+  <li><strong>Design HTML/CSS templates</strong>: For each document type built using GemBox.Pdf's drawing API, produce an equivalent HTML/CSS template and validate it in a browser before testing with IronPDF.</li>
+
+  <li><strong>Install IronPDF via NuGet</strong>: <code>dotnet add package IronPdf</code>. Retain GemBox.Pdf references until replacement code compiles.</li>
+
+  <li><strong>Replace <code>ComponentInfo.SetLicense()</code> with IronPDF license key</strong>: Set <code>IronPdf.License.LicenseKey = "YOUR-KEY";</code> in <code>Program.cs</code> before any render or document call. See the <a href="https://ironpdf.com/how-to/license-keys/">license setup guide</a>.</li>
+
+  <li><strong>Update namespaces</strong>: Remove all <code>using GemBox.Pdf.*;</code> directives. Replace with <code>using IronPdf;</code>. Use fully qualified names during transition to resolve the <code>PdfDocument</code> type conflict.</li>
+
+  <li><strong>Replace <code>PdfDocument.Load()</code> with <code>PdfDocument.FromFile()</code></strong>: Wrap all instances in <code>using</code> blocks. Remove GemBox's <code>using (var doc = ...)</code> if the pattern already exists — it carries over directly.</li>
+
+  <li><strong>Replace <code>document.Save()</code> with <code>pdf.SaveAs()</code></strong>: Simple rename across all save call sites.</li>
+
+  <li><strong>Port merge operations</strong>: Replace <code>pages.AddClone()</code> loop with <code>PdfDocument.Merge(pdf1, pdf2, ...)</code>.</li>
+
+  <li><strong>Port form-fill operations</strong>: Replace typed field access (<code>PdfTextField.Value</code>, <code>PdfCheckBoxField.Checked = true</code>) with <code>pdf.Form["name"].Value = "string"</code>. Test all field types against production templates.</li>
+
+  <li><strong>Port signing</strong>: Replace <code>PdfSignatureField</code> placement + <code>signatureField.Sign()</code> with <code>new PdfSignature(certPath, password)</code> and <code>pdf.Sign(signature)</code>.</li>
+
+  <li><strong>Port encryption and metadata</strong>: Remap <code>PageSetup</code> encryption and <code>Metadata</code> properties to <code>pdf.SecuritySettings.<em></code> and <code>pdf.MetaData.</em></code>.</li>
+
+  <li><strong>Remove GemBox.Pdf NuGet reference</strong>: Once all replacements compile and tests pass, remove the <code>GemBox.Pdf</code> package reference and perform a final clean build.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on GemBox.Pdf is technically reasonable</h3>
+
+<p>GemBox.Pdf is a reasonable choice when the application requires coordinate-based document construction — placing text, drawing shapes, and embedding images at absolute positions — and the team prefers maintaining that model over adopting HTML/CSS templating. For applications where GemBox.Pdf's managed-code, no-native-dependency profile is a constraint (particularly for restricted Linux environments), and where HTML/CSS rendering's Chromium system library requirement is a concern, GemBox.Pdf's deployment profile remains an advantage.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>Migration is worth scoping when document templates are shifting toward HTML/CSS and the engineering cost of maintaining a coordinate-based generation layer is rising relative to a web-template approach; when new requirements involve Chromium-quality rendering (JavaScript, web fonts, modern CSS); when async rendering, parallel batch generation, or PDF/A / PDF/UA compliance are new requirements; or when a single package covering the full generation-to-manipulation lifecycle is preferred over the current setup.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>For manipulation-only integrations — load, save, merge, sign, encrypt — the migration is a namespace replacement and API rename exercise of predictable scope. The <code>PdfDocument</code> type name conflict resolves cleanly once GemBox is removed. For integrations with drawing-primitive generation, the effort scales with the number of document types. A team with five to ten document templates, each using GemBox's drawing API, should plan a dedicated template development sprint before the API remapping work begins.</p>
+
+<p>In your current GemBox.Pdf integration, what fraction of the library's usage is document manipulation versus coordinate-based content generation — and has the balance shifted as your front-end templates have evolved?</p>

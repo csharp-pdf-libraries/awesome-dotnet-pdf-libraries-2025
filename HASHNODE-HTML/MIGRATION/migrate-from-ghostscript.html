@@ -1,0 +1,892 @@
+<!-- FRONTMATTER
+  title: Migrating from Ghostscript GPL to IronPDF: what changes, what breaks, what maps
+  subtitle: from install to first PDF — the full migration path
+  tags: dotnet, csharp, pdf, migration, ironpdf
+  canonical_url: https://ironsoftware.com/csharp/pdf/blog/migrate-from-wdone-ghostscript/
+  description: How to replace Ghostscript GPL with IronPDF in a .NET project: API equivalents, integration notes, and a step-by-step migration checklist.
+  published: False
+-->
+
+<h1>Migrating from Ghostscript GPL to IronPDF: what changes, what breaks, what maps</h1>
+
+<p class="subtitle"><em>from install to first PDF — the full migration path</em></p>
+
+<p># Migrating from Ghostscript GPL to IronPDF: what changes, what breaks, what maps</p>
+
+<p>The original version of this article is published at <a href="https://ironsoftware.com/csharp/pdf/blog/migrate-from-wdone-ghostscript/">https://ironsoftware.com/csharp/pdf/blog/migrate-from-wdone-ghostscript/</a>.</p>
+
+<h2>Framing</h2>
+
+<p>Ghostscript is one of the oldest and most widely used PostScript and PDF processing engines in existence. Its presence in .NET codebases typically reflects a decision made under one of a few conditions: the team needed a free, proven tool for converting or processing PDF files and Ghostscript was the most capable available option at the time; the application was deployed on Linux where Ghostscript is a standard system package; or the team inherited a codebase that already invoked Ghostscript as part of a document processing pipeline. In many cases, Ghostscript is not referenced via a managed .NET library but is invoked through <code>Process.Start()</code>, shell commands, or via thin wrapper libraries that provide .NET bindings over the Ghostscript native library (<code>gsdll64.dll</code> / <code>libgs.so</code>).</p>
+
+<p>Re-evaluation of Ghostscript integrations arises from several directions. The GPL license imposes copyleft requirements that can be problematic for commercial applications; the AGPL license of Ghostscript 9.x onward has prompted legal reviews at many organizations. Invoking an external process or native DLL introduces operational complexity—version pinning, deployment packaging, signal handling, and error surfacing—that grows more expensive to maintain as the application evolves. Platform migrations (containerized deployments, ARM targets, cloud functions) sometimes expose compatibility gaps in Ghostscript deployments that were previously stable.</p>
+
+<p>Understanding what Ghostscript actually does in a given integration is the prerequisite for scoping the migration. Ghostscript is a Swiss Army knife: it can convert PostScript to PDF, PDF to images, merge PDFs, manipulate color spaces, apply compression, and much more. Not all of those capabilities have a direct IronPDF equivalent, and the migration effort depends heavily on which subset is in active use.</p>
+
+<h2>What Ghostscript Is Designed To Do</h2>
+
+<p>Ghostscript is an open-source PostScript language interpreter and PDF processor. Its core capabilities include rendering PostScript files to PDF or raster images, processing existing PDF files (conversion, compression, color space changes, resolution downsampling, page extraction), and serving as a printing pipeline component on Unix and Linux systems. It is invoked via a command-line interface (<code>gs</code> on Unix, <code>gswin64c.exe</code> on Windows) and accepts a rich set of device parameters and switches that control output format, resolution, compression, and color handling.</p>
+
+<p>In .NET applications, Ghostscript is accessed either by shelling out (<code>Process.Start()</code> with argument construction) or via native interop wrappers such as Ghostscript.NET, a community .NET binding library. The <code>GhostscriptWrapper</code> and <code>GhostscriptProcessor</code> classes in Ghostscript.NET provide a managed API over the native <code>GSAPI</code> C interface. Ghostscript itself requires a separate installation or a bundled native library binary; it is not distributed as a NuGet package for the core engine. Verify the current Ghostscript license terms (AGPL for recent versions; a commercial license is available from Artifex) before assessing the GPL exposure question for any specific deployment.</p>
+
+<h2>Architectural Differences</h2>
+
+<p>IronPDF is a managed .NET library distributed as a NuGet package. It bundles a Chromium engine for HTML-to-PDF rendering and provides a managed <code>PdfDocument</code> API for manipulation operations. There is no separate binary to install, no <code>Process.Start()</code> invocation, and no native interop layer that the application manages directly. Errors surface as typed .NET exceptions; resource management follows the <code>IDisposable</code> pattern.</p>
+
+<p>For the PDF manipulation operations that Ghostscript commonly performs—compression, rasterization, merging, page extraction—IronPDF provides managed equivalents. The <a href="https://ironpdf.com/how-to/pdf-compression/">PDF compression guide</a> covers image quality reduction and file size optimization. The <a href="https://ironpdf.com/how-to/rasterize-pdf-to-images/">PDF to image rasterization guide</a> covers page-by-page rasterization to common image formats. The <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split guide</a> covers document assembly operations.</p>
+
+<p>The disposal model is central to production correctness. <code>PdfDocument</code> holds a reference to underlying resources and must be disposed via <code>using</code>. In a <code>Process.Start()</code> pattern, process disposal is straightforward; in an IronPDF workflow, every <code>PdfDocument</code> instance—whether from a renderer or loaded from a file—requires explicit disposal. The transition from stateless process invocations to stateful managed objects is the most common source of resource leaks when migrating from a shell-based Ghostscript integration.</p>
+
+<h2>Migration Risk & Effort</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Effort</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>PDF to raster image conversion</td>
+      <td>Low</td>
+      <td><code>PdfDocument.RasterizeToImageFiles()</code></td>
+      <td>Direct equivalent; format options differ</td>
+    </tr>
+    <tr>
+      <td>PDF compression / file size reduction</td>
+      <td>Low</td>
+      <td><code>PdfDocument.CompressImages()</code></td>
+      <td>Verify exact method name and options</td>
+    </tr>
+    <tr>
+      <td>Merge / concatenate PDFs</td>
+      <td>Low</td>
+      <td><code>PdfDocument.Merge()</code></td>
+      <td>Direct equivalent</td>
+    </tr>
+    <tr>
+      <td>Split / extract page range</td>
+      <td>Low</td>
+      <td><code>PdfDocument.CopyPages()</code></td>
+      <td>Index-based selection</td>
+    </tr>
+    <tr>
+      <td>PostScript to PDF conversion</td>
+      <td>High</td>
+      <td>Not directly supported</td>
+      <td>IronPDF does not interpret PostScript</td>
+    </tr>
+    <tr>
+      <td>PDF to PostScript</td>
+      <td>High</td>
+      <td>Not supported</td>
+      <td>IronPDF has no PostScript output</td>
+    </tr>
+    <tr>
+      <td>Color space manipulation (CMYK, grayscale)</td>
+      <td>Medium</td>
+      <td><code>PdfDocument</code> grayscale conversion</td>
+      <td>Full CMYK color management</td>
+    </tr>
+    <tr>
+      <td>Resolution downsampling</td>
+      <td>Medium</td>
+      <td><code>CompressImages()</code> options</td>
+      <td>Exact DPI control</td>
+    </tr>
+    <tr>
+      <td>Font embedding / subsetting</td>
+      <td>-</td>
+      <td>Handled by Chromium for HTML-rendered docs</td>
+      <td>Existing PDF font operations</td>
+    </tr>
+    <tr>
+      <td>PDF/A conversion</td>
+      <td>Medium</td>
+      <td><code>PdfDocument.SaveAsPdfA()</code></td>
+      <td>Verify conformance level parity</td>
+    </tr>
+    <tr>
+      <td>Watermark / stamp overlay</td>
+      <td>Low</td>
+      <td><code>PdfDocument</code> stamp API</td>
+      <td>Ghostscript overlay via PDFmark</td>
+    </tr>
+    <tr>
+      <td>Process.Start() invocation</td>
+      <td>Low</td>
+      <td>Direct library method call</td>
+      <td>Shell invocation replaced by API call</td>
+    </tr>
+    <tr>
+      <td>Exit code error handling</td>
+      <td>Low</td>
+      <td>Typed .NET exceptions</td>
+      <td>Structured error model replaces exit codes</td>
+    </tr>
+    <tr>
+      <td>Batch processing multiple files</td>
+      <td>Low</td>
+      <td>Loop with IronPDF API</td>
+      <td>Removes process-per-file overhead</td>
+    </tr>
+    <tr>
+      <td>HTML to PDF conversion</td>
+      <td>Low</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>Not a Ghostscript capability; additive</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Operation Comparisons</h2>
+
+<h3>PDF to Raster Image Conversion</h3>
+
+<h4>Ghostscript — PDF to Image via Process.Start():</h4>
+
+<p>Converting a PDF to images is one of the most common Ghostscript automation patterns in .NET. The application constructs a command line with device, resolution, and output path switches and waits for the process to exit.</p>
+
+<pre><code class="language-csharp">// Ghostscript PDF to PNG via Process.Start()
+using System.Diagnostics;
+using System.IO;
+
+public static void ConvertPdfToImages(string pdfPath, string outputDir, int dpi = 150)
+{
+    // Ghostscript command: -dNOPAUSE -dBATCH suppress prompts
+    // -sDEVICE=png16m selects 24-bit PNG output
+    // -r{dpi} sets resolution; -sOutputFile uses %d for page numbering
+    var args = string.Join(&quot; &quot;,
+        &quot;-dNOPAUSE&quot;,
+        &quot;-dBATCH&quot;,
+        &quot;-dSAFER&quot;,
+        $&quot;-sDEVICE=png16m&quot;,
+        $&quot;-r{dpi}&quot;,
+        $&quot;-sOutputFile=\&quot;{Path.Combine(outputDir, &quot;page_%03d.png&quot;)}\&quot;&quot;,
+        $&quot;\&quot;{pdfPath}\&quot;&quot;);
+
+    var psi = new ProcessStartInfo
+    {
+        FileName = &quot;gs&quot;,                // or gswin64c.exe on Windows
+        Arguments = args,
+        RedirectStandardError = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+    };
+
+    using var process = Process.Start(psi)!;
+    string stderr = process.StandardError.ReadToEnd();
+    process.WaitForExit(60_000);
+
+    if (process.ExitCode != 0)
+        throw new InvalidOperationException(
+            $&quot;Ghostscript conversion failed (exit {process.ExitCode}): {stderr}&quot;);
+}</code></pre>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li><code>gs</code> or <code>gswin64c.exe</code> must be installed and on the PATH, or the full path must be configured per environment</li>
+
+  <li>Argument quoting for paths with spaces must be handled explicitly and differs between Windows and Unix shells</li>
+
+  <li>Output file naming uses C-style format strings (<code>%03d</code>) that are Ghostscript-specific</li>
+
+  <li>No structured output: error details are in stderr text that must be parsed or logged</li>
+
+  <li>Process lifecycle management (timeouts, zombie processes) is the caller's responsibility</li>
+
+  <li>Page count of the source PDF is not known until after conversion completes</li>
+
+</ul>
+
+<h4>IronPDF — PDF to Raster Image:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using System.IO;
+
+// Load the PDF
+using var pdf = PdfDocument.FromFile(&quot;source.pdf&quot;);
+
+// Rasterize all pages to PNG files
+// Resolution and image format configurable via options
+var imagePaths = pdf.RasterizeToImageFiles(
+    Path.Combine(outputDir, &quot;page_*.png&quot;),
+    dpi: 150);
+
+Console.WriteLine($&quot;Generated {imagePaths.Length} image files.&quot;);
+// Each path in imagePaths corresponds to one page</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/rasterize-pdf-to-images/">PDF to image rasterization guide</a> documents the supported output formats, DPI configuration, and page range selection. The call is synchronous, returns a typed result, and raises a .NET exception on failure—replacing the process exit code and stderr parsing pattern entirely. Verify the exact method signature and options in current documentation, as the API surface has evolved across versions.</p>
+
+<h3>PDF Compression</h3>
+
+<h4>Ghostscript — PDF Compression via Process.Start():</h4>
+
+<p>Ghostscript's <code>-dPDFSETTINGS</code> switch applies predefined compression profiles (<code>/screen</code>, <code>/ebook</code>, <code>/printer</code>, <code>/prepress</code>, <code>/default</code>) that control image downsampling, font embedding, and color space conversion.</p>
+
+<pre><code class="language-csharp">// Ghostscript PDF compression via Process.Start()
+using System.Diagnostics;
+
+public static void CompressPdf(string inputPath, string outputPath,
+    string quality = &quot;/ebook&quot;)
+{
+    // /ebook: ~150dpi images, suitable for on-screen reading
+    // /screen: ~72dpi, smallest file
+    // /printer: ~300dpi
+    var args = string.Join(&quot; &quot;,
+        &quot;-dNOPAUSE&quot;,
+        &quot;-dBATCH&quot;,
+        &quot;-dSAFER&quot;,
+        &quot;-sDEVICE=pdfwrite&quot;,
+        $&quot;-dPDFSETTINGS={quality}&quot;,
+        $&quot;-sOutputFile=\&quot;{outputPath}\&quot;&quot;,
+        $&quot;\&quot;{inputPath}\&quot;&quot;);
+
+    var psi = new ProcessStartInfo
+    {
+        FileName = &quot;gs&quot;,
+        Arguments = args,
+        RedirectStandardError = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+    };
+
+    using var process = Process.Start(psi)!;
+    string stderr = process.StandardError.ReadToEnd();
+    process.WaitForExit(120_000);
+
+    if (process.ExitCode != 0)
+        throw new InvalidOperationException(
+            $&quot;Ghostscript compression failed (exit {process.ExitCode}): {stderr}&quot;);
+}</code></pre>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li><code>-dPDFSETTINGS</code> applies a preset; fine-grained control requires explicit switch combinations (<code>-dColorImageResolution</code>, <code>-dGrayImageResolution</code>, etc.)</li>
+
+  <li>Ghostscript may alter font embedding, color profiles, and content beyond simple image resampling; verify output fidelity</li>
+
+  <li>The output is a new file; in-place modification requires a temp file and rename</li>
+
+  <li>No progress reporting; large files produce no output until complete</li>
+
+</ul>
+
+<h4>IronPDF — PDF Compression:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+using var pdf = PdfDocument.FromFile(&quot;large-document.pdf&quot;);
+
+// Compress embedded images — reduces file size for image-heavy PDFs
+// Quality parameter: 0–100; lower = smaller file, lower fidelity
+pdf.CompressImages(imageQuality: 60);
+
+pdf.SaveAs(&quot;compressed-document.pdf&quot;);</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/pdf-compression/">PDF compression guide</a> covers image quality settings and the tradeoff between file size and visual fidelity. For documents where the primary size driver is embedded images, the compression API provides more predictable output than Ghostscript's preset-based model. Verify the current method signature and available compression options in official documentation; the exact parameters may differ from the example above.</p>
+
+<h3>Merge and Page Extraction</h3>
+
+<h4>Ghostscript — Merge PDFs via Process.Start():</h4>
+
+<p>Ghostscript can concatenate multiple PDFs using the <code>pdfwrite</code> device with multiple input files.</p>
+
+<pre><code class="language-csharp">// Ghostscript merge — concatenate multiple PDFs
+using System.Diagnostics;
+using System.IO;
+
+public static void MergePdfs(IEnumerable&lt;string&gt; inputPaths, string outputPath)
+{
+    // Input files are listed as trailing arguments after the output file spec
+    var inputArgs = string.Join(&quot; &quot;,
+        inputPaths.Select(p =&gt; $&quot;\&quot;{p}\&quot;&quot;));
+
+    var args = string.Join(&quot; &quot;,
+        &quot;-dNOPAUSE&quot;,
+        &quot;-dBATCH&quot;,
+        &quot;-dSAFER&quot;,
+        &quot;-sDEVICE=pdfwrite&quot;,
+        $&quot;-sOutputFile=\&quot;{outputPath}\&quot;&quot;,
+        inputArgs);
+
+    var psi = new ProcessStartInfo
+    {
+        FileName = &quot;gs&quot;,
+        Arguments = args,
+        RedirectStandardError = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+    };
+
+    using var process = Process.Start(psi)!;
+    string stderr = process.StandardError.ReadToEnd();
+    process.WaitForExit(120_000);
+
+    if (process.ExitCode != 0)
+        throw new InvalidOperationException(
+            $&quot;Ghostscript merge failed (exit {process.ExitCode}): {stderr}&quot;);
+}</code></pre>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>Argument list length limits apply on some operating systems; very large file lists may fail</li>
+
+  <li>Ghostscript reprocesses the PDF content during merge, which can alter rendering; verify output against source documents</li>
+
+  <li>Page range extraction requires the <code>-dFirstPage</code> and <code>-dLastPage</code> switches, which must be set before each input file for multi-file range extraction</li>
+
+</ul>
+
+<h4>IronPDF — Merge and Page Extraction:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+using System.Linq;
+
+// Merge from file paths — no temp process or argument construction
+var sources = new[] { &quot;part1.pdf&quot;, &quot;part2.pdf&quot;, &quot;appendix.pdf&quot; };
+var docs = sources.Select(f =&gt; PdfDocument.FromFile(f)).ToList();
+
+try
+{
+    using var merged = PdfDocument.Merge(docs);
+    merged.SaveAs(&quot;combined.pdf&quot;);
+}
+finally
+{
+    // Dispose each source document; Merge does not take ownership
+    foreach (var doc in docs) doc.Dispose();
+}
+
+// Page range extraction — extract pages 2–5 (zero-indexed: 1–4)
+using var sourceDoc = PdfDocument.FromFile(&quot;large-document.pdf&quot;);
+using var excerpt = sourceDoc.CopyPages(1, 4);
+excerpt.SaveAs(&quot;excerpt.pdf&quot;);</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/merge-or-split-pdfs/">merge and split guide</a> covers overloads for merging from streams and byte arrays as well as file paths. Unlike Ghostscript's PDF reprocessing approach, IronPDF's merge operation assembles pages from the source documents without reinterpreting the content, which preserves rendering fidelity for complex PDFs.</p>
+
+<h3>Grayscale Conversion</h3>
+
+<h4>Ghostscript — Grayscale PDF Conversion:</h4>
+
+<p>Ghostscript can convert a color PDF to grayscale using the <code>pdfwrite</code> device with a color conversion setting.</p>
+
+<pre><code class="language-csharp">// Ghostscript grayscale conversion
+using System.Diagnostics;
+
+public static void ConvertToGrayscale(string inputPath, string outputPath)
+{
+    // -sColorConversionStrategy=Gray converts all color spaces to DeviceGray
+    var args = string.Join(&quot; &quot;,
+        &quot;-dNOPAUSE&quot;,
+        &quot;-dBATCH&quot;,
+        &quot;-dSAFER&quot;,
+        &quot;-sDEVICE=pdfwrite&quot;,
+        &quot;-sColorConversionStrategy=Gray&quot;,
+        &quot;-dProcessColorModel=/DeviceGray&quot;,
+        $&quot;-sOutputFile=\&quot;{outputPath}\&quot;&quot;,
+        $&quot;\&quot;{inputPath}\&quot;&quot;);
+
+    var psi = new ProcessStartInfo
+    {
+        FileName = &quot;gs&quot;,
+        Arguments = args,
+        RedirectStandardError = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+    };
+
+    using var process = Process.Start(psi)!;
+    string stderr = process.StandardError.ReadToEnd();
+    process.WaitForExit(60_000);
+
+    if (process.ExitCode != 0)
+        throw new InvalidOperationException(
+            $&quot;Ghostscript grayscale conversion failed (exit {process.ExitCode}): {stderr}&quot;);
+}</code></pre>
+
+<p>Technical constraints:</p>
+
+<ul>
+
+  <li>The <code>-sColorConversionStrategy=Gray</code> switch converts all color content; there is no selective per-object conversion</li>
+
+  <li>Output quality can vary for PDFs with ICC-profiled color spaces; verify against source</li>
+
+  <li>This switch combination is Ghostscript-version-sensitive; behavior varies across releases</li>
+
+</ul>
+
+<h4>IronPDF — Grayscale Conversion:</h4>
+
+<pre><code class="language-csharp">using IronPdf;
+
+using var pdf = PdfDocument.FromFile(&quot;color-document.pdf&quot;);
+
+// Convert entire document to grayscale
+pdf.ConvertToGrayscale();
+
+pdf.SaveAs(&quot;grayscale-document.pdf&quot;);</code></pre>
+
+<p>The <a href="https://ironpdf.com/how-to/color-grayscale/">grayscale conversion guide</a> covers the conversion method and notes on how color content is handled during the conversion. Verify the exact method name in current IronPDF documentation; the API surface for color operations has been refined across versions.</p>
+
+<h2>API Mapping Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Ghostscript Concept</th>
+      <th>IronPDF Equivalent</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>gs</code> / <code>gswin64c.exe</code> invocation</td>
+      <td>Direct library method call</td>
+      <td>No process spawning; in-process</td>
+    </tr>
+    <tr>
+      <td><code>Process.Start(psi)</code></td>
+      <td>Library API method</td>
+      <td>Shell invocation replaced</td>
+    </tr>
+    <tr>
+      <td>Process exit code checking</td>
+      <td>.NET exception handling</td>
+      <td>Structured error model</td>
+    </tr>
+    <tr>
+      <td><code>process.WaitForExit()</code></td>
+      <td>Synchronous method / <code>await</code></td>
+      <td>Standard .NET call semantics</td>
+    </tr>
+    <tr>
+      <td><code>-sDEVICE=png16m</code> (PDF to image)</td>
+      <td><code>PdfDocument.RasterizeToImageFiles()</code></td>
+      <td><a href="https://ironpdf.com/how-to/rasterize-pdf-to-images/">Rasterization guide</a></td>
+    </tr>
+    <tr>
+      <td><code>-sDEVICE=pdfwrite</code> (PDF to PDF)</td>
+      <td>Various <code>PdfDocument</code> operations</td>
+      <td>Depends on operation</td>
+    </tr>
+    <tr>
+      <td><code>-dPDFSETTINGS=/ebook</code> (compression)</td>
+      <td><code>PdfDocument.CompressImages(quality)</code></td>
+      <td>Preset model vs quality value</td>
+    </tr>
+    <tr>
+      <td><code>-r150</code> (DPI setting)</td>
+      <td><code>dpi</code> parameter in rasterization call</td>
+      <td>Direct equivalent</td>
+    </tr>
+    <tr>
+      <td>Multi-file input (merge)</td>
+      <td><code>PdfDocument.Merge(docs)</code></td>
+      <td>Static method</td>
+    </tr>
+    <tr>
+      <td><code>-dFirstPage</code> / <code>-dLastPage</code></td>
+      <td><code>PdfDocument.CopyPages(from, to)</code></td>
+      <td>Index-based (zero-indexed)</td>
+    </tr>
+    <tr>
+      <td><code>-sColorConversionStrategy=Gray</code></td>
+      <td><code>PdfDocument.ConvertToGrayscale()</code></td>
+      <td>- exact method</td>
+    </tr>
+    <tr>
+      <td>PostScript interpretation</td>
+      <td>Not supported</td>
+      <td>Ghostscript-only capability</td>
+    </tr>
+    <tr>
+      <td>PDF to PostScript output</td>
+      <td>Not supported</td>
+      <td>Ghostscript-only capability</td>
+    </tr>
+    <tr>
+      <td>Ghostscript.NET <code>GhostscriptWrapper</code></td>
+      <td>Not applicable</td>
+      <td>Direct IronPDF API replaces wrapper</td>
+    </tr>
+    <tr>
+      <td><code>GhostscriptProcessor</code></td>
+      <td>Not applicable</td>
+      <td>No equivalent wrapper needed</td>
+    </tr>
+    <tr>
+      <td>GS installation / <code>gsdll64.dll</code></td>
+      <td>NuGet package (<code>IronPdf</code>)</td>
+      <td>Deployment model changes</td>
+    </tr>
+    <tr>
+      <td>stderr text parsing for errors</td>
+      <td>.NET exception message</td>
+      <td>Structured error information</td>
+    </tr>
+    <tr>
+      <td>PDF/A output (<code>-dPDFA=1</code>)</td>
+      <td><code>PdfDocument.SaveAsPdfA()</code></td>
+      <td><a href="https://ironpdf.com/how-to/pdfa/">PDF/A guide</a></td>
+    </tr>
+    <tr>
+      <td>HTML to PDF</td>
+      <td><code>ChromePdfRenderer.RenderHtmlAsPdf()</code></td>
+      <td>Not a Ghostscript capability</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Breaking Changes & Gotchas</h2>
+
+<ul>
+
+  <li><strong>PostScript interpretation is not available.</strong> If the integration converts PostScript files to PDF, that capability has no IronPDF equivalent. PostScript-to-PDF conversion is a Ghostscript-specific capability; teams with PostScript input files must retain Ghostscript for that path or adopt a dedicated PostScript processor.</li>
+
+  <li><strong>PDF-to-PostScript output is not available.</strong> Similarly, any workflow that produces PostScript output from PDF input cannot be migrated to IronPDF.</li>
+
+  <li><strong>AGPL license removal is a migration driver.</strong> Ghostscript's current license is AGPL for the open-source version; the commercial AGPL exemption from Artifex is required for commercial use without source disclosure obligations. Verify the current license terms against the deployment's usage. This is often the primary legal driver for migration, and it should be confirmed by legal counsel, not assumed.</li>
+
+  <li><strong>Disposal is mandatory and new.</strong> The <code>Process.Start()</code> pattern for Ghostscript involves a <code>using</code> block on the <code>Process</code> object (for process handles), but the operation itself is stateless—no persistent managed objects. IronPDF's <code>PdfDocument</code> holds unmanaged Chromium resources and must be disposed. Audit every code path that produces a <code>PdfDocument</code> for correct disposal.</li>
+
+  <li><strong>Ghostscript.NET wrapper API does not map.</strong> If the integration uses Ghostscript.NET's <code>GhostscriptWrapper</code>, <code>GhostscriptProcessor</code>, or <code>GhostscriptPipeline</code> classes, those APIs have no equivalent in IronPDF. All call sites require replacement, not adaptation.</li>
+
+  <li><strong>Chromium binary dependencies on Linux.</strong> IronPDF ships platform-specific Chromium binaries. This is different from Ghostscript's <code>libgs.so</code> dependency but has a similar deployment concern: the system must have the required shared library dependencies for Chromium. Test container builds explicitly.</li>
+
+  <li><strong>Ghostscript's color management capabilities are not fully replicated.</strong> Ghostscript has deep support for ICC color profiles, DeviceCMYK color spaces, and color space conversion. IronPDF's color operations are focused on grayscale conversion; if the workflow requires CMYK output or ICC-profile-aware color conversion, verify IronPDF's capability coverage before committing to migration.</li>
+
+  <li><strong>Resolution control in rasterization may differ.</strong> Ghostscript's <code>-r</code> switch provides fine-grained DPI control per output device. IronPDF's rasterization API provides a DPI parameter; verify the exact behavior and supported range in official documentation.</li>
+
+  <li><strong>License key required.</strong> IronPDF is a commercial library. Ghostscript GPL is free (subject to AGPL copyleft). The migration resolves the license compliance concern but introduces a commercial cost. Budget for license procurement and key provisioning.</li>
+
+</ul>
+
+<h2>Comprehensive Feature Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>Ghostscript</th>
+      <th>IronPDF</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="4"><strong>Status</strong></td>
+    </tr>
+    <tr>
+      <td>Current maintenance status</td>
+      <td>Active</td>
+      <td>Actively maintained</td>
+      <td>Ghostscript actively developed</td>
+    </tr>
+    <tr>
+      <td>License</td>
+      <td>AGPL / Commercial (Artifex)</td>
+      <td>Commercial</td>
+      <td>License driver for migration</td>
+    </tr>
+    <tr>
+      <td>Open source</td>
+      <td>Yes (AGPL)</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Support</strong></td>
+    </tr>
+    <tr>
+      <td>Commercial support</td>
+      <td>Via Artifex</td>
+      <td>Via Iron Software</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Community support</td>
+      <td>Mailing lists / Bug tracker</td>
+      <td>GitHub Issues</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Documentation</td>
+      <td>Extensive (command-line focused)</td>
+      <td>Comprehensive (API focused)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Content Creation</strong></td>
+    </tr>
+    <tr>
+      <td>PostScript to PDF</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>Ghostscript-only capability</td>
+    </tr>
+    <tr>
+      <td>HTML string to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>Additive capability</td>
+    </tr>
+    <tr>
+      <td>URL to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>Additive capability</td>
+    </tr>
+    <tr>
+      <td>JavaScript execution in PDF gen</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>Additive capability</td>
+    </tr>
+    <tr>
+      <td>DOCX to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Markdown to PDF</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Image to PDF</td>
+      <td>Yes (via device)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>PDF Operations</strong></td>
+    </tr>
+    <tr>
+      <td>PDF to raster image</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td>Both support multi-page</td>
+    </tr>
+    <tr>
+      <td>Merge PDFs</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td>Different approach</td>
+    </tr>
+    <tr>
+      <td>Split / extract pages</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF compression</td>
+      <td>Yes (presets)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Grayscale conversion</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CMYK color management</td>
+      <td>Yes (extensive)</td>
+      <td>-</td>
+      <td>Ghostscript advantage</td>
+    </tr>
+    <tr>
+      <td>Font subsetting / embedding</td>
+      <td>Yes</td>
+      <td>Partial</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Text extraction</td>
+      <td>No (CLI)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Form filling</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Find and replace</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Redaction</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Annotations</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Watermark / stamp</td>
+      <td>Limited</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Security</strong></td>
+    </tr>
+    <tr>
+      <td>Password protection (read)</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Password protection (create)</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Digital signatures</td>
+      <td>-</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>HSM signing</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PDF/A compliance</td>
+      <td>Yes</td>
+      <td><a href="https://ironpdf.com/how-to/pdfa/">Yes</a></td>
+      <td>Verify level parity</td>
+    </tr>
+    <tr>
+      <td>PDF/UA accessibility</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>Development & Maintenance</strong></td>
+    </tr>
+    <tr>
+      <td>.NET managed API</td>
+      <td>Via Ghostscript.NET wrapper</td>
+      <td>Yes (native)</td>
+      <td>Wrapper vs first-class API</td>
+    </tr>
+    <tr>
+      <td>Linux support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Docker support</td>
+      <td>Yes</td>
+      <td>Yes</td>
+      <td>Different binary dependencies</td>
+    </tr>
+    <tr>
+      <td>NuGet distribution</td>
+      <td>Via wrapper</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Async API</td>
+      <td>No (process-based)</td>
+      <td>Yes</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>In-process execution</td>
+      <td>Via P/Invoke</td>
+      <td>Yes (managed)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>PostScript output</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Print PDF to printer</td>
+      <td>Yes (device)</td>
+      <td><a href="https://ironpdf.com/how-to/print-pdf/">Yes</a></td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Migration Checklist</h2>
+
+<ol>
+
+  <li><strong>Inventory all Ghostscript invocation points.</strong> Search for <code>gs</code>, <code>gswin64c</code>, <code>GhostscriptWrapper</code>, <code>GhostscriptProcessor</code>, and <code>Process.Start</code> patterns in the codebase. Document the command-line arguments passed at each invocation point; those arguments define the operations being performed.</li>
+
+  <li><strong>Categorize operations by IronPDF coverage.</strong> Group invocations into: covered (compression, rasterization, merge, split, grayscale), partial (color management, font operations), and not covered (PostScript input, PostScript output). The "not covered" group may require retaining Ghostscript alongside IronPDF.</li>
+
+  <li><strong>Resolve the PostScript dependency question.</strong> If any workflow requires PostScript input or output, decide whether that path remains on Ghostscript or is eliminated. IronPDF cannot replace PostScript processing; attempting to do so will fail.</li>
+
+  <li><strong>Install the IronPDF NuGet package.</strong> Run <code>dotnet add package IronPdf</code>. Verify runtime identifier coverage for all deployment targets.</li>
+
+  <li><strong>Configure the license key.</strong> Set the IronPDF license key at application startup before any library calls. See the <a href="https://ironpdf.com/how-to/license-keys/">license key setup guide</a> for the available configuration mechanisms.</li>
+
+  <li><strong>Replace PDF-to-image invocations.</strong> Substitute each <code>gs -sDEVICE=png16m</code> shell command with <code>PdfDocument.RasterizeToImageFiles()</code>. Verify DPI, output format, and file naming conventions match existing behavior.</li>
+
+  <li><strong>Replace compression invocations.</strong> Substitute each <code>-dPDFSETTINGS</code> shell command with <code>PdfDocument.CompressImages(quality)</code>. Test output file sizes and visual fidelity against Ghostscript reference output to find the quality setting that matches the previous preset.</li>
+
+  <li><strong>Replace merge invocations.</strong> Substitute each multi-file <code>pdfwrite</code> merge command with <code>PdfDocument.Merge()</code>. Validate that merged output is structurally equivalent to Ghostscript's output.</li>
+
+  <li><strong>Replace page extraction invocations.</strong> Substitute <code>-dFirstPage</code> / <code>-dLastPage</code> page range extraction with <code>PdfDocument.CopyPages(from, to)</code>. Note that IronPDF uses zero-based page indexes; adjust any existing 1-based page number logic.</li>
+
+  <li><strong>Replace grayscale conversion invocations.</strong> Substitute <code>-sColorConversionStrategy=Gray</code> commands with <code>PdfDocument.ConvertToGrayscale()</code>. Validate output against Ghostscript reference for documents with complex color content.</li>
+
+  <li><strong>Update error handling.</strong> Replace exit code checks and stderr parsing with try-catch blocks around IronPDF method calls. Implement structured logging for exceptions.</li>
+
+  <li><strong>Remove Ghostscript deployment dependencies.</strong> Update Docker images, server configuration, and deployment scripts to remove Ghostscript installation steps. Verify that IronPDF's Chromium binary dependencies are satisfied in all deployment targets.</li>
+
+</ol>
+
+<h2>Conclusion</h2>
+
+<h3>When staying on Ghostscript is technically reasonable</h3>
+
+<p>Ghostscript remains the appropriate tool when the workflow involves PostScript interpretation—either converting PostScript to PDF or producing PostScript output. There is no managed .NET equivalent for this capability, and IronPDF cannot address it. Teams with workflows that rely heavily on Ghostscript's CMYK color management, ICC profile handling, or color-space-aware PDF production may also find that IronPDF's color operation coverage is insufficient for their requirements; verify carefully before committing to migration for those use cases. If the AGPL license is not a concern for the deployment (open-source software with compatible licensing, or a commercial Artifex license is already in place), the license driver for migration is removed, and the Ghostscript integration may be adequate for the foreseeable future.</p>
+
+<h3>Signals that indicate migration is worth the engineering effort</h3>
+
+<p>The migration case is strongest when the AGPL license creates genuine legal risk for a commercial application, when the <code>Process.Start()</code> invocation pattern has become a maintenance burden—version-pinned binaries, argument-quoting bugs, platform-specific path handling, process timeout management—or when the deployment environment is moving to Linux containers where managing Ghostscript installation is operationally inconvenient. Teams that have accumulated significant wrapper and error-handling code around the Ghostscript process invocation often find that the total maintenance surface of that layer exceeds the cost of the equivalent IronPDF API calls. If the team also needs capabilities that Ghostscript lacks—HTML-to-PDF generation, digital signatures, form filling, text extraction—adopting IronPDF consolidates multiple dependencies into one.</p>
+
+<h3>What the cutover typically involves at the code level</h3>
+
+<p>The migration is operationally predictable for the covered operations. Each <code>Process.Start()</code> invocation or <code>GhostscriptWrapper</code> call is replaced with a corresponding IronPDF method call, with the process lifecycle management and argument construction removed. The code becomes shorter and more readable; error handling becomes structured rather than string-based. The testing effort centers on validating output equivalence—rasterized image quality, compressed file sizes, merged document fidelity—against the existing Ghostscript output, which serves as the reference baseline. For operations not covered by IronPDF (PostScript processing), those paths remain on Ghostscript, and the migration is partial rather than complete.</p>
+
+<p>When your team has audited Ghostscript invocations in a codebase, what proportion of those invocations typically fall into PostScript-specific operations versus PDF-manipulation operations, and how does that split influence the migration decision?</p>
