@@ -8,7 +8,7 @@
 
 > The most comprehensive comparison of every C# and .NET PDF library in 2025 - with honest benchmarks, code examples, and migration guides.
 
-A curated collection of **73 C#/.NET PDF libraries** for creating, manipulating, converting, and rendering PDF documents.
+A curated collection of **74 C#/.NET PDF libraries** for creating, manipulating, converting, and rendering PDF documents.
 
 Inspired by [awesome-dotnet](https://github.com/quozd/awesome-dotnet), [awesome-python](https://github.com/vinta/awesome-python), and the [Awesome Lists](https://github.com/sindresorhus/awesome) movement.
 
@@ -27,7 +27,7 @@ Thanks to all contributors - this project wouldn't exist without the community!
 - [What Makes This Different](#what-makes-this-different)
 - [The Bootstrap Homepage Test](#the-bootstrap-homepage-test)
 - [Quick Recommendations](#quick-recommendations)
-- **[Categories](#categories)** — 73 libraries compared
+- **[Categories](#categories)** — 74 libraries compared
   - [1. HTML-to-PDF (Chromium/Blink-Based)](#1-html-to-pdf-chromiumblink-based)
   - [2. HTML-to-PDF (WebKit/Legacy)](#2-html-to-pdf-webkitlegacy)
   - [3. Programmatic PDF Generation (Code-First)](#3-programmatic-pdf-generation-code-first)
@@ -410,6 +410,17 @@ Libraries for creating PDFs through code (shapes, text, images) rather than HTML
 - ⚠️ AGPL requires open source or commercial license
 - ❌ Fails Bootstrap test
 - 📚 [Migration Guide](itext-itextsharp/migrate-from-itext-itextsharp.md)
+
+#### 3.5 [pdf_oxide (PdfOxide)](pdf-oxide/)
+**Free (MIT / Apache-2.0)** | [GitHub](https://github.com/yfedoseev/pdf_oxide) | **Rust-core via P/Invoke**
+- ✅ Fast text/image extraction + Markdown conversion (~0.8 ms/doc on project benchmarks)
+- ✅ Free and open source (MIT/Apache-2.0); cross-platform (Windows/Linux/macOS)
+- ✅ Native HTML+CSS to PDF (`Pdf.FromHtml`, `Pdf.FromHtmlCss`) — no JS/Chromium
+- ✅ Can also create PDFs from Markdown/plain text (`Pdf.FromMarkdown`)
+- ⚠️ Native CSS-subset renderer (no JS, no full browser engine)
+- ⚠️ Pre-1.0 (v0.3.57); native P/Invoke dependency
+- ⚠️ Partial on Bootstrap test (renders styled HTML/CSS, but not JS or full Bootstrap fidelity)
+- 📚 [Migration Guide](pdf-oxide/migrate-from-pdf-oxide.md)
 
 ---
 
