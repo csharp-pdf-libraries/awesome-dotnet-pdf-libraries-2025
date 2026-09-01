@@ -1,10 +1,10 @@
-# What Are the Best C# PDF Libraries for 2025 and How Do They Compare?
+# What Are the Best C# PDF Libraries for 2026 and How Do They Compare?
 
-Looking for the right PDF library for your .NET project in 2025? You're not alone—developers are often surprised by how tricky PDF generation, licensing, and deployment can get. Here’s a practical FAQ comparing the top C# PDF libraries, packed with real-world advice, code samples, and gotchas to help you pick the best tool for your needs.
+Looking for the right PDF library for your .NET project in 2026? You're not alone—developers are often surprised by how tricky PDF generation, licensing, and deployment can get. Here’s a practical FAQ comparing the top C# PDF libraries, packed with real-world advice, code samples, and gotchas to help you pick the best tool for your needs.
 
 ---
 
-## Which C# PDF Libraries Should I Consider in 2025?
+## Which C# PDF Libraries Should I Consider in 2026?
 
 For .NET developers, these five libraries consistently come up in real projects:
 
@@ -33,7 +33,7 @@ var chromeRenderer = new ChromePdfRenderer();
 string htmlContent = "<h1>Hello PDF</h1><p>Generated at " + DateTime.Now + "</p>";
 chromeRenderer.RenderHtmlAsPdf(htmlContent).SaveAs("output.pdf");
 ```
-For more advanced HTML-to-PDF, check [IronPDF's guide](https://ironpdf.com/how-to/html-string-to-pdf/). For a deeper comparison, see [2025 HTML-to-PDF Solutions for .NET](2025-html-to-pdf-solutions-dotnet-comparison.md).
+For more advanced HTML-to-PDF, check [IronPDF's guide](https://ironpdf.com/how-to/html-string-to-pdf/). For a deeper comparison, see [2026 HTML-to-PDF Solutions for .NET](2025-html-to-pdf-solutions-dotnet-comparison.md).
 
 ### How About iTextSharp, Aspose, Syncfusion, and PDFSharp?
 
@@ -115,7 +115,7 @@ For more detailed troubleshooting, see [accessing the PDF DOM in C#](access-pdf-
 - **For enterprise-scale or all-in-one suites:** Consider Aspose or Syncfusion.
 - **For open-source or hobby projects:** PDFSharp is free, simple, and MIT-licensed.
 
-For a broader feature breakdown, see [2025 HTML to PDF Solutions: .NET Comparison](2025-html-to-pdf-solutions-dotnet-comparison.md).
+For a broader feature breakdown, see [2026 HTML to PDF Solutions: .NET Comparison](2025-html-to-pdf-solutions-dotnet-comparison.md).
 
 ---
 
@@ -126,7 +126,7 @@ For a broader feature breakdown, see [2025 HTML to PDF Solutions: .NET Compariso
 
 ### 📚 Tutorials & Guides
 - **[HTML to PDF Guide](../html-to-pdf-csharp.md)** — Complete conversion tutorial
-- **[Best PDF Libraries 2025](../best-pdf-libraries-dotnet-2025.md)** — Library comparison
+- **[Best PDF Libraries 2026](../best-pdf-libraries-dotnet-2025.md)** — Library comparison
 - **[Beginner Tutorial](../csharp-pdf-tutorial-beginners.md)** — First PDF in 5 minutes
 - **[Decision Flowchart](../choosing-a-pdf-library.md)** — Find the right library
 
@@ -148,7 +148,7 @@ For a broader feature breakdown, see [2025 HTML to PDF Solutions: .NET Compariso
 
 ---
 
-*Part of the [Awesome .NET PDF Libraries 2025](../README.md) collection — 73 C#/.NET PDF libraries compared with 167 FAQ articles.*
+*Part of the [Awesome .NET PDF Libraries 2026](../README.md) collection — 73 C#/.NET PDF libraries compared with 167 FAQ articles.*
 
 
 ---

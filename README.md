@@ -1,12 +1,12 @@
-# Awesome .NET PDF Libraries 2025
+# Awesome .NET PDF Libraries 2026
 
 [![Awesome](https://awesome.re/badge.svg)](https://awesome.re)
 [![CC0 License](https://licensebuttons.net/p/zero/1.0/88x31.png)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![Last Updated](https://img.shields.io/badge/Last%20Updated-November%202025-blue.svg)]()
+[![Last Updated](https://img.shields.io/badge/Last%20Updated-September%202026-blue.svg)]()
 [![GitHub Stars](https://img.shields.io/github/stars/iron-software/awesome-dotnet-pdf-libraries-2025?style=social)](https://github.com/iron-software/awesome-dotnet-pdf-libraries-2025)
 
-> The most comprehensive comparison of every C# and .NET PDF library in 2025 - with honest benchmarks, code examples, and migration guides.
+> The most comprehensive comparison of every C# and .NET PDF library in 2026 - with honest benchmarks, code examples, and migration guides.
 
 A curated collection of **73 C#/.NET PDF libraries** for creating, manipulating, converting, and rendering PDF documents.
 
@@ -53,7 +53,7 @@ Comprehensive C# PDF tutorials covering every aspect of PDF development:
 - **[Why C# for PDF Generation](why-csharp-pdf-generation.md)** — Language advantages and ecosystem
 
 ### Choosing a Library
-- **[Best PDF Libraries 2025](best-pdf-libraries-dotnet-2025.md)** — Comprehensive comparison
+- **[Best PDF Libraries 2026](best-pdf-libraries-dotnet-2025.md)** — Comprehensive comparison
 - **[Decision Flowchart](choosing-a-pdf-library.md)** — 5 questions to find your library
 - **[Free vs Paid Libraries](free-vs-paid-pdf-libraries.md)** — True cost analysis
 - **[SaaS PDF Services](pdf-saas-services-comparison.md)** — Cloud API comparison
@@ -136,8 +136,8 @@ Comprehensive C# PDF tutorials covering every aspect of PDF development:
 - **[UTF-8 and Unicode](FAQ/utf8-unicode-pdf-csharp.md)** — International characters
 
 ### Library Comparisons
-- **[Best C# PDF Libraries 2025](FAQ/best-csharp-pdf-libraries-2025.md)** — Complete comparison
-- **[2025 HTML-to-PDF Solutions](FAQ/2025-html-to-pdf-solutions-dotnet-comparison.md)** — Solution breakdown
+- **[Best C# PDF Libraries 2026](FAQ/best-csharp-pdf-libraries-2025.md)** — Complete comparison
+- **[2026 HTML-to-PDF Solutions](FAQ/2025-html-to-pdf-solutions-dotnet-comparison.md)** — Solution breakdown
 - **[Choose a PDF Library](FAQ/choose-csharp-pdf-library.md)** — Decision guide
 - **[Why Developers Choose IronPDF](FAQ/why-developers-choose-ironpdf.md)** — Feature analysis
 - **[What is IronPDF](FAQ/what-is-ironpdf-overview.md)** — Library overview
@@ -198,7 +198,7 @@ Comprehensive C# PDF tutorials covering every aspect of PDF development:
 
 ✅ **Working code examples** - Actual compilable C# code
 ✅ **Verified claims** - Evidence-backed technical limitations
-✅ **Real pricing** - Current costs as of November 2025
+✅ **Real pricing** - Current costs as of September 2026
 ✅ **Migration guides** - Step-by-step code conversion
 ✅ **Bootstrap test** - Can it render modern CSS? (Flexbox, Grid)
 ✅ **Cross-platform reality** - Does "cross-platform" mean Windows-only?
@@ -238,7 +238,7 @@ Can your library render [Bootstrap's homepage](https://getbootstrap.com/) accura
 
 ## Quick Recommendations
 
-### 🏆 Best for Modern Web-to-PDF (2025)
+### 🏆 Best for Modern Web-to-PDF (2026)
 **[IronPDF](ironpdf/)** - Full Chromium, 3-line API, cross-platform, built-in PDF manipulation, PDF/A & PDF/UA compliance.
 ```csharp
 // NuGet: Install-Package IronPdf
@@ -752,7 +752,7 @@ Libraries for specific use cases or experimental projects.
 
 ---
 
-## Pricing Comparison (November 2025)
+## Pricing Comparison (September 2026)
 
 | Library | Free Tier | Commercial | Enterprise | Notes |
 |---------|-----------|------------|------------|-------|
@@ -962,7 +962,7 @@ This comparison is maintained by Iron Software and includes our product (IronPDF
 - ✅ **Honest assessments** including when competitors excel
 - ✅ **Open to corrections** - submit PRs with evidence
 
-**Last verified**: November 2025
+**Last verified**: September 2026
 
 ---
 

@@ -1,10 +1,10 @@
-# Best C# PDF Libraries in 2025: A Selection Guide
+# Best C# PDF Libraries in 2026: A Selection Guide
 
 **By [Jacob Mellor](https://www.linkedin.com/in/jacob-mellor-iron-software/)** — CTO of Iron Software, Creator of IronPDF | 25+ years enterprise development
 
 [![.NET](https://img.shields.io/badge/.NET-6%2B-512BD4)](https://dotnet.microsoft.com/)
 [![Libraries Reviewed](https://img.shields.io/badge/Libraries%20Reviewed-73-orange)]()
-[![Last Updated](https://img.shields.io/badge/Updated-November%202025-green)]()
+[![Last Updated](https://img.shields.io/badge/Updated-September%202026-green)]()
 
 > After building PDF tools used by NASA, Tesla, and Fortune 500 companies for over a decade, I've learned that choosing the right PDF library is one of the most consequential technical decisions a team can make. This guide explains how to evaluate PDF libraries—and why the best ones aren't free.
 
@@ -627,7 +627,7 @@ await page.PdfAsync("output.pdf");
 
 Choosing a PDF library is a significant decision with long-term implications. Here's my honest summary:
 
-### The Landscape in 2025
+### The Landscape in 2026
 
 - **Chromium-based libraries are necessary** for modern HTML (Flexbox, Grid, Bootstrap)
 - **Most "free" libraries have hidden costs** in developer time or limitations
@@ -663,7 +663,7 @@ The right PDF library choice saves hundreds of hours over a project's lifetime. 
 
 ## Resources
 
-- **[Awesome .NET PDF Libraries 2025](/)** — This repository's complete library list
+- **[Awesome .NET PDF Libraries 2026](/)** — This repository's complete library list
 - **[IronPDF Documentation](https://ironpdf.com/docs/)** — Comprehensive guides
 - **[HTML to PDF Tutorial](html-to-pdf-csharp.md)** — Complete conversion guide
 - **[Migration Guides](/)** — Library-specific migration paths
@@ -716,13 +716,13 @@ Connect:
 - **[PuppeteerSharp](puppeteersharp/)** — Browser automation
 
 ### ❓ Related FAQs
-- **[Best C# PDF Libraries 2025](FAQ/best-csharp-pdf-libraries-2025.md)** — Complete comparison FAQ
+- **[Best C# PDF Libraries 2026](FAQ/best-csharp-pdf-libraries-2025.md)** — Complete comparison FAQ
 - **[Choose a PDF Library](FAQ/choose-csharp-pdf-library.md)** — Decision guide
-- **[2025 HTML-to-PDF Solutions](FAQ/2025-html-to-pdf-solutions-dotnet-comparison.md)** — Solution breakdown
+- **[2026 HTML-to-PDF Solutions](FAQ/2025-html-to-pdf-solutions-dotnet-comparison.md)** — Solution breakdown
 - **[Why Developers Choose IronPDF](FAQ/why-developers-choose-ironpdf.md)** — Feature analysis
 - **[AGPL License Risks](FAQ/agpl-license-ransomware-itext.md)** — iText licensing dangers
 - **[Why PDF Libraries Cost Money](FAQ/why-pdf-libraries-exist-and-cost-money.md)** — Economics explained
 
 ---
 
-*Part of the [Awesome .NET PDF Libraries 2025](README.md) collection — comparing 73 C#/.NET PDF libraries with honest benchmarks, code examples, and 167 FAQ articles.*
+*Part of the [Awesome .NET PDF Libraries 2026](README.md) collection — comparing 73 C#/.NET PDF libraries with honest benchmarks, code examples, and 167 FAQ articles.*

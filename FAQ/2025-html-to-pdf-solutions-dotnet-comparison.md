@@ -1,10 +1,10 @@
-# What Is the Best Way to Convert HTML to PDF in .NET (2025)?
+# What Is the Best Way to Convert HTML to PDF in .NET (2026)?
 
-Converting HTML to PDF in .NET is still a real challenge, especially if you want your PDFs to look exactly like your web pages—with all the modern CSS, JavaScript, and dynamic visuals. The .NET landscape has shifted in recent years, so let’s break down what works in 2025, show code you can use right now, and compare the leading approaches.
+Converting HTML to PDF in .NET is still a real challenge, especially if you want your PDFs to look exactly like your web pages—with all the modern CSS, JavaScript, and dynamic visuals. The .NET landscape has shifted in recent years, so let’s break down what works in 2026, show code you can use right now, and compare the leading approaches.
 
 ---
 
-## Why Do Developers Still Need HTML-to-PDF in .NET in 2025?
+## Why Do Developers Still Need HTML-to-PDF in .NET in 2026?
 
 Despite advances in client-side printing, server-side HTML-to-PDF conversion remains a top request. Here’s why:
 
@@ -17,7 +17,7 @@ For more context on advanced needs, check out [Advanced Html To Pdf Csharp](adva
 
 ---
 
-## Which .NET HTML-to-PDF Libraries Are Worth Using in 2025?
+## Which .NET HTML-to-PDF Libraries Are Worth Using in 2026?
 
 The .NET ecosystem is packed with options, but only a few are actively maintained and offer real value:
 
@@ -278,7 +278,7 @@ For the latest features and updates, visit [IronPDF](https://ironpdf.com) and [I
 
 ### 📚 Tutorials & Guides
 - **[HTML to PDF Guide](../html-to-pdf-csharp.md)** — Complete conversion tutorial
-- **[Best PDF Libraries 2025](../best-pdf-libraries-dotnet-2025.md)** — Library comparison
+- **[Best PDF Libraries 2026](../best-pdf-libraries-dotnet-2025.md)** — Library comparison
 - **[Beginner Tutorial](../csharp-pdf-tutorial-beginners.md)** — First PDF in 5 minutes
 - **[Decision Flowchart](../choosing-a-pdf-library.md)** — Find the right library
 
@@ -300,7 +300,7 @@ For the latest features and updates, visit [IronPDF](https://ironpdf.com) and [I
 
 ---
 
-*Part of the [Awesome .NET PDF Libraries 2025](../README.md) collection — 73 C#/.NET PDF libraries compared with 167 FAQ articles.*
+*Part of the [Awesome .NET PDF Libraries 2026](../README.md) collection — 73 C#/.NET PDF libraries compared with 167 FAQ articles.*
 
 
 ---
