@@ -2,7 +2,7 @@
 
 > **Migration Complexity:** Medium
 > **Estimated Time:** 2-4 hours for typical projects
-> **Last Updated:** April 2026 (ABCpdf 13.4.4, released 9 April 2026)
+> **Last Updated:** September 2026 (ABCpdf 14.0.5, released 22 July 2026)
 
 ## Table of Contents
 
@@ -25,24 +25,23 @@ ABCpdf from WebSupergoo has been a capable PDF library for .NET developers, but 
 
 ### The Case for Leaving ABCpdf
 
-**Licensing Complexity**: ABCpdf uses a tiered licensing model that can be confusing to navigate, as detailed in the [migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-abcpdf-to-ironpdf/). The Standard Single Computer license is $329 (32-bit only); Professional is $479; Professional Redistribution / Enterprise is $4,790; the Group License runs to $33,530 — perpetual, with v13 keys also covering v8–v12. Many developers report the tier maze as a significant administrative burden.
+**Licensing Complexity**: ABCpdf uses a tiered licensing model that can be confusing to navigate, as detailed in the [migration guide](https://ironpdf.com/blog/migration-guides/migrate-from-abcpdf-to-ironpdf/). The Standard Single Computer license is $329 (32-bit only); Professional is $495; a Professional Five License Pack is $1,485; Professional Redistribution / Enterprise is $4,950; the Group License runs to $24,950, and a SaaS quarterly subscription is $265. A v14 key also covers v8–v13. Many developers report the tier maze as a significant administrative burden.
 
-**Windows-First Architecture (until v13)**: ABCpdf was Windows-only for most of its history. Linux support was added in v13 (April 2026 release line) via the `ABCpdf.ABCChrome117.Linux` and `ABCpdf.ABCChrome123.Linux` runtime packages. macOS is not supported. Some Windows-specific features (XPS, WPF) remain unavailable on Linux.
+**Windows-First Architecture (until v13)**: ABCpdf was Windows-only for most of its history. Linux support arrived with v13 in early 2024 and needs a matching runtime package — `ABCpdf.ABCChrome146.Linux` for the current engine, with ABCChrome123/117 Linux packages for the older ones — on Ubuntu 22.04, 24.04 or 26.04, x64 only. macOS is not supported. FireShield, the XPS and Office read modules, EMF and the System.Drawing APIs remain unavailable on Linux.
 
 **Documentation Style**: ABCpdf's documentation, while comprehensive, follows an older style that can feel dated compared to modern API documentation standards. New users often struggle to find the exact examples they need.
 
-**Engine Configuration Overhead**: ABCpdf requires explicit engine selection — `EngineType.Chrome123` (default in v13), `Chrome117`, `Chrome86`, `Chrome65`, `Gecko`, `WebKit`, or `MSHtml` — and manual resource management with `Clear()` calls. This adds boilerplate code to every PDF operation.
+**Engine Choice and Document Lifecycle**: ABCpdf defaults to `EngineType.Chrome146` in v14, but teams often pin an engine — `Chrome123`, `Chrome117`, `Chrome86`, `Chrome65`, `Gecko`, `WebKit`, or `MSHtml` — to keep rendering stable, and everything below Chrome123 is a separate NuGet package to deploy. The `Doc` object is also a long-lived, mutable canvas that you compose page by page and then clear or dispose, rather than a one-call render.
 
 ### What IronPDF Provides
 
 | ABCpdf Limitation | IronPDF Solution |
 |-------------------|------------------|
 | Complex tiered licensing | Simple, transparent pricing |
-| Requires versioned engine selection (`EngineType.Chrome123`/`Chrome117`/`Gecko`/`WebKit`/`MSHtml`) | Single bundled Chromium engine |
-| Manual `Clear()` cleanup | IDisposable with `using` statements |
-| Windows-only until v13 (Linux added 2026, no macOS) | Native Windows, Linux, macOS, Docker |
+| Engine choice to make and deploy (`EngineType.Chrome146` default, or `Chrome123`/`Chrome117`/`Gecko`/`WebKit`/`MSHtml`) | Single bundled Chromium engine |
+| Point-based `Rect` composition on a stateful `Doc` | HTML/CSS layout, one render call |
+| Windows-only until v13 (Linux since 2024, x64, no macOS) | Native Windows, Linux, macOS, Docker |
 | Dated documentation | Modern docs with extensive examples |
-| Registry-based licensing | Simple code-based license key |
 
 ---
 
@@ -69,11 +68,11 @@ grep -r "ABCpdf" --include="*.csproj" .
 | Category | ABCpdf Behavior | IronPDF Behavior | Migration Action |
 |----------|-----------------|------------------|------------------|
 | Object Model | `Doc` class is central | `ChromePdfRenderer` + `PdfDocument` | Separate rendering from document |
-| Resource Cleanup | Manual `doc.Clear()` | IDisposable pattern | Use `using` statements |
-| Engine Selection | `doc.HtmlOptions.Engine = EngineType.Chrome123` (or `Chrome117`/`Chrome86`/`Chrome65`/`Gecko`/`WebKit`/`MSHtml`) | Built-in Chromium | Remove engine config |
-| Page Coordinates | Point-based with `doc.Rect` | CSS-based margins | Use CSS or RenderingOptions |
+| Resource Cleanup | `doc.Clear()` or `using` (`Doc` is IDisposable) | IDisposable pattern | Use `using` statements |
+| Engine Selection | `doc.HtmlOptions.Engine = EngineType.Chrome146` (default; or `Chrome123`/`Chrome117`/`Chrome86`/`Chrome65`/`Gecko`/`WebKit`/`MSHtml`) | Built-in Chromium | Remove engine config |
+| Page Coordinates | Point-based with `doc.Rect` (`doc.Units` defaults to points) | CSS-based margins in mm | Use CSS or RenderingOptions |
 | Save to Memory | `doc.GetData()` | `pdf.BinaryData` | Property access |
-| Multi-page HTML | Loop with `doc.AddImageHtml()` | Automatic pagination | Simplify code |
+| Multi-page HTML | `AddImageUrl`/`AddImageHtml` draw page one; chain the rest with `doc.AddImageToChain()` | Automatic pagination | Simplify code |
 
 ---
 
@@ -100,6 +99,8 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 | Find | Replace With |
 |------|--------------|
+| `using WebSupergoo.ABCpdf14;` | `using IronPdf;` |
+| `using WebSupergoo.ABCpdf14.Objects;` | `using IronPdf;` |
 | `using WebSupergoo.ABCpdf13;` | `using IronPdf;` |
 | `using WebSupergoo.ABCpdf13.Objects;` | `using IronPdf;` |
 | `using WebSupergoo.ABCpdf12;` | `using IronPdf;` |
@@ -109,11 +110,11 @@ IronPdf.License.LicenseKey = "YOUR-LICENSE-KEY";
 
 **Before (ABCpdf):**
 ```csharp
-using WebSupergoo.ABCpdf13;
-using WebSupergoo.ABCpdf13.Objects;
+using WebSupergoo.ABCpdf14;
+using WebSupergoo.ABCpdf14.Objects;
 
 Doc doc = new Doc();
-doc.HtmlOptions.Engine = EngineType.Chrome123;
+doc.HtmlOptions.Engine = EngineType.Chrome146;
 doc.AddImageHtml("<h1>Hello World</h1>");
 doc.Save("output.pdf");
 doc.Clear();
@@ -136,9 +137,10 @@ pdf.SaveAs("output.pdf");
 
 | ABCpdf Namespace | IronPDF Namespace | Purpose |
 |------------------|-------------------|---------|
-| `WebSupergoo.ABCpdf13` | `IronPdf` | Core PDF functionality |
-| `WebSupergoo.ABCpdf13.Objects` | `IronPdf` | PDF objects and types |
-| `WebSupergoo.ABCpdf13.Atoms` | `IronPdf` | Low-level PDF atoms |
+| `WebSupergoo.ABCpdf14` | `IronPdf` | Core PDF functionality |
+| `WebSupergoo.ABCpdf14.Objects` | `IronPdf` | PDF objects and types |
+| `WebSupergoo.ABCpdf14.Atoms` | `IronPdf` | Low-level PDF atoms |
+| `WebSupergoo.ABCpdf13` | `IronPdf` | Version 13 compatibility (v14 still exposes the older namespaces) |
 | `WebSupergoo.ABCpdf12` | `IronPdf` | Version 12 compatibility |
 | `WebSupergoo.ABCpdf11` | `IronPdf` | Version 11 compatibility |
 | `WebSupergoo.ABCpdf10` | `IronPdf` | Version 10 compatibility |
@@ -150,7 +152,8 @@ pdf.SaveAs("output.pdf");
 | `new Doc()` | `new ChromePdfRenderer()` | Renderer creates PDFs |
 | `doc.AddImageUrl(url)` | `renderer.RenderUrlAsPdf(url)` | URL to PDF |
 | `doc.AddImageHtml(html)` | `renderer.RenderHtmlAsPdf(html)` | HTML string to PDF |
-| `doc.AddImageFile(path)` | `renderer.RenderHtmlFileAsPdf(path)` | HTML file to PDF |
+| `doc.AddImageUrl("file:///" + path)` | `renderer.RenderHtmlFileAsPdf(path)` | HTML file to PDF |
+| `doc.AddImageFile(path)` | `ImageToPdfConverter.ImageToPdf(path)` | Image file (JPEG/TIFF/EPS…) to PDF |
 | `doc.Read(path)` | `PdfDocument.FromFile(path)` | Load existing PDF |
 | `doc.Save(path)` | `pdf.SaveAs(path)` | Save to file |
 | `doc.GetData()` | `pdf.BinaryData` | Get as byte array |
@@ -161,7 +164,7 @@ pdf.SaveAs("output.pdf");
 | ABCpdf Method | IronPDF Method | Notes |
 |---------------|----------------|-------|
 | `doc.AddPage()` | Automatic from HTML | Pages created automatically |
-| `doc.Page = n` | `pdf.Pages[n-1]` | ABCpdf is 1-indexed, IronPDF is 0-indexed |
+| `doc.PageNumber = n` | `pdf.Pages[n-1]` | ABCpdf is 1-indexed, IronPDF is 0-indexed. `doc.Page` is a page object ID, not a number |
 | `doc.PageCount` | `pdf.PageCount` | Same usage |
 | `doc.Delete(pageId)` | `pdf.RemovePages(index)` | Remove pages |
 | `doc.Append(otherDoc)` | `PdfDocument.Merge(pdf1, pdf2)` | Static merge method |
@@ -175,7 +178,7 @@ pdf.SaveAs("output.pdf");
 |---------------|----------------|-------|
 | `doc.AddText(text)` | Use HTML/CSS | IronPDF uses HTML approach |
 | `doc.AddImage(image)` | `ImageStamper` or HTML `<img>` | Stamping or HTML |
-| `doc.AddBookmark(text, id)` | `pdf.BookMarks.AddBookMarkAtStart()` | Bookmark API |
+| `doc.AddBookmark(path, open)` | `pdf.BookMarks.AddBookMarkAtStart()` | Bookmark API; ABCpdf bookmarks point at the current page |
 | `doc.GetText(separators)` | `pdf.ExtractAllText()` | Extract text |
 | `doc.FitText(text)` | CSS styling | Use CSS for text fitting |
 | `doc.MeasureText(text)` | Not needed | CSS handles layout |
@@ -193,24 +196,25 @@ pdf.SaveAs("output.pdf");
 
 | ABCpdf Method | IronPDF Method | Notes |
 |---------------|----------------|-------|
-| `doc.Encryption.Type` | `pdf.SecuritySettings` | Security configuration |
-| `doc.Encryption.Password` | `pdf.SecuritySettings.OwnerPassword` | Owner password |
+| `doc.Encryption.Type` (int: 1, 2, 4, 5) | `pdf.SecuritySettings` | Security configuration |
+| `doc.Encryption.OwnerPassword` | `pdf.SecuritySettings.OwnerPassword` | Owner password |
+| `doc.Encryption.Password` | `pdf.SecuritySettings.UserPassword` | User (open) password |
 | `doc.Encryption.CanPrint` | `pdf.SecuritySettings.AllowUserPrinting` | Print permission |
 | `doc.Encryption.CanCopy` | `pdf.SecuritySettings.AllowUserCopyPasteContent` | Copy permission |
 | `doc.Encryption.CanEdit` | `pdf.SecuritySettings.AllowUserEdits` | Edit permission |
-| `doc.SetInfo("Title", value)` | `pdf.MetaData.Title` | Document metadata |
-| `doc.SetInfo("Author", value)` | `pdf.MetaData.Author` | Author metadata |
+| `doc.SetInfo(-1, "/Info*/Title:Text", value)` | `pdf.MetaData.Title` | Document metadata; `SetInfo` takes an object ID and a path |
+| `doc.SetInfo(-1, "/Info*/Author:Text", value)` | `pdf.MetaData.Author` | Author metadata |
 
 ### Configuration Options Mapping
 
 | ABCpdf Setting | IronPDF Equivalent | Default |
 |----------------|-------------------|---------|
-| `doc.HtmlOptions.Engine = EngineType.Chrome123` | Built-in Chromium (no selection needed) | Chromium |
+| `doc.HtmlOptions.Engine = EngineType.Chrome146` | Built-in Chromium (no selection needed) | Chromium |
 | `doc.HtmlOptions.PageCacheEnabled` | Not needed | N/A |
 | `doc.Rect.String = "A4"` | `RenderingOptions.PaperSize = PdfPaperSize.A4` | A4 |
 | `doc.Rect.String = "Letter"` | `RenderingOptions.PaperSize = PdfPaperSize.Letter` | Letter |
-| `doc.HtmlOptions.BrowserWidth` | `RenderingOptions.ViewPortWidth` | 1280 |
-| `doc.HtmlOptions.Timeout` | `RenderingOptions.Timeout` | 60000ms |
+| `doc.HtmlOptions.BrowserWidth` (ABCpdf default 0 = fit content) | `RenderingOptions.ViewPortWidth` | 1280 |
+| `doc.HtmlOptions.Timeout` (ms, ABCpdf default 20,000) | `RenderingOptions.Timeout` | 60000ms |
 | `doc.HtmlOptions.UseScript` | `RenderingOptions.EnableJavaScript` | true |
 | `doc.HtmlOptions.RetryCount` | Handle with try/catch | N/A |
 
@@ -222,13 +226,13 @@ pdf.SaveAs("output.pdf");
 
 **Before (ABCpdf):**
 ```csharp
-using WebSupergoo.ABCpdf13;
-using WebSupergoo.ABCpdf13.Objects;
+using WebSupergoo.ABCpdf14;
+using WebSupergoo.ABCpdf14.Objects;
 
 public byte[] CreatePdfFromHtml(string html)
 {
     Doc doc = new Doc();
-    doc.HtmlOptions.Engine = EngineType.Chrome123;
+    doc.HtmlOptions.Engine = EngineType.Chrome146;
     doc.Rect.Inset(20, 20);
     doc.AddImageHtml(html);
     byte[] data = doc.GetData();
@@ -258,13 +262,13 @@ public byte[] CreatePdfFromHtml(string html)
 
 **Before (ABCpdf):**
 ```csharp
-using WebSupergoo.ABCpdf13;
-using WebSupergoo.ABCpdf13.Objects;
+using WebSupergoo.ABCpdf14;
+using WebSupergoo.ABCpdf14.Objects;
 
 public void ConvertUrlToPdf(string url, string outputPath)
 {
     Doc doc = new Doc();
-    doc.HtmlOptions.Engine = EngineType.Chrome123;
+    doc.HtmlOptions.Engine = EngineType.Chrome146;
     doc.HtmlOptions.PageCacheEnabled = false;
     doc.AddImageUrl(url);
     doc.Save(outputPath);
@@ -288,7 +292,7 @@ public void ConvertUrlToPdf(string url, string outputPath)
 
 **Before (ABCpdf):**
 ```csharp
-using WebSupergoo.ABCpdf13;
+using WebSupergoo.ABCpdf14;
 
 public void MergePdfs(string[] inputFiles, string outputPath)
 {
@@ -328,7 +332,7 @@ public void MergePdfs(string[] inputFiles, string outputPath)
 
 **Before (ABCpdf):**
 ```csharp
-using WebSupergoo.ABCpdf13;
+using WebSupergoo.ABCpdf14;
 
 public void AddHeaderFooter(string inputPath, string outputPath)
 {
@@ -337,7 +341,7 @@ public void AddHeaderFooter(string inputPath, string outputPath)
 
     for (int i = 1; i <= doc.PageCount; i++)
     {
-        doc.Page = i;
+        doc.PageNumber = i;
         doc.Rect.SetRect(0, 780, 612, 20);
         doc.AddText($"Page {i} of {doc.PageCount}");
     }
@@ -376,15 +380,17 @@ public void CreatePdfWithHeaderFooter(string html, string outputPath)
 
 **Before (ABCpdf):**
 ```csharp
-using WebSupergoo.ABCpdf13;
+using WebSupergoo.ABCpdf14;
 
 public void ProtectPdf(string inputPath, string outputPath, string password)
 {
     Doc doc = new Doc();
     doc.Read(inputPath);
 
-    doc.Encryption.Type = EncryptionType.AES128;
-    doc.Encryption.Password = password;
+    doc.Encryption.Type = 5; // 256-bit; 1 = 40-bit RC4, 2 = 128-bit RC4, 4 = 128-bit
+    doc.Encryption.SetCryptMethods(CryptMethodType.AESV3);
+    doc.Encryption.OwnerPassword = password;
+    doc.Encryption.Password = password; // user (open) password
     doc.Encryption.CanPrint = true;
     doc.Encryption.CanCopy = false;
 
@@ -414,7 +420,7 @@ public void ProtectPdf(string inputPath, string outputPath, string password)
 
 **Before (ABCpdf):**
 ```csharp
-using WebSupergoo.ABCpdf13;
+using WebSupergoo.ABCpdf14;
 
 public string ExtractText(string pdfPath)
 {
@@ -424,7 +430,7 @@ public string ExtractText(string pdfPath)
     string text = "";
     for (int i = 1; i <= doc.PageCount; i++)
     {
-        doc.Page = i;
+        doc.PageNumber = i;
         text += doc.GetText("Text") + "\n";
     }
 
@@ -448,7 +454,7 @@ public string ExtractText(string pdfPath)
 
 **Before (ABCpdf):**
 ```csharp
-using WebSupergoo.ABCpdf13;
+using WebSupergoo.ABCpdf14;
 
 public void AddWatermark(string inputPath, string outputPath, string watermarkText)
 {
@@ -457,7 +463,7 @@ public void AddWatermark(string inputPath, string outputPath, string watermarkTe
 
     for (int i = 1; i <= doc.PageCount; i++)
     {
-        doc.Page = i;
+        doc.PageNumber = i;
         doc.Color.String = "200 200 200";
         doc.Font = doc.AddFont("Arial");
         doc.FontSize = 72;
@@ -490,12 +496,12 @@ public void AddWatermark(string inputPath, string outputPath, string watermarkTe
 
 **Before (ABCpdf):**
 ```csharp
-using WebSupergoo.ABCpdf13;
+using WebSupergoo.ABCpdf14;
 
 public void CreateCustomSizePdf(string html, string outputPath)
 {
     Doc doc = new Doc();
-    doc.HtmlOptions.Engine = EngineType.Chrome123;
+    doc.HtmlOptions.Engine = EngineType.Chrome146;
     doc.MediaBox.String = "0 0 400 600"; // Custom size in points
     doc.AddImageHtml(html);
     doc.Save(outputPath);
@@ -522,15 +528,16 @@ public void CreateCustomSizePdf(string html, string outputPath)
 
 **Before (ABCpdf):**
 ```csharp
-using WebSupergoo.ABCpdf13;
+using System;
+using WebSupergoo.ABCpdf14;
 
 public void ConvertHtmlFile(string htmlPath, string outputPath)
 {
     Doc doc = new Doc();
-    doc.HtmlOptions.Engine = EngineType.Chrome123;
+    doc.HtmlOptions.Engine = EngineType.Chrome146;
     doc.HtmlOptions.AddLinks = true;
 
-    int id = doc.AddImageUrl("file://" + htmlPath);
+    int id = doc.AddImageUrl(new Uri(htmlPath).AbsoluteUri);
     while (doc.Chainable(id))
     {
         doc.Page = doc.AddPage();
@@ -564,15 +571,17 @@ public void ConvertHtmlFile(string htmlPath, string outputPath)
 
 **Before (ABCpdf):**
 ```csharp
-using WebSupergoo.ABCpdf13;
+using System;
+using System.IO;
+using WebSupergoo.ABCpdf14;
 
 public void BatchConvert(string[] htmlFiles, string outputDir)
 {
     foreach (var htmlFile in htmlFiles)
     {
         Doc doc = new Doc();
-        doc.HtmlOptions.Engine = EngineType.Chrome123;
-        doc.AddImageUrl("file://" + htmlFile);
+        doc.HtmlOptions.Engine = EngineType.Chrome146;
+        doc.AddImageUrl(new Uri(htmlFile).AbsoluteUri);
 
         string outputPath = Path.Combine(outputDir,
             Path.GetFileNameWithoutExtension(htmlFile) + ".pdf");
@@ -614,7 +623,7 @@ public void BatchConvert(string[] htmlFiles, string outputDir)
 public IActionResult GeneratePdf([FromBody] ReportRequest request)
 {
     Doc doc = new Doc();
-    doc.HtmlOptions.Engine = EngineType.Chrome123;
+    doc.HtmlOptions.Engine = EngineType.Chrome146;
     doc.AddImageHtml(request.Html);
     byte[] pdfBytes = doc.GetData();
     doc.Clear();
@@ -637,7 +646,7 @@ public IActionResult GeneratePdf([FromBody] ReportRequest request)
 
 ### Scenario 2: Async PDF Generation
 
-**ABCpdf** doesn't have native async support. **IronPDF** does:
+**ABCpdf**'s `Doc` API is synchronous — the class reference exposes no `Task`-based methods. **IronPDF** does:
 
 ```csharp
 using IronPdf;
@@ -953,7 +962,7 @@ renderer.RenderingOptions.TextHeader = new TextHeaderFooter
 - [ ] **Update all `using` statements**
   ```csharp
   // Before (ABCpdf)
-  using WebSupergoo.ABCpdf;
+  using WebSupergoo.ABCpdf14;
 
   // After (IronPDF)
   using IronPdf;

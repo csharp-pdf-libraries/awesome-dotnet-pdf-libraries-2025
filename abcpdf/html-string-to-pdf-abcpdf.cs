@@ -1,7 +1,7 @@
-// NuGet: Install-Package ABCpdf (v13.4.4 as of April 2026)
+// NuGet: Install-Package ABCpdf (v14.0.5 as of July 2026)
 using System;
-using WebSupergoo.ABCpdf13;
-using WebSupergoo.ABCpdf13.Objects;
+using WebSupergoo.ABCpdf14;
+using WebSupergoo.ABCpdf14.Objects;
 
 class Program
 {
@@ -9,7 +9,7 @@ class Program
     {
         string html = "<html><body><h1>Hello World</h1><p>This is a PDF document.</p></body></html>";
         Doc doc = new Doc();
-        doc.HtmlOptions.Engine = EngineType.Chrome123; // default in v13; older versions: Chrome117/86/65
+        doc.HtmlOptions.Engine = EngineType.Chrome146; // default in v14; also Chrome123/117/86/65, Gecko, WebKit, MSHtml
         doc.AddImageHtml(html);
         doc.Save("output.pdf");
         doc.Clear();

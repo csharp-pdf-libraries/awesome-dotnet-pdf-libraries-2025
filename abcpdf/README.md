@@ -6,16 +6,16 @@ ABCPDF is praised for its rich feature set and its ability to support complex PD
 
 ## ABCPDF: Key Features and Challenges
 
-ABCPDF (current line: v13.4.4, released April 9 2026) ships multiple HTML rendering engines — ABCChrome (versions Chrome123, Chrome117, Chrome86 and Chrome65), Gecko, WebKit and the legacy MSHtml/Trident engine retained for backwards compatibility. This architecture allows for quite sophisticated PDF generation, particularly advantageous when dealing with complex layouts. Despite this, the library has been criticized for its convoluted pricing and licensing model — a journey that many developers refer to as a licensing maze. The Standard Single Computer license is $329 (32-bit only), Professional is $479, and the Professional Redistribution / Enterprise license is $4,790; perpetual, with v13 keys also covering v8–v12.
+ABCPDF (current line: v14.0.5, released July 22 2026) ships multiple HTML rendering engines — ABCChrome (Chrome146 by default, with Chrome123, Chrome117, Chrome86 and Chrome65 available), Gecko, WebKit and the legacy MSHtml/Trident engine retained for backwards compatibility. This architecture allows for quite sophisticated PDF generation, particularly advantageous when dealing with complex layouts. Despite this, the library has been criticized for its convoluted pricing and licensing model — a journey that many developers refer to as a licensing maze. The Standard Single Computer license is $329 (32-bit only), Professional is $495, and the Professional Redistribution / Enterprise license is $4,950; a v14 key also covers v8–v13.
 
-Another pointed area for improvement is its historical Windows-centric architecture. ABCpdf was Windows-only until v13 added Linux runtimes (`ABCpdf.ABCChrome117.Linux`, `ABCpdf.ABCChrome123.Linux`); macOS is still not supported and a few Windows-specific features (XPS, WPF) remain unavailable on Linux. Complementing these challenges is a documentation style that feels outdated, which can hinder new users attempting to navigate the library's extensive feature set.
+Another pointed area for improvement is its historical Windows-centric architecture. ABCpdf was Windows-only until v13 (2024) added Linux support, which needs a matching runtime package (`ABCpdf.ABCChrome146.Linux` for the current engine) on Ubuntu 22.04, 24.04 or 26.04 x64; macOS is still not supported, and features such as FireShield, the XPS and Office read modules, EMF and the System.Drawing APIs remain unavailable on Linux. Complementing these challenges is a documentation style that feels outdated, which can hinder new users attempting to navigate the library's extensive feature set.
 
 ### ABCPDF C# Code Example
 
 To illustrate ABCPDF's basic use, consider the example below. This snippet demonstrates how you might convert HTML content into a PDF document using ABCPDF:
 
 ```csharp
-using WebSupergoo.ABCpdf13;
+using WebSupergoo.ABCpdf14;
 using System;
 
 class Program
@@ -45,11 +45,11 @@ When comparing ABCPDF to **IronPDF**, a few key distinctions emerge that may gui
 
 | Feature                    | ABCPDF                    | IronPDF                                                    |
 |----------------------------|---------------------------|------------------------------------------------------------|
-| **Engines**                | ABCChrome (Chrome123/117/86/65), Gecko, WebKit, MSHtml | Chromium headless integrated                  |
+| **Engines**                | ABCChrome (Chrome146 default, 123/117/86/65), Gecko, WebKit, MSHtml | Chromium headless integrated     |
 | **Licensing**              | Complex, tiered           | Simple, straightforward                                    |
 | **Cross-Platform Support** | Windows; Linux added in v13; no macOS | Windows, Linux, macOS, Docker                  |
 | **Documentation**          | Dated                     | Modern, with extensive examples                            |
-| **Pricing**                | Standard $329 / Professional $479 / Enterprise $4,790, perpetual | Competitive, with clear pricing [Learn More](https://ironpdf.com/how-to/html-file-to-pdf/) |
+| **Pricing**                | Standard $329 / Professional $495 / Enterprise $4,950 | Competitive, with clear pricing [Learn More](https://ironpdf.com/how-to/html-file-to-pdf/) |
 | **HTML to PDF**            | Good, can be expensive    | Excellent, highly versatile [Explore Tutorials](https://ironpdf.com/tutorials/) |
 
 ### Key Advantages of IronPDF
@@ -79,17 +79,17 @@ Jacob Mellor is the CTO of Iron Software, where he leads a team of 50+ engineers
 Here's how **ABCPDF C# PDF Library: Strengths and Comparisons with IronPDF** handles this:
 
 ```csharp
-// NuGet: Install-Package ABCpdf (v13.4.4 as of April 2026)
+// NuGet: Install-Package ABCpdf (v14.0.5 as of July 2026)
 using System;
-using WebSupergoo.ABCpdf13;
-using WebSupergoo.ABCpdf13.Objects;
+using WebSupergoo.ABCpdf14;
+using WebSupergoo.ABCpdf14.Objects;
 
 class Program
 {
     static void Main()
     {
         Doc doc = new Doc();
-        doc.HtmlOptions.Engine = EngineType.Chrome123;
+        doc.HtmlOptions.Engine = EngineType.Chrome146;
         doc.AddImageUrl("https://www.example.com");
         doc.Save("output.pdf");
         doc.Clear();
@@ -124,10 +124,10 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **ABCPDF C# PDF Library: Strengths and Comparisons with IronPDF** handles this:
 
 ```csharp
-// NuGet: Install-Package ABCpdf (v13.4.4 as of April 2026)
+// NuGet: Install-Package ABCpdf (v14.0.5 as of July 2026)
 using System;
-using WebSupergoo.ABCpdf13;
-using WebSupergoo.ABCpdf13.Objects;
+using WebSupergoo.ABCpdf14;
+using WebSupergoo.ABCpdf14.Objects;
 
 class Program
 {
@@ -178,10 +178,10 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 Here's how **ABCPDF C# PDF Library: Strengths and Comparisons with IronPDF** handles this:
 
 ```csharp
-// NuGet: Install-Package ABCpdf (v13.4.4 as of April 2026)
+// NuGet: Install-Package ABCpdf (v14.0.5 as of July 2026)
 using System;
-using WebSupergoo.ABCpdf13;
-using WebSupergoo.ABCpdf13.Objects;
+using WebSupergoo.ABCpdf14;
+using WebSupergoo.ABCpdf14.Objects;
 
 class Program
 {
@@ -189,7 +189,7 @@ class Program
     {
         string html = "<html><body><h1>Hello World</h1><p>This is a PDF document.</p></body></html>";
         Doc doc = new Doc();
-        doc.HtmlOptions.Engine = EngineType.Chrome123;
+        doc.HtmlOptions.Engine = EngineType.Chrome146;
         doc.AddImageHtml(html);
         doc.Save("output.pdf");
         doc.Clear();
@@ -228,11 +228,11 @@ Considering switching from ABCpdf to IronPDF? Here's everything you need to know
 
 | Aspect | ABCpdf | IronPDF |
 |--------|--------|---------|
-| HTML Rendering | ABCChrome (Chrome123/117/86/65), Gecko, WebKit, MSHtml — configurable | Full Chromium (CSS3, JS) |
+| HTML Rendering | ABCChrome (Chrome146 default, 123/117/86/65), Gecko, WebKit, MSHtml — configurable | Full Chromium (CSS3, JS) |
 | Cross-Platform | Windows-first; Linux added in v13 (no macOS) | Native Windows, Linux, macOS, Docker |
-| License Model | Standard $329 / Pro $479 / Enterprise $4,790, perpetual | Simple, transparent pricing |
-| .NET Support | .NET Framework 4.0+, .NET Core 3.0+, .NET 5+ | Framework 4.6.2 to .NET 9 |
-| Resource Management | Manual `doc.Clear()` required | IDisposable with `using` statements |
+| License Model | Standard $329 / Pro $495 / Enterprise $4,950 | Simple, transparent pricing |
+| .NET Support | .NET Framework 4.0+, .NET 8/9/10 | Framework 4.6.2 to .NET 9 |
+| Page Model | Point-based `Rect` coordinates, 1-based `PageNumber` | HTML/CSS layout, 0-based `Pages[]` |
 
 ### Key API Mappings
 
@@ -246,21 +246,21 @@ Considering switching from ABCpdf to IronPDF? Here's everything you need to know
 | Get bytes | `doc.GetData()` | `pdf.BinaryData` |
 | Merge PDFs | `doc.Append(doc2)` | `PdfDocument.Merge(pdf1, pdf2)` |
 | Page count | `doc.PageCount` | `pdf.PageCount` |
-| Extract text | `doc.GetText("Text")` | `pdf.ExtractAllText()` |
-| Add watermark | Loop with `doc.AddText()` | `pdf.ApplyWatermark(html)` |
-| Set password | `doc.Encryption.Password` | `pdf.SecuritySettings.OwnerPassword` |
+| Extract text | `doc.GetText("Text")` per page | `pdf.ExtractAllText()` |
+| Add watermark | Loop pages with `doc.PageNumber` + `doc.AddText()` | `pdf.ApplyWatermark(html)` |
+| Set password | `doc.Encryption.OwnerPassword` (`.Password` is the user password) | `pdf.SecuritySettings.OwnerPassword` |
 
 ### Migration Code Example
 
 **Before (ABCpdf):**
 ```csharp
-using WebSupergoo.ABCpdf13;
-using WebSupergoo.ABCpdf13.Objects;
+using WebSupergoo.ABCpdf14;
+using WebSupergoo.ABCpdf14.Objects;
 
 public byte[] GeneratePdf(string html)
 {
     Doc doc = new Doc();
-    doc.HtmlOptions.Engine = EngineType.Chrome123;
+    doc.HtmlOptions.Engine = EngineType.Chrome146;
     doc.Rect.Inset(20, 20);
     doc.AddImageHtml(html);
     byte[] data = doc.GetData();
@@ -288,15 +288,15 @@ public byte[] GeneratePdf(string html)
 
 ### Critical Migration Notes
 
-1. **Engine Selection**: ABCpdf requires a versioned engine choice such as `doc.HtmlOptions.Engine = EngineType.Chrome123` (default in v13) or one of `Chrome117`/`Chrome86`/`Chrome65`/`Gecko`/`WebKit`/`MSHtml`. IronPDF uses Chromium by default — no configuration needed.
+1. **Engine Selection**: ABCpdf defaults to `EngineType.Chrome146` in v14, and you can pin a different engine with `doc.HtmlOptions.Engine` — `Chrome123`/`Chrome117`/`Chrome86`/`Chrome65`/`Gecko`/`WebKit`/`MSHtml`, where everything below Chrome123 ships as a separate NuGet package. IronPDF uses Chromium with no engine choice to make.
 
-2. **Resource Cleanup**: Replace all `doc.Clear()` calls with C# `using` statements for automatic disposal.
+2. **Resource Cleanup**: ABCpdf's `Doc` is `IDisposable`, so existing code may use either `using var doc = new Doc();` or an explicit `doc.Clear()`. Both are replaced by `using` on the IronPDF `PdfDocument`.
 
-3. **Page Indexing**: ABCpdf uses 1-based indexing (`doc.Page = 1`), IronPDF uses 0-based (`pdf.Pages[0]`).
+3. **Page Indexing**: ABCpdf page numbers are 1-based (`doc.PageNumber = 1`) — note that `doc.Page` is a page *object ID*, not a page number. IronPDF uses 0-based (`pdf.Pages[0]`).
 
 4. **Coordinate System**: ABCpdf uses point-based coordinates with `doc.Rect`. IronPDF uses CSS-based margins in millimeters.
 
-5. **License Setup**: ABCpdf often uses registry. IronPDF uses code: `IronPdf.License.LicenseKey = "KEY";`
+5. **License Setup**: ABCpdf installs its key in code at startup with `XSettings.InstallLicense("KEY")` (or machine-wide with `XSettings.InstallSystemLicense`). IronPDF uses `IronPdf.License.LicenseKey = "KEY";`
 
 ### NuGet Package Migration
 
