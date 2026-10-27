@@ -317,7 +317,7 @@ If a library can render Bootstrap accurately, it can render anything modern. If 
 | iText pdfHTML | ❌ FAIL | No JavaScript |
 | PDFSharp | ❌ FAIL | CSS 2.0 only |
 | wkhtmltopdf | ❌ FAIL | Deprecated WebKit |
-| SelectPdf | ⚠️ PARTIAL | Outdated Chromium |
+| SelectPdf | ⚠️ PARTIAL | Classic: WebKit default; Universal: Chromium 154 |
 
 > **Print vs Screen**: PuppeteerSharp and Playwright use Chrome's print-to-PDF functionality, producing output optimized for paper. This differs from screen rendering—layouts may reflow, backgrounds may be omitted, and output is paginated for printing. Neither can produce PDF/A or PDF/UA compliant documents.
 
@@ -476,7 +476,7 @@ Use this flowchart to narrow your options:
 ### Step 4: Cross-Platform?
 
 **Do you deploy to Linux, Docker, Azure Functions, or AWS Lambda?**
-- **Yes** → Verify platform support (IronPDF ✅, SelectPdf ❌, WebView2 ❌)
+- **Yes** → Verify platform support (IronPDF ✅, SelectPdf ⚠️ Universal package only, WebView2 ❌)
 - **No (Windows only)** → More options available
 
 ### Step 5: Budget?

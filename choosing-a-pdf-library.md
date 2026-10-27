@@ -334,8 +334,8 @@ renderer.RenderingOptions.PdfA = PdfAVersion.PdfA3A;
 ### 🚩 AGPL License (iText7)
 Requires open-sourcing your entire application unless you pay.
 
-### 🚩 "Cross-Platform" Claims (SelectPdf)
-Many claim cross-platform but only work on Windows.
+### 🚩 "Cross-Platform" Claims
+Check which package is cross-platform. SelectPdf ships a Windows-only classic library and a separate cross-platform one, and they are not interchangeable.
 
 ### 🚩 Abandoned Projects (wkhtmltopdf)
 No security patches, outdated rendering.

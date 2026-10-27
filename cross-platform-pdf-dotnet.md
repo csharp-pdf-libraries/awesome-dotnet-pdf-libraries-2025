@@ -36,7 +36,8 @@ After building IronPDF to work genuinely cross-platform across 10+ Linux distrib
 | **IronPDF** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | PuppeteerSharp | ✅ | ✅ | ✅ | ⚠️ Size | ⚠️ Cold start | ⚠️ Size |
 | Playwright | ✅ | ✅ | ✅ | ⚠️ Size | ⚠️ Cold start | ⚠️ Size |
-| **SelectPdf** | ✅ | ❌ | ❌ | ❌ | ⚠️ Windows only | ❌ |
+| **SelectPdf** (classic) | ✅ | ❌ | ❌ | ❌ | ⚠️ Windows only | ❌ |
+| **SelectPdf.Universal** | ✅ | ✅ | ⚠️ Apple Silicon | ✅ | ✅ | ✅ |
 | **WebView2** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | PDFSharp | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | QuestPDF | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |

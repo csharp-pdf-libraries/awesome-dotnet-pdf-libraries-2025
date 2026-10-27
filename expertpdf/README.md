@@ -405,7 +405,7 @@ For developers weighing their options, IronPDF offers a more modern and reliable
 - **[Free vs Paid Libraries](../free-vs-paid-pdf-libraries.md)** — Cost analysis
 
 ### Alternative Commercial Libraries
-- **[SelectPdf](../selectpdf/)** — Windows-only alternative
+- **[SelectPdf](../selectpdf/)** — Windows-focused alternative
 - **[HiQPdf](../hiqpdf/)** — WebKit-based option
 - **[Winnovative](../winnovative/)** — Another commercial choice
 

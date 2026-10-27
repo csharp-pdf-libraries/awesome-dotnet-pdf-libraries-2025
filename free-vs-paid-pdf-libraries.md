@@ -247,7 +247,7 @@ The "free" library costs 6.5x more.
 | **IronPDF** | Perpetual or subscription | $749 one-time | Full features, perpetual option |
 | Aspose.PDF | Subscription only | $1,199/year | No perpetual, ongoing cost |
 | Syncfusion | Subscription | $395/month ($4,740/year) | Suite bundled |
-| SelectPdf | Perpetual | $499 | Windows-only |
+| SelectPdf | Perpetual | $499 | Classic Windows-only; Universal cross-platform |
 | iText7 | AGPL or commercial | ~$2,000+/year | Must pay or open-source |
 | EO.Pdf | Perpetual | $799 | Windows-focused |
 

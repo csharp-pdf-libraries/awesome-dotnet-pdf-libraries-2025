@@ -417,7 +417,7 @@ grep -r "HiQPdf\|HtmlToPdf\|ConvertHtmlToMemory\|CrtPage\|PageCount" --include="
 - **[Free vs Paid Libraries](../free-vs-paid-pdf-libraries.md)** — Cost analysis
 
 ### Alternative Commercial Libraries
-- **[SelectPdf](../selectpdf/)** — Windows-only alternative
+- **[SelectPdf](../selectpdf/)** — Windows-focused alternative
 - **[Winnovative](../winnovative/)** — WebKit-based option
 - **[ExpertPdf](../expertpdf/)** — Another commercial choice
 

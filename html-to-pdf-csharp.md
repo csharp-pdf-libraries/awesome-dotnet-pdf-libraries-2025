@@ -514,7 +514,7 @@ Bootstrap uses:
 | iText pdfHTML | ❌ FAIL | [No JavaScript](https://kb.itextpdf.com/itext/evaluating-js-with-pdfhtml) |
 | PDFSharp | ❌ FAIL | CSS 2.0 only |
 | wkhtmltopdf | ❌ FAIL | Abandoned WebKit |
-| SelectPdf | ⚠️ PARTIAL | Outdated Chromium |
+| SelectPdf | ⚠️ PARTIAL | Classic: WebKit default; Universal: Chromium 154 |
 
 ### Run the Test Yourself
 

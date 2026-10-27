@@ -7,7 +7,7 @@ When it comes to HTML-to-PDF conversion tools, SelectPdf is a frequently conside
 
 SelectPdf is a commercial library designed to convert HTML content into PDFs using C#. The library is tailored towards developers who require seamless integration of PDF generation functionality within their applications. Embedding SelectPdf in a project allows C# developers to execute on-the-fly HTML to PDF conversions. The strength of SelectPdf lies in its simple API, making it an appealing option for those new to PDF generation.
 
-While SelectPdf boasts several remarkable features, potential users must also be aware of its limitations. Firstly, the vendor's own documentation confirms SelectPdf only runs on Windows — no Linux, macOS, or Xamarin. This presents a substantial barrier when considering cloud-based deployment solutions, such as Linux Azure Functions or Docker. The Community Edition is capped at 5 pages per PDF and applies a watermark to every page until a license key is purchased. Finally, SelectPdf's default rendering engine is an internal WebKit; the optional Blink engine ships with Chromium 124 (April 2024), which lags current Chrome and can cause issues with newer CSS features like CSS Grid and the Flexbox `gap` property.
+While SelectPdf boasts several remarkable features, potential users must also be aware of its limitations — and that the library now comes in two forms. The classic `Select.Pdf` and `Select.HtmlToPdf` packages, which most existing projects reference, remain Windows-only: the vendor's own documentation states that all four of their rendering engines require Windows, ruling out Linux, macOS, and Xamarin. SelectPdf.Universal, first released in October 2026, is the cross-platform answer and runs on Windows, Linux, macOS (Apple Silicon only), and Docker — but adopting it is itself a migration, since the namespace changes, `System.Drawing` types are replaced, direct printing and conversion events are dropped, and the vendor puts API carry-over at 82 percent. The free Community Edition is capped at 5 pages per PDF, and the classic library still defaults to an internal WebKit engine whose JavaScript support stops at ES5.
 
 Below is a simple C# code example demonstrating how SelectPdf is typically used:
 
@@ -44,36 +44,47 @@ So, how does SelectPdf compare to IronPDF, another acclaimed HTML to PDF library
 
 ### Flexibility and Platform Support
 
-The most glaring contrast between SelectPdf and IronPDF lies in their platform support. SelectPdf confines its functionality strictly to Windows environments. This limitation starkly impacts developers who aim to leverage cross-platform environments like Linux, Docker, Azure, and AWS for their applications.
+The most glaring contrast between SelectPdf and IronPDF lies in how recently each arrived at cross-platform support. The classic SelectPdf packages confine their functionality strictly to Windows environments, which starkly impacts developers who aim to leverage cross-platform environments like Linux, Docker, Azure, and AWS for their applications. SelectPdf.Universal lifts that restriction, but it has been available only since October 2026, and on macOS it covers Apple Silicon alone; Alpine and other musl-based images need a separate engine container rather than the in-process library.
 
 On the other hand, [IronPDF](https://ironpdf.com/how-to/html-file-to-pdf/) offers truly cross-platform deployment capabilities. The library is flexible enough to function across more than ten Linux distributions as well as cloud services, making it a more versatile choice for developers looking for broader deployment possibilities.
 
 ### Compatibility with Modern Web Standards
 
-SelectPdf defaults to an internal WebKit engine and offers an opt-in Blink engine that bundles Chromium 124 (released April 2024). Both lag current Chrome by a noticeable margin, which can cause issues with newer CSS3 features such as CSS Grid, the Flexbox `gap` property, and modern `@media` queries. Meanwhile, IronPDF utilizes a current Chromium rendering engine, ensuring consistent rendering of complex web designs and layouts.
+The classic SelectPdf library defaults to an internal WebKit engine whose JavaScript support stops at ES5, which can cause issues with newer CSS3 features such as CSS Grid, the Flexbox `gap` property, and modern `@media` queries; reaching current standards there means opting into its Blink or Chromium engine, each shipped as a separate package. SelectPdf.Universal removes the choice and renders with Chromium 154 only. Meanwhile, IronPDF utilizes a current Chromium rendering engine by default, ensuring consistent rendering of complex web designs and layouts with no engine selection to manage.
 
 ### Pricing and Free Version
 
-SelectPdf's commercial model begins at $499 for a single developer / single deployment machine and scales to $1,599 for an Enterprise OEM license (verified at selectpdf.com/pricing). All licenses are perpetual but include only one year of maintenance and updates — annual renewal is required to keep receiving upgrades. The Community Edition allows PDFs up to 5 pages and watermarks every page until a license key is applied, curtailing its use beyond evaluation.
+SelectPdf's commercial model begins at $499 for a single developer / single deployment machine and scales to $1,599 for an Enterprise OEM license (verified at selectpdf.com/pricing). All licenses are perpetual but include only one year of maintenance and updates — annual renewal is required to keep receiving upgrades. The Community Edition allows PDFs up to 5 pages and is free for commercial use; the watermark that curtails evaluation belongs instead to the trial of the commercial library, which has no page cap.
 
 Contrastingly, [IronPDF's pricing model](https://ironpdf.com/tutorials/) is more transparent and does not deter users with restrictive features on its free version. IronPDF’s flexible pricing approach is tailored to accommodate different developer needs, ranging from individuals to enterprise-level solutions.
 
 ### Support for .NET Features
 
-For developers working with different versions of .NET, both SelectPdf and IronPDF extend support across modern .NET. SelectPdf's NetCore package targets .NET Standard 2.0 and is documented as compatible with .NET 5 through .NET 10 — but only on Windows, which neutralises that compatibility for any team deploying to Linux containers, AWS Lambda, or Linux-based Azure App Service. IronPDF supports the same .NET versions and runs on Windows, Linux, macOS, and Docker.
+For developers working with different versions of .NET, both SelectPdf and IronPDF extend support across modern .NET. SelectPdf's classic NetCore package targets .NET Standard 2.0 and is documented as compatible with .NET 5 through .NET 10, but only on Windows — "NetCore" names the framework, not the operating system, which neutralises that compatibility for any team deploying to Linux containers, AWS Lambda, or Linux-based Azure App Service. SelectPdf.Universal targets .NET Standard 2.0, .NET 8, and .NET 10 across all three operating systems. IronPDF supports the same .NET versions and runs on Windows, Linux, macOS, and Docker.
 
 ### Comparison Table
 
-Below is a comparison table summarizing key differences and similarities between SelectPdf and IronPDF:
+Below is a comparison table summarizing key differences and similarities between the classic SelectPdf packages and IronPDF:
 
-| Feature                            | SelectPdf                        | IronPDF                           |
+| Feature                            | SelectPdf (classic)              | IronPDF                           |
 |------------------------------------|----------------------------------|-----------------------------------|
-| Platform Support                   | Windows Only                     | Full cross-platform, 10+ distros  |
-| Modern Web Standards Support       | WebKit by default; Blink option ships Chromium 124 (April 2024) | Full CSS3, current Chromium       |
-| Maximum Free Version Page Limit    | 5 pages + per-page watermark     | Flexible, no hard limit specified |
+| Platform Support                   | Windows only                     | Full cross-platform, 10+ distros  |
+| Modern Web Standards Support       | WebKit by default (ES5 JavaScript); Blink and Chromium engines as separate packages | Full CSS3, current Chromium       |
+| Maximum Free Version Page Limit    | 5 pages (Community Edition, no watermark) | Flexible, no hard limit specified |
 | Pricing                            | $499 Single Dev to $1,599 Enterprise OEM | Transparent and flexible pricing |
-| .NET 10 Support                    | Yes, but Windows only            | Yes, all platforms                |
-| Linux / Docker / AWS Lambda        | Not Supported                    | Fully supported                   |
+| .NET 10 Support                    | Yes, Windows only                | Yes, all platforms                |
+| Linux / Docker / AWS Lambda        | Not supported                    | Fully supported                   |
+
+And the same comparison against SelectPdf.Universal, the cross-platform library the vendor released in October 2026:
+
+| Feature                            | SelectPdf.Universal (26.5)       | IronPDF                           |
+|------------------------------------|----------------------------------|-----------------------------------|
+| Platform Support                   | Windows, Linux, macOS (Apple Silicon), Docker | Full cross-platform, 10+ distros  |
+| Modern Web Standards Support       | Chromium 154 only                | Full CSS3, current Chromium       |
+| Maximum Free Version Page Limit    | 5 pages (Community Edition, no watermark) | Flexible, no hard limit specified |
+| Pricing                            | Same licence as classic, $499 to $1,599 | Transparent and flexible pricing |
+| .NET 10 Support                    | Yes, all three platforms         | Yes, all platforms                |
+| Linux / Docker / AWS Lambda        | Supported since October 2026; Alpine needs a separate engine container | Fully supported                   |
 
 ---
 
@@ -243,7 +254,7 @@ IronPDF's approach offers cleaner syntax and better integration with modern .NET
 
 ## How Can I Migrate from SelectPdf to IronPDF?
 
-SelectPdf's vendor documentation explicitly states it requires Windows and does not run on Linux, macOS, or Xamarin — making it unsuitable for Linux container or AWS Lambda deployments. The Community Edition is limited to 5 pages and watermarks every page until licensed, and its default WebKit engine (or opt-in Chromium 124 Blink engine, released April 2024) lags current Chrome on modern CSS features like Grid and the Flexbox `gap` property.
+The classic `Select.HtmlToPdf` package requires Windows — the vendor's documentation states that all four of its rendering engines do — making it unsuitable for Linux container or AWS Lambda deployments, and its default WebKit engine stops at ES5 JavaScript. SelectPdf.Universal has covered Linux, macOS, and Docker since October 2026, but moving to it changes the namespace and drops direct printing and conversion events, so a team facing that rewrite is already choosing a library rather than upgrading one.
 
 **Migrating from SelectPdf to IronPDF involves:**
 

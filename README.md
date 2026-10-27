@@ -309,9 +309,9 @@ Modern libraries using Chromium/Blink rendering engine for HTML-to-PDF conversio
 
 #### 1.5 [SelectPdf](selectpdf/)
 **Commercial ($499+)** | [Official Site](https://selectpdf.com/)
-- ⚠️ Windows-only despite "cross-platform" claims
+- ⚠️ Classic packages are Windows-only; SelectPdf.Universal (October 2026) is cross-platform
 - ⚠️ Free tier limited to 5 pages
-- ⚠️ Outdated Chromium fork (CSS limitations)
+- ⚠️ Classic default engine is WebKit, with ES5 JavaScript only
 - 📚 [Migration Guide](selectpdf/migrate-from-selectpdf.md)
 
 #### 1.6 [EO.Pdf](eopdf/)

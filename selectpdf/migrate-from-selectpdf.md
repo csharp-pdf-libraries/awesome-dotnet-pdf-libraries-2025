@@ -2,9 +2,9 @@
 
 ## Table of Contents
 1. [Why Migrate from SelectPdf](#why-migrate-from-selectpdf)
-2. [The Windows-Only Problem](#the-windows-only-problem)
-3. [The Outdated Rendering Engine](#the-outdated-rendering-engine)
-4. [The 5-Page Free Version Trap](#the-5-page-free-version-trap)
+2. [The Windows-Only Classic Library](#the-windows-only-classic-library)
+3. [The Classic Rendering Engines](#the-classic-rendering-engines)
+4. [The 5-Page Free Version Limit](#the-5-page-free-version-limit)
 5. [Quick Start Migration (5 Minutes)](#quick-start-migration-5-minutes)
 6. [Complete API Reference](#complete-api-reference)
 7. [Code Migration Examples](#code-migration-examples)
@@ -21,27 +21,40 @@
 
 ### Critical Limitations
 
+The classic `Select.Pdf` and `Select.HtmlToPdf` packages, which most existing projects reference:
+
 | Issue | Impact | IronPDF Solution |
 |-------|--------|------------------|
 | **Windows-only** | Cannot deploy to Linux, Docker, Azure Functions | Full cross-platform support |
-| **Default WebKit engine, optional older Chromium** | Modern CSS may fail unless Blink engine is enabled | Up-to-date Chromium |
-| **5-page free version limit** | Watermark on every page until licensed | Generous trial |
+| **Default WebKit engine (ES5 JavaScript)** | Modern CSS may fail unless another engine package is added | Up-to-date Chromium |
+| **5-page free version limit** | No PDF longer than five pages without a licence | Generous trial |
 | **Linux/macOS deployment blocked** | No cloud Linux, Docker, AWS Lambda | Cloud-native |
 | **Cloud deployment blocked (non-Windows)** | Can't use Azure Functions, AWS Lambda | Cloud-native |
 
+And `SelectPdf.Universal`, the cross-platform library the vendor released in October 2026:
+
+| Issue | Impact | IronPDF Solution |
+|-------|--------|------------------|
+| **Released October 2026** | Little production history behind it | Established cross-platform support |
+| **Adopting it is a second migration** | Namespace changes, and the vendor puts API carry-over at 82% | A single migration, not two |
+| **macOS is Apple Silicon only** | Intel Macs are directed to the vendor's hosted API instead | Full macOS support |
+| **Alpine and musl need a container** | A separate engine service runs alongside your app | Runs in-process |
+| **Direct printing and conversion events dropped** | Classic code using them has to be rewritten regardless | Not applicable |
+
 ### The Core Problems
 
-SelectPdf markets itself as a robust HTML-to-PDF solution, but has fundamental limitations:
+SelectPdf markets itself as a robust HTML-to-PDF solution, but the packages most projects reference carry fundamental limitations:
 
-1. **Windows-Only**: SelectPdf's own documentation states it "currently require[s] Windows; [does] not run on Linux, macOS or Xamarin"
-2. **Default WebKit, optional older Chromium**: The default engine is an internal WebKit; the Blink option ships with Chromium 124 (released April 2024)
-3. **Restrictive Free Version**: 5-page hard cap, plus a per-page watermark on every PDF generated without a license key
-4. **No Linux Cloud Support**: Cannot deploy to Linux Azure Functions, AWS Lambda, or Linux Docker
+1. **Windows-Only (classic packages)**: SelectPdf's own engine documentation states that "All four engines require Windows"
+2. **Default WebKit**: The default engine is an internal WebKit limited to ES5 JavaScript; Blink and Chromium/CEF are separate opt-in packages
+3. **Five-Page Free Version**: The Community Edition caps a PDF at five pages; the watermark applies to the commercial trial instead
+4. **No Linux Cloud Support**: The classic packages cannot deploy to Linux Azure Functions, AWS Lambda, or Linux Docker
+5. **Cross-Platform Support Is New**: `SelectPdf.Universal` arrived in October 2026 and is itself a migration target, not a drop-in upgrade
 
 ### Feature Comparison Overview
 
-| Feature | SelectPdf | IronPDF |
-|---------|-----------|---------|
+| Feature | SelectPdf (classic) | IronPDF |
+|---------|---------------------|---------|
 | **Windows** | ✅ | ✅ |
 | **Linux** | ❌ NOT SUPPORTED | ✅ 10+ distros |
 | **macOS** | ❌ NOT SUPPORTED | ✅ Full support |
@@ -52,17 +65,32 @@ SelectPdf markets itself as a robust HTML-to-PDF solution, but has fundamental l
 | **Flexbox** | ⚠️ Limited | ✅ Full support |
 | **CSS Variables** | ⚠️ WebKit engine: limited | ✅ Full support |
 | **.NET 10** | ✅ (Windows only, via .NET Standard 2.0) | ✅ Full support (all platforms) |
-| **Free version limit** | 5 pages + per-page watermark | Generous trial |
+| **Free version limit** | 5 pages, no watermark | Generous trial |
+
+| Feature | SelectPdf.Universal (26.5) | IronPDF |
+|---------|----------------------------|---------|
+| **Windows** | ✅ x64 and x86 | ✅ |
+| **Linux** | ✅ x64 and ARM64, glibc 2.30+ | ✅ 10+ distros |
+| **macOS** | ⚠️ Apple Silicon only, macOS 13+ | ✅ Full support |
+| **Docker** | ✅ no apt-get step | ✅ Official images |
+| **Azure Functions** | ✅ | ✅ Full support |
+| **AWS Lambda** | ✅ container image | ✅ Full support |
+| **Alpine / musl** | ⚠️ remote engine container only | ✅ Full support |
+| **CSS Grid** | ✅ Chromium 154 | ✅ Full support |
+| **Flexbox** | ✅ Chromium 154 | ✅ Full support |
+| **CSS Variables** | ✅ Chromium 154 | ✅ Full support |
+| **.NET 10** | ✅ all platforms | ✅ Full support (all platforms) |
+| **Free version limit** | 5 pages, no watermark | Generous trial |
 
 These limitations and the full migration path are examined in the [complete SelectPdf to IronPDF guide](https://ironpdf.com/blog/migration-guides/migrate-from-selectpdf-to-ironpdf/).
 
 ---
 
-## The Windows-Only Problem
+## The Windows-Only Classic Library
 
-### SelectPdf's Platform Limitation
+### The Classic Library's Platform Limitation
 
-Despite any marketing claims, SelectPdf explicitly **does not support**:
+The classic `Select.Pdf` and `Select.HtmlToPdf` packages explicitly **do not support**:
 
 - Linux (any distribution)
 - macOS
@@ -72,12 +100,13 @@ Despite any marketing claims, SelectPdf explicitly **does not support**:
 - Google Cloud Functions
 - Any ARM-based systems
 
-This is a fundamental architectural limitation—SelectPdf depends on Windows-specific libraries and cannot be ported.
+This is a fundamental architectural limitation—the classic library depends on Windows-specific libraries, which is why the vendor rebuilt it as `SelectPdf.Universal` in October 2026 rather than porting it. That rebuild is a separate package with its own namespace, so reaching Linux through it means rewriting the same call sites you would rewrite for any other library.
 
 ### What This Means for Your Application
 
 ```csharp
-// ❌ SelectPdf - This code FAILS on Linux/Docker
+// ❌ SelectPdf (classic) - This code FAILS on Linux/Docker
+// (SelectPdf.Universal is the vendor's cross-platform package, and needs its own migration)
 using SelectPdf;
 
 // Deployment to Azure App Service (Linux) - FAILS
@@ -110,8 +139,8 @@ pdf.SaveAs("output.pdf");
 
 ### Supported Platforms
 
-| Platform | SelectPdf | IronPDF |
-|----------|-----------|---------|
+| Platform | SelectPdf (classic) | IronPDF |
+|----------|---------------------|---------|
 | Windows Server 2019+ | ✅ | ✅ |
 | Windows 10/11 | ✅ | ✅ |
 | Ubuntu 20.04+ | ❌ | ✅ |
@@ -126,13 +155,31 @@ pdf.SaveAs("output.pdf");
 | Docker (Linux) | ❌ | ✅ |
 | Kubernetes | ❌ | ✅ |
 
+| Platform | SelectPdf.Universal (26.5) | IronPDF |
+|----------|----------------------------|---------|
+| Windows Server 2019+ | ✅ | ✅ |
+| Windows 10/11 | ✅ | ✅ |
+| Ubuntu 20.04+ | ✅ with glibc 2.30+ | ✅ |
+| Debian 10+ | ✅ with glibc 2.30+ | ✅ |
+| CentOS 7+ | ⚠️ needs glibc 2.30+ | ✅ |
+| Alpine Linux | ⚠️ remote engine container only | ✅ |
+| Amazon Linux 2 | ⚠️ needs glibc 2.30+ | ✅ |
+| macOS 10.15+ | ⚠️ macOS 13+ on Apple Silicon only | ✅ |
+| Azure App Service (Linux) | ✅ | ✅ |
+| Azure Functions | ✅ | ✅ |
+| AWS Lambda | ✅ container image | ✅ |
+| Docker (Linux) | ✅ no apt-get step | ✅ |
+| Kubernetes | ✅ Helm chart | ✅ |
+
+The native engine requires glibc 2.30 or newer. Alpine and other musl-based images cannot run it at all and use the vendor's `ghcr.io/selectpdf/engine` container as a separate service instead.
+
 ---
 
-## The Outdated Rendering Engine
+## The Classic Rendering Engines
 
 ### SelectPdf's Engine Options
 
-SelectPdf ships three rendering engines (per [vendor docs](https://selectpdf.com/pdf-library/html/RenderingEngine.htm)): an internal **WebKit** (the default), **Blink** (introduced in v19.1, shipped with Chromium 124.0.6367.201 — released April 2024), and **Chromium/CEF**. The default WebKit engine in particular hasn't kept pace with modern web standards:
+The classic SelectPdf library ships four rendering engines (per [vendor docs](https://selectpdf.com/pdf-library/html/RenderingEngine.htm)): an internal **WebKit** (the default, ES5 JavaScript only), **WebKit Restricted** (introduced in v18.3), **Blink** (introduced in v19.1), and **Chromium/CEF** (introduced in v26.2, shipped as a separate `Chromium.Windows` package). The vendor no longer publishes a Chromium version for any of them, and its documentation states that all four require Windows. `SelectPdf.Universal` drops the choice entirely and renders with Chromium 154. The default WebKit engine in particular hasn't kept pace with modern web standards:
 
 ```html
 <!-- This modern CSS FAILS or renders incorrectly in SelectPdf -->
@@ -186,7 +233,9 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 
 ### CSS Feature Support Comparison
 
-| CSS Feature | SelectPdf (WebKit default) | SelectPdf (Blink, Chromium 124) | IronPDF |
+The two SelectPdf columns below are the classic library's engine choices. `SelectPdf.Universal` renders with Chromium 154 and matches the IronPDF column throughout.
+
+| CSS Feature | SelectPdf (WebKit default) | SelectPdf (Blink / Chromium engine) | IronPDF |
 |-------------|----------------------------|----------------------------------|---------|
 | CSS Grid | ⚠️ Partial/broken | ✅ | ✅ Full |
 | Flexbox (basic) | ✅ | ✅ | ✅ |
@@ -202,25 +251,22 @@ var pdf = renderer.RenderHtmlAsPdf(html);
 
 ---
 
-## The 5-Page Free Version Trap
+## The 5-Page Free Version Limit
 
-### SelectPdf's Aggressive Limitations
+### SelectPdf's Free-Tier Restriction
 
-SelectPdf's Community Edition has two restrictions that combine into a tight free-tier window (per [selectpdf.com/community-edition](https://selectpdf.com/community-edition/) and the [License doc](https://selectpdf.com/docs/License.htm)):
+SelectPdf's Community Edition caps the length of every PDF it produces (per [selectpdf.com/community-edition](https://selectpdf.com/community-edition/)). It carries no watermark and is free for commercial use; the watermark belongs to the separate trial of the commercial library, which has no page cap:
 
 ```csharp
-// ❌ SelectPdf Community Edition / unlicensed trial
-// - Hard cap of 5 pages per PDF (Community Edition)
-// - Per-page watermark on EVERY page until a license key is applied
-//   ("free trial is fully functional, but without a license key,
-//   a watermark will be displayed in each page" — vendor docs)
-// - Watermark cannot be removed without purchase
+// ❌ SelectPdf Community Edition
+// - Hard cap of 5 pages per PDF
+// - No watermark, and free for commercial use
+// - Anything longer than five pages needs a licence
 
 var converter = new HtmlToPdf();
 var doc = converter.ConvertHtmlString(longHtmlContent);
-// Without a license key:
-//   - Every page is watermarked
-//   - Generation aborts/truncates past page 5 in Community Edition
+// Community Edition: generation aborts/truncates past page 5
+// Commercial trial instead: no page cap, watermark on every page
 ```
 
 ### Commercial Pricing Comparison
@@ -228,8 +274,8 @@ var doc = converter.ConvertHtmlString(longHtmlContent);
 | Aspect | SelectPdf | IronPDF |
 |--------|-----------|---------|
 | **Starting Price** | $499 (Single Developer) | $749 (Lite) |
-| **Free Trial Pages** | 5 pages max (Community Edition) | Generous trial |
-| **Watermark Behavior** | On every page until licensed | Trial watermark |
+| **Free Edition Pages** | 5 pages max (Community Edition) | Generous trial |
+| **Watermark Behavior** | None in Community Edition; on every page during the commercial trial | Trial watermark |
 | **License Type** | Perpetual w/ 1 yr maintenance | Perpetual available |
 | **Price Transparency** | Published per-tier | Clear pricing |
 
@@ -736,8 +782,8 @@ class Program
 
 ### PDF Generation Features
 
-| Feature | SelectPdf | IronPDF |
-|---------|-----------|---------|
+| Feature | SelectPdf (classic) | IronPDF |
+|---------|---------------------|---------|
 | HTML to PDF | ✅ | ✅ |
 | URL to PDF | ✅ | ✅ |
 | HTML File to PDF | ✅ (manual) | ✅ (direct method) |
@@ -751,17 +797,19 @@ class Program
 
 ### PDF Manipulation Features
 
-| Feature | SelectPdf | IronPDF |
-|---------|-----------|---------|
+| Feature | SelectPdf (classic) | IronPDF |
+|---------|---------------------|---------|
 | Merge PDFs | ✅ | ✅ |
 | Split PDFs | ⚠️ Limited | ✅ |
 | Page Extraction | ⚠️ | ✅ |
 | Add Watermarks | ⚠️ Manual | ✅ Built-in |
-| Digital Signatures | ❌ | ✅ |
+| Digital Signatures | ⚠️ PKCS#12 certificate files only | ✅ |
 | PDF Security | ⚠️ Basic | ✅ Full |
-| Form Filling | ❌ | ✅ |
+| Form Filling | ✅ via `PdfFormManager` | ✅ |
 | Text Extraction | ⚠️ Limited | ✅ Full |
-| PDF/A Compliance | ❌ | ✅ |
+| PDF/A Compliance | ⚠️ PDF/A-3 and PDF/UA-1 since v26.3, commercial edition only | ✅ |
+
+`SelectPdf.Universal` carries these forward and adds Word to PDF, tables of contents, redaction, PDF/A-4, PDF/UA-2, AES-GCM, signature validation, and signing with a USB token, smart card or HSM through PKCS#11. It drops direct printing, conversion events, and the `RtfToPdfElement` class.
 
 ---
 
@@ -773,7 +821,8 @@ class Program
 
 | License | Price | Notes |
 |---------|-------|-------|
-| Community Edition | $0 | 5 pages max, watermark on every page |
+| Community Edition | $0 | 5 pages max, no watermark, free for commercial use |
+| Commercial trial | $0 | Full library, no page limit, watermark on every page |
 | Single Developer | $499 | 1 developer, 1 deployment machine |
 | Single Developer OEM | $799 | 1 developer, unlimited deployment machines |
 | 5-Developers | $799 | up to 5 developers, up to 10 deployment machines |
@@ -786,6 +835,7 @@ A separate cloud-API plan (selectpdf.com REST API) is sold by monthly conversion
 **Cost considerations:**
 - Annual renewal required to receive updates and support after year 1
 - OEM licensing is a separate, more expensive SKU at every tier
+- One licence key activates both the classic library and `SelectPdf.Universal`
 
 ### IronPDF Pricing
 
@@ -807,8 +857,8 @@ A separate cloud-API plan (selectpdf.com REST API) is sold by monthly conversion
 
 ### Development Environments
 
-| Environment | SelectPdf | IronPDF |
-|-------------|-----------|---------|
+| Environment | SelectPdf (classic) | IronPDF |
+|-------------|---------------------|---------|
 | Visual Studio (Windows) | ✅ | ✅ |
 | Visual Studio (Mac) | ❌ | ✅ |
 | VS Code (Windows) | ✅ | ✅ |
@@ -818,8 +868,8 @@ A separate cloud-API plan (selectpdf.com REST API) is sold by monthly conversion
 
 ### Deployment Targets
 
-| Target | SelectPdf | IronPDF |
-|--------|-----------|---------|
+| Target | SelectPdf (classic) | IronPDF |
+|--------|---------------------|---------|
 | Windows Server | ✅ | ✅ |
 | IIS | ✅ | ✅ |
 | Azure App Service (Windows) | ✅ | ✅ |
@@ -834,7 +884,7 @@ A separate cloud-API plan (selectpdf.com REST API) is sold by monthly conversion
 
 ### .NET Framework Support
 
-| Framework | SelectPdf (Windows only) | IronPDF (all platforms) |
+| Framework | SelectPdf classic (Windows only) | IronPDF (all platforms) |
 |-----------|--------------------------|-------------------------|
 | .NET Framework 4.6.1+ | ✅ | ✅ |
 | .NET Core 3.1 | ✅ | ✅ |
@@ -845,15 +895,34 @@ A separate cloud-API plan (selectpdf.com REST API) is sold by monthly conversion
 | .NET 9 | ✅ | ✅ |
 | .NET 10 | ✅ (via .NET Standard 2.0) | ✅ |
 
+### SelectPdf.Universal
+
+`SelectPdf.Universal` removes the Windows restriction from the three tables above: every development environment is supported, because the library is a NuGet package on .NET 8 or .NET 10 with no Windows dependency. Its deployment and framework coverage:
+
+| Target | SelectPdf.Universal (26.5) | IronPDF |
+|--------|----------------------------|---------|
+| Windows Server / IIS | ✅ | ✅ |
+| Azure App Service (Windows) | ✅ | ✅ |
+| Azure App Service (Linux) | ✅ | ✅ |
+| Azure Functions | ✅ | ✅ |
+| AWS EC2 (Windows and Linux) | ✅ | ✅ |
+| AWS Lambda | ✅ container image | ✅ |
+| Docker (Windows) | ✅ Server Core, not Nano Server | ✅ |
+| Docker (Linux) | ✅ no apt-get step | ✅ |
+| Kubernetes | ✅ Helm chart | ✅ |
+| Alpine / musl images | ⚠️ remote engine container | ✅ |
+| .NET Framework 4.6.1+ | ✅ via .NET Standard 2.0 | ✅ |
+| .NET 8 and .NET 10 | ✅ | ✅ |
+
 ---
 
 ## Troubleshooting Guide
 
-### Issue 1: "SelectPdf only works on Windows" Error on Linux
+### Issue 1: Classic SelectPdf Fails on Linux
 
 **Symptom:** Exception when deploying to Linux/Docker
 
-**Solution:** Migrate to IronPDF:
+**Solution:** The vendor's own answer is to switch to `SelectPdf.Universal`, which changes the namespace and the call sites. If you are rewriting those anyway, migrate to IronPDF instead:
 ```csharp
 // IronPDF works on Linux out of the box
 var renderer = new ChromePdfRenderer();
@@ -988,7 +1057,7 @@ var pdf = renderer.RenderHtmlFileAsPdf("template.html");
   **Why:** Base URL handling is crucial for resolving relative paths in HTML.
 
 - [ ] **Verify target deployment platforms**
-  **Why:** IronPDF supports cross-platform deployments, unlike SelectPdf which is Windows-only.
+  **Why:** IronPDF supports cross-platform deployments, unlike the classic SelectPdf packages, which are Windows-only.
 
 - [ ] **Obtain IronPDF license key**
   **Why:** IronPDF requires a license key for production use. Free trial available at https://ironpdf.com/
